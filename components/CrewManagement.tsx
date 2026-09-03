@@ -19,10 +19,7 @@ import { UndoToast } from './ui/UndoToast';
 import {
     type SharedRegister,
     type CrewMember,
-    ALL_REGISTERS,
     PASSAGE_REGISTERS,
-    REGISTER_ICONS,
-    REGISTER_LABELS,
     inviteCrew,
     getMyCrew,
     removeCrew,
@@ -35,12 +32,9 @@ import {
     leaveVessel,
 } from '../services/CrewService';
 import { supabase } from '../services/supabase';
-import { loadOwnedVesselFleet } from '../services/VesselFleetService';
 import { vesselCrewAboard } from '../services/units';
 import { triggerHaptic } from '../utils/system';
 import { useUIStore } from '../stores/uiStore';
-import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
-import { peekCastOffHandoff, updateCastOffHandoff } from '../services/castOffHandoff';
 import { toast } from './Toast';
 import {
     adoptSavedRouteLink,
@@ -52,9 +46,8 @@ import {
     type Voyage,
 } from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
-import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from '../services/shiplog/plannedRouteNaming';
+import { formatStoredPlannedRouteName } from '../services/shiplog/plannedRouteNaming';
 import {
-    buildTripPassageRollups,
     legBadgeOrdinal,
     linkTraceToPassage,
     loadSavedTraces,
@@ -81,361 +74,50 @@ import {
     getPassageStatus,
     setActivePassage,
 } from '../services/PassagePlanService';
-import { SignInScreen } from './SignInScreen';
-import { lazyRetry } from '../utils/lazyRetry';
-import { UsersIcon, CompassIcon, CalendarGridIcon, AnchorIcon, AlertTriangleIcon, SosIcon } from './Icons';
+import { AlertTriangleIcon, SosIcon } from './Icons';
 
 // ── Extracted sub-components ──
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
-import { SavedRoutePicker, type SavedRoutePickerRow } from './crew/SavedRoutePicker';
+import { type SavedRoutePickerRow } from './crew/SavedRoutePicker';
 import { PageHeader } from './ui/PageHeader';
 import {
     departureOnLocalDate,
     derivePassageSummarySchedule,
-    localDateValue,
     localDateTimeValue,
-    nextDepartureSlot,
     routeDistanceNm,
 } from '../services/passageSummarySchedule';
 
-const CastOffPanel = lazyRetry(
-    () => import('./vessel/CastOffPanel').then((m) => ({ default: m.CastOffPanel })),
-    'CastOffPanel_Crew',
-);
+// ── Extracted from this file — see components/crewManagement/ ──
+import { activeOwnedBoatId } from './crewManagement/activeOwnedBoat';
+import {
+    DELEGATION_STORAGE_KEY,
+    readDelegations,
+    type CardDelegationsByVoyage,
+} from './crewManagement/cardDelegations';
+import { canonicalPassageVoyageIds, isCanonicalSavedRouteDraft } from './crewManagement/canonicalDrafts';
+import {
+    isLegacyGeneratedLeg,
+    legacyGeneratedLegName,
+    savedRouteDisplayName,
+    splitRouteEndpoints,
+} from './crewManagement/routeLabels';
+import { type CrewManagementProps, type VoyageRow } from './crewManagement/types';
+import {
+    preserveRouteGeometry,
+    pruneToBestRowPerRoute,
+    routeDayKey,
+    tripPassageRollupRows,
+} from './crewManagement/voyageRows';
+import { CrewCastOffPanel } from './crewManagement/CrewCastOffPanel';
+import { CrewSignInPrompt } from './crewManagement/CrewSignInPrompt';
+import { DepartureCastOffRow } from './crewManagement/DepartureCastOffRow';
+import { EditCrewAccessForm } from './crewManagement/EditCrewAccessForm';
+import { SavedRoutesSelector } from './crewManagement/SavedRoutesSelector';
 
-/**
- * VoyageRow — a Voyage augmented with departure/arrival coords AND
- * planned duration looked up from the matching logbook route. Used as
- * the dropdown's row type so Weather Windows + Ocean Currents cards
- * can run their analysis (need coords) and Voyage Provisioning can
- * auto-compute ETA from departure (needs duration). Lets us avoid a
- * voyages-table schema migration.
- */
-export type VoyageRow = Voyage & {
-    departureCoords?: { lat: number; lon: number };
-    arrivalCoords?: { lat: number; lon: number };
-    /** Full saved/planned geometry, in passage order. Kept on the row so
-     *  Passage Summary does not have to guess from the global chart route. */
-    routeCoordinates?: Array<{ lat: number; lon: number }>;
-    /** Underlying planned-route log voyage. Distinct from this voyage-row ID. */
-    plannedRouteId?: string;
-    /** Distance supplied by this exact planned-route record, in NM. */
-    distanceNm?: number;
-    durationHours?: number;
-    /** True when this voyage belongs to a captain who shared it with us. */
-    isShared?: boolean;
-    sharedOwnerEmail?: string;
-};
-
-const routeDayKey = (iso: string | null | undefined): string | null => {
-    if (!iso) return null;
-    const ms = Date.parse(iso);
-    return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
-};
-
-/** Crew edits belong to the vessel currently selected by the skipper, not an arbitrary owned boat. */
-async function activeOwnedBoatId(scope: AuthIdentityScope): Promise<string | null> {
-    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
-    try {
-        const fleet = await loadOwnedVesselFleet(scope);
-        const active = fleet.vessels.find((vessel) => vessel.id === fleet.activeBoatId);
-        if (active) return active.id;
-    } catch {
-        // Staged rollout fallback for environments whose fleet migration is
-        // not yet applied; limiting avoids the old multi-row `maybeSingle`.
-    }
-    if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
-    const { data } = await supabase
-        .from('boats')
-        .select('id')
-        .eq('owner_id', scope.userId)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-    return typeof data?.id === 'string' ? data.id : null;
-}
-
-// These labels are generated exclusively by the Route Tracer's chained-leg
-// flow. A pre-link build could leave such a mirror behind after its canonical
-// leg disappeared; promote the surviving geometry back to a normal saved
-// route instead of showing a nonsensical orphaned "2nd Leg" here.
-const GENERATED_LEG_BADGE_ANYWHERE_RE = /\s*\(\d+(?:st|nd|rd|th) Leg\)/i;
-
-function isLegacyGeneratedLeg(label: string): boolean {
-    return GENERATED_LEG_BADGE_ANYWHERE_RE.test(label);
-}
-
-function legacyGeneratedLegName(label: string): string {
-    // Preserve the whole human route label. A surviving “A → B (2nd Leg)” is
-    // promoted to the first/only route, not silently reduced to just “A”.
-    return stripLegBadge(
-        label
-            .replace(GENERATED_LEG_BADGE_ANYWHERE_RE, '')
-            .replace(/\s+—\s+start\s*$/i, '')
-            .trim(),
-    );
-}
-
-/**
- * A planning row is eligible for Saved Routes when it carries the canonical
- * trace id itself, or when an older row is tied to that trace by the exact
- * immutable passage UUID. The latter is deliberately restricted to unlinked
- * rows: a conflicting saved_route_id must never be papered over by a stale
- * passage_voyage_id from another graph.
- */
-/**
- * Split a route label into its two endpoints.
- *
- * Two separators are in circulation: routeAutoName builds "Newport - Lady
- * Musgrave" and logbook labels build "Newport → Lady Musgrave". A label with
- * neither (a hand-typed "Winter delivery run") has no endpoints to give, and
- * returning the whole string as the departure is worse than returning nothing
- * — it puts a route name where a port name is expected.
- */
-/**
- * Carry already-attached route geometry forward onto a freshly-fetched row.
- *
- * reloadDropdown paints twice from bare DB `Voyage` objects before the phase
- * that attaches geometry runs. If that phase is cancelled — a concurrent
- * reload bumps the version guard — the rows are left downgraded, and the
- * Passage Planning summary shows "--" for Duration and Distance and
- * "Forecast unavailable" for Max Conditions, because every one of those is
- * derived from routeCoordinates.
- *
- * Merging instead of replacing means an aborted reload can only ever fail to
- * IMPROVE a row; it can never strip one. The fresh row still wins for every
- * server-owned field.
- */
-function preserveRouteGeometry(fresh: VoyageRow, previous: VoyageRow | undefined): VoyageRow {
-    if (!previous) return fresh;
-    return {
-        ...fresh,
-        departureCoords: fresh.departureCoords ?? previous.departureCoords,
-        arrivalCoords: fresh.arrivalCoords ?? previous.arrivalCoords,
-        routeCoordinates: fresh.routeCoordinates ?? previous.routeCoordinates,
-        plannedRouteId: fresh.plannedRouteId ?? previous.plannedRouteId,
-        distanceNm: fresh.distanceNm ?? previous.distanceNm,
-        durationHours: fresh.durationHours ?? previous.durationHours,
-    };
-}
-
-/**
- * ONE row per saved route (Shane 2026-08-27: "the list is doubling up and
- * sometimes even tripling up"). Every End-Voyage-then-replan cycle leaves a
- * planning row behind; they used to be hidden as unlinked, and the
- * 2026-08-26 link-healing resurrected them all — same route, many rows. Keep
- * the best row per canonical route: the skipper's current selection first,
- * then one that carries geometry, then a materialised voyage over a logbook
- * stub, then the most recently touched. Rows without a route link (manual
- * voyages) pass through untouched.
- *
- * Runs on EVERY paint — the cached fast paths included — so the first frame
- * and the settled list agree (Shane 2026-08-27: "ghost legs everywhere, but
- * they eventually go away and it becomes correct").
- */
-function pruneToBestRowPerRoute(
-    rows: readonly VoyageRow[],
-    traces: ReturnType<typeof loadSavedTraces>,
-    selectedId: string,
-): VoyageRow[] {
-    const rowScore = (row: VoyageRow): number => {
-        let score = 0;
-        if (row.id === selectedId) score += 8;
-        if ((row.routeCoordinates?.length ?? 0) >= 2) score += 4;
-        if (!row.id.startsWith('logbook:')) score += 2;
-        return score;
-    };
-    const rowStamp = (row: VoyageRow): number => Date.parse(row.updated_at ?? row.created_at ?? '') || 0;
-    // A row can name its route two ways: saved_route_id on the row, or the
-    // trace's passageVoyageId back-link naming the row. The remaining double
-    // was one of each — same route, different key (Shane 2026-08-27
-    // screenshot: two "(1st Leg)" rows).
-    const traceByPassageVoyage = new Map<string, string>();
-    for (const trace of traces) {
-        if (trace.passageVoyageId) traceByPassageVoyage.set(trace.passageVoyageId, trace.id);
-    }
-    const routeKeyOf = (row: VoyageRow): string | undefined => {
-        const base = row.saved_route_id?.trim() || traceByPassageVoyage.get(row.id);
-        if (!base) return undefined;
-        // Leg 1's trace id doubles as the trip id — a materialised passage
-        // row must not collapse into leg 1's slot.
-        return /\(passage\)/i.test(row.voyage_name) ? `trip:${base}` : base;
-    };
-    const bestByRoute = new Map<string, VoyageRow>();
-    for (const row of rows) {
-        const key = routeKeyOf(row);
-        if (!key) continue;
-        const existing = bestByRoute.get(key);
-        if (
-            !existing ||
-            rowScore(row) > rowScore(existing) ||
-            (rowScore(row) === rowScore(existing) && rowStamp(row) > rowStamp(existing))
-        ) {
-            bestByRoute.set(key, row);
-        }
-    }
-    return rows.filter((row) => {
-        const key = routeKeyOf(row);
-        return !key || bestByRoute.get(key) === row;
-    });
-}
-
-/**
- * Derived "(Passage)" rows (Shane-approved design 2026-08-04) — one per
- * multi-leg trip: the legs stitched, selectable exactly like any other
- * planning row. The `logbook:` id prefix reuses the materialise-on-select
- * path; saved_route_id is the trip's FIRST leg (its id IS the tripId — a
- * real trace), so the float plan waypoints and the Cast Off destination
- * seed both resolve. Suppressed once a materialised passage voyage exists
- * for the trip — and only a materialised PASSAGE row suppresses: leg 1's
- * trace id doubles as the trip id, so a plain leg row must not match
- * (Shane 2026-08-27, the vanishing "(Passage)" row).
- *
- * Shared with the cached fast paths so the passage heading exists from the
- * first frame, not only after the network pass.
- */
-function tripPassageRollupRows(
-    traces: ReturnType<typeof loadSavedTraces>,
-    ownRows: readonly VoyageRow[],
-    vessel: { crewCount?: number; cruisingSpeed?: number } | null | undefined,
-): VoyageRow[] {
-    const rollupRows: VoyageRow[] = [];
-    for (const rollup of buildTripPassageRollups(traces)) {
-        if (ownRows.some((row) => row.saved_route_id === rollup.tripId && /\(passage\)/i.test(row.voyage_name)))
-            continue;
-        const routeCoordinates = rollup.points.map((point) => ({ lat: point.lat, lon: point.lon }));
-        const distanceNm = routeDistanceNm(routeCoordinates) ?? undefined;
-        const speedKt = vessel?.cruisingSpeed || 5.5;
-        const durationHours = distanceNm ? distanceNm / speedKt : undefined;
-        // DETERMINISTIC stamps (newest member leg), NOT Date.now(): a fresh
-        // timestamp per reload made every pass produce a "different" row,
-        // and downstream effects keyed on row content re-fired on each one —
-        // churn this page cannot afford (see the storm-proofing note on the
-        // reload listeners).
-        const memberTraces = traces.filter((trace) => (trace.tripId ?? trace.id) === rollup.tripId);
-        const newestIso = memberTraces.reduce(
-            (acc, trace) => {
-                const stamp = trace.updatedAt ?? trace.createdAt;
-                return stamp > acc ? stamp : acc;
-            },
-            memberTraces[0]?.createdAt ?? new Date(0).toISOString(),
-        );
-        const newestMs = Date.parse(newestIso);
-        const eta =
-            durationHours && Number.isFinite(newestMs)
-                ? new Date(newestMs + durationHours * 3_600_000).toISOString()
-                : null;
-        rollupRows.push({
-            id: `logbook:${rollup.id}`,
-            user_id: '',
-            vessel_id: null,
-            voyage_name: rollup.name,
-            departure_port: rollup.originName,
-            destination_port: rollup.destName,
-            departure_time: newestIso,
-            eta,
-            crew_count: vesselCrewAboard(vessel),
-            status: 'planning',
-            weather_master_id: null,
-            notes: null,
-            created_at: newestIso,
-            updated_at: newestIso,
-            saved_route_id: rollup.tripId,
-            departureCoords: routeCoordinates[0],
-            arrivalCoords: routeCoordinates[routeCoordinates.length - 1],
-            routeCoordinates,
-            distanceNm,
-            durationHours,
-        } as VoyageRow);
-    }
-    return rollupRows;
-}
-
-function splitRouteEndpoints(label: string): [string | undefined, string | undefined] {
-    for (const separator of [' → ', ' - ']) {
-        const parts = label.split(separator);
-        if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
-            const departure = parts[0].trim();
-            const arrival = parts[1].trim();
-            // "x → x" is a naming artefact (multi-leg trace legs can carry
-            // the leg title in both ports). A self-to-self passage isn't
-            // real: keep the name as the departure and leave the
-            // destination honestly empty rather than duplicating it into
-            // Cast Off (Shane 2026-08-04: "newport 2nd leg - newport 2nd
-            // leg??????").
-            if (departure.toLocaleLowerCase() === arrival.toLocaleLowerCase()) return [departure, undefined];
-            return [departure, arrival];
-        }
-    }
-    return [undefined, undefined];
-}
-
-function isCanonicalSavedRouteDraft(
-    draft: Voyage,
-    canonicalIds: ReadonlySet<string>,
-    canonicalPassageVoyageIds: ReadonlySet<string>,
-): boolean {
-    return Boolean(
-        (draft.saved_route_id && canonicalIds.has(draft.saved_route_id)) ||
-        (!draft.saved_route_id && canonicalPassageVoyageIds.has(draft.id)),
-    );
-}
-
-function canonicalPassageVoyageIds(traces: ReturnType<typeof loadSavedTraces>): Set<string> {
-    return new Set(
-        traces
-            .map((trace) => trace.passageVoyageId)
-            .filter((passageVoyageId): passageVoyageId is string => Boolean(passageVoyageId && passageVoyageId.trim())),
-    );
-}
-
-/**
- * Legacy saved traces stored their internal endpoint markers as the voyage
- * title. Keep matching against the original database fields, but never make
- * a skipper read "… start → … end" in the Saved Routes selector.
- */
-function savedRouteDisplayName(voyage: Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port'>): string {
-    return (
-        formatStoredPlannedRouteName(voyage.voyage_name) ??
-        (voyage.departure_port || voyage.destination_port
-            ? formatPlannedRouteLabel(voyage.departure_port, voyage.destination_port)
-            : '? → ?')
-    );
-}
-
-interface CrewManagementProps {
-    onBack: () => void;
-}
-
-const DELEGATION_STORAGE_KEY = 'thalassa_card_delegations_v2';
-type CardDelegationsByVoyage = Record<string, Record<string, string>>;
-
-function readDelegations(scope: AuthIdentityScope): CardDelegationsByVoyage {
-    try {
-        // The old unscoped map has no owner marker. Never assign its crew
-        // email addresses to whichever account happens to sign in next.
-        const stored = localStorage.getItem(authScopedStorageKey(DELEGATION_STORAGE_KEY, scope));
-        if (!stored) return {};
-        const parsed: unknown = JSON.parse(stored);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-
-        const result: CardDelegationsByVoyage = {};
-        for (const [voyageId, assignments] of Object.entries(parsed)) {
-            if (!assignments || typeof assignments !== 'object' || Array.isArray(assignments)) continue;
-            const validAssignments = Object.fromEntries(
-                Object.entries(assignments).filter(
-                    ([cardKey, email]) => Boolean(cardKey) && typeof email === 'string' && email.length > 0,
-                ),
-            ) as Record<string, string>;
-            if (Object.keys(validAssignments).length > 0) result[voyageId] = validAssignments;
-        }
-        return result;
-    } catch {
-        return {};
-    }
-}
+/** Re-exported here so every existing importer of this module is unchanged. */
+export type { VoyageRow } from './crewManagement/types';
 
 export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
     // Auth state comes from the global authStore — same source of truth
@@ -2179,40 +1861,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     // ── Not authenticated ──
     if (!isAuthed) {
-        return (
-            <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                <PageHeader title="Passage Planning" onBack={onBack} />
-                <div className="flex-1 flex items-center justify-center p-8">
-                    <div className="text-center">
-                        <div className="mb-4 flex justify-center text-sky-300/70">
-                            <UsersIcon className="w-12 h-12" />
-                        </div>
-                        <h2 className="text-lg font-bold text-white mb-2">Sign In Required</h2>
-                        <p className="text-sm text-gray-400 max-w-xs mb-6">
-                            Sign in to save routes, prepare the passage with your crew, and privately share its float
-                            plan.
-                        </p>
-                        <button
-                            onClick={() => setShowAuth(true)}
-                            className="px-6 py-3 bg-white text-slate-900 font-bold rounded-xl shadow-lg hover:bg-gray-100 transition-all active:scale-95"
-                        >
-                            Sign In
-                        </button>
-                    </div>
-                </div>
-                <SignInScreen
-                    isOpen={showAuth}
-                    onClose={() => {
-                        setShowAuth(false);
-                        // No need to re-poll auth — the global authStore's
-                        // onAuthStateChange listener fires when sign-in
-                        // completes, and our isAuthed is derived from
-                        // that store so we re-render automatically.
-                    }}
-                    prompt="Sign in to plan passages with crew and sync across devices."
-                />
-            </div>
-        );
+        return <CrewSignInPrompt onBack={onBack} showAuth={showAuth} setShowAuth={setShowAuth} />;
     }
 
     return (
@@ -2252,115 +1901,26 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 />
 
                 {/* ── SAVED ROUTES SELECTOR ── */}
-                <div className="mb-4">
-                    <label className="text-[11px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 flex items-center gap-1.5">
-                        <CompassIcon className="w-3 h-3" rotation={0} />
-                        <span>Saved Routes</span>
-                    </label>
-                    {draftVoyages.length > 0 ? (
-                        <SavedRoutePicker
-                            rows={savedRoutePickerRows}
-                            selectedId={selectedPassageId}
-                            onSelect={(id) => void handlePassageSelection(id)}
-                        />
-                    ) : savedRoutesLoading ? (
-                        <div
-                            role="status"
-                            aria-live="polite"
-                            className="bg-white/3 border border-dashed border-white/10 rounded-lg px-3 py-4 text-center"
-                        >
-                            <p className="text-xs font-semibold text-slate-200">Loading saved routes…</p>
-                            <p className="mt-0.5 text-[11px] text-slate-400 leading-relaxed">
-                                Your on-device routes appear first, then this library checks for updates.
-                            </p>
-                        </div>
-                    ) : (
-                        // Empty state is deliberate: a route only enters this
-                        // library after the skipper saves it, never as a
-                        // placeholder passage.
-                        <div className="bg-white/3 border border-dashed border-white/10 rounded-lg px-3 py-4 text-center">
-                            <div className="w-9 h-9 mx-auto mb-2 rounded-full bg-sky-500/8 border border-sky-500/15 flex items-center justify-center">
-                                <svg
-                                    className="w-4 h-4 text-sky-400/70"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.8}
-                                    aria-hidden="true"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                                    />
-                                </svg>
-                            </div>
-                            <p className="text-xs font-semibold text-slate-200 mb-0.5">No saved routes yet</p>
-                            <p className="text-[11px] text-slate-400 leading-relaxed">
-                                Plan a route from the Plan tab; saved routes will appear here.
-                            </p>
-                        </div>
-                    )}
-
-                    {/* A compact count is enough context here. Route removal
-                        lives in the dedicated Saved Routes library (Vessel →
-                        Saved Routes), where each route is reviewed and
-                        confirmed individually. */}
-                    <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
-                        <span className="text-[10px] text-gray-500 font-mono">
-                            {ownVoyageCount} yours
-                            {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
-                        </span>
-                    </div>
-                </div>
+                <SavedRoutesSelector
+                    draftVoyages={draftVoyages}
+                    savedRoutePickerRows={savedRoutePickerRows}
+                    selectedPassageId={selectedPassageId}
+                    handlePassageSelection={handlePassageSelection}
+                    savedRoutesLoading={savedRoutesLoading}
+                    ownVoyageCount={ownVoyageCount}
+                    sharedVoyageCount={sharedVoyageCount}
+                />
 
                 {/* ── DEPARTURE DATE + CAST OFF (single row) ── */}
                 {selectedPassageId && isSelectedPassageOwner && (
-                    <div className="mb-4 flex items-end gap-2">
-                        {/* Departure date — date only, time decided later */}
-                        <div className="flex-1 min-w-0">
-                            <label className="text-[11px] uppercase font-bold text-slate-500 tracking-widest mb-1 flex items-center gap-1.5">
-                                <CalendarGridIcon className="w-3 h-3" />
-                                <span>Departure Date</span>
-                            </label>
-                            <input
-                                type="date"
-                                aria-label="Departure Date"
-                                value={planDeparture ? planDeparture.slice(0, 10) : ''}
-                                min={localDateValue(nextDepartureSlot())}
-                                onChange={(event) => handleDepartureDateChange(event.target.value)}
-                                className="w-full bg-white/4 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-hidden focus:border-violet-500/30 transition-colors scheme-dark"
-                            />
-                        </div>
-
-                        {/* Cast Off CTA */}
-                        <button
-                            onClick={() => {
-                                if (!scopeStillOwnsPage(renderScope)) return;
-                                setShowCastOff(true);
-                                triggerHaptic('medium');
-                            }}
-                            // THE gate, and the ONLY gate (Shane 2026-08-26:
-                            // "happy for the cast off not to be green until
-                            // all of the below cards are green. i just dont
-                            // want any other hold up once the cast off button
-                            // is ready to push"). Readiness cards lock this
-                            // button; once it lights up, everything after it
-                            // — route check, GPS — is advisory or automatic.
-                            disabled={!allCardsReady}
-                            // Locked reads as inert, not invisible: opacity-30 over
-                            // gray-500 left the label unreadable in sunlight, so the
-                            // skipper could not see what the gate was even called.
-                            className={`shrink-0 px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
-                                allCardsReady
-                                    ? 'bg-linear-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
-                                    : 'bg-white/3 border-white/10 text-gray-400'
-                            } inline-flex items-center justify-center gap-2`}
-                        >
-                            <AnchorIcon className="w-4 h-4" />
-                            <span>Cast Off</span>
-                        </button>
-                    </div>
+                    <DepartureCastOffRow
+                        planDeparture={planDeparture}
+                        handleDepartureDateChange={handleDepartureDateChange}
+                        scopeStillOwnsPage={scopeStillOwnsPage}
+                        renderScope={renderScope}
+                        setShowCastOff={setShowCastOff}
+                        allCardsReady={allCardsReady}
+                    />
                 )}
                 {selectedPassageId && verifiedPassageStatus.visible && !verifiedPassageStatus.isOwner && (
                     <p className="mb-4 rounded-xl border border-sky-500/15 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-200/80">
@@ -2529,144 +2089,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 onClose={closeEditMember}
                 title={`Edit Access — ${editTarget?.crew_email || ''}`}
             >
-                <div className="p-6 space-y-5">
-                    {/* Byline parts — shown only once the crew member has
-                        accepted (boat_members row exists). Drives the
-                        "by Emma" chip on the public voyage log. */}
-                    {editBoatMemberLoaded ? (
-                        <div>
-                            <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
-                                Byline on the Voyage Log
-                            </label>
-                            <div className="grid grid-cols-5 gap-2">
-                                <input
-                                    type="text"
-                                    value={editPrefix}
-                                    onChange={(event) => {
-                                        if (scopeStillOwnsPage(renderScope)) setEditPrefix(event.target.value);
-                                    }}
-                                    placeholder="Capt."
-                                    aria-label="Title prefix (optional)"
-                                    className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
-                                />
-                                <input
-                                    type="text"
-                                    value={editFirstName}
-                                    onChange={(event) => {
-                                        if (scopeStillOwnsPage(renderScope)) setEditFirstName(event.target.value);
-                                    }}
-                                    placeholder="First *"
-                                    aria-label="First name"
-                                    className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 mt-2">
-                                <input
-                                    type="text"
-                                    value={editLastName}
-                                    onChange={(event) => {
-                                        if (scopeStillOwnsPage(renderScope)) setEditLastName(event.target.value);
-                                    }}
-                                    placeholder="Surname"
-                                    aria-label="Surname"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
-                                />
-                                <input
-                                    type="text"
-                                    value={editNickname}
-                                    onChange={(event) => {
-                                        if (scopeStillOwnsPage(renderScope)) setEditNickname(event.target.value);
-                                    }}
-                                    placeholder="Nickname"
-                                    aria-label="Nickname"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
-                                />
-                            </div>
-                            <p className="text-[10px] text-gray-500 mt-1.5 ml-1">
-                                Renders as:{' '}
-                                <span className="text-sky-300 font-bold">
-                                    {[
-                                        editPrefix.trim(),
-                                        editFirstName.trim(),
-                                        editNickname.trim() && `"${editNickname.trim()}"`,
-                                        editLastName.trim(),
-                                    ]
-                                        .filter(Boolean)
-                                        .join(' ') || '—'}
-                                </span>
-                            </p>
-                        </div>
-                    ) : editTarget?.status === 'pending' ? (
-                        <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 text-[11px] text-amber-300/90">
-                            Byline editing unlocks once this crew member accepts the invite.
-                        </div>
-                    ) : null}
-
-                    <div>
-                        <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
-                            Shared Registers
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {ALL_REGISTERS.map((reg) => {
-                                const selected = editRegisters.includes(reg);
-                                return (
-                                    <button
-                                        aria-pressed={selected}
-                                        key={reg}
-                                        type="button"
-                                        onClick={() => {
-                                            if (scopeStillOwnsPage(renderScope)) {
-                                                toggleRegister(reg, editRegisters, setEditRegisters);
-                                            }
-                                        }}
-                                        className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
-                                            selected
-                                                ? 'bg-sky-500/15 border-sky-500/40'
-                                                : 'bg-white/3 border-white/6 hover:bg-white/5'
-                                        }`}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-lg">{REGISTER_ICONS[reg]}</span>
-                                            <p
-                                                className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}
-                                            >
-                                                {REGISTER_LABELS[reg]}
-                                            </p>
-                                        </div>
-                                        <div
-                                            className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}
-                                        >
-                                            {selected && (
-                                                <svg
-                                                    className="w-2.5 h-2.5 text-white"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={3}
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M4.5 12.75l6 6 9-13.5"
-                                                    />
-                                                </svg>
-                                            )}
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <button
-                        aria-label="Save crew management changes"
-                        onClick={handleSavePermissions}
-                        disabled={editRegisters.length === 0}
-                        className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 ${editRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}
-                    >
-                        Save Changes
-                    </button>
-                </div>
+                <EditCrewAccessForm
+                    editBoatMemberLoaded={editBoatMemberLoaded}
+                    editPrefix={editPrefix}
+                    setEditPrefix={setEditPrefix}
+                    editFirstName={editFirstName}
+                    setEditFirstName={setEditFirstName}
+                    editLastName={editLastName}
+                    setEditLastName={setEditLastName}
+                    editNickname={editNickname}
+                    setEditNickname={setEditNickname}
+                    editTarget={editTarget}
+                    editRegisters={editRegisters}
+                    setEditRegisters={setEditRegisters}
+                    toggleRegister={toggleRegister}
+                    handleSavePermissions={handleSavePermissions}
+                    scopeStillOwnsPage={scopeStillOwnsPage}
+                    renderScope={renderScope}
+                />
             </ModalSheet>
 
             {/* ── UNDO TOAST ── */}
@@ -2746,54 +2186,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
             {/* ── CAST OFF PANEL ── */}
             {showCastOff && isSelectedPassageOwner && (
-                <CastOffPanel
-                    onClose={() => {
-                        if (scopeStillOwnsPage(renderScope)) setShowCastOff(false);
-                    }}
-                    onOpenLog={() => {
-                        if (!scopeStillOwnsPage(renderScope)) return;
-                        setShowCastOff(false);
-                        setPage('details');
-                    }}
-                    initialVoyageId={selectedPassageId || undefined}
-                    onCastOff={(voyage) => {
-                        if (!scopeStillOwnsPage(renderScope)) return;
-                        setActiveVoyageName(savedRouteDisplayName(voyage));
-                        setShowCastOff(false);
-                        // Cast Off ends where the Log page's slide-to-start
-                        // ends (Shane 2026-08-25: "they end up in the same
-                        // place, but just took a detour through the passage
-                        // planning page"). Tracking is already verified live
-                        // by the panel. The passage IS its route, so follow
-                        // it and put the line on the public page without
-                        // asking a one-answer question — the verification
-                        // gate inside refuses anything unproven, and the Log
-                        // page's own follow sheet stays as the fallback ask.
-                        {
-                            // The handoff carries the SELECTED row's canonical
-                            // trace link, which is backfilled even when the
-                            // table row predates saved_route_id.
-                            const handoff = peekCastOffHandoff();
-                            void followCastOffRoute(
-                                voyage.id,
-                                handoff?.savedRouteId ?? voyage.saved_route_id,
-                                handoff?.publishRoute ?? true,
-                                voyage.voyage_name,
-                            ).then((reason) => {
-                                // Silent failures cost a night of guessing —
-                                // record why the line is not up so the Log
-                                // page can SAY it (Shane 2026-08-26: "it is
-                                // not showing the route").
-                                if (reason) updateCastOffHandoff({ followNote: reason });
-                            });
-                        }
-                        // 'details' is the Log tab's registry key — there is
-                        // no 'log' view. The old 'log' literal rendered the
-                        // blank search-bar chrome App.tsx keeps for
-                        // unregistered views (Shane's 2026-08-26 screenshot);
-                        // tests/ViewKeysExist.test.ts now outlaws the class.
-                        setPage('details');
-                    }}
+                <CrewCastOffPanel
+                    scopeStillOwnsPage={scopeStillOwnsPage}
+                    renderScope={renderScope}
+                    setShowCastOff={setShowCastOff}
+                    setPage={setPage}
+                    selectedPassageId={selectedPassageId}
+                    setActiveVoyageName={setActiveVoyageName}
                 />
             )}
         </div>
