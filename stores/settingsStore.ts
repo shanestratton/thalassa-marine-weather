@@ -334,16 +334,38 @@ function keepIfDeepEqual<T>(prev: T, next: T): T {
     }
 }
 
-/** Apply a selected cloud vessel as the existing app-wide compatibility view. */
+/** Apply a selected cloud vessel as the existing app-wide compatibility view.
+ *  When every field is deep-equal to what is already held, the PREVIOUS
+ *  settings object is returned unchanged — keepIfDeepEqual protected each
+ *  field's identity, but the spread still minted a new settings object on
+ *  every fleet sync, which is itself a dependency all over the app. */
 function settingsWithFleetVessel(settings: UserSettings, vessel: OwnedVesselProfile): UserSettings {
+    const vesselProfile = keepIfDeepEqual(settings.vessel, vessel.profile);
+    const vesselUnits = keepIfDeepEqual(settings.vesselUnits, vessel.vessel_units);
+    const comfortParams = keepIfDeepEqual(settings.comfortParams, vessel.comfort_params);
+    const polarData = keepIfDeepEqual(settings.polarData, vessel.polar_data ?? undefined);
+    const polarBoatModel = vessel.polar_boat_model ?? undefined;
+    const polarSource_type = vessel.polar_source_type ?? undefined;
+
+    if (
+        vesselProfile === settings.vessel &&
+        vesselUnits === settings.vesselUnits &&
+        comfortParams === settings.comfortParams &&
+        polarData === settings.polarData &&
+        polarBoatModel === settings.polarBoatModel &&
+        polarSource_type === settings.polarSource_type
+    ) {
+        return settings;
+    }
+
     return {
         ...settings,
-        vessel: keepIfDeepEqual(settings.vessel, vessel.profile),
-        vesselUnits: keepIfDeepEqual(settings.vesselUnits, vessel.vessel_units),
-        comfortParams: keepIfDeepEqual(settings.comfortParams, vessel.comfort_params),
-        polarData: keepIfDeepEqual(settings.polarData, vessel.polar_data ?? undefined),
-        polarBoatModel: vessel.polar_boat_model ?? undefined,
-        polarSource_type: vessel.polar_source_type ?? undefined,
+        vessel: vesselProfile,
+        vesselUnits,
+        comfortParams,
+        polarData,
+        polarBoatModel,
+        polarSource_type,
     };
 }
 

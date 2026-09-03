@@ -384,7 +384,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                                 className={`flex-1 h-3 ${waveHeatColor(hp.waveHeight)} flex items-center justify-center transition-all hover:scale-y-[1.5] hover:z-10 relative group cursor-default`}
                                                 title={`+${hIdx * 6}h: ${hp.waveHeight}m waves`}
                                             >
-                                                <span className="text-[10px] font-mono text-white/40 group-hover:text-white/80 transition-colors">
+                                                <span className="text-[10px] font-mono text-white/70 group-hover:text-white transition-colors">
                                                     {hp.waveHeight.toFixed(1)}
                                                 </span>
                                             </div>

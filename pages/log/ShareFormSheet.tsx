@@ -79,7 +79,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                         ref={closeButtonRef}
                         aria-label="Close"
                         onClick={onClose}
-                        className="p-2 text-slate-400 hover:text-white transition-colors"
+                        className="hit-target-44 p-2 text-slate-400 hover:text-white transition-colors"
                     >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path

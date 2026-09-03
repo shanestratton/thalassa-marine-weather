@@ -240,7 +240,8 @@ describe('passage and vessel dialog accessibility', () => {
                 <JoinVessel onJoined={vi.fn()} onClose={onClose} />
             </>,
         );
-        const firstDigit = screen.getByRole('textbox', { name: 'Code digit 1' });
+        // Label follows the copy fix: the manifest code is alphanumeric, not digits.
+        const firstDigit = screen.getByRole('textbox', { name: 'Code character 1' });
         expect(screen.getByRole('dialog', { name: 'Join a Vessel' })).toContainElement(firstDigit);
         expect(firstDigit).toHaveFocus();
         fireEvent.keyDown(firstDigit, { key: 'Escape' });

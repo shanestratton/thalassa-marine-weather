@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { XIcon } from './Icons';
 
 export interface LogFilters {
     types: ('auto' | 'manual' | 'waypoint')[];
@@ -57,7 +58,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                         aria-label="Search log entries"
                         value={filters.searchQuery}
                         onChange={(e) => onFiltersChange({ ...filters, searchQuery: e.target.value })}
-                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-hidden"
+                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 pr-11 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-hidden"
                     />
                     <svg
                         className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2"
@@ -76,9 +77,9 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                         <button
                             onClick={() => onFiltersChange({ ...filters, searchQuery: '' })}
                             aria-label="Clear search"
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                            className="absolute right-0 top-0 h-full w-11 flex items-center justify-center text-slate-400 hover:text-white"
                         >
-                            ×
+                            <XIcon className="w-4 h-4" />
                         </button>
                     )}
                 </div>
@@ -86,14 +87,14 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                 {/* Type Pill Filters with Counts */}
                 <div className="flex gap-1" role="group" aria-label="Entry type filters">
                     <FilterPill
-                        label="Man"
+                        label="Manual"
                         count={entryCounts?.manual}
                         active={isTypeActive('manual')}
                         onClick={() => toggleType('manual')}
                         color="purple"
                     />
                     <FilterPill
-                        label="Way"
+                        label="Waypoint"
                         count={entryCounts?.waypoint}
                         active={isTypeActive('waypoint')}
                         onClick={() => toggleType('waypoint')}
@@ -133,13 +134,13 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
     return (
         <button
             onClick={onClick}
-            aria-label={`Filter ${label === 'Man' ? 'manual' : 'waypoint'} entries${count !== undefined ? ` (${count})` : ''}`}
+            aria-label={`Filter ${label.toLowerCase()} entries${count !== undefined ? ` (${count})` : ''}`}
             aria-pressed={active}
             // min-h bumped 36 → 44 px 2026-05-17 to clear the Apple HIG
             // tap-target floor. Filter pills sit in a horizontal row at
             // the top of the Log page; 36 px is genuinely small on a
             // moving deck with wet hands.
-            className={`min-w-[56px] min-h-[44px] px-3 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
+            className={`min-h-[44px] px-3 py-2 rounded-lg border text-xs font-bold whitespace-nowrap transition-all active:scale-95 ${colorClasses[color]}`}
         >
             {label}
             {count !== undefined && count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}

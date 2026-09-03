@@ -6,12 +6,12 @@ import { triggerHaptic } from '../utils/system';
 import { haversineMeters } from '../services/shiplog/GpsTrackBuffer';
 import { extractPhotoExif } from '../utils/exifGps';
 import { SlideToAction } from './ui/SlideToAction';
-import { AnchorWatchService, haversineDistance } from '../services/AnchorWatchService';
+import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
-import { CompassIcon, CheckIcon } from './Icons';
+import { CompassIcon, CheckIcon, DownloadIcon, ShareIcon, XIcon } from './Icons';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
@@ -43,18 +43,10 @@ const formatDate = (iso: string): string => {
         year: 'numeric',
     });
 };
-const _formatTime = (iso: string): string => {
-    return new Date(iso).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
-};
 const formatCoord = (lat: number, lon: number): string => {
     const latDir = lat >= 0 ? 'N' : 'S';
     const lonDir = lon >= 0 ? 'E' : 'W';
     return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
-};
-const _formatDuration = (seconds: number): string => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
 };
 const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
     const map = new Map<string, DiaryEntry[]>();
@@ -93,7 +85,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         saving,
         polishing,
         deletedItem,
-        selectMode: _selectMode,
         selectedIds,
         menuOpen,
         exportProgress,
@@ -708,7 +699,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             if (exif && !locationFromPhotoRef.current && !gpsChoiceExplicitRef.current) {
                 const hasExistingPin = lat !== null && lon !== null;
                 if (hasExistingPin) {
-                    const movedM = haversineDistance(lat, lon, exif.lat, exif.lon);
+                    const movedM = haversineMeters(lat, lon, exif.lat, exif.lon);
                     // Same spot (GPS scatter) — nothing worth asking about.
                     if (movedM > 200) {
                         setPhotoPinPrompt({ lat: exif.lat, lon: exif.lon, movedM });
@@ -779,7 +770,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 duration = (await probeVideoDurationSeconds(file)) ?? NaN;
             }
             if (!Number.isFinite(duration) || duration <= 0) {
-                alert('That file could not be read as a video.');
+                toast.error('That file could not be read as a video.');
                 return;
             }
             if (duration > 61) {
@@ -789,7 +780,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 // beat a dead app: the Photos editor trims without the
                 // memory bill.
                 if (file.size > 200 * 1048576) {
-                    alert(
+                    toast.persistentError(
                         'That movie is too big to cut inside Thalassa on this phone. ' +
                             'Trim it to the best minute in the Photos app first, then attach the cut.',
                     );
@@ -801,7 +792,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 return;
             }
             if (file.size > 550 * 1048576) {
-                alert('That clip is over 550MB, which the storage bucket will refuse. Trim or re-encode it first.');
+                toast.persistentError(
+                    'That clip is over 550MB, which the storage bucket will refuse. Trim or re-encode it first.',
+                );
                 return;
             }
         } finally {
@@ -854,7 +847,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             if (previous) void DiaryService.discardUnsavedVideo(previous);
             setVideoUrl(ref);
         } else {
-            alert('Could not store the video on this device — check free space.');
+            toast.error('Could not store the video on this device — check free space.');
         }
         setUploading(false);
     };
@@ -1188,11 +1181,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         },
         [dispatch, state.selectMode],
     );
-    const _exitSelectMode = useCallback(() => {
-        setSelectMode(false);
-        setSelectedIds(new Set());
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
     // AudioWidget is now imported from ./diary/AudioWidget
     // SwipeableDiaryCard — extracted to components/diary/SwipeableDiaryCard.tsx (React.memo)
     // ── Render: Full Entry View ─────────────────────────────────
@@ -1462,19 +1450,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                 disabled={selectedIds.size === 0}
                                                 className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                             >
-                                                <svg
-                                                    className="w-4 h-4 text-sky-400"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2}
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                                                    />
-                                                </svg>
+                                                <DownloadIcon className="w-4 h-4 text-sky-400" />
                                                 Download Selected
                                             </button>
                                             <div role="separator" className="border-t border-white/5" />
@@ -1489,19 +1465,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                 disabled={selectedIds.size === 0}
                                                 className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                             >
-                                                <svg
-                                                    className="w-4 h-4 text-emerald-400"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2}
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
-                                                    />
-                                                </svg>
+                                                <ShareIcon className="w-4 h-4 text-emerald-400" />
                                                 Share Selected
                                             </button>
                                             {selectedIds.size > 0 && (
@@ -1516,19 +1480,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                         }}
                                                         className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
                                                     >
-                                                        <svg
-                                                            className="w-4 h-4"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                            strokeWidth={2}
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M6 18L18 6M6 6l12 12"
-                                                            />
-                                                        </svg>
+                                                        <XIcon className="w-4 h-4" />
                                                         Clear Selection
                                                     </button>
                                                 </>
@@ -1552,7 +1504,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         <EmptyState
                             icon={<CompassIcon className="w-10 h-10 text-sky-400/60" rotation={0} />}
                             title="Your Story Starts Here"
-                            description="Slide below to write your first journal entry. Add photos, voice memos, and GPS coordinates."
+                            description="Slide below to write your first entry. Add photos, a short video and your position."
                         />
                     ) : (
                         <div className="space-y-6 stagger-in">

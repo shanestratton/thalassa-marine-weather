@@ -67,7 +67,8 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                 <div className="grid grid-cols-3 gap-1.5">
                     {CATEGORIES.map((cat) => (
                         <button
-                            aria-label="Form Category"
+                            aria-label={`${cat.label} category`}
+                            aria-pressed={formCategory === cat.id}
                             key={cat.id}
                             onClick={() => onCategoryChange(cat.id)}
                             className={`py-1.5 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -142,7 +143,6 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                     </div>
                 ) : (
                     <button
-                        aria-label="Input Ref"
                         type="button"
                         onClick={() => {
                             fileInputRef.current?.click();
