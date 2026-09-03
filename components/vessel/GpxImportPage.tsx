@@ -282,7 +282,20 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
             <PageHeader title="Import GPX" subtitle="OpenCPN • Navionics • iSailor • qtVLM" onBack={onBack} />
 
             {/* ═══ CONTENT ═══ */}
-            <div className="flex-1 overflow-y-auto px-4 pb-32">
+            {/* pb-32 (128px) is short of the fixed CTA stack below, which is up
+                to 168px of buttons over a 72px+ safe-area pad — the tail of the
+                preview card used to sit under it. Pad past the stack that is
+                actually on screen. */}
+            <div
+                className="flex-1 overflow-y-auto px-4 pb-32"
+                style={
+                    state === 'previewing'
+                        ? {
+                              paddingBottom: `calc(4rem + env(safe-area-inset-bottom) + ${routeData ? '12rem' : '8rem'})`,
+                          }
+                        : undefined
+                }
+            >
                 <div className="max-w-xl mx-auto space-y-4">
                     {/* ── IDLE: File picker ── */}
                     {(state === 'idle' || state === 'error') && (

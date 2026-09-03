@@ -121,7 +121,7 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
                                 </div>
                                 <span className="text-sm mr-1">{item.icon}</span>
                                 <span
-                                    className={`text-xs flex-1 ${
+                                    className={`text-sm flex-1 ${
                                         isChecked
                                             ? 'text-emerald-300 line-through opacity-70'
                                             : 'text-amber-200 font-semibold'
@@ -181,7 +181,7 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
                                 </div>
                                 <span className="text-sm mr-1">{item.icon}</span>
                                 <span
-                                    className={`text-xs flex-1 ${
+                                    className={`text-sm flex-1 ${
                                         isChecked ? 'text-emerald-300 line-through opacity-70' : 'text-gray-300'
                                     }`}
                                 >

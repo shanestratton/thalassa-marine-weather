@@ -281,10 +281,12 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                     }
                     if (!url) {
                         onSave({ calypsoEmailEnabled: false });
-                        setGmailError(
-                            'Gmail integration is not configured. Add VITE_GOOGLE_OAUTH_CLIENT_ID to .env.local — ' +
-                                'see services/voice/integrations/gmail.ts for the Google Cloud setup steps.',
+                        // The env var / setup-steps detail is for whoever builds
+                        // the app, not for the skipper reading this screen.
+                        console.warn(
+                            '[gmail] not configured: add VITE_GOOGLE_OAUTH_CLIENT_ID to .env.local — see services/voice/integrations/gmail.ts for the Google Cloud setup steps.',
                         );
+                        setGmailError('Gmail integration is not configured in this build yet.');
                         releaseEmailOperation(operationScope);
                         setBusy(false);
                         setGmailOperation(null);
@@ -514,7 +516,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             </div>
                             <button
                                 onClick={handleOpenMusicPage}
-                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded-sm border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                                className="min-h-[44px] text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded-sm border border-pink-400/40 hover:border-pink-300/60 transition-colors"
                             >
                                 Open Music
                             </button>
@@ -538,7 +540,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             </div>
                             <button
                                 onClick={handleOpenMusicSystemSettings}
-                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded-sm border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                                className="min-h-[44px] text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded-sm border border-pink-400/40 hover:border-pink-300/60 transition-colors"
                             >
                                 Open Thalassa Settings
                             </button>
@@ -586,13 +588,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                     <Row>
                         <div className="flex-1">
                             <div className="text-sm text-white">Email access</div>
-                            <div className="text-xs text-amber-400 mt-1">
-                                Gmail OAuth not configured yet — needs a Google Cloud project + client ID.
-                            </div>
-                            <div className="text-xs text-gray-500 mt-2">
-                                See <code className="text-sky-400">services/voice/integrations/gmail.ts</code> header
-                                for the one-time setup steps.
-                            </div>
+                            <div className="text-xs text-amber-400 mt-1">Not available in this build yet.</div>
                         </div>
                     </Row>
                 ) : (

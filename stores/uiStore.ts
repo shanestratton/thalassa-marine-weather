@@ -1,8 +1,13 @@
 /**
  * UI Store — Zustand replacement for UIContext.
  *
- * Manages page navigation (view/transition direction), offline status,
- * and debug logs. The transition logic determines push/pop/tab animations.
+ * Manages page navigation (view/transition direction) and offline status.
+ * The transition logic determines push/pop/tab animations.
+ *
+ * The write-only `debugLogs` array was removed on 2026-09-03: nothing ever
+ * read it, but its fifteen writers in settingsStore each pushed a store
+ * update through every whole-store `useUI()` subscriber (seventeen of them).
+ * The settings diagnostics now go to the tagged logger instead.
  */
 
 import { create } from 'zustand';
@@ -45,9 +50,7 @@ interface UIState {
     previousView: string;
     transitionDirection: TransitionDirection;
     isOffline: boolean;
-    debugLogs: string[];
     setPage: (page: string) => void;
-    addDebugLog: (msg: string) => void;
 }
 
 // Deep links (thalassawx.app/plan → the desktop passage builder) seed
@@ -116,7 +119,6 @@ export const useUIStore = create<UIState>()((set, get) => ({
     previousView: bootView,
     transitionDirection: 'tab' as TransitionDirection,
     isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
-    debugLogs: [],
 
     setPage: (page: string) => {
         const prev = get().currentView;
@@ -136,12 +138,6 @@ export const useUIStore = create<UIState>()((set, get) => ({
 
         writeLastView(page);
         set({ currentView: page, previousView: prev, transitionDirection: direction });
-    },
-
-    addDebugLog: (msg: string) => {
-        set((state) => ({
-            debugLogs: [`[${new Date().toLocaleTimeString().split(' ')[0]}] ${msg}`, ...state.debugLogs].slice(0, 20),
-        }));
     },
 }));
 
