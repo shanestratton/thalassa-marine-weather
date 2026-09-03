@@ -43,6 +43,10 @@ export interface PiWatchAssignment {
     sessionCode: string;
     anchorLat: number;
     anchorLon: number;
+    /** The skipper's setup numbers, so the shore view can show them. Only the
+     *  phone that set the anchor knows how much rode went out. */
+    rodeLength?: number;
+    waterDepth?: number;
     swingRadius: number;
 }
 

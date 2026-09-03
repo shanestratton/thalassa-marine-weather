@@ -46,7 +46,14 @@ export interface PositionBroadcast {
     distance: number;
     swingRadius: number;
     isAlarm: boolean;
-    config: AnchorWatchConfig;
+    /**
+     * OPTIONAL, because the boat's Pi may not know it. Rode and depth are the
+     * skipper's setup numbers; a Pi assigned by an older app build has none,
+     * and a shore view that assumed them crashed on the first Pi broadcast
+     * (2026-09-03). Partial for the same reason — the Pi sends the two fields
+     * a shore watcher reads, not the whole config.
+     */
+    config?: Partial<AnchorWatchConfig>;
     timestamp: number;
 }
 
