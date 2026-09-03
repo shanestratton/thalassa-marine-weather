@@ -44,8 +44,16 @@ import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorP
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
-/** Vessel positions are broadcast every five seconds; three missed updates are stale. */
-export const SHORE_DATA_STALE_MS = 15_000;
+/**
+ * How long since the last position before the shore view stops calling it current.
+ *
+ * Sized to the SLOWEST vessel-side cadence, not the fastest. A vessel phone
+ * broadcasts every five seconds, but the Pi broadcasts every ten
+ * (anchorBroadcaster.BROADCAST_INTERVAL_MS), so the old 15s window was 1.5 Pi
+ * intervals — a single late packet crossed it and the banner cried offline
+ * between healthy updates. Three missed Pi intervals plus a margin.
+ */
+export const SHORE_DATA_STALE_MS = 35_000;
 
 // ------- TYPES -------
 
@@ -1155,11 +1163,27 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // ---- RENDER: SHORE MODE ----
     if (viewMode === 'shore') {
         const shoreDataAgeMs = shoreDataReceivedAt === null ? null : Math.max(0, Date.now() - shoreDataReceivedAt);
-        const shoreDataFresh =
-            syncState?.peerConnected === true &&
-            shoreData !== null &&
-            shoreDataAgeMs !== null &&
-            shoreDataAgeMs <= SHORE_DATA_STALE_MS;
+        // LIVENESS COMES FROM DATA ARRIVING, NOT FROM PRESENCE.
+        //
+        // This used to require syncState.peerConnected — Supabase presence,
+        // which a vessel PHONE joins the channel to establish. The Pi never
+        // joins the channel at all: it POSTs each position to the anchor-relay
+        // function, which broadcasts it. So with the Pi keeping the watch,
+        // peerConnected was false forever and the banner read "Vessel offline
+        // · showing last-known data from 8s ago" while positions arrived
+        // perfectly every ten seconds.
+        //
+        // A vessel that sent us a position seconds ago is online. That is the
+        // direct evidence; presence was only ever a proxy for it.
+        const vesselHeardRecently = shoreDataAgeMs !== null && shoreDataAgeMs <= SHORE_DATA_STALE_MS;
+        // Presence counts ONLY where presence exists. A vessel phone joins the
+        // channel, so it going away is real news and must still override fresh
+        // data. The Pi never joins at all, so it has no presence to lose —
+        // peerDisconnectedAt is the difference between "a peer left" and
+        // "there was never a peer", and reading the first as the second is
+        // what made every Pi-kept watch read as offline.
+        const peerDropped = syncState?.peerConnected !== true && !!syncState?.peerDisconnectedAt;
+        const shoreDataFresh = shoreData !== null && vesselHeardRecently && !peerDropped;
         const shoreDataAgeLabel =
             shoreDataAgeMs === null ? 'no update received' : `${Math.floor(shoreDataAgeMs / 1000)}s ago`;
         const shoreStatusLabel = shoreDataFresh
@@ -1170,7 +1194,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
               ? 'Last-known drag alarm'
               : 'Last-known data';
         const shoreStatusIsAlarm = shoreData?.isAlarm === true;
-        const shoreDisconnectedWithKnownData = syncState?.peerConnected !== true && shoreData !== null;
+        const shoreDisconnectedWithKnownData = shoreData !== null && peerDropped;
+        const shoreDataAgedOut = shoreData !== null && !vesselHeardRecently;
+        // One expression for "the link is lost", rather than the same two-part
+        // test repeated at four call sites where they could drift apart.
+        const shoreLinkLost =
+            shoreDisconnectedWithKnownData ||
+            shoreDataAgedOut ||
+            (shoreData === null && !!syncState?.peerDisconnectedAt);
 
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
@@ -1216,39 +1247,29 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 {!shoreDataFresh && (
                     <div
                         className={`shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 rounded-xl border ${
-                            shoreDisconnectedWithKnownData ||
-                            (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
-                                ? 'bg-red-500/8 border-red-500/25'
-                                : 'bg-amber-500/8 border-amber-500/25'
+                            shoreLinkLost ? 'bg-red-500/8 border-red-500/25' : 'bg-amber-500/8 border-amber-500/25'
                         }`}
                     >
                         <span
                             className={`w-2.5 h-2.5 rounded-full shrink-0 animate-pulse ${
-                                shoreDisconnectedWithKnownData ||
-                                (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
+                                shoreLinkLost
                                     ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
                                     : 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]'
                             }`}
                         />
                         <span
                             className={`text-sm font-bold flex-1 inline-flex items-center gap-1.5 ${
-                                shoreDisconnectedWithKnownData ||
-                                (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
-                                    ? 'text-red-400'
-                                    : 'text-amber-400'
+                                shoreLinkLost ? 'text-red-400' : 'text-amber-400'
                             }`}
                         >
-                            {(shoreDisconnectedWithKnownData ||
-                                (!syncState?.peerConnected && !!syncState?.peerDisconnectedAt)) && (
-                                <AlertTriangleIcon className="w-4 h-4" />
-                            )}
+                            {shoreLinkLost && <AlertTriangleIcon className="w-4 h-4" />}
                             <span>
                                 {shoreDisconnectedWithKnownData
                                     ? `Vessel offline · showing last-known data from ${shoreDataAgeLabel}`
-                                    : !syncState?.peerConnected && syncState?.peerDisconnectedAt
-                                      ? `Vessel connection lost · no current vessel data received`
-                                      : syncState?.peerConnected && shoreData
-                                        ? `Vessel data is stale · showing last-known update from ${shoreDataAgeLabel}`
+                                    : shoreDataAgedOut
+                                      ? `Vessel data is stale · showing last-known update from ${shoreDataAgeLabel}`
+                                      : syncState?.peerDisconnectedAt
+                                        ? 'Vessel connection lost · no current vessel data received'
                                         : 'Connecting to vessel · waiting for current data…'}
                             </span>
                         </span>
