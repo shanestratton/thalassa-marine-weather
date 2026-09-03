@@ -19,6 +19,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
+import { ShipsBellReference } from './gauges/ShipsBellReference';
 import { ShipsBellAlarmService, type BellAlarm } from '../../services/ShipsBellAlarmService';
 import { clockInZone, deviceTimeZone, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
 import { bellsAt, bellsSpoken, nextBellFrom, watchAt } from '../../utils/shipsBells';
@@ -1838,6 +1839,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     second={zoneClock.second}
                                     zoneLabel={zoneClock.label}
                                 />
+
+                                {/* The printed watch table, live. Placed right
+                                    under the face so "what was that bell?" is
+                                    answered without leaving the clock. */}
+                                <ShipsBellReference hour={zoneClock.hour} minute={zoneClock.minute} />
 
                                 <label className="flex items-center gap-2 px-1">
                                     <span className="text-xs font-black uppercase tracking-widest text-gray-400 shrink-0">

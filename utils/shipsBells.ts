@@ -56,21 +56,29 @@ export function watchAt(hour: number, minute: number): WatchPeriod {
 /**
  * Bells struck at the most recent half hour, 1–8.
  *
- * Zero has no meaning here — the top of a watch IS eight bells, struck for the
- * watch that just ended — so 00:00, 04:00 and so on return 8, not 0.
+ * Zero has no meaning here: the top of a watch is the LAST bell of the watch
+ * that just ended, so 00:00 and 04:00 return 8 rather than 0.
+ *
+ * How many that last bell is depends on the watch that ended, and this is
+ * where a naive implementation goes wrong. A four-hour watch ends on eight.
+ * A dog watch is two hours and ends on FOUR — so 18:00 is four bells, closing
+ * the first dog. The one exception is the last dog, which strikes EIGHT at
+ * 2000 to close the day's rotation despite being two hours long.
+ *
+ * This function used to return 8 at every boundary, so it called 18:00 eight
+ * bells. Caught by round-tripping the printed watch table against it
+ * (tests/ShipsBellTable.test.ts) rather than by reading it again.
  */
 export function bellsAt(hour: number, minute: number): number {
     const h = ((Math.floor(hour) % 24) + 24) % 24;
     const halfHours = h * 2 + (minute >= 30 ? 1 : 0);
     const watch = watchAt(h, minute);
     const elapsed = halfHours - watch.startHour * 2;
+    if (elapsed > 0) return elapsed;
 
-    // The last dog watch ends on EIGHT bells at 2000, not four: it closes the
-    // day's rotation. Its 18:00 boundary is still the eight bells of the
-    // first dog watch that just ended.
-    if (watch.name === 'Last Dog Watch' && elapsed === 0) return 8;
-    if (elapsed === 0) return 8;
-    return elapsed;
+    const index = WATCHES.findIndex((w) => w.name === watch.name);
+    const previous = WATCHES[(index - 1 + WATCHES.length) % WATCHES.length];
+    return previous.name === 'Last Dog Watch' ? 8 : previous.lengthHours * 2;
 }
 
 /** When the next bell falls: the next half hour, exactly. */
@@ -100,4 +108,49 @@ export function bellsSpoken(bells: number): string {
     const words = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
     const n = Math.max(1, Math.min(8, Math.floor(bells)));
     return `${words[n]} bell${n === 1 ? '' : 's'}`;
+}
+
+/** The watches in the order a day runs through them. */
+export const WATCH_ORDER: WatchName[] = WATCHES.map((w) => w.name);
+
+/** Short names for a table heading, where "Forenoon Watch" will not fit. */
+export const WATCH_SHORT: Record<WatchName, string> = {
+    'Middle Watch': 'Middle',
+    'Morning Watch': 'Morning',
+    'Forenoon Watch': 'Forenoon',
+    'Afternoon Watch': 'Afternoon',
+    'First Dog Watch': 'Dog 1st',
+    'Last Dog Watch': 'Dog Last',
+    'First Watch': 'First',
+};
+
+function clockLabel(totalMinutes: number): string {
+    // 24:00 rather than 00:00 for the First Watch's eight bells: it ends THIS
+    // day, and every printed bell table says 24:00 there.
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * When a given number of bells falls in a given watch — or null where that
+ * many bells is never struck in it.
+ *
+ * The dog watches are why this returns null at all. The first dog is two hours
+ * so it stops at four bells. The last dog, in the convention this clock
+ * strikes, goes 1, 2, 3 and then EIGHT at 2000 — nothing between. Printed
+ * tables show a competing merchant convention of 5, 6, 7, 8 for those same
+ * three times; both are real, and this one is the Royal Navy's, said to date
+ * from the Nore mutiny of 1797, whose signal was five bells in the last dog.
+ */
+export function bellTime(watch: WatchName, bells: number): string | null {
+    const w = WATCHES.find((x) => x.name === watch);
+    if (!w || bells < 1 || bells > 8) return null;
+    if (watch === 'Last Dog Watch') {
+        if (bells <= 3) return clockLabel(w.startHour * 60 + bells * 30);
+        if (bells === 8) return clockLabel(w.startHour * 60 + 120);
+        return null;
+    }
+    if (bells > w.lengthHours * 2) return null;
+    return clockLabel(w.startHour * 60 + bells * 30);
 }
