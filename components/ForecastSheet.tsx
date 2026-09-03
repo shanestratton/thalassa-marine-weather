@@ -145,7 +145,9 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                                 ref={closeButtonRef}
                                 aria-label="Close forecast sheet"
                                 onClick={requestClose}
-                                className="absolute top-4 right-4 z-50 p-2 bg-white/10 hover:bg-white/20 rounded-full text-gray-300 hover:text-white transition-colors"
+                                /* ModalSheet's close chrome: 44px, not the 36px a p-2 wrapper
+                                   around a 20px icon gives you. */
+                                className="absolute top-3 right-3 z-50 w-11 h-11 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-gray-300 hover:text-white transition-colors"
                             >
                                 <XIcon className="w-5 h-5" />
                             </button>

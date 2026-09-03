@@ -1,6 +1,6 @@
 import React from 'react';
 import { XIcon, CheckIcon } from './Icons';
-import { useFocusTrap } from '../hooks/useAccessibility';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 import { OverlayPortal } from './ui/OverlayPortal';
 

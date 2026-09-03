@@ -5,7 +5,9 @@ import type { MaintenanceCategory, MaintenanceTriggerType } from '../../../types
 
 export const CATEGORIES: { id: MaintenanceCategory; label: string; icon: string }[] = [
     { id: 'Engine', label: 'Engine', icon: '⚙️' },
-    { id: 'Safety', label: 'Safety', icon: '🔴' },
+    // A life buoy, not a red dot: the dot sat beside the red/amber/green status
+    // border and made every Safety task look overdue.
+    { id: 'Safety', label: 'Safety', icon: '🛟' },
     { id: 'Hull', label: 'Hull', icon: '🚢' },
     { id: 'Rigging', label: 'Rigging', icon: '⛵' },
     { id: 'Routine', label: 'Routine', icon: '📋' },

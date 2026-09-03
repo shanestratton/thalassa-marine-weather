@@ -42,6 +42,8 @@ import {
 import { SailPlanDiagram } from './gauges/SailPlanDiagram';
 import { SailPartsDiagram } from './gauges/SailPartsDiagram';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
+import { describeArc, polarToCart } from './gauges/gaugeGeometry';
+import { LightningBoltIcon } from '../Icons';
 import { triggerHaptic } from '../../utils/system';
 import { toast } from '../Toast';
 import { PageHeader } from '../ui/PageHeader';
@@ -93,7 +95,7 @@ interface SparklineProps {
     label?: string;
 }
 
-const Sparkline: React.FC<SparklineProps> = ({
+const SparklineComponent: React.FC<SparklineProps> = ({
     history,
     min,
     max,
@@ -107,7 +109,7 @@ const Sparkline: React.FC<SparklineProps> = ({
     if (history.length < 2) return <div style={{ width, height }} className="opacity-20" />;
 
     const range = max - min || 1;
-    const padX = showAxes ? 24 : 4;
+    const padX = showAxes ? 30 : 4;
     const padY = 4;
     const chartW = width - padX * 2;
     const chartH = height - padY * 2;
@@ -138,11 +140,11 @@ const Sparkline: React.FC<SparklineProps> = ({
 
             {showAxes && (
                 <>
-                    <text x={2} y={padY + 4} fill="rgba(255,255,255,0.3)" fontSize="7" fontFamily="system-ui">
+                    <text x={2} y={padY + 9} fill="rgba(255,255,255,0.6)" fontSize="11" fontFamily="system-ui">
                         {Math.round(max)}
                         {axisUnit}
                     </text>
-                    <text x={2} y={padY + chartH} fill="rgba(255,255,255,0.3)" fontSize="7" fontFamily="system-ui">
+                    <text x={2} y={padY + chartH} fill="rgba(255,255,255,0.6)" fontSize="11" fontFamily="system-ui">
                         {Math.round(min)}
                         {axisUnit}
                     </text>
@@ -151,6 +153,7 @@ const Sparkline: React.FC<SparklineProps> = ({
         </svg>
     );
 };
+const Sparkline = React.memo(SparklineComponent);
 
 // (Synthetic-history dummy generator removed — sparklines now stay
 //  empty when no real data has arrived. Sparkline component handles
@@ -195,7 +198,7 @@ function formatFix(lat: number | null, lon: number | null): string | null {
     return a === null || b === null ? null : `${a}  ${b}`;
 }
 
-const FlankMetric: React.FC<{
+const FlankMetricComponent: React.FC<{
     label: string;
     value: number | null;
     unit: string;
@@ -248,6 +251,7 @@ const FlankMetric: React.FC<{
         </div>
     );
 };
+const FlankMetric = React.memo(FlankMetricComponent);
 
 // ── Wind panel: which instrument owns the hero bezel ──────────────────────────
 /**
@@ -338,18 +342,12 @@ const HERO_START = 150;
 const HERO_END = 390;
 const HERO_SWEEP = HERO_END - HERO_START;
 
-function heroPolarToCart(cx: number, cy: number, r: number, deg: number) {
-    const rad = ((deg - 90) * Math.PI) / 180;
-    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-function heroDescribeArc(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-    const s = heroPolarToCart(cx, cy, r, startDeg);
-    const e = heroPolarToCart(cx, cy, r, endDeg);
-    const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${largeArc} 1 ${e.x} ${e.y}`;
-}
+/* Geometry comes from gaugeGeometry — the same helpers the barometer, the
+   compass and the rudder draw from. This face used to carry its own
+   byte-identical copy, which is how two dials end up disagreeing about where
+   "up" is after one of them is tweaked. */
 
-const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
+const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
     value,
     min,
     max,
@@ -392,7 +390,7 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
 
             {/* Background track arc */}
             <path
-                d={heroDescribeArc(HERO_CX, HERO_CY, HERO_R, HERO_START, HERO_END)}
+                d={describeArc(HERO_CX, HERO_CY, HERO_R, HERO_START, HERO_END)}
                 fill="none"
                 stroke="rgba(255,255,255,0.06)"
                 strokeWidth="10"
@@ -407,7 +405,7 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
                 return (
                     <path
                         key={i}
-                        d={heroDescribeArc(HERO_CX, HERO_CY, HERO_R, zStart, zEnd)}
+                        d={describeArc(HERO_CX, HERO_CY, HERO_R, zStart, zEnd)}
                         fill="none"
                         stroke={zone.color}
                         strokeWidth="10"
@@ -420,7 +418,7 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
             {/* Value fill arc */}
             {fraction > 0.005 && (
                 <path
-                    d={heroDescribeArc(HERO_CX, HERO_CY, HERO_R, HERO_START, needleAngle)}
+                    d={describeArc(HERO_CX, HERO_CY, HERO_R, HERO_START, needleAngle)}
                     fill="none"
                     stroke={accentColor}
                     strokeWidth="10"
@@ -437,8 +435,8 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
                     const angle = HERO_START + frac * HERO_SWEEP;
                     const outerR = HERO_R + 8;
                     const innerR = isMajor ? HERO_R + 2 : HERO_R + 5;
-                    const outer = heroPolarToCart(HERO_CX, HERO_CY, outerR, angle);
-                    const inner = heroPolarToCart(HERO_CX, HERO_CY, innerR, angle);
+                    const outer = polarToCart(HERO_CX, HERO_CY, outerR, angle);
+                    const inner = polarToCart(HERO_CX, HERO_CY, innerR, angle);
                     return (
                         <g key={val}>
                             <line
@@ -452,12 +450,12 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
                             />
                             {isMajor && (
                                 <text
-                                    x={heroPolarToCart(HERO_CX, HERO_CY, outerR + 9, angle).x}
-                                    y={heroPolarToCart(HERO_CX, HERO_CY, outerR + 9, angle).y}
+                                    x={polarToCart(HERO_CX, HERO_CY, outerR + 6, angle).x}
+                                    y={polarToCart(HERO_CX, HERO_CY, outerR + 6, angle).y}
                                     textAnchor="middle"
                                     dominantBaseline="central"
                                     fill="rgba(148,163,184,0.7)"
-                                    fontSize="8"
+                                    fontSize="11"
                                     fontWeight="600"
                                     fontFamily="system-ui, -apple-system, sans-serif"
                                 >
@@ -518,7 +516,7 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
                 y={HERO_CY + 55}
                 textAnchor="middle"
                 fill="rgba(148,163,184,0.85)"
-                fontSize="9"
+                fontSize="11"
                 fontWeight="700"
                 fontFamily="system-ui, -apple-system, sans-serif"
                 style={{ letterSpacing: '2px' }}
@@ -528,6 +526,7 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
         </svg>
     );
 };
+const HeroArcGauge = React.memo(HeroArcGaugeComponent);
 
 // ── Helper: track real-data history per metric ──
 function useMetricHistory(metric: TimestampedMetric): { history: number[]; max: number; min: number } {
@@ -570,13 +569,21 @@ const BARO_SEVERITY: Record<TendencySeverity, { pill: string; text: string }> = 
     warn: { pill: 'border-red-400/35 bg-red-500/12 text-red-300', text: 'text-red-300' },
 };
 
-const SectionPlate: React.FC<{ title: string }> = ({ title }) => (
+/* Hoisted so the cell-sized instruments are handed the SAME style object on
+   every tick — a fresh literal here defeats any memo below it. */
+const ROSE_CELL_STYLE: React.CSSProperties = { maxHeight: '19vh' };
+
+const SectionPlateComponent: React.FC<{ title: string }> = ({ title }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0" aria-hidden="true">
         <div className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
         <p className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">{title}</p>
         <div className="h-px flex-1 bg-linear-to-l from-transparent to-white/15" />
     </div>
 );
+/* The panel ticks once a second for the clock. Everything below re-renders
+   identically on that tick unless it is told not to — memo keeps the second
+   hand from redrawing every dial on the page. */
+const SectionPlate = React.memo(SectionPlateComponent);
 
 // ══════════════════════════════════════════════
 // THE GLASS PAGE
@@ -999,7 +1006,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
        warns about. */
     const renderWindInstrument = (id: WindHeroId, variant: 'hero' | 'cell') => {
         const roseClass = variant === 'hero' ? 'block h-full w-full' : 'mx-auto block h-auto w-full';
-        const roseStyle = variant === 'hero' ? undefined : { maxHeight: '19vh' };
+        const roseStyle = variant === 'hero' ? undefined : ROSE_CELL_STYLE;
 
         if (id === 'awa') {
             return (
@@ -1007,7 +1014,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     gaugeKey="glass-awa"
                     angle={roseApparentAngle}
                     speed={aws.value}
-                    unit="kn"
+                    unit="kts"
                     isLive={windAvailable && !windStale}
                     className={roseClass}
                     style={roseStyle}
@@ -1020,7 +1027,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     gaugeKey="glass-twa"
                     angle={roseTrueAngle}
                     speed={tws.value}
-                    unit="kn"
+                    unit="kts"
                     heading={heading.value}
                     isLive={windAvailable && !windStale}
                     className={roseClass}
@@ -1047,7 +1054,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         return variant === 'hero' ? (
             dial
         ) : (
-            <div className="mx-auto aspect-square w-full" style={{ maxHeight: '19vh' }}>
+            <div className="mx-auto aspect-square w-full" style={ROSE_CELL_STYLE}>
                 {dial}
             </div>
         );
@@ -1220,7 +1227,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         <FlankMetric
                                             label="SOG"
                                             value={sog.value}
-                                            unit="kn"
+                                            unit="kts"
                                             digits={1}
                                             tone="text-white"
                                         />
@@ -1590,7 +1597,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </p>
                                         <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
                                             {fmt(stw.value)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kt</span>
+                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
                                         </p>
                                     </div>
                                     <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
@@ -1599,7 +1606,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </p>
                                         <p className="text-xl font-black tabular-nums font-mono text-emerald-300">
                                             {sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> kt</span>
+                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
                                         </p>
                                     </div>
                                     <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
@@ -1627,7 +1634,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         Rolling Chart
                                     </p>
                                     <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/6 pt-1.5">
-                                        <span className="text-[10px]">🔋</span>
+                                        <LightningBoltIcon className="h-3.5 w-3.5 text-gray-400" />
                                         <span className="font-mono text-xs font-black tabular-nums text-white">
                                             {fmt(voltage.value)}
                                         </span>
@@ -1910,7 +1917,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
                                                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
                                                     {plan.band.band} · {Math.round(plan.off)}° off ·{' '}
-                                                    {fmt(recentGust, 0)} kn gusts (10 min)
+                                                    {fmt(recentGust, 0)} kts gusts (10 min)
                                                 </p>
                                                 <p className="mt-1 text-xl font-black text-white">
                                                     {reefDescribe(plan.row, plan.row.main === 'Down').m}
@@ -2026,17 +2033,26 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* Dot rail — one per section, current one lit. */}
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pr-0.5">
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col pr-0.5">
                         {sectionNames.map((name, index) => (
                             <button
                                 key={name}
                                 type="button"
                                 aria-label={`Jump to ${name}`}
                                 onClick={() => jumpToSection(index)}
-                                className={`w-2 h-2 rounded-full transition-all ${
-                                    index === activeSection ? 'bg-sky-400 scale-125' : 'bg-white/20'
-                                }`}
-                            />
+                                /* The dot is 8px; the button is not. A 44px-tall
+                                   target is what a wet thumb on a moving deck can
+                                   actually hit, and stacking them flush keeps the
+                                   rail narrow enough to stay off the instruments. */
+                                className="flex h-11 w-5 shrink-0 items-center justify-center"
+                            >
+                                <span
+                                    aria-hidden="true"
+                                    className={`h-2 w-2 rounded-full transition-all ${
+                                        index === activeSection ? 'bg-sky-400 scale-125' : 'bg-white/20'
+                                    }`}
+                                />
+                            </button>
                         ))}
                     </div>
                 </div>

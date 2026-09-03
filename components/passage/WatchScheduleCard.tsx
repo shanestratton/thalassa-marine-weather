@@ -74,6 +74,12 @@ const CREW_CHECKLIST_ITEMS = [
     { key: 'fatigue', icon: '😴', label: 'Fatigue management plan discussed' },
 ];
 
+/* One shape for the assignment lookup. Built in two places before this —
+   the reload path and the initial load — which is how two copies of the same
+   loop end up keyed differently. */
+const toAssignmentMap = (list: WatchAssignment[]): Map<number, WatchAssignment> =>
+    new Map(list.map((a) => [a.watch_index, a] as const));
+
 function isWatchSystem(value: string): value is WatchSystem {
     return WATCH_SYSTEM_OPTIONS.some((option) => option.value === value);
 }
@@ -288,9 +294,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         try {
             const list = await WatchAssignmentService.list(voyageId);
             if (!isOperationCurrent()) return;
-            const map = new Map<number, WatchAssignment>();
-            for (const a of list) map.set(a.watch_index, a);
-            setAssignments(map);
+            setAssignments(toAssignmentMap(list));
         } catch {
             /* non-critical */
         }
@@ -324,9 +328,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     assignmentLoadGenerationRef.current === loadGeneration &&
                     assignmentMutationRef.current === mutationAtLoadStart
                 ) {
-                    const map = new Map<number, WatchAssignment>();
-                    for (const a of list) map.set(a.watch_index, a);
-                    setAssignments(map);
+                    setAssignments(toAssignmentMap(list));
                 }
                 setCrew(myCrew);
                 setSkipperEmail(
@@ -766,7 +768,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         onChange={(event) => void handleWatchSystemChange(event.target.value)}
                         disabled={systemChanging}
                         aria-label="Watch system"
-                        className="min-w-0 flex-1 cursor-pointer touch-manipulation rounded-md border border-indigo-400/20 bg-slate-900/60 px-2.5 py-2 text-right text-xs font-bold text-indigo-200 outline-hidden transition-colors focus:border-indigo-300/60 disabled:cursor-wait disabled:opacity-50 scheme-dark"
+                        className="min-h-[44px] min-w-0 flex-1 cursor-pointer touch-manipulation rounded-md border border-indigo-400/20 bg-slate-900/60 px-2.5 py-2 text-right text-xs font-bold text-indigo-200 outline-hidden transition-colors focus:border-indigo-300/60 disabled:cursor-wait disabled:opacity-50 scheme-dark"
                     >
                         {WATCH_SYSTEM_OPTIONS.map((option) => {
                             const unavailable = effectiveCrewCount < option.minCrew;
@@ -821,7 +823,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         </button>
                         <div className="flex-1 min-w-0">
                             <p className="text-xs font-bold text-white">⏰ Pre-watch alarm</p>
-                            <p className="text-[10px] text-amber-200/70">
+                            <p className="text-[10px] text-amber-200">
                                 {alarmEnabled
                                     ? alarmCount > 0
                                         ? `${alarmCount} alarm${alarmCount > 1 ? 's' : ''} scheduled — fires ${alarmLeadMin} min before your watch`
@@ -834,7 +836,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                 value={alarmLeadMin}
                                 onChange={(e) => setAlarmLeadMin(parseInt(e.target.value, 10))}
                                 aria-label="Alarm lead time in minutes"
-                                className="shrink-0 bg-slate-900/60 border border-amber-500/20 rounded-md px-2 py-1 text-[11px] font-bold text-amber-200 outline-hidden focus:border-amber-500"
+                                className="min-h-[44px] shrink-0 bg-slate-900/60 border border-amber-500/20 rounded-md px-2 py-1 text-[11px] font-bold text-amber-200 outline-hidden focus:border-amber-500"
                             >
                                 {ALARM_LEAD_OPTIONS.map((m) => (
                                     <option key={m} value={m}>
@@ -901,7 +903,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                     onClick={() => setAssignSheetIndex(i)}
                                     disabled={!voyageId}
                                     aria-label={`Assign ${w.label} (${w.time})`}
-                                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
+                                    className={`min-h-[44px] w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
                                         isAssigned
                                             ? 'bg-indigo-500/15 border-indigo-500/30 hover:bg-indigo-500/20 active:scale-[0.98]'
                                             : 'bg-white/3 border-white/4 hover:bg-white/5 active:scale-[0.98]'

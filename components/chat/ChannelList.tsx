@@ -3,7 +3,7 @@
  * Parent channels expand/collapse to show nested sub-channels.
  * Sub-channel cards are indented and smaller.
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ChatChannel } from '../../services/ChatService';
 import { ChannelProposalModal } from './ChannelProposalModal';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
@@ -32,9 +32,9 @@ const NAME_OVERRIDES: Record<string, string> = {
 const getChannelIcon = (ch: { name: string; icon: string }) => ICON_OVERRIDES[ch.name] ?? ch.icon;
 const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.name;
 
+/* Chandlery and Marketplace are not listed: HIDDEN_CHANNEL_NAMES removes them
+   before this sort ever runs, so their priorities could never be read. */
 const CHANNEL_PRIORITY: Record<string, number> = {
-    Chandlery: 0,
-    Marketplace: 0,
     'Neighbourhood Watch': 1,
     'Find Crew': 2,
     General: 3,
@@ -121,25 +121,36 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     // into the ChandleryPage / LonelyHeartsPage views (openChannel
     // routes on channel name), so the pages stay code-complete but
     // unreachable until we flip the flag.
-    const topLevel = channels
-        .filter((ch) => !HIDDEN_CHANNEL_NAMES.has(ch.name) && !ch.parent_id && !(ch.is_private && ch.icon === '👥'))
-        .sort((a, b) => (CHANNEL_PRIORITY[a.name] ?? 99) - (CHANNEL_PRIORITY[b.name] ?? 99));
-
-    const subChannelMap = new Map<string, ChatChannel[]>();
-    channels
-        .filter((ch) => ch.parent_id)
-        .forEach((ch) => {
-            const subs = subChannelMap.get(ch.parent_id!) || [];
-            subs.push(ch);
-            subChannelMap.set(ch.parent_id!, subs);
-        });
-
-    // Top-level channels that can be parents (for proposal dropdown)
-    const parentOptions = topLevel.filter(
-        (ch) => ch.name !== 'Marketplace' && ch.name !== 'Chandlery' && ch.name !== 'Find Crew',
+    /* Memoised on `channels`: this list re-renders on every expand/collapse and
+       on every keystroke in the proposal form (its inputs are controlled from
+       props), and none of that changes the channel set. */
+    const topLevel = useMemo(
+        () =>
+            channels
+                .filter(
+                    (ch) => !HIDDEN_CHANNEL_NAMES.has(ch.name) && !ch.parent_id && !(ch.is_private && ch.icon === '👥'),
+                )
+                .sort((a, b) => (CHANNEL_PRIORITY[a.name] ?? 99) - (CHANNEL_PRIORITY[b.name] ?? 99)),
+        [channels],
     );
 
-    const renderChannelCard = (ch: ChatChannel, isSub: boolean, _index: number) => {
+    const subChannelMap = useMemo(() => {
+        const map = new Map<string, ChatChannel[]>();
+        channels
+            .filter((ch) => ch.parent_id)
+            .forEach((ch) => {
+                const subs = map.get(ch.parent_id!) || [];
+                subs.push(ch);
+                map.set(ch.parent_id!, subs);
+            });
+        return map;
+    }, [channels]);
+
+    // Top-level channels that can be parents (for proposal dropdown).
+    // Marketplace and Chandlery are already gone from topLevel — see above.
+    const parentOptions = useMemo(() => topLevel.filter((ch) => ch.name !== 'Find Crew'), [topLevel]);
+
+    const renderChannelCard = (ch: ChatChannel, isSub: boolean) => {
         const isPrivateLocked = ch.is_private && !memberChannelIds.has(ch.id) && !isAdmin;
         const subs = subChannelMap.get(ch.id) || [];
         const hasSubs = subs.length > 0;
@@ -147,20 +158,22 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
         return (
             <div key={ch.id}>
-                <div className={`flex items-center ${isSub ? 'pl-6' : ''}`}>
+                {/* The expand toggle is a SIBLING of the card, not a child of it:
+                    a <button> inside a <button> is invalid, WebKit rewrites the
+                    markup, and VoiceOver announces the pair as one control. */}
+                <div className={`flex items-center gap-1 ${isSub ? 'pl-6' : ''}`}>
                     {/* Sub-channel connector line */}
                     {isSub && <div className="absolute left-[2.4rem] w-3 h-px bg-white/6" />}
                     <button
                         onClick={() => handleChannelClick(ch)}
                         aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
-                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3 min-h-[48px]' : 'p-3.5 min-h-[56px]'} rounded-2xl transition-all duration-200 card-press stagger-item ${
+                        className={`flex-1 min-w-0 group flex items-center gap-3 ${isSub ? 'p-3 min-h-[48px]' : 'p-3.5 min-h-[56px]'} rounded-2xl transition-all duration-200 card-press stagger-item ${
                             isPrivateLocked
                                 ? 'bg-white/1 border border-white/4 opacity-70'
                                 : isSub
                                   ? 'bg-white/1.5 hover:bg-white/4 border border-white/2 hover:border-white/6'
                                   : 'bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8'
                         }`}
-                        style={undefined}
                     >
                         {/* Icon */}
                         <div
@@ -194,35 +207,35 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                             </p>
                         </div>
 
-                        {/* Expand arrow (for parents with subs) or chevron */}
-                        <div className="flex items-center gap-1">
-                            {!isSub && hasSubs && (
-                                <button
-                                    onClick={(e) => toggleExpand(ch.id, e)}
-                                    aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${getChannelName(ch)} sub-channels`}
-                                    aria-expanded={isExpanded}
-                                    className="w-8 h-8 rounded-full bg-white/4 hover:bg-white/8 flex items-center justify-center transition-all min-h-[44px] min-w-[44px]"
-                                >
-                                    <span
-                                        className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                                    >
-                                        ▼
-                                    </span>
-                                </button>
-                            )}
-                            <div className="w-6 h-6 rounded-full bg-white/3 group-hover:bg-white/6 flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                                <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">
-                                    {isPrivateLocked ? '🔒' : '›'}
-                                </span>
-                            </div>
+                        {/* Open chevron */}
+                        <div className="w-6 h-6 shrink-0 rounded-full bg-white/3 group-hover:bg-white/6 flex items-center justify-center transition-all group-hover:translate-x-0.5">
+                            <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">
+                                {isPrivateLocked ? '🔒' : '›'}
+                            </span>
                         </div>
                     </button>
+
+                    {/* Expand arrow — parents with sub-channels only */}
+                    {!isSub && hasSubs && (
+                        <button
+                            onClick={(e) => toggleExpand(ch.id, e)}
+                            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${getChannelName(ch)} sub-channels`}
+                            aria-expanded={isExpanded}
+                            className="shrink-0 min-h-[44px] min-w-[44px] rounded-full bg-white/4 hover:bg-white/8 flex items-center justify-center transition-all"
+                        >
+                            <span
+                                className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                            >
+                                ▼
+                            </span>
+                        </button>
+                    )}
                 </div>
 
                 {/* Sub-channels (indented, smaller) */}
                 {!isSub && isExpanded && subs.length > 0 && (
                     <div className="relative ml-4 mt-1 mb-1 space-y-1 border-l border-white/4 pl-0">
-                        {subs.map((sub, si) => renderChannelCard(sub, true, si))}
+                        {subs.map((sub) => renderChannelCard(sub, true))}
                     </div>
                 )}
             </div>
@@ -351,7 +364,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                     </p>
                 </div>
             ) : (
-                topLevel.map((ch, i) => renderChannelCard(ch, false, i))
+                topLevel.map((ch) => renderChannelCard(ch, false))
             )}
 
             {/* Proposal Modal */}

@@ -207,6 +207,23 @@ export const PlayIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+/* Pause, the partner to PlayIcon: a scrubber that stops mid-loop is paused,
+   not stopped, and the set had no glyph that said so. */
+export const PauseIcon = ({ className }: { className?: string }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        stroke="none"
+        className={className}
+    >
+        <rect x="6" y="4" width="4" height="16" rx="1" />
+        <rect x="14" y="4" width="4" height="16" rx="1" />
+    </svg>
+);
+
 export const StopIcon = ({ className }: { className?: string }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"

@@ -27,7 +27,8 @@ interface RetryCardProps {
 }
 
 export const RetryCard: React.FC<RetryCardProps> = ({
-    title = 'Something Went Wrong',
+    // Sentence case, matching its sibling LoadErrorState — same job, one voice.
+    title = 'Something went wrong',
     description = 'Check your connection and try again',
     onRetry,
     retrying = false,
@@ -41,12 +42,9 @@ export const RetryCard: React.FC<RetryCardProps> = ({
             <p className="text-sm font-bold text-white mb-1 text-center">{title}</p>
             <p className="text-xs text-white/50 text-center max-w-[240px] mb-5">{description}</p>
             {onRetry && (
-                <Button
-                    aria-label="Retry loading content"
-                    onClick={onRetry}
-                    disabled={retrying}
-                    className="text-white disabled:opacity-50"
-                >
+                /* No aria-label: the button's visible words are its name, and
+                   'Retry loading content' replaced them for screen readers. */
+                <Button onClick={onRetry} disabled={retrying} className="text-white disabled:opacity-50">
                     {retrying ? (
                         <>
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -67,7 +65,7 @@ export const RetryCard: React.FC<RetryCardProps> = ({
                                     d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"
                                 />
                             </svg>
-                            Try Again
+                            Try again
                         </>
                     )}
                 </Button>

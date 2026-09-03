@@ -5,9 +5,14 @@
  * entitlement. Choosing "Skipper" must never grant a subscription.
  */
 import React from 'react';
-import { CheckIcon } from '../Icons';
+import { AnchorIcon, CheckIcon, CompassIcon, EyeIcon } from '../Icons';
 
 export type OnboardingRole = 'skipper' | 'crew' | 'deckhand';
+
+/* CompassIcon takes a required rotation; a mate's compass points north. */
+const NorthCompassIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <CompassIcon className={className} rotation={0} />
+);
 
 interface RoleSelectionStepProps {
     selectedRole: OnboardingRole;
@@ -19,7 +24,10 @@ interface RoleSelectionStepProps {
 const ROLE_OPTIONS: {
     role: OnboardingRole;
     vesselType: 'sail' | 'power' | 'observer';
-    emoji: string;
+    /* An SVG from the app's own set, not an emoji: emoji ignore currentColor,
+       so the role accent below could never tint them, and they render as
+       Apple/Android artwork inside a stroked icon set. */
+    Icon: React.FC<{ className?: string }>;
     label: string;
     tagline: string;
     features: string[];
@@ -31,7 +39,7 @@ const ROLE_OPTIONS: {
     {
         role: 'skipper',
         vesselType: 'sail', // Will be refined in VesselDetailsStep (sail/power toggle)
-        emoji: '⚓',
+        Icon: AnchorIcon,
         label: 'Skipper',
         tagline: 'I own or skipper a vessel',
         features: ['Configure your vessel', 'Set crew and safety details', 'Choose offshore preferences'],
@@ -43,7 +51,7 @@ const ROLE_OPTIONS: {
     {
         role: 'crew',
         vesselType: 'observer',
-        emoji: '🧭',
+        Icon: NorthCompassIcon,
         label: 'First Mate',
         tagline: "I crew regularly on someone else's boat",
         features: ['Set your crew identity', 'Prepare to join shared passages', 'Choose weather preferences'],
@@ -55,7 +63,7 @@ const ROLE_OPTIONS: {
     {
         role: 'deckhand',
         vesselType: 'observer',
-        emoji: '👀',
+        Icon: EyeIcon,
         label: 'Deckhand',
         tagline: 'Just here for weather and community',
         features: ['Set weather preferences', 'Explore maps and forecasts', 'Add a vessel later'],
@@ -100,13 +108,13 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
                             }`}
                         >
                             <div className="flex items-start gap-4">
-                                {/* Emoji badge */}
+                                {/* Role badge */}
                                 <div
-                                    className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 transition-all ${
+                                    className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-all ${
                                         isSelected ? opt.bgColor : 'bg-white/6'
                                     }`}
                                 >
-                                    {opt.emoji}
+                                    <opt.Icon className={`w-6 h-6 ${isSelected ? opt.color : 'text-gray-400'}`} />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between mb-0.5">

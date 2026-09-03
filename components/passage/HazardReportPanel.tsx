@@ -27,6 +27,32 @@ import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+// Headline from the STRUCTURED advisory kind (2026-07-17 audit: the old
+// substring matching silently degraded when prose changed, and
+// first-caution-wins hid co-present cautions when collapsed). Prose
+// matching remains ONLY as a fallback for kind-less advisories.
+const KIND_HEADLINES: Record<string, string> = {
+    'no-data': 'Unverified depth on route',
+    'not-validated': 'Route NOT verified',
+    exhaustion: 'Route not fully verified',
+    'draft-clamp': 'Draft exceeds depth model',
+    'draft-assumed': 'Using a default draft',
+    'draft-implausible': 'Draft looks mis-scaled',
+    'caution-crossing': 'Route crosses a prohibited area',
+    'tide-constrained': 'Tide-constrained leg',
+    // Only ever the HEADLINE when the gebco-share advisory is CAUTION-grade
+    // (chart cells FAILED to load, or ≥30% of checks fell to the ~1.8 km
+    // NOAA ETOPO grid) — the collapsed header shows the first CAUTION, and a
+    // note-grade gebco-share never reaches here. "verified" was factually
+    // wrong for exactly that case (closing audit 2026-07-18): the depths
+    // are NOT chart-verified, they are coarse ocean bathymetry.
+    'gebco-share': 'Depths not chart-verified',
+    'lateral-clearance': 'Route grazes charted hazard',
+    'segment-check-failed': 'Thin-islet check did not run',
+    'chart-currency': 'Chart edition may be out of date',
+    'cell-load-failed': 'Chart cell failed to load',
+};
+
 function hazardIcon(type: RouteHazardReportEntry['hazardType']): string {
     switch (type) {
         case 'wreck':
@@ -107,31 +133,6 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
     // one thing the skipper can't see on the chart at all.
     const cautions = advisories.filter((a) => a.severity === 'caution');
     const hasCaution = cautions.length > 0;
-    // Headline from the STRUCTURED advisory kind (2026-07-17 audit: the old
-    // substring matching silently degraded when prose changed, and
-    // first-caution-wins hid co-present cautions when collapsed). Prose
-    // matching remains ONLY as a fallback for kind-less advisories.
-    const KIND_HEADLINES: Record<string, string> = {
-        'no-data': 'Unverified depth on route',
-        'not-validated': 'Route NOT verified',
-        exhaustion: 'Route not fully verified',
-        'draft-clamp': 'Draft exceeds depth model',
-        'draft-assumed': 'Using a default draft',
-        'draft-implausible': 'Draft looks mis-scaled',
-        'caution-crossing': 'Route crosses a prohibited area',
-        'tide-constrained': 'Tide-constrained leg',
-        // Only ever the HEADLINE when the gebco-share advisory is CAUTION-grade
-        // (chart cells FAILED to load, or ≥30% of checks fell to the ~1.8 km
-        // NOAA ETOPO grid) — the collapsed header shows the first CAUTION, and a
-        // note-grade gebco-share never reaches here. "verified" was factually
-        // wrong for exactly that case (closing audit 2026-07-18): the depths
-        // are NOT chart-verified, they are coarse ocean bathymetry.
-        'gebco-share': 'Depths not chart-verified',
-        'lateral-clearance': 'Route grazes charted hazard',
-        'segment-check-failed': 'Thin-islet check did not run',
-        'chart-currency': 'Chart edition may be out of date',
-        'cell-load-failed': 'Chart cell failed to load',
-    };
     const firstCaution = cautions[0];
     const baseHeadline = !firstCaution
         ? null
@@ -176,7 +177,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                 <div className="flex items-center gap-2">
                     <span className="text-base">{accent.icon}</span>
                     <div className="flex-1 min-w-0">
-                        <p className={`text-[12px] font-bold ${accent.title} leading-tight`}>{headline}</p>
+                        <p className={`text-sm font-bold ${accent.title} leading-tight`}>{headline}</p>
                         <p
                             className={`text-[12px] ${hasCaution ? 'text-red-300/80' : 'text-amber-300/70'} leading-tight`}
                         >

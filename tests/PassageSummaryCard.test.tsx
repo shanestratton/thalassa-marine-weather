@@ -135,7 +135,8 @@ describe('PassageSummaryCard route title', () => {
             />,
         );
 
-        expect(screen.getByText(/11\d\.\d nm/)).toBeInTheDocument();
+        // Distance now reads 'NM', the spelling used everywhere else in the app.
+        expect(screen.getByText(/11\d\.\d NM/)).toBeInTheDocument();
         expect(screen.getByText(/19h/)).toBeInTheDocument();
         expect(await screen.findByText('24kt')).toBeInTheDocument();
         expect(screen.getByText('2.4m')).toBeInTheDocument();

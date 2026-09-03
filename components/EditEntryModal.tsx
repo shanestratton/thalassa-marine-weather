@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShipLogEntry } from '../types';
-import { useFocusTrap } from '../hooks/useAccessibility';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal } from './ui/OverlayPortal';
 
 interface EditEntryModalProps {

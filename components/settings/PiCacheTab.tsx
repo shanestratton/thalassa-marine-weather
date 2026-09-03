@@ -410,8 +410,9 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                     <div>
                         <h3 className="text-white font-bold text-sm">Pi Cache Server</h3>
                         <p className="text-gray-300 text-xs mt-1 leading-relaxed">
-                            Got a Raspberry Pi on board? Flip the toggle and we&apos;ll find it. All your weather,
-                            tides, and charts will load instantly from the Pi — no internet needed.
+                            Got a Raspberry Pi on board? On the boat&apos;s WiFi it appears here — tap Pair when it
+                            does. All your weather, tides, and charts will load instantly from the Pi — no internet
+                            needed.
                         </p>
                     </div>
                 </div>
@@ -585,7 +586,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                 <button
                                     onClick={handleTest}
                                     disabled={visibleTesting}
-                                    className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 active:scale-[0.98] transition-all disabled:opacity-50"
+                                    className="min-h-[44px] w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 active:scale-[0.98] transition-all disabled:opacity-50"
                                 >
                                     {visibleTesting ? 'Testing...' : 'Test Data Fetch'}
                                 </button>
@@ -617,7 +618,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                 <div className="flex gap-2">
                                     <button
                                         onClick={handleScanAgain}
-                                        className="flex-1 py-2 rounded-xl bg-sky-500/20 text-sky-400 text-xs font-bold uppercase tracking-wider hover:bg-sky-500/30 active:scale-[0.98] transition-all"
+                                        className="min-h-[44px] flex-1 py-2 rounded-xl bg-sky-500/20 text-sky-400 text-xs font-bold uppercase tracking-wider hover:bg-sky-500/30 active:scale-[0.98] transition-all"
                                     >
                                         Scan Again
                                     </button>
@@ -627,14 +628,14 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                                 setShowInstall(true);
                                                 triggerHaptic('light');
                                             }}
-                                            className="flex-1 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider hover:bg-emerald-500/30 active:scale-[0.98] transition-all"
+                                            className="min-h-[44px] flex-1 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider hover:bg-emerald-500/30 active:scale-[0.98] transition-all"
                                         >
                                             Install on Pi
                                         </button>
                                     )}
                                     <button
                                         onClick={() => setShowAdvanced(true)}
-                                        className="px-4 py-2 rounded-xl bg-white/5 text-gray-400 text-xs font-bold uppercase tracking-wider hover:bg-white/10 active:scale-[0.98] transition-all"
+                                        className="min-h-[44px] px-4 py-2 rounded-xl bg-white/5 text-gray-400 text-xs font-bold uppercase tracking-wider hover:bg-white/10 active:scale-[0.98] transition-all"
                                     >
                                         Manual
                                     </button>
@@ -838,7 +839,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                         <button
                             onClick={handlePurge}
                             disabled={visiblePurging}
-                            className={`w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all ${
+                            className={`min-h-[44px] w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all ${
                                 visiblePurging
                                     ? 'bg-white/5 text-gray-500 cursor-wait'
                                     : 'bg-white/5 text-gray-400 hover:bg-white/10 active:scale-[0.98]'
@@ -902,9 +903,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                 </div>
                                 <div className="flex gap-3 items-start">
                                     <span className="text-emerald-400 font-bold text-sm shrink-0">2</span>
-                                    <p>
-                                        Flip the toggle above — if we find the cache already running, you&apos;re done
-                                    </p>
+                                    <p>Tap Scan above — if the cache is already running, you&apos;re done</p>
                                 </div>
                                 <div className="flex gap-3 items-start">
                                     <span className="text-emerald-400 font-bold text-sm shrink-0">3</span>
@@ -935,7 +934,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                 </div>
                                 <div className="flex gap-3 items-start">
                                     <span className="text-emerald-400 font-bold text-sm shrink-0">3</span>
-                                    <p>Flip the toggle above — we find the Pi and set everything up automatically</p>
+                                    <p>Tap Scan above — we find the Pi and set everything up automatically</p>
                                 </div>
                             </>
                         )}

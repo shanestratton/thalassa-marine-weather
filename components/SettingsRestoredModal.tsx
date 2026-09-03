@@ -15,7 +15,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { t } from '../theme';
 import { CheckIcon, XIcon, AnchorIcon, GaugeIcon, MapPinIcon, BellIcon, StarIcon, LifeBuoyIcon } from './Icons';
-import { useFocusTrap } from '../hooks/useAccessibility';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { RestoredSummary } from '../stores/settingsStore';
 import brandLockup from '../assets/brand/mark-simplified-dark.svg';
 import { TIER_INFO } from '../services/SubscriptionService';
