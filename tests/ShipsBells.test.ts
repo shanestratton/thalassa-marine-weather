@@ -30,15 +30,25 @@ describe("ship's bells", () => {
         expect(watchAt(20, 0).name).toBe('First Watch');
     });
 
-    it('ends the last dog watch on EIGHT bells, not four', () => {
-        // The mistake every naive implementation makes: the last dog watch
-        // closes the day's rotation, so 2000 is eight bells.
+    it('ends the FIRST dog on four bells and the LAST on eight', () => {
+        // This test used to assert eight bells at 18:00, commented "first dog
+        // watch ended" — my own mistake, encoded as a guard. A watch ends on
+        // as many bells as it has half hours: four hours is eight, and a dog
+        // watch is TWO hours, so the first dog ends on FOUR. Only the last dog
+        // breaks that, striking eight at 2000 to close the day's rotation.
+        //
+        // Caught 2026-09-04 by round-tripping the printed watch table against
+        // this function (tests/ShipsBellTable.test.ts) after Shane sent it —
+        // the table has First Dog / Four bells / 18:00 in black and white.
         expect(bellsAt(16, 30)).toBe(1);
         expect(bellsAt(17, 30)).toBe(3);
-        expect(bellsAt(18, 0)).toBe(8); // first dog watch ended
+        expect(bellsAt(18, 0)).toBe(4); // the first dog is two hours long
         expect(bellsAt(18, 30)).toBe(1);
         expect(bellsAt(19, 30)).toBe(3);
-        expect(bellsAt(20, 0)).toBe(8); // and so does the last
+        expect(bellsAt(20, 0)).toBe(8); // the last dog closes the day
+        // And the four-hour watches are unaffected.
+        expect(bellsAt(16, 0)).toBe(8);
+        expect(bellsAt(0, 0)).toBe(8);
     });
 
     it('names every watch across the whole day', () => {
