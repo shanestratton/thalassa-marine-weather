@@ -29,8 +29,7 @@ import { useUIStore } from '../stores/uiStore';
 import { triggerHaptic } from '../utils/system';
 import { convertLength } from '../utils/units';
 import { calculateDistance } from '../utils/navigationCalculations';
-import { supabase } from '../services/supabase';
-import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
+import { getMyCrew } from '../services/CrewService';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { GpsService, type GpsPosition } from '../services/GpsService';
@@ -52,48 +51,36 @@ import type { SubscriptionTier } from '../types/settings';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { vesselCrewAboard } from '../services/units';
 
-interface VesselHubProps {
-    onNavigate: (page: string) => void;
-    settings: Record<string, unknown>;
-    onSave: (updates: Record<string, unknown>) => void;
-}
-
-// ── Glassmorphism constants ──
-const GLASS = {
-    card: {
-        background: 'var(--vessel-card-bg, rgba(20, 25, 35, 0.6))',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08))',
-        borderRadius: '16px',
-    } as React.CSSProperties,
-    listContainer: {
-        background: 'var(--vessel-list-bg, rgba(20, 25, 35, 0.5))',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid var(--vessel-list-border, rgba(255, 255, 255, 0.06))',
-        borderRadius: '16px',
-        overflow: 'hidden' as const,
-    } as React.CSSProperties,
-};
-
-// Passage Planning is the doorway to the whole voyage workflow — readiness
-// cards, crew, watches, float plan, Cast Off — and as a plain office row it
-// disappeared into the list (Shane 2026-08-26: "make the passage planning
-// card more recognisable... maybe a bit of a hue around it"). Violet is the
-// planning identity everywhere else (the readiness group headers), so the
-// bezel matches the destination. Same treatment shape as the emerald safety
-// group below — a calm hue, not an alarm.
-const PASSAGE_PLANNING_GROUP = {
-    background:
-        'var(--vessel-passage-group-bg, linear-gradient(135deg, rgba(139, 92, 246, 0.16) 0%, rgba(76, 29, 149, 0.08) 48%, rgba(20, 25, 35, 0.08) 100%))',
-    backdropFilter: 'blur(16px)',
-    WebkitBackdropFilter: 'blur(16px)',
-    border: '1px solid var(--vessel-passage-group-border, rgba(167, 139, 250, 0.32))',
-    borderRadius: '16px',
-    overflow: 'hidden' as const,
-    boxShadow: '0 0 0 1px rgba(139, 92, 246, 0.07), 0 10px 26px rgba(109, 40, 217, 0.14)',
-} as React.CSSProperties;
+import { CONTOUR_BG, GLASS, PASSAGE_PLANNING_GROUP } from './vesselHub/glass';
+import { formatCoord, formatDuration, formatTimeSince, pressureTrendIndicator } from './vesselHub/format';
+import {
+    BookIcon,
+    BoxIcon,
+    ChartIcon,
+    ChatBubbleIcon,
+    ChecklistIcon,
+    ChevronRight,
+    ClipboardIcon,
+    CrewIcon,
+    DocShieldIcon,
+    GalleyIcon,
+    GpxIcon,
+    MapChartIcon,
+    MobIcon,
+    PenIcon,
+    ShieldIcon,
+    SignalIcon,
+    UserIcon,
+    WrenchIcon,
+} from './vesselHub/icons';
+import { BinderSubLabel, CollapsibleContent, ListDivider, OfficeRow } from './vesselHub/listRows';
+import { MetricChipStrip } from './vesselHub/MetricChip';
+import { SectionHeader } from './vesselHub/SectionHeader';
+import { SwingArc } from './vesselHub/SwingArc';
+import { type MetricChipData, type SkipperDeviceControlProps, type VesselHubProps } from './vesselHub/types';
+import { useGuardianTileState } from './vesselHub/useGuardianTileState';
+import { usePendingCrewInvites } from './vesselHub/usePendingCrewInvites';
+import { useTripLogActive } from './vesselHub/useTripLogActive';
 
 // The four pinned navigation-station controls are operational safety tools,
 // not ordinary shortcuts. Give the group a calm, visible emerald bezel so it
@@ -123,9 +110,6 @@ const ALERT_SAFETY_CONTROL_CARD = {
     boxShadow:
         'inset 0 1px 0 rgba(254, 202, 202, 0.20), 0 0 0 1px rgba(239, 68, 68, 0.14), 0 8px 22px rgba(239, 68, 68, 0.16)',
 } as React.CSSProperties;
-
-// ── Bathymetric contour background SVG ──
-const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cdefs%3E%3Cpattern id='c' patternUnits='userSpaceOnUse' width='100' height='100'%3E%3Cpath d='M50 10 C60 25,85 30,90 50 C95 70,75 85,50 90 C25 95,10 75,10 50 C10 25,30 5,50 10Z' fill='none' stroke='rgba(100,140,180,0.04)' stroke-width='0.5'/%3E%3Cpath d='M50 25 C55 35,70 38,75 50 C80 62,68 72,50 75 C32 78,22 65,22 50 C22 35,38 28,50 25Z' fill='none' stroke='rgba(100,140,180,0.03)' stroke-width='0.5'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='400' height='400' fill='url(%23c)'/%3E%3C/svg%3E")`;
 
 export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings }) => {
     // ── Vessel state ──
@@ -225,34 +209,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [destCoords, setDestCoords] = useState<{ lat: number; lon: number } | null>(null);
     const [routeNm, setRouteNm] = useState<number | null>(null);
 
-    // ── Trip-log state ──
-    // The hero band's "Underway" pill shouldn't fire just because a
-    // voyage row is marked status:active in the DB — that label means
-    // "actively logging right now". Subscribe to ShipLogService for
-    // live start/stop so a stale active voyage from a deleted route
-    // can't show "Underway" with the boat sitting at the dock.
-    const [tripLogActive, setTripLogActive] = useState<boolean>(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        let unsub: (() => void) | null = null;
-        (async () => {
-            try {
-                const { ShipLogService } = await import('../services/ShipLogService');
-                if (cancelled) return;
-                unsub = ShipLogService.onTrackingStateChange((tracking, paused) => {
-                    if (cancelled) return;
-                    setTripLogActive(tracking && !paused);
-                });
-            } catch {
-                /* ShipLogService unavailable — leave inactive */
-            }
-        })();
-        return () => {
-            cancelled = true;
-            if (unsub) unsub();
-        };
-    }, []);
+    const tripLogActive = useTripLogActive();
 
     useEffect(() => {
         // Refresh cached voyage on mount (cheap localStorage read).
@@ -397,34 +354,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         };
     }, []);
 
-    // ── Crew invite badge ──
-    const [pendingCrewInvites, setPendingCrewInvites] = useState(0);
-    useEffect(() => {
-        // Account A's count must disappear in the render cycle immediately
-        // after authStore switches to B; the async refresh may take a network
-        // round-trip.
-        setPendingCrewInvites(0);
-        if (!supabase || !authenticatedUserId) return;
-
-        let cancelled = false;
-        const scope = getAuthIdentityScope();
-        if (scope.userId !== authenticatedUserId) return;
-
-        void (async () => {
-            const { data } = await supabase.auth.getUser();
-            if (data.user?.id !== authenticatedUserId) return;
-            const count = await getPendingInviteCount();
-            if (!cancelled && isAuthIdentityScopeCurrent(scope)) {
-                setPendingCrewInvites(count);
-            }
-        })().catch(() => {
-            // Offline or temporarily unavailable: retain the safe empty badge.
-        });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [authenticatedUserId]);
+    const pendingCrewInvites = usePendingCrewInvites(authenticatedUserId);
 
     // ── Live tile state — guardian status, maintenance overdue ──
     // entriesToday + routeCount + trackCount removed 2026-05-17:
@@ -432,35 +362,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // deleted (duplicated the bottom-nav Log tab). Their fetch +
     // event-subscription logic moved to LogPage.tsx where the
     // counts now render as a status header above the voyage list.
-    const [guardianArmed, setGuardianArmed] = useState<boolean>(false);
-    const [guardianNearby, setGuardianNearby] = useState<number>(0);
-
-    useEffect(() => {
-        if (!FEATURE_VISIBILITY.guardian) {
-            setGuardianArmed(false);
-            setGuardianNearby(0);
-            return;
-        }
-        // Subscribe to Guardian for live armed-state + nearby-count.
-        let cancelled = false;
-        let unsub: (() => void) | null = null;
-        (async () => {
-            try {
-                const { GuardianService } = await import('../services/GuardianService');
-                unsub = GuardianService.subscribe((state) => {
-                    if (cancelled) return;
-                    setGuardianArmed(!!state.armed);
-                    setGuardianNearby(state.nearbyCount || 0);
-                });
-            } catch {
-                /* Guardian not available */
-            }
-        })();
-        return () => {
-            cancelled = true;
-            if (unsub) unsub();
-        };
-    }, []);
+    const { guardianArmed, guardianNearby } = useGuardianTileState();
 
     // ── Live counts for Boat Binder row badges ──
     // Maintenance overdue / Documents expiring / Equipment warranty.
@@ -1296,20 +1198,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 // ── Shared Components ──
 // ══════════════════════════════════════
 
-interface SkipperDeviceControlProps {
-    claim: SkipperClaim | null;
-    authenticatedUserId: string | null;
-    updateSettings: (patch: { skipperDevice?: SkipperClaim }) => void;
-    /**
-     * The active fleet vessel this device publishes for. The claim is what
-     * grants publishing authority, but authority alone never said WHICH boat
-     * it speaks for — with up to five in a fleet, "this device is publishing"
-     * is only half an answer. Shown here so the card is the single place that
-     * states both.
-     */
-    vesselName?: string;
-}
-
 export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     claim,
     authenticatedUserId,
@@ -1504,85 +1392,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     );
 };
 
-/** Collapsible section header with colored pip and chevron.
- *  Tap target: min-h-[44px] meets Apple HIG minimum so wet-handed
- *  taps on a heeled boat actually hit. The previous py-1 was ~24pt
- *  and missed half the time. */
-const SectionHeader: React.FC<{
-    color: string;
-    label: string;
-    id: string;
-    expanded: boolean;
-    onToggle: (id: string) => void;
-}> = ({ color, label, id, expanded, onToggle }) => {
-    const buttonRef = useRef<HTMLButtonElement>(null);
-    return (
-        <button
-            ref={buttonRef}
-            onClick={() => {
-                const wasExpanded = expanded;
-                triggerHaptic('light');
-                onToggle(id);
-                // When opening a section that sits low on the page (Account,
-                // Connect, etc.), the newly-revealed card otherwise lands
-                // behind the bottom tab bar. Snap the section so its bottom
-                // edge aligns with the scroll container's bottom — which
-                // already sits above the tab bar thanks to the wrapper's
-                // bottom padding. Wait 280 ms for the 250 ms collapse
-                // animation to finish so we scroll to the FINAL height.
-                if (!wasExpanded) {
-                    setTimeout(() => {
-                        const section = buttonRef.current?.parentElement;
-                        section?.scrollIntoView({ behavior: 'smooth', block: 'end', inline: 'nearest' });
-                    }, 280);
-                }
-            }}
-            className="w-full flex items-center gap-2.5 mb-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
-        >
-            <div className="w-1.5 h-4 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-xs font-black uppercase tracking-[0.2em] flex-1 text-left" style={{ color }}>
-                {label}
-            </span>
-            <svg
-                className="w-4 h-4 transition-transform duration-200"
-                style={{
-                    color,
-                    opacity: 0.6,
-                    transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                }}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-            >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-            </svg>
-        </button>
-    );
-};
-
 // ══════════════════════════════════════
 // ── NavStationHero — situational-awareness band ──
 // ══════════════════════════════════════
-
-/** Format a relative time like "2 min ago" / "just now" / "1 hr ago". */
-function formatTimeSince(ts: number | null): string {
-    if (!ts) return 'no fix';
-    const delta = Date.now() - ts;
-    if (delta < 30_000) return 'just now';
-    if (delta < 3_600_000) return `${Math.round(delta / 60_000)} min ago`;
-    if (delta < 86_400_000) return `${Math.round(delta / 3_600_000)} hr ago`;
-    return `${Math.round(delta / 86_400_000)} d ago`;
-}
-
-/** Format a coordinate as "27.4673°S 153.1234°E" (degrees + cardinal). */
-function formatCoord(lat: number, lon: number): string {
-    const latStr = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
-    const lonStr = `${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
-    return `${latStr}  ${lonStr}`;
-}
 
 /** Derive a one-word voyage state for the hero band.
  *  Distinct colors per state so two states never share a hue:
@@ -1636,188 +1448,6 @@ function deriveVoyageState(
 
     return { label: 'At Rest', color: '#9ca3af' };
 }
-
-/** Format a duration in milliseconds to a compact "5h 23m" / "23m" / "1d 4h". */
-function formatDuration(ms: number): string {
-    if (ms <= 0) return 'now';
-    const min = Math.floor(ms / 60_000);
-    if (min < 60) return `${min}m`;
-    const hrs = Math.floor(min / 60);
-    const remMin = min % 60;
-    if (hrs < 24) return remMin > 0 ? `${hrs}h ${remMin}m` : `${hrs}h`;
-    const days = Math.floor(hrs / 24);
-    const remHrs = hrs % 24;
-    return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
-}
-
-/** Map a pressure trend to an indicator (arrow + colour). */
-function pressureTrendIndicator(trend: 'rising' | 'falling' | 'steady' | null): {
-    arrow: string;
-    color: string;
-    label: string;
-} | null {
-    if (!trend || trend === 'steady') return null;
-    if (trend === 'rising') return { arrow: '↑', color: '#10b981', label: 'rising' };
-    return { arrow: '↓', color: '#f59e0b', label: 'falling' };
-}
-
-/** Metric chip data — single source of truth for what a chip renders.
- *  Either icon+value (wind, wave, temp, visibility) OR label+value
- *  (BAR ↑, TIDE ↓ — trend indicators with no numeric value). */
-interface MetricChipData {
-    key: string;
-    /** Optional leading SVG icon. ReactNode so callers can pass any
-     *  Icons-barrel component (WindIcon, WaveIcon, etc) sized to fit. */
-    icon?: React.ReactNode;
-    label?: string;
-    value: string;
-    unit?: string;
-    suffix?: string;
-    color?: string;
-    ariaLabel?: string;
-}
-
-/** Compact icon-and-metric chip used on the hero band's environmental
- *  strip. Tabular-num alignment + monospace so a row of chips reads
- *  like a row of instrument readouts. */
-const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix, color, ariaLabel }) => (
-    <span
-        className="inline-flex items-center gap-1 font-mono tabular-nums whitespace-nowrap text-[13px] leading-none"
-        style={color ? { color } : undefined}
-        aria-label={ariaLabel}
-        title={ariaLabel}
-    >
-        {icon && (
-            <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-white/70 [&_svg]:w-3.5 [&_svg]:h-3.5">
-                {icon}
-            </span>
-        )}
-        {label && <span className="text-[11px] uppercase tracking-wider text-white/60">{label}</span>}
-        {/* The VALUE is the datum the skipper is actually reading at a glance,
-            so it carries the size. Labels and units stay subordinate but sit at
-            11px rather than 10px — the project's own stated legibility floor. */}
-        <span className={color ? 'font-bold text-xl leading-none' : 'text-[17px] font-semibold text-white/90'}>
-            {value}
-        </span>
-        {unit && <span className="text-[11px] text-white/60">{unit}</span>}
-        {suffix && <span className="text-[11px] text-white/60 ml-0.5">{suffix}</span>}
-    </span>
-);
-
-/** A flex-wrap strip of MetricChips, distributed evenly across the
- *  row. Renders nothing when empty so we don't draw a hairline border
- *  for no payload. The optional top border slots in only when the
- *  row above isn't already drawing one (i.e. when SOG/COG isn't
- *  present).
- *
- *  Layout: `justify-between` on the parent spreads chips edge-to-edge
- *  across the available width — wind on the far left, tide on the
- *  far right — instead of clumping to the left as a left-justified
- *  row. When too many chips fit and they wrap, the second row
- *  distributes the same way. */
-const MetricChipStrip: React.FC<{ chips: MetricChipData[]; showTopBorder?: boolean }> = ({ chips, showTopBorder }) => {
-    if (chips.length === 0) return null;
-    return (
-        <div
-            className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 pt-1 pb-2 ${
-                showTopBorder ? 'border-t border-white/6' : ''
-            }`}
-        >
-            {chips.map((chip) => (
-                <MetricChip {...chip} key={chip.key} />
-            ))}
-        </div>
-    );
-};
-
-/** Anchor swing arc — circular SVG showing the alarm radius AND
- *  the vessel's actual position relative to the anchor point.
- *
- *  Pass 4 had a static "swing radius circle". Pass 5 plots the
- *  vessel dot at its real bearing/offset — so a skipper glancing
- *  at the hero band can see "I'm at 35m to the south-east, my
- *  alarm is at 50m". The arc speaks the same language as a real
- *  electronic anchor display.
- *
- *  - Center cross   = anchor point
- *  - Outer dashed   = alarm radius (pre-set swing)
- *  - Inner faint    = ½ alarm radius reference
- *  - Vessel dot     = current position (bearing + offset)
- *  - Track line     = anchor → vessel (visual indicator of drift)
- *  - On alarm: whole arc pulses red. */
-const SwingArc: React.FC<{
-    radiusM: number;
-    offsetM: number;
-    bearingDeg: number;
-    alarm: boolean;
-}> = ({ radiusM, offsetM, bearingDeg, alarm }) => {
-    const size = 44;
-    const cx = size / 2;
-    const cy = size / 2;
-    const ringR = size / 2 - 3;
-    const color = alarm ? '#ef4444' : '#22d3ee';
-
-    // Plot vessel: bearing 0° = north (top of arc). Map polar
-    // (bearing, ratio) → cartesian. Clamp ratio just past 1 so a
-    // dragging boat visibly sits beyond the alarm ring.
-    const safeRadius = Math.max(radiusM, 1);
-    const ratio = Math.min(offsetM / safeRadius, 1.05);
-    const r = ringR * ratio;
-    const angleRad = ((bearingDeg - 90) * Math.PI) / 180;
-    const vx = cx + r * Math.cos(angleRad);
-    const vy = cy + r * Math.sin(angleRad);
-
-    return (
-        <div className="relative shrink-0" style={{ width: size, height: size }}>
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                {/* Alarm boundary ring (dashed) */}
-                <circle
-                    cx={cx}
-                    cy={cy}
-                    r={ringR}
-                    fill="none"
-                    stroke={color}
-                    strokeOpacity={0.45}
-                    strokeWidth={1.25}
-                    strokeDasharray="2 3"
-                />
-                {/* Inner reference ring at ½ alarm radius */}
-                <circle
-                    cx={cx}
-                    cy={cy}
-                    r={ringR * 0.5}
-                    fill="none"
-                    stroke={color}
-                    strokeOpacity={0.22}
-                    strokeWidth={1}
-                />
-                {/* Anchor — center cross */}
-                <line x1={cx - 2.5} y1={cy} x2={cx + 2.5} y2={cy} stroke={color} strokeOpacity={0.7} strokeWidth={1} />
-                <line x1={cx} y1={cy - 2.5} x2={cx} y2={cy + 2.5} stroke={color} strokeOpacity={0.7} strokeWidth={1} />
-                {/* Track line from anchor to vessel */}
-                {offsetM > 1 && (
-                    <line x1={cx} y1={cy} x2={vx} y2={vy} stroke={color} strokeOpacity={0.4} strokeWidth={0.8} />
-                )}
-                {/* Vessel dot — actual offset position */}
-                <circle cx={vx} cy={vy} r={2.5} fill={color} />
-            </svg>
-            <div
-                className="absolute inset-0 flex items-end justify-center pointer-events-none"
-                style={{ paddingBottom: 1 }}
-            >
-                <span className="text-[9px] font-mono font-bold leading-none tabular-nums" style={{ color }}>
-                    {Math.round(radiusM)}m
-                </span>
-            </div>
-            {alarm && (
-                <div
-                    className="absolute inset-0 rounded-full pointer-events-none"
-                    style={{ animation: 'pulse 1s infinite', boxShadow: '0 0 12px rgba(239,68,68,0.5)' }}
-                />
-            )}
-        </div>
-    );
-};
 
 const NavStationHero: React.FC<{
     vesselName: string;
@@ -2274,272 +1904,3 @@ const NavStationHero: React.FC<{
         </div>
     );
 };
-
-/** Animated collapsible content wrapper */
-const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }> = ({ open, children }) => (
-    <div
-        style={{
-            display: 'grid',
-            gridTemplateRows: open ? '1fr' : '0fr',
-            transition: 'grid-template-rows 0.25s ease',
-        }}
-    >
-        <div style={{ overflow: 'hidden' }}>{children}</div>
-    </div>
-);
-
-/** Divider between list rows */
-const ListDivider: React.FC = () => <div className="mx-4" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }} />;
-
-/**
- * BinderSubLabel — small uppercase label used inside the Boat
- * Binder collapsible to divide its 9 rows into three logical
- * subgroups (Passage / Inventory & Stores / Reference). Sits
- * between two listContainer cards. Smaller and quieter than a
- * SectionHeader — it's a sub-heading, not a toggle. Slate tone so
- * it doesn't compete with the cyan section header above it.
- */
-const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="px-1 pt-3 pb-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{children}</span>
-    </div>
-);
-
-/** Ship's Office list row.
- *  When `badgeUrgent` is true, the badge renders red (overdue / needs
- *  immediate action). Default amber (informational pending count). */
-const OfficeRow: React.FC<{
-    icon: React.ReactNode;
-    label: string;
-    status: string;
-    statusColor: string;
-    onClick: () => void;
-    disabled?: boolean;
-    badge?: number;
-    badgeUrgent?: boolean;
-}> = ({ icon, label, status, statusColor, onClick, disabled, badge, badgeUrgent }) => (
-    <button
-        aria-label={label}
-        onClick={onClick}
-        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all active:scale-[0.98] ${
-            disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3'
-        }`}
-    >
-        <div className="p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
-            {icon}
-        </div>
-        <span className="flex-1 text-[13px] font-bold text-white tracking-wide">{label}</span>
-        {badge !== undefined && (
-            <span
-                className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${
-                    badgeUrgent ? 'bg-red-500/30 text-red-300 animate-pulse' : 'bg-amber-500/30 text-amber-300'
-                }`}
-            >
-                {badge}
-            </span>
-        )}
-        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: statusColor }}>
-            {status}
-        </span>
-        <ChevronRight />
-    </button>
-);
-
-// ══════════════════════════════════════
-// ── Icons (16x16) ──
-// ══════════════════════════════════════
-
-const ChevronRight: React.FC = () => (
-    <svg
-        className="w-3.5 h-3.5 text-gray-500 ml-1"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-    >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-    </svg>
-);
-
-const ShieldIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
-        />
-    </svg>
-);
-
-const SignalIcon: React.FC<{ color?: string }> = ({ color = 'currentColor' }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
-        />
-    </svg>
-);
-
-// BookIcon removed 2026-05-17 (Log Book tile cleanup) — reinstated
-// 2026-07-08 for the Skipper's Reference row in the Boat Binder.
-const BookIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-        />
-    </svg>
-);
-
-const MobIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <circle cx="12" cy="12" r="9" />
-        <circle cx="12" cy="12" r="4.5" />
-        <circle cx="12" cy="12" r="1.5" fill={color} />
-    </svg>
-);
-
-const ChecklistIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-    </svg>
-);
-
-// Diary / pen-and-paper glyph — restored 2026-05-17 when Diary
-// got its own card in the new "Sharing" section under Watch Status.
-// Drawn at w-5 h-5 (slightly larger than the OfficeRow w-4) because
-// the Sharing tiles match the Watch Status full-card treatment.
-const PenIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"
-        />
-    </svg>
-);
-
-const BoxIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
-        />
-    </svg>
-);
-
-const WrenchIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M11.42 15.17l-5.3 5.3a1.5 1.5 0 01-2.12 0l-.36-.36a1.5 1.5 0 010-2.12l5.3-5.3m2.1-2.1l4.24-4.24a3 3 0 014.24 0l.36.36a3 3 0 010 4.24l-4.24 4.24m-6.36-6.36l6.36 6.36"
-        />
-    </svg>
-);
-
-// Pot/cooking icon — used for the Galley tile in the Inventory &
-// Stores subgroup. Drawn as a simple cooking pot with two handles
-// and a steam wisp; reads as "cook / meal planning" at the small
-// 16-px tile size.
-const GalleyIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M5 11h14M5 11v7a2 2 0 002 2h10a2 2 0 002-2v-7M3 11h2M19 11h2"
-        />
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 7c0-1 0.5-2 1.5-2s1.5 1 1.5 2-0.5 2 0 3M14 5c0-1 0.5-2 1.5-2s1.5 1 1.5 2-0.5 2 0 3"
-        />
-    </svg>
-);
-
-const ChartIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-1.5L12 12l3 1.5 3-3V6"
-        />
-    </svg>
-);
-
-const ClipboardIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"
-        />
-    </svg>
-);
-
-const DocShieldIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
-        />
-    </svg>
-);
-
-const CrewIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
-        />
-    </svg>
-);
-
-const MapChartIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"
-        />
-    </svg>
-);
-
-const GpxIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-        />
-    </svg>
-);
-
-const ChatBubbleIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5} aria-hidden="true">
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-        />
-    </svg>
-);
-
-const UserIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-        />
-    </svg>
-);
