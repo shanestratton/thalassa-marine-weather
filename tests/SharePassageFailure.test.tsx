@@ -60,7 +60,8 @@ describe('passage share failure recovery', () => {
 
         const alert = await screen.findByRole('alert');
         expect(alert).toHaveTextContent('Nothing has been marked as sent');
-        const fallback = screen.getByLabelText('Selectable manual fallback');
+        // Label reworded 2026-09-03: the old one named the mechanism, not the task.
+        const fallback = screen.getByLabelText('Passage brief text — copy and send it yourself');
         expect((fallback as HTMLTextAreaElement).value).toContain('Manly');
 
         fireEvent.click(screen.getByRole('button', { name: 'Retry share' }));
@@ -79,6 +80,6 @@ describe('passage share failure recovery', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Copy fallback text' }));
 
         expect(await screen.findByText(/select the text above and copy it manually/i)).toBeInTheDocument();
-        expect(screen.getByLabelText('Selectable manual fallback')).toHaveAttribute('readonly');
+        expect(screen.getByLabelText('Passage brief text — copy and send it yourself')).toHaveAttribute('readonly');
     });
 });

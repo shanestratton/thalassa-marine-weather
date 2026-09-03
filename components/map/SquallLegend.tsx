@@ -61,10 +61,10 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
         statusLabel = 'Loading…';
     } else if (ageMin > 30) {
         dotClass = 'bg-red-400';
-        statusLabel = ageMin >= 60 ? `${Math.floor(ageMin / 60)}h ${ageMin % 60}m` : `${ageMin}m`;
+        statusLabel = ageMin >= 60 ? `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago` : `${ageMin}m ago`;
     } else if (ageMin > 5) {
         dotClass = 'bg-amber-400';
-        statusLabel = `${ageMin}m`;
+        statusLabel = `${ageMin}m ago`;
     }
 
     // Positioning is owned by MapHub's bottom-left legend stack so this
