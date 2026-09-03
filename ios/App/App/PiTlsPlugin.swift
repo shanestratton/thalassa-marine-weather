@@ -82,9 +82,31 @@ public class PiTlsPlugin: CAPPlugin {
         // is not going to. Kept short so discovery sweeps stay responsive.
         config.timeoutIntervalForRequest = 30
         config.waitsForConnectivity = false
-        // Never let a captive-portal proxy or a cellular route see boat-LAN
-        // traffic: this is a link-local conversation and nothing else.
-        config.allowsCellularAccess = false
+        // Cellular and VPN routes are ALLOWED on a pinned session, and must be.
+        //
+        // This used to be `allowsCellularAccess = false`, on the reasoning that
+        // "this is a link-local conversation and nothing else". That is not
+        // true of this app: PiCacheService's host ladder falls back to the
+        // punter's tailnet, where the Pi serves the identical certificate on
+        // its 100.x address — the pin is key-equality, not hostname, so the
+        // trust model does not change with the network. The flag therefore
+        // forbade exactly the path the service is built to use.
+        //
+        // It failed silently and confusingly: with Tailscale up, iOS reports
+        // the tunnel's path as cellular-backed, so URLSession refused the
+        // request instantly with NSURLErrorNotConnectedToInternet — "The
+        // Internet connection appears to be offline." — WITHOUT SENDING A
+        // PACKET. Measured 2026-09-03: Shane's phone on Wi-Fi with Tailscale
+        // connected, the Pi answering this Mac on both addresses, and zero
+        // requests from the phone in the Pi's log over thirty minutes.
+        //
+        // Nothing is given up. A pinned session only completes against a peer
+        // holding the pinned key, so a captive portal or a cellular proxy
+        // cannot read it or stand in for the Pi — the pin, not the interface,
+        // is what makes this safe. The unpinned pairing path above keeps the
+        // restriction, because there it IS link-local by definition and there
+        // is no pin yet to protect the exchange.
+        config.allowsCellularAccess = true
         config.urlCache = nil
 
         let delegate = PinnedTrustDelegate(pinnedSpki: pin)

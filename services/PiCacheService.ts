@@ -491,6 +491,20 @@ class PiCacheServiceImpl {
         return `https://${host}:${this.config.port}`;
     }
 
+    /**
+     * The tailnet address, whether or not the health ladder has switched to it.
+     *
+     * getBaseUrl() only returns this once checkHealth has flipped _useRemote,
+     * and that runs on a poll backing off to five minutes. A caller that is
+     * ashore RIGHT NOW needs to be able to try the off-boat address itself
+     * rather than wait for a background poll to agree with it.
+     */
+    getRemoteBaseUrl(): string | null {
+        const host = this.remoteHost;
+        if (!host) return null;
+        return `https://${host}:${this.config.port}`;
+    }
+
     /** Is the Pi Cache enabled AND reachable right now? */
     isAvailable(): boolean {
         return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable;

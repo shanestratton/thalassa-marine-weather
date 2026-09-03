@@ -17,12 +17,14 @@ const getStatus = vi.fn();
 const getBaseUrl = vi.fn();
 const pinnedPiRequest = vi.fn();
 const ping = vi.fn();
+const getRemoteBaseUrl = vi.fn();
 
 vi.mock('../services/PiCacheService', () => ({
     piCache: {
         getStatus: () => getStatus(),
         getBaseUrl: () => getBaseUrl(),
         ping: () => ping(),
+        getRemoteBaseUrl: () => getRemoteBaseUrl(),
     },
 }));
 vi.mock('../services/PiPairingService', () => ({
@@ -40,6 +42,7 @@ describe('probePiWatchCapability', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         ping.mockResolvedValue({});
+        getRemoteBaseUrl.mockReturnValue('https://100.86.90.84:3001');
         getBaseUrl.mockReturnValue('https://192.168.1.180:3001');
         pinnedPiRequest.mockResolvedValue({
             status: 200,
@@ -142,15 +145,44 @@ describe('probePiWatchCapability', () => {
         expect(cap.reason).toBe('Signal K cannot see the vessel right now');
     });
 
-    it('keeps the first failure’s reason when the ladder changes nothing', async () => {
+    it('keeps the first failure’s reason when there is no other address to try', async () => {
         getBaseUrl.mockReturnValue('https://192.168.1.180:3001');
+        // No tailnet address configured: the LAN host is the only candidate,
+        // so asking it twice would be pointless.
+        getRemoteBaseUrl.mockReturnValue(null);
         pinnedPiRequest.mockRejectedValue(new Error('The Internet connection appears to be offline.'));
 
         const cap = await probePiWatchCapability();
 
         expect(cap.capable).toBe(false);
-        expect(cap.reason).toContain('Could not reach the Pi');
+        // Plain English, not iOS's. "The Internet connection appears to be
+        // offline" sent Shane looking at his internet, which was fine — the
+        // phone simply had no route to the boat network.
+        expect(cap.reason).toContain('cannot reach the boat network');
+        expect(cap.reason).toContain('Tailscale');
         // Same address after the ladder — asking it twice would be pointless.
         expect(pinnedPiRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('tries the tailnet address even when the health ladder never switched to it', async () => {
+        // _useRemote only flips when checkHealth's OWN remote probe succeeded.
+        // A phone whose health tick failed at both addresses is left pointing
+        // at the boat LAN — so without this it never asks the one address that
+        // would have worked, which is the case for a skipper already ashore.
+        getBaseUrl.mockReturnValue('https://192.168.1.180:3001');
+        getRemoteBaseUrl.mockReturnValue('https://100.86.90.84:3001');
+        pinnedPiRequest.mockRejectedValueOnce(new Error('The Internet connection appears to be offline.'));
+        pinnedPiRequest.mockResolvedValue({
+            status: 200,
+            data: JSON.stringify({ capable: true, paired: true, hasFix: true, reason: null }),
+        });
+
+        const cap = await probePiWatchCapability();
+
+        expect(pinnedPiRequest).toHaveBeenCalledTimes(2);
+        expect(pinnedPiRequest.mock.calls[1][0]).toMatchObject({
+            url: 'https://100.86.90.84:3001/api/anchor/capability',
+        });
+        expect(cap.capable).toBe(true);
     });
 });
