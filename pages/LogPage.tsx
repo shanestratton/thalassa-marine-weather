@@ -8,18 +8,15 @@
  * This file is ONLY responsible for JSX layout.
  */
 
-import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
 import { triggerHaptic } from '../utils/system';
 
 const log = createLogger('LogPage');
-import { PlayIcon, StopIcon, MapPinIcon, MapIcon, DownloadIcon, ShareIcon } from '../components/Icons';
 import { TraceReportModal } from '../components/map/TraceReportModal';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
-import { SlideToAction } from '../components/ui/SlideToAction';
 import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
 import {
     clearCastOffHandoff,
@@ -28,19 +25,15 @@ import {
     subscribeCastOffHandoff,
     updateCastOffHandoff,
 } from '../services/castOffHandoff';
-import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
 import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
-import { LiveMiniMap } from '../components/LiveMiniMap';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
 import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
-import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../hooks/useGpsHealth';
+import { useGpsHealth, gpsHealthMessage } from '../hooks/useGpsHealth';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { PageHeader } from '../components/ui/PageHeader';
-import { OverlayPortal } from '../components/ui/OverlayPortal';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
 import { useLogPageState } from '../hooks/useLogPageState';
@@ -68,7 +61,7 @@ import { requestTracerOpen } from '../services/deepLink';
 import { useUIStore } from '../stores/uiStore';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import { excludeSuggestedRoutes } from '../utils/voyageStats';
-import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
+import { VoyageCard } from './log/LogSubComponents';
 import { formatEndpointCoordinates } from './log/useEndpointNames';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -79,104 +72,45 @@ import { ShareSheet } from './log/ShareSheet';
 import { ShareFormSheet } from './log/ShareFormSheet';
 import { StatsSheet } from './log/StatsSheet';
 import { publishFollowedRoute, clearFollowedRoute } from '../services/shiplog/publishFollowedRoute';
-import {
-    getAuthIdentityScope,
-    isAuthIdentityScopeCurrent,
-    subscribeAuthIdentityScope,
-    type AuthIdentityScope,
-} from '../services/authIdentityScope';
-import type { RouteCoordinate } from '../utils/routeCoordinates';
+import { isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
+
 import {
-    tracedRouteDirectUseBlockReason,
-    tracedRouteFollowGeometry,
-    localTraceLinkByVoyageId,
-    savedTraceFollowBlockReason,
-    tripIdentityByTraceId,
-} from '../services/traceDirectUseGate';
-import { orderSavedRouteRows } from '../services/savedRouteOrder';
-import { ordinalLegLabel } from '../services/routeTracer';
-import { SavedRoutePassageHeading } from '../components/routes/SavedRouteRows';
-
-const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
-const FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS = 10_000;
-const TRACE_ROUTE_USE_BLOCK_PREFIX = 'TRACE_ROUTE_USE_BLOCKED:';
-const SYSTEM_LOG_ENDPOINT_NAMES = new Set(['Voyage Start', 'Voyage End', 'Latest Position']);
-
-type TrackingStartFailure = {
-    kind: 'permission' | 'services-off' | 'no-provider' | 'no-fix';
-    title: string;
-    detail: string;
-    actionable: boolean;
-};
-
-/** A human-entered waypoint wins; recorder placeholders do not name a place. */
-function meaningfulLogEndpointName(entry: Pick<ShipLogEntry, 'waypointName'> | undefined): string | null {
-    const name = entry?.waypointName?.trim();
-    return name && !SYSTEM_LOG_ENDPOINT_NAMES.has(name) ? name : null;
-}
-
-/** Do not trap the cast-off sheet behind an unbounded marine-data request.
- *  Late fulfilments are consumed but ignored, so they cannot resurrect a
- *  selection after the UI has unlocked. */
-function withFollowRouteLoadDeadline<T>(promise: Promise<T>): Promise<T | null> {
-    return new Promise<T | null>((resolve, reject) => {
-        let settled = false;
-        const timer = window.setTimeout(() => {
-            settled = true;
-            resolve(null);
-        }, FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS);
-        promise.then(
-            (value) => {
-                if (settled) return;
-                settled = true;
-                window.clearTimeout(timer);
-                resolve(value);
-            },
-            (error) => {
-                if (settled) return;
-                settled = true;
-                window.clearTimeout(timer);
-                reject(error);
-            },
-        );
-    });
-}
-
-// Inline icons not in Icons.tsx
-const PlusIcon = ({ className }: { className?: string }) => (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-    </svg>
-);
-
-const StatsIcon = ({ className }: { className?: string }) => (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-        />
-    </svg>
-);
-
-const ExportIcon = ({ className }: { className?: string }) => (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-        />
-    </svg>
-);
-
-/** Stable empty list so memo(VoyageCard) / memo(LiveMiniMap) see one identity. */
-const NO_ENTRIES: ShipLogEntry[] = [];
-
-const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
-const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+    NO_ENTRIES,
+    NO_FOLLOWED_ROUTE,
+    TRACE_ROUTE_USE_BLOCK_PREFIX,
+    type FollowSheetChoice,
+    type TrackingStartFailure,
+} from './log/logPageTypes';
+import {
+    getIdentitySnapshot,
+    meaningfulLogEndpointName,
+    subscribeIdentitySnapshot,
+    withFollowRouteLoadDeadline,
+} from './log/logPageHelpers';
+import {
+    buildFollowPromptRows,
+    buildFollowSheetChoices,
+    deriveCurrentFix,
+    deriveEntriesByVoyage,
+    deriveLiveStats,
+    derivePlannedRouteLinkIds,
+    derivePlannedVoyageIds,
+} from './log/logPageDerive';
+import { ArchivedVoyagesSection } from './log/ArchivedVoyagesSection';
+import { CastOffHandoffNotices } from './log/CastOffHandoffNotices';
+import { FollowBlockNoticeCard } from './log/FollowBlockNoticeCard';
+import { FollowRoutePromptSheet } from './log/FollowRoutePromptSheet';
+import { LiveVoyageCard } from './log/LiveVoyageCard';
+import { LogPageHeader } from './log/LogPageHeader';
+import { LogStatsFullscreen } from './log/LogStatsFullscreen';
+import { PersonalRecordsStrip } from './log/PersonalRecordsStrip';
+import { PropulsionNudge } from './log/PropulsionNudge';
+import { StartTrackingFooter } from './log/StartTrackingFooter';
+import { TrackingFooterControls } from './log/TrackingFooterControls';
+import { VoyageListEmptyState, VoyageListSkeleton } from './log/VoyageListPlaceholders';
+import { VoyageTotalsTiles } from './log/VoyageTotalsTiles';
 
 /**
  * ANSWER-keyed guards for the cast-off "Following a route?" sheet — MODULE
@@ -476,51 +410,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  flipped rows under the skipper's thumb (hardening 2026-08-01). Each
      *  row carries the follow gate's verdict: null = pickable, a string =
      *  shown disabled with that reason. */
-    const [followPromptChoices, setFollowPromptChoices] = React.useState<
-        (ReturnType<typeof collapseReversedRoutes<VoyageSummary>>[number] & {
-            savedRouteId: string | null;
-            blockReason: string | null;
-            /** Trip grouping, so this sheet can wear the Plan page's layout —
-             *  passages first with their legs beneath. Absent on a day sail. */
-            tripId?: string;
-            legOrdinal?: number;
-            tripName?: string;
-            legName?: string;
-        })[]
-    >([]);
-    /**
-     * The sheet's running order: passages first with their legs beneath, day
-     * sails after, newest group first — the same arithmetic the Plan page and
-     * Passage Planning use, from services/savedRouteOrder.
-     *
-     * A heading is emitted when a group's first leg appears. Legs whose trip
-     * has no name resolved were already demoted to standalone upstream, so a
-     * dog-leg arrow can never sit under nothing.
-     */
-    const followPromptRows = React.useMemo(() => {
-        const ordered = orderSavedRouteRows(
-            followPromptChoices.map((choice) => ({
-                choice,
-                kind: choice.tripName ? ('leg' as const) : ('standalone' as const),
-                groupKey: choice.tripId ?? choice.summary.voyageId,
-                legOrdinal: choice.legOrdinal,
-                stamp: Date.parse(choice.summary.startedAt) || 0,
-            })),
-        );
-        const rows: Array<
-            | { type: 'passage'; key: string; name: string }
-            | { type: 'choice'; key: string; row: (typeof ordered)[number] }
-        > = [];
-        let openGroup: string | null = null;
-        for (const row of ordered) {
-            if (row.kind === 'leg' && row.groupKey !== openGroup) {
-                rows.push({ type: 'passage', key: `passage:${row.groupKey}`, name: row.choice.tripName as string });
-            }
-            openGroup = row.groupKey;
-            rows.push({ type: 'choice', key: row.choice.summary.voyageId, row });
-        }
-        return rows;
-    }, [followPromptChoices]);
+    const [followPromptChoices, setFollowPromptChoices] = React.useState<FollowSheetChoice[]>([]);
+    const followPromptRows = React.useMemo(() => buildFollowPromptRows(followPromptChoices), [followPromptChoices]);
 
     const followSelectionGenerationRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
@@ -580,22 +471,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         () => (state.summaries ?? []).filter((s) => s.isPlannedRoute && s.voyageId),
         [state.summaries],
     );
-    // The Log is the factual record of where the boat has actually been.
-    // Keep saved plans resident in the raw state — cast-off choices, followed
-    // route geometry and planned-vs-sailed overlays still need them — but do
-    // not present them as completed voyages. Check both summary classification
-    // and entry source so offline-only plans (not yet in the summary RPC) are
-    // excluded too.
-    const plannedVoyageIds = React.useMemo(() => {
-        const ids = new Set<string>();
-        for (const summary of state.summaries ?? []) {
-            if (summary.isPlannedRoute && summary.voyageId) ids.add(summary.voyageId);
-        }
-        for (const entry of state.entries) {
-            if (entry.source === 'planned_route' && entry.voyageId) ids.add(entry.voyageId);
-        }
-        return ids;
-    }, [state.entries, state.summaries]);
+    const plannedVoyageIds = React.useMemo(
+        () => derivePlannedVoyageIds(state.entries, state.summaries),
+        [state.entries, state.summaries],
+    );
     const loggedVoyages = React.useMemo(
         () => listVoyages.filter((summary) => !summary.isPlannedRoute && !plannedVoyageIds.has(summary.voyageId)),
         [listVoyages, plannedVoyageIds],
@@ -649,18 +528,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // viewport, not a tracker. The map follows the track after that.
     }, []);
 
-    const currentFix = React.useMemo(() => {
-        const vid = state.currentVoyageId;
-        if (!vid) return null;
-        for (let i = state.entries.length - 1; i >= 0; i--) {
-            const e = state.entries[i];
-            if (e.voyageId !== vid) continue;
-            if (!e.latitude || !e.longitude) continue;
-            if (e.latitude === 0 && e.longitude === 0) continue;
-            return { lat: e.latitude, lon: e.longitude };
-        }
-        return null;
-    }, [state.entries, state.currentVoyageId]);
+    const currentFix = React.useMemo(
+        () => deriveCurrentFix(state.entries, state.currentVoyageId),
+        [state.entries, state.currentVoyageId],
+    );
 
     // One row per passage — the ⇄ reverse of a saved route is a separate
     // voyage, so the picker was listing every passage twice. Pure + tested in
@@ -674,15 +545,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
     /** voyageId → savedRouteId, read off the resident plan entries (the link
      *  lives on entries, not summaries). */
-    const plannedRouteLinkIds = React.useMemo(() => {
-        const byVoyage = new Map<string, string>();
-        for (const entry of state.entries) {
-            if (!entry.voyageId || byVoyage.has(entry.voyageId)) continue;
-            const sid = entry.savedRouteId;
-            if (typeof sid === 'string' && sid.length > 0) byVoyage.set(entry.voyageId, sid);
-        }
-        return byVoyage;
-    }, [state.entries]);
+    const plannedRouteLinkIds = React.useMemo(() => derivePlannedRouteLinkIds(state.entries), [state.entries]);
 
     /**
      * EVERY planned route reaches the sheet; ones the follow gate refuses
@@ -701,26 +564,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * plannedRouteId mirror. An ordinary plan (no trace link) has no gate to
      * fail and is always pickable.
      */
-    const followSheetChoices = React.useMemo(() => {
-        const traceLinks = localTraceLinkByVoyageId();
-        /* The sheet's rows are VoyageSummary, which carries no trip or leg
-           identity — which is why this list was flat while the Plan page showed
-           the same routes grouped. The trace store knows, and the row already
-           resolves to a trace id, so the grouping costs one lookup and no
-           guesswork (Shane 2026-08-30). */
-        const trips = tripIdentityByTraceId();
-        return plannedChoices.map((choice) => {
-            const vid = choice.summary.voyageId;
-            const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
-            const trip = sid ? trips.get(sid) : undefined;
-            return {
-                ...choice,
-                savedRouteId: sid ?? null,
-                blockReason: sid ? savedTraceFollowBlockReason(sid) : null,
-                ...(trip ?? {}),
-            };
-        });
-    }, [plannedChoices, plannedRouteLinkIds]);
+    const followSheetChoices = React.useMemo(
+        () => buildFollowSheetChoices(plannedChoices, plannedRouteLinkIds),
+        [plannedChoices, plannedRouteLinkIds],
+    );
 
     /**
      * Take a blocked row to the one screen that can clear its block.
@@ -1680,53 +1527,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // Live-recording card stats — memoised so the 1 Hz poll doesn't re-filter
     // and re-sort the whole active voyage in render, and so memo(LiveMiniMap)
     // sees the same `entries` array until the entries actually change.
-    const liveStats = React.useMemo(() => {
-        const activeEntries = currentVoyageId ? entries.filter((e) => e.voyageId === currentVoyageId) : NO_ENTRIES;
-        let dist = 0;
-        let first: ShipLogEntry | undefined;
-        let firstMs = Infinity;
-        let lastMs = -Infinity;
-        let speedSum = 0;
-        let speedN = 0;
-        for (const e of activeEntries) {
-            const d = e.cumulativeDistanceNM || 0;
-            if (d > dist) dist = d;
-            const t = new Date(e.timestamp).getTime();
-            if (Number.isFinite(t)) {
-                if (t < firstMs) {
-                    firstMs = t;
-                    first = e;
-                }
-                if (t > lastMs) lastMs = t;
-            }
-            if (e.speedKts && e.speedKts > 0) {
-                speedSum += e.speedKts;
-                speedN++;
-            }
-        }
-        const durationMs = Number.isFinite(firstMs) && Number.isFinite(lastMs) ? lastMs - firstMs : 0;
-        return {
-            activeEntries,
-            first,
-            dist,
-            durationHrs: Math.floor(durationMs / 3600000),
-            durationMins: Math.floor((durationMs % 3600000) / 60000),
-            liveAvgSpeed: speedN > 0 ? speedSum / speedN : 0,
-        };
-    }, [entries, currentVoyageId]);
+    const liveStats = React.useMemo(() => deriveLiveStats(entries, currentVoyageId), [entries, currentVoyageId]);
 
     // Voyage list — one pass over entries instead of one filter per card, and
     // id-taking callbacks so memo(VoyageCard) actually gets to skip renders.
-    const entriesByVoyage = React.useMemo(() => {
-        const m = new Map<string, ShipLogEntry[]>();
-        for (const e of entries) {
-            if (!e.voyageId) continue;
-            const arr = m.get(e.voyageId);
-            if (arr) arr.push(e);
-            else m.set(e.voyageId, [e]);
-        }
-        return m;
-    }, [entries]);
+    const entriesByVoyage = React.useMemo(() => deriveEntriesByVoyage(entries), [entries]);
     const handleSelectVoyage = useCallback(
         (voyageId: string) => {
             void loadVoyageEntries(voyageId);
@@ -1879,207 +1684,29 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden">
             {/* Fullscreen Statistics View */}
             {showStats ? (
-                <div className="flex flex-col h-full">
-                    <div className="flex items-center justify-between p-4 border-b border-white/10">
-                        <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
-                        <button
-                            aria-label="Close statistics"
-                            onClick={() => dispatch({ type: 'SHOW_STATS', show: false })}
-                            className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                        >
-                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M6 18L18 6M6 6l12 12"
-                                />
-                            </svg>
-                        </button>
-                    </div>
-                    <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col justify-center md:max-w-3xl md:mx-auto">
-                        {(() => {
-                            // All-Voyages aggregate excludes suggested/
-                            // planned routes (source='planned_route') so
-                            // they don't inflate distance / speed / entry
-                            // totals. A single selected voyage shows its
-                            // own entries verbatim (the user explicitly
-                            // drilled into it). 2026-05-20.
-                            const scopedEntries = scopedStatsEntries;
-
-                            let scopedDistance = 0;
-                            if (selectedVoyageId) {
-                                // Single voyage: max cumulative distance
-                                for (const e of scopedEntries) {
-                                    const d = e.cumulativeDistanceNM || 0;
-                                    if (d > scopedDistance) scopedDistance = d;
-                                }
-                            } else {
-                                // All voyages: sum each voyage's max cumulative distance
-                                const voyageMap = new Map<string, number>();
-                                scopedEntries.forEach((e) => {
-                                    const vid = e.voyageId || 'default';
-                                    const current = voyageMap.get(vid) || 0;
-                                    voyageMap.set(vid, Math.max(current, e.cumulativeDistanceNM || 0));
-                                });
-                                voyageMap.forEach((d) => {
-                                    scopedDistance += d;
-                                });
-                            }
-
-                            const speedEntries = scopedEntries.filter((e) => e.speedKts && e.speedKts > 0);
-                            const scopedAvgSpeed =
-                                speedEntries.length > 0
-                                    ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
-                                    : 0;
-                            return (
-                                <div className="grid grid-cols-3 gap-3 mb-4">
-                                    <StatBox label="Distance" value={`${(scopedDistance ?? 0).toFixed(1)} NM`} />
-                                    <StatBox label="Avg Speed" value={`${(scopedAvgSpeed ?? 0).toFixed(1)} kts`} />
-                                    <StatBox label="Entries" value={scopedEntries.length} />
-                                </div>
-                            );
-                        })()}
-                        <VoyageStatsPanel entries={scopedStatsEntries} />
-                    </div>
-                </div>
+                <LogStatsFullscreen
+                    dispatch={dispatch}
+                    scopedStatsEntries={scopedStatsEntries}
+                    selectedVoyageId={selectedVoyageId}
+                />
             ) : (
                 <div className="flex flex-col h-full">
                     {/* ── Header ── */}
-                    <PageHeader
-                        title="Ship's Log"
-                        subtitle={
-                            isTracking ? (
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span
-                                        className={`w-1.5 h-1.5 rounded-full ${
-                                            gpsStatus === 'locked'
-                                                ? 'bg-emerald-400 animate-pulse'
-                                                : gpsStatus === 'stale'
-                                                  ? 'bg-amber-400 animate-pulse'
-                                                  : 'bg-red-500 animate-pulse'
-                                        }`}
-                                    />
-                                    <span
-                                        className={`text-xs font-bold uppercase tracking-widest ${
-                                            gpsStatus === 'locked'
-                                                ? 'text-emerald-400'
-                                                : gpsStatus === 'stale'
-                                                  ? 'text-amber-300'
-                                                  : 'text-red-400'
-                                        }`}
-                                    >
-                                        {gpsStatus === 'locked' && hasRecordedFix ? 'Recording' : gpsHeadline}
-                                    </span>
-                                </div>
-                            ) : (
-                                'GPS Voyage Recorder'
-                            )
-                        }
+                    <LogPageHeader
+                        isTracking={isTracking}
+                        gpsStatus={gpsStatus}
+                        hasRecordedFix={hasRecordedFix}
+                        gpsHeadline={gpsHeadline}
                         onBack={onBack}
-                        action={
-                            <div className="relative">
-                                <button
-                                    ref={overflowTriggerRef}
-                                    aria-label="Open menu"
-                                    aria-haspopup="menu"
-                                    aria-expanded={showMenu}
-                                    aria-controls={showMenu ? overflowMenuId : undefined}
-                                    onClick={() => setShowMenu(!showMenu)}
-                                    className="flex min-h-[44px] min-w-[44px] items-center justify-center p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                >
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                                        <circle cx="10" cy="4" r="1.5" />
-                                        <circle cx="10" cy="10" r="1.5" />
-                                        <circle cx="10" cy="16" r="1.5" />
-                                    </svg>
-                                </button>
-                                {/* Overflow Menu */}
-                                {showMenu && (
-                                    <>
-                                        <div
-                                            role="presentation"
-                                            aria-hidden="true"
-                                            className="fixed inset-0 z-40"
-                                            onClick={closeOverflowMenu}
-                                        />
-                                        <div
-                                            ref={overflowMenuRef}
-                                            id={overflowMenuId}
-                                            role="menu"
-                                            aria-label="Log actions"
-                                            className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
-                                        >
-                                            {/* Rapid Mode + Precision Mode toggles were removed
-                                                from this menu 2026-05-17. Precision Mode is now
-                                                always-on whenever tracking is active (the
-                                                canonical "hi-fi 2 Hz + live decimation" pipeline),
-                                                so the toggle was just visual noise. Rapid Mode is
-                                                preserved in the service for potential future
-                                                paywall gating but no longer surfaced in the UI —
-                                                "having two tracking modes, one of which works"
-                                                was the wrong story. The handler hooks
-                                                (handleToggleRapidMode, handleTogglePrecisionMode)
-                                                stay in the hook in case we re-expose them as a
-                                                Skipper-tier gate. */}
-                                            {/* Diary kebab item REMOVED 2026-05-17 — Diary now
-                                                has its own prominent full-card tile in the new
-                                                Vessel-tab → Sharing section (paired with
-                                                Scuttlebutt). The kebab was the right rescue
-                                                home when Diary was otherwise orphaned, but for
-                                                the "share your voyage" conversion story it
-                                                deserves real presence, not menu-burial. */}
-                                            <MenuBtn
-                                                icon={<StatsIcon className="w-4 h-4" />}
-                                                label="Statistics"
-                                                onClick={() => {
-                                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' });
-                                                    setShowMenu(false);
-                                                }}
-                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
-                                            />
-                                            <MenuBtn
-                                                icon={<MapIcon className="w-4 h-4" />}
-                                                label="Track Map"
-                                                onClick={() => {
-                                                    dispatch({ type: 'SHOW_TRACK_MAP', show: true });
-                                                    setShowMenu(false);
-                                                }}
-                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
-                                            />
-                                            <MenuBtn
-                                                icon={<ExportIcon className="w-4 h-4" />}
-                                                label="Export"
-                                                onClick={() => {
-                                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' });
-                                                    setShowMenu(false);
-                                                }}
-                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
-                                            />
-                                            {FEATURE_VISIBILITY.communityTrackSharing && (
-                                                <MenuBtn
-                                                    icon={<DownloadIcon className="w-4 h-4" />}
-                                                    label="Import"
-                                                    onClick={() => {
-                                                        dispatch({ type: 'SET_ACTION_SHEET', sheet: 'import' });
-                                                        setShowMenu(false);
-                                                    }}
-                                                />
-                                            )}
-                                            <MenuBtn
-                                                icon={<ShareIcon className="w-4 h-4" />}
-                                                label="Share"
-                                                onClick={() => {
-                                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' });
-                                                    setShowMenu(false);
-                                                }}
-                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
-                                            />
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        }
+                        overflowTriggerRef={overflowTriggerRef}
+                        overflowMenuRef={overflowMenuRef}
+                        overflowMenuId={overflowMenuId}
+                        showMenu={showMenu}
+                        setShowMenu={setShowMenu}
+                        closeOverflowMenu={closeOverflowMenu}
+                        dispatch={dispatch}
+                        loggedVoyages={loggedVoyages}
+                        loggedEntries={loggedEntries}
                     />
 
                     {/* The trickle's single-publisher veto, said out loud. It
@@ -2096,170 +1723,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         cards below, with suggested/planned routes excluded
                         (2026-05-20) so aspirational routes don't inflate
                         the distance / time / voyage totals. */}
-                    {(() => {
-                        // Aggregated server-side from voyage SUMMARIES (accurate
-                        // across the whole history, no points loaded). voyageStats
-                        // already excludes suggested/planned routes.
-                        const totalNmRaw = voyageStats.totalNm;
-                        const totalMs = voyageStats.totalMs;
-                        const totalHrs = Math.round((totalMs / (1000 * 60 * 60)) * 10) / 10;
-                        const atSeaDays = Math.round(totalHrs / 24);
-                        const atSeaValue = totalHrs < 24 ? totalHrs.toString() : atSeaDays.toString();
-                        // Singular where it is singular: "1 days" read as a typo on the skipper's own log.
-                        const atSeaUnit =
-                            totalHrs < 24 ? (totalHrs === 1 ? 'hr' : 'hrs') : atSeaDays === 1 ? 'day' : 'days';
-                        return (
-                            <div className="shrink-0 px-4 pb-3">
-                                <div className="grid grid-cols-3 gap-2.5">
-                                    {/* ── NM Sailed ── */}
-                                    <div className="relative rounded-2xl overflow-hidden border border-sky-500/15 bg-linear-to-br from-sky-500/10 via-sky-500/4 to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(56,189,248,0.15)]">
-                                        {/* Soft top-edge highlight */}
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-linear-to-r from-transparent via-sky-400/40 to-transparent" />
-                                        {/* Compass-needle icon, top-right */}
-                                        <svg
-                                            className="absolute top-2.5 right-2.5 w-4 h-4 text-sky-400/40"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.8}
-                                            aria-hidden="true"
-                                        >
-                                            <circle cx="12" cy="12" r="9" />
-                                            <path
-                                                d="M14.5 9.5L11 13l-1.5-1.5L13 8z"
-                                                fill="currentColor"
-                                                stroke="none"
-                                            />
-                                            <path
-                                                d="M9.5 14.5L13 11l1.5 1.5L11 16z"
-                                                fill="currentColor"
-                                                stroke="none"
-                                                opacity="0.4"
-                                            />
-                                        </svg>
-                                        <div className="text-[10px] font-bold text-sky-300/70 uppercase tracking-widest mb-2">
-                                            Distance
-                                        </div>
-                                        <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-black text-white tabular-nums leading-none">
-                                                {totalNmRaw.toFixed(1)}
-                                            </span>
-                                            <span className="text-[11px] font-bold text-sky-300/60 uppercase tracking-wider">
-                                                nm
-                                            </span>
-                                        </div>
-                                    </div>
-                                    {/* ── At Sea ── */}
-                                    <div className="relative rounded-2xl overflow-hidden border border-emerald-500/15 bg-linear-to-br from-emerald-500/10 via-emerald-500/4 to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(16,185,129,0.15)]">
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-linear-to-r from-transparent via-emerald-400/40 to-transparent" />
-                                        {/* Clock-like circle-with-tick icon */}
-                                        <svg
-                                            className="absolute top-2.5 right-2.5 w-4 h-4 text-emerald-400/40"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.8}
-                                            aria-hidden="true"
-                                        >
-                                            <circle cx="12" cy="12" r="9" />
-                                            <path d="M12 7v5l3 2" strokeLinecap="round" />
-                                        </svg>
-                                        {/* "Sea Time", not "Time at Sea" — the longer label ran
-                                            into the clock icon (Shane 2026-08-13). */}
-                                        <div className="text-[10px] font-bold text-emerald-300/70 uppercase tracking-widest mb-2">
-                                            Sea Time
-                                        </div>
-                                        <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-black text-white tabular-nums leading-none">
-                                                {atSeaValue}
-                                            </span>
-                                            <span className="text-[11px] font-bold text-emerald-300/60 uppercase tracking-wider">
-                                                {atSeaUnit}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    {/* ── Voyages ── */}
-                                    <div className="relative rounded-2xl overflow-hidden border border-amber-500/15 bg-linear-to-br from-amber-500/10 via-amber-500/4 to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(245,158,11,0.15)]">
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-linear-to-r from-transparent via-amber-400/40 to-transparent" />
-                                        {/* Anchor icon */}
-                                        <svg
-                                            className="absolute top-2.5 right-2.5 w-4 h-4 text-amber-400/40"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.8}
-                                            aria-hidden="true"
-                                        >
-                                            <circle cx="12" cy="5" r="2" />
-                                            <path d="M12 7v13" strokeLinecap="round" />
-                                            <path d="M8 11h8" strokeLinecap="round" />
-                                            <path d="M5 15a7 7 0 0014 0" strokeLinecap="round" />
-                                        </svg>
-                                        <div className="text-[10px] font-bold text-amber-300/70 uppercase tracking-widest mb-2">
-                                            Voyages
-                                        </div>
-                                        <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-black text-white tabular-nums leading-none">
-                                                {voyageStats.voyageCount}
-                                            </span>
-                                            <span className="text-[11px] font-bold text-amber-300/60 uppercase tracking-wider">
-                                                {voyageStats.voyageCount === 1 ? 'log' : 'logs'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
+                    <VoyageTotalsTiles voyageStats={voyageStats} />
 
                     {/* ── Personal records strip — career bests from summaries.
                         Shown in the list view (not while the live card fills
                         the screen), only once there's qualifying history. */}
-                    {!isTracking && records.voyageCount >= 2 && (
-                        <div className="px-4 mb-2">
-                            <div className="grid grid-cols-3 gap-2">
-                                {[
-                                    {
-                                        label: 'Farthest',
-                                        value: `${records.longestPassageNM.toFixed(0)}`,
-                                        unit: 'NM',
-                                        icon: '🧭',
-                                    },
-                                    {
-                                        label: 'Fastest avg',
-                                        value: `${records.fastestAvgKts.toFixed(1)}`,
-                                        unit: 'kts',
-                                        icon: '⚡',
-                                    },
-                                    {
-                                        label: 'Longest',
-                                        value: (() => {
-                                            const h = records.longestDurationMs / 3600000;
-                                            return h >= 24 ? `${Math.floor(h / 24)}d` : `${Math.round(h)}h`;
-                                        })(),
-                                        unit: '',
-                                        icon: '⏱️',
-                                    },
-                                ].map((r) => (
-                                    <div
-                                        key={r.label}
-                                        className="rounded-xl bg-slate-900/40 border border-amber-500/15 px-2 py-2 text-center"
-                                    >
-                                        <div className="text-[11px] uppercase tracking-wider text-amber-400/80 font-bold flex items-center justify-center gap-1">
-                                            <span>{r.icon}</span>
-                                            {r.label}
-                                        </div>
-                                        <div className="text-lg font-extrabold text-white tabular-nums mt-0.5">
-                                            {r.value}
-                                            {r.unit && (
-                                                <span className="text-[11px] text-white/60 ml-0.5">{r.unit}</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                    {!isTracking && records.voyageCount >= 2 && <PersonalRecordsStrip records={records} />}
 
                     {castOffHandoff &&
                         (castOffHandoff.caution ||
@@ -2268,72 +1737,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             castOffHandoff.publishState === 'skipped' ||
                             castOffHandoff.publishState === 'failed' ||
                             castOffHandoff.publishState === 'queued') && (
-                            <div className="px-4 mb-2 space-y-2">
-                                {castOffHandoff.gps === 'starting' && !isTracking && (
-                                    <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2.5 flex items-center gap-2.5">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                                        <p className="text-sm font-semibold text-emerald-100">
-                                            Underway — GPS voyage logging is starting for “{castOffHandoff.voyageName}”…
-                                        </p>
-                                    </div>
-                                )}
-                                {castOffHandoff.gps === 'failed' && (
-                                    <div
-                                        role="alert"
-                                        className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-2"
-                                    >
-                                        <p className="text-sm font-semibold text-amber-100">
-                                            Passage is active, but GPS voyage logging did not start.
-                                            {castOffHandoff.gpsError ? ` ${castOffHandoff.gpsError}` : ''}
-                                        </p>
-                                        <button
-                                            type="button"
-                                            onClick={() => void startHandoffGps(true)}
-                                            className="min-h-[44px] rounded-xl border border-amber-300/25 bg-amber-400/15 px-3 py-2 text-xs font-black text-amber-100"
-                                        >
-                                            Retry GPS Logging
-                                        </button>
-                                    </div>
-                                )}
-                                {castOffHandoff.followNote && (
-                                    <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
-                                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
-                                            Route line not armed
-                                        </p>
-                                        <p className="text-sm text-amber-100">{castOffHandoff.followNote}</p>
-                                        <button
-                                            type="button"
-                                            onClick={() => updateCastOffHandoff({ followNote: null })}
-                                            className="hit-target-44 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
-                                        >
-                                            Got it
-                                        </button>
-                                    </div>
-                                )}
-                                {(castOffHandoff.publishState === 'skipped' ||
-                                    castOffHandoff.publishState === 'failed' ||
-                                    castOffHandoff.publishState === 'queued') && (
-                                    <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
-                                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
-                                            Public page
-                                        </p>
-                                        <p className="text-sm text-amber-100">
-                                            {castOffHandoff.publishState === 'skipped'
-                                                ? 'This route has no planned mirror the public page can draw. Open it in Route Tracer and save it again, then re-tick Show on the Public Page at your next Cast Off.'
-                                                : castOffHandoff.publishState === 'queued'
-                                                  ? 'The public-page link is queued — it will publish automatically when the connection allows.'
-                                                  : 'Publishing the route to the public page failed. It will keep retrying in the background while online.'}
-                                        </p>
-                                        <button
-                                            type="button"
-                                            onClick={() => updateCastOffHandoff({ publishState: 'private' })}
-                                            className="hit-target-44 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
-                                        >
-                                            Got it
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <CastOffHandoffNotices castOffHandoff={castOffHandoff} isTracking={isTracking} />
                         )}
 
                     {isTracking ? (
@@ -2352,209 +1756,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     <div className="mt-3 flex-1 min-h-[100px] rounded-xl bg-[#0b1220] border border-white/5" />
                                 </div>
                             )}
-                            {currentVoyageId &&
-                                (() => {
-                                    const { activeEntries, first, dist, durationHrs, durationMins, liveAvgSpeed } =
-                                        liveStats;
-                                    return (
-                                        <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-linear-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
-                                            <div className="flex items-center gap-2 mb-3 shrink-0">
-                                                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                                                    Live Recording
-                                                </span>
-                                            </div>
-                                            {first?.waypointName &&
-                                                first.waypointName !== 'Voyage Start' &&
-                                                first.waypointName !== 'Latest Position' && (
-                                                    <div className="text-xs text-slate-400 mb-3 shrink-0">
-                                                        Departed: {first.waypointName}
-                                                    </div>
-                                                )}
-                                            <div className="grid grid-cols-3 gap-3 shrink-0">
-                                                <div>
-                                                    <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
-                                                        {(dist ?? 0).toFixed(1)}
-                                                    </div>
-                                                    <div className="text-[11px] text-slate-500 uppercase">NM</div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
-                                                        {durationHrs}h {durationMins}m
-                                                    </div>
-                                                    <div className="text-[11px] text-slate-500 uppercase">Duration</div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
-                                                        {(liveAvgSpeed ?? 0).toFixed(1)}
-                                                    </div>
-                                                    <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
-                                                </div>
-                                            </div>
-
-                                            {/* Engine on/off — declares propulsion so the
-                                                voyage's sail/motor split is real data. */}
-                                            <div className="flex items-center gap-2 mt-3 shrink-0">
-                                                <span
-                                                    id={engineGroupId}
-                                                    className="text-[11px] font-bold uppercase tracking-wider text-slate-400"
-                                                >
-                                                    Engine
-                                                </span>
-                                                <div
-                                                    role="group"
-                                                    aria-labelledby={engineGroupId}
-                                                    className="flex rounded-full bg-slate-900/60 border border-white/10 p-0.5"
-                                                >
-                                                    <button
-                                                        aria-pressed={engineRunning === true}
-                                                        onClick={() => toggleEngine(true)}
-                                                        className={`hit-target-44 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                                                            engineRunning === true
-                                                                ? 'bg-amber-500 text-white'
-                                                                : 'text-white/55'
-                                                        }`}
-                                                    >
-                                                        Motor
-                                                    </button>
-                                                    <button
-                                                        aria-pressed={engineRunning === false}
-                                                        onClick={() => toggleEngine(false)}
-                                                        className={`hit-target-44 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                                                            engineRunning === false
-                                                                ? 'bg-emerald-500 text-white'
-                                                                : 'text-white/55'
-                                                        }`}
-                                                    >
-                                                        Sailing
-                                                    </button>
-                                                </div>
-                                                {engineRunning === undefined && (
-                                                    <span className="text-[11px] text-white/70">— tap to log</span>
-                                                )}
-                                            </div>
-
-                                            {/* Live Mini Map — grows to fill all remaining space.
-                                                Tap to expand fullscreen. Until the first accepted
-                                                fix lands there's nothing to draw, so say what's
-                                                happening instead of showing a silent empty map.
-                                                UNMOUNTED while any fullscreen map is open — iOS
-                                                WebKit composites Leaflet's transformed layers above
-                                                fixed overlays regardless of z-index, so a live map
-                                                redrawing underneath bled through as a second track. */}
-                                            <div className="mt-3 flex-1 min-h-[100px] relative">
-                                                {!liveMapExpanded && !showTrackMap && (
-                                                    <LiveMiniMap
-                                                        entries={activeEntries}
-                                                        followedRouteCoords={followedRouteCoords}
-                                                        initialCenter={liveFix ?? currentFix}
-                                                        height="100%"
-                                                        isLive={true}
-                                                        onTap={openLiveMap}
-                                                    />
-                                                )}
-                                                {!showTrackMap && (
-                                                    <button
-                                                        ref={expandLiveMapRef}
-                                                        type="button"
-                                                        aria-label="Expand live map"
-                                                        onClick={openLiveMap}
-                                                        className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-slate-900/85 text-white/80 shadow-lg backdrop-blur-xs transition-transform active:scale-95"
-                                                    >
-                                                        <svg
-                                                            className="h-4 w-4"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                            aria-hidden="true"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth={2}
-                                                                d="M4 9V4m0 0h5M4 4l6 6m10-1V4m0 0h-5m5 0l-6 6M4 15v5m0 0h5m-5 0l6-6m10 1v5m0 0h-5m5 0l-6-6"
-                                                            />
-                                                        </svg>
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* ── Fullscreen live map — tap map (or chevron) to shrink ──
-                                                transform-gpu promotes the overlay to its own composited
-                                                layer so iOS can't paint underlying map tiles above it. */}
-                                            {liveMapExpanded && (
-                                                <OverlayPortal
-                                                    ref={liveMapDialogRef}
-                                                    className="bg-slate-950 transform-gpu"
-                                                    role="dialog"
-                                                    aria-modal="true"
-                                                    aria-labelledby={liveMapTitleId}
-                                                >
-                                                    <LiveMiniMap
-                                                        entries={activeEntries}
-                                                        followedRouteCoords={followedRouteCoords}
-                                                        height="100%"
-                                                        isLive={true}
-                                                        freeZoom={true}
-                                                        onTap={closeLiveMap}
-                                                        className="rounded-none! border-0!"
-                                                    />
-
-                                                    {/* Top info bar — same stats as the card */}
-                                                    <div
-                                                        className="absolute top-0 left-0 right-0 z-1001 px-4 pointer-events-none"
-                                                        style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
-                                                    >
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                                            <span
-                                                                id={liveMapTitleId}
-                                                                className="text-xs font-bold text-red-400 uppercase tracking-wider drop-shadow-lg"
-                                                            >
-                                                                Live Recording
-                                                            </span>
-                                                        </div>
-                                                        <div className="text-[13px] text-white/90 flex gap-4 mt-1.5 font-bold drop-shadow-lg tabular-nums">
-                                                            <span>{(dist ?? 0).toFixed(1)} NM</span>
-                                                            <span>
-                                                                {durationHrs}h {durationMins}m
-                                                            </span>
-                                                            <span>{(liveAvgSpeed ?? 0).toFixed(1)} avg kts</span>
-                                                            <span>{activeEntries.length} pts</span>
-                                                        </div>
-                                                        <div className="text-[10px] text-white/40 mt-1 drop-shadow-lg">
-                                                            Tap map to shrink
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Explicit collapse affordance */}
-                                                    <button
-                                                        ref={shrinkLiveMapRef}
-                                                        type="button"
-                                                        aria-label="Shrink map"
-                                                        onClick={closeLiveMap}
-                                                        className="absolute right-4 z-1001 w-11 h-11 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
-                                                        style={{ top: 'max(16px, env(safe-area-inset-top))' }}
-                                                    >
-                                                        <svg
-                                                            className="w-5 h-5"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth={2}
-                                                                d="M9 9L4 4m0 0v4m0-4h4m7 5l5-5m0 0v4m0-4h-4M9 15l-5 5m0 0v-4m0 4h4m7-5l5 5m0 0v-4m0 4h-4"
-                                                            />
-                                                        </svg>
-                                                    </button>
-                                                </OverlayPortal>
-                                            )}
-                                        </div>
-                                    );
-                                })()}
+                            {currentVoyageId && (
+                                <LiveVoyageCard
+                                    liveStats={liveStats}
+                                    engineGroupId={engineGroupId}
+                                    engineRunning={engineRunning}
+                                    toggleEngine={toggleEngine}
+                                    liveMapExpanded={liveMapExpanded}
+                                    showTrackMap={showTrackMap}
+                                    followedRouteCoords={followedRouteCoords}
+                                    liveFix={liveFix}
+                                    currentFix={currentFix}
+                                    openLiveMap={openLiveMap}
+                                    closeLiveMap={closeLiveMap}
+                                    expandLiveMapRef={expandLiveMapRef}
+                                    shrinkLiveMapRef={shrinkLiveMapRef}
+                                    liveMapDialogRef={liveMapDialogRef}
+                                    liveMapTitleId={liveMapTitleId}
+                                />
+                            )}
 
                             {/* ── Follow-route refusal notice ──
                                 NOT a toast (Shane 2026-08-12: "i hate toast
@@ -2569,66 +1789,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 there"). Here it pushes the map up instead of
                                 covering it. */}
                             {followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
-                                <div
-                                    className="shrink-0 px-4 pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300"
-                                    role="alert"
-                                >
-                                    <div className="rounded-2xl bg-slate-900 border border-amber-500/40 shadow-lg shadow-black/40 px-4 py-3">
-                                        <div className="flex items-start gap-2.5">
-                                            <span aria-hidden="true" className="mt-px text-[15px] leading-none">
-                                                {'⚠️'}
-                                            </span>
-                                            <p className="flex-1 text-[12px] leading-relaxed text-amber-100">
-                                                {followBlockNotice}
-                                            </p>
-                                            <button
-                                                type="button"
-                                                aria-label="Dismiss"
-                                                onClick={() => setFollowBlockNotice(null)}
-                                                className="hit-target-44 -mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[15px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
-                                            >
-                                                {'×'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
+                                <FollowBlockNoticeCard
+                                    followBlockNotice={followBlockNotice}
+                                    setFollowBlockNotice={setFollowBlockNotice}
+                                />
                             )}
 
                             {/* ── Stop / New Entry — pinned at bottom ── */}
-                            <div
-                                className="shrink-0 px-4 pt-2"
-                                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
-                            >
-                                <div className="flex gap-2">
-                                    <button
-                                        aria-label="Stop tracking"
-                                        onClick={() => {
-                                            triggerHaptic('medium');
-                                            handleStopTracking();
-                                        }}
-                                        className="flex-1 h-14 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
-                                    >
-                                        <StopIcon className="w-4 h-4" />
-                                        Stop
-                                    </button>
-                                    <button
-                                        aria-label="Share your position"
-                                        onClick={handleShareCurrentPosition}
-                                        className="w-14 h-14 shrink-0 rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 active:scale-[0.97]"
-                                        title="Share your position"
-                                    >
-                                        <MapPinIcon className="w-5 h-5" />
-                                    </button>
-                                    <button
-                                        aria-label="Add log entry"
-                                        onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                                        className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
-                                    >
-                                        <PlusIcon className="w-5 h-5" />
-                                        New Log Entry
-                                    </button>
-                                </div>
-                            </div>
+                            <TrackingFooterControls
+                                handleStopTracking={handleStopTracking}
+                                handleShareCurrentPosition={handleShareCurrentPosition}
+                                dispatch={dispatch}
+                            />
                         </>
                     ) : (
                         <>
@@ -2648,71 +1820,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                                 {/* Past Voyage Cards */}
                                 {loading && loggedVoyages.length === 0 ? (
-                                    /* History still hydrating (cache miss / first network
-                                       load) — skeleton cards, NOT the "Begin Your Log"
-                                       empty state, and never a page-wide spinner: the
-                                       Start control below is live the whole time. */
-                                    <div className="space-y-3 px-1 py-2" aria-label="Loading voyages">
-                                        {[0, 1, 2].map((i) => (
-                                            <div
-                                                key={i}
-                                                className="rounded-2xl bg-slate-900/40 border border-white/5 p-4 animate-pulse"
-                                            >
-                                                <div className="h-3 w-28 bg-white/10 rounded-sm mb-3" />
-                                                <div className="h-2.5 w-44 bg-white/5 rounded-sm mb-2" />
-                                                <div className="h-2.5 w-36 bg-white/5 rounded-sm" />
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <VoyageListSkeleton />
                                 ) : loggedVoyages.length === 0 ? (
-                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
-                                        {/* Decorative maritime line art */}
-                                        <div className="relative w-24 h-24 mb-6">
-                                            <svg viewBox="0 0 96 96" fill="none" className="w-full h-full">
-                                                {/* Outer ring — dashed */}
-                                                <circle
-                                                    cx="48"
-                                                    cy="48"
-                                                    r="44"
-                                                    stroke="rgba(56,189,248,0.12)"
-                                                    strokeWidth="1"
-                                                    strokeDasharray="3 5"
-                                                />
-                                                {/* Middle ring — solid faint */}
-                                                <circle
-                                                    cx="48"
-                                                    cy="48"
-                                                    r="32"
-                                                    stroke="rgba(56,189,248,0.08)"
-                                                    strokeWidth="0.5"
-                                                />
-                                                {/* Compass rose petals */}
-                                                <path d="M48 4L51 44H45L48 4Z" fill="rgba(56,189,248,0.25)" />
-                                                <path d="M48 92L45 52H51L48 92Z" fill="rgba(56,189,248,0.10)" />
-                                                <path d="M4 48L44 45V51L4 48Z" fill="rgba(56,189,248,0.10)" />
-                                                <path d="M92 48L52 51V45L92 48Z" fill="rgba(56,189,248,0.10)" />
-                                                {/* Center dot */}
-                                                <circle cx="48" cy="48" r="3" fill="rgba(56,189,248,0.30)" />
-                                                {/* Track line suggestion — curved */}
-                                                <path
-                                                    d="M20 70 C32 55, 64 42, 76 28"
-                                                    stroke="rgba(52,211,153,0.25)"
-                                                    strokeWidth="1.5"
-                                                    strokeDasharray="4 3"
-                                                    strokeLinecap="round"
-                                                />
-                                                {/* Waypoint dots on the track */}
-                                                <circle cx="20" cy="70" r="2.5" fill="rgba(52,211,153,0.35)" />
-                                                <circle cx="48" cy="49" r="2" fill="rgba(52,211,153,0.25)" />
-                                                <circle cx="76" cy="28" r="2.5" fill="rgba(52,211,153,0.35)" />
-                                            </svg>
-                                        </div>
-                                        <p className="text-base font-bold text-white mb-1.5">Begin Your Log</p>
-                                        <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
-                                            Every great voyage starts with a single position. Slide below to begin GPS
-                                            tracking.
-                                        </p>
-                                    </div>
+                                    <VoyageListEmptyState />
                                 ) : (
                                     loggedVoyages.map((summary, voyageIdx) => (
                                         <VoyageCard
@@ -2750,138 +1860,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                                 {/* ── Archived Voyages ── */}
                                 {loggedArchivedVoyages.length > 0 && (
-                                    <div className="mt-4">
-                                        <button
-                                            aria-expanded={showArchived}
-                                            onClick={() => setShowArchived(!showArchived)}
-                                            className="w-full min-h-[44px] flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <svg
-                                                    className="w-4 h-4 text-amber-400"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        strokeWidth={2}
-                                                        d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"
-                                                    />
-                                                </svg>
-                                                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                                                    Archived Voyages
-                                                </span>
-                                                <span className="text-[11px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">
-                                                    {loggedArchivedVoyages.length}
-                                                </span>
-                                            </div>
-                                            <svg
-                                                className={`w-4 h-4 text-amber-400 transition-transform ${showArchived ? 'rotate-180' : ''}`}
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M19 9l-7 7-7-7"
-                                                />
-                                            </svg>
-                                        </button>
-
-                                        {showArchived && (
-                                            <div className="mt-2 space-y-2">
-                                                {loggedArchivedVoyages.map((voyage) => (
-                                                    <div
-                                                        key={voyage.voyageId}
-                                                        className="rounded-2xl bg-slate-900/30 backdrop-blur-md border border-amber-500/10 p-4 flex items-center justify-between"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <div className="flex items-center gap-2 mb-0.5">
-                                                                <span className="text-xs font-bold text-white/80">
-                                                                    {new Date(
-                                                                        voyage.entries[voyage.entries.length - 1]
-                                                                            ?.timestamp || '',
-                                                                    )
-                                                                        .toLocaleDateString('en-AU', {
-                                                                            day: '2-digit',
-                                                                            month: 'short',
-                                                                            year: '2-digit',
-                                                                        })
-                                                                        .toUpperCase()}
-                                                                </span>
-                                                                <span className="text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">
-                                                                    Archived
-                                                                </span>
-                                                            </div>
-                                                            <div className="text-[11px] text-white/60">
-                                                                {voyage.entries.length} entries ·{' '}
-                                                                {Math.max(
-                                                                    0,
-                                                                    ...voyage.entries.map(
-                                                                        (e) => e.cumulativeDistanceNM || 0,
-                                                                    ),
-                                                                ).toFixed(1)}{' '}
-                                                                NM
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            aria-label="Unarchive voyage"
-                                                            onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
-                                                            className="hit-target-44 px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
-                                                        >
-                                                            Unarchive
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+                                    <ArchivedVoyagesSection
+                                        loggedArchivedVoyages={loggedArchivedVoyages}
+                                        showArchived={showArchived}
+                                        setShowArchived={setShowArchived}
+                                        handleUnarchiveVoyage={handleUnarchiveVoyage}
+                                    />
                                 )}
                             </div>
 
                             {/* ── Slide to Start CTA — pinned at bottom ── */}
-                            <div
-                                className="shrink-0 px-4 pt-2"
-                                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
-                            >
-                                {trackingStartFailure && (
-                                    <div
-                                        role="alert"
-                                        aria-live="assertive"
-                                        className="mb-2 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2.5"
-                                    >
-                                        <div className="text-sm font-black text-red-200">
-                                            {trackingStartFailure.title}
-                                        </div>
-                                        <p className="mt-1 text-xs leading-relaxed text-red-100/80">
-                                            {trackingStartFailure.detail}
-                                        </p>
-                                        {trackingStartFailure.actionable && (
-                                            <button
-                                                type="button"
-                                                onClick={openDeviceSettings}
-                                                className="mt-2 min-h-[44px] rounded-xl border border-red-300/25 bg-red-400/15 px-3 py-2 text-xs font-black text-red-100"
-                                            >
-                                                Open Location Settings
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
-                                {!castOffHandoff ? (
-                                    <SlideToAction
-                                        label="Slide to Start Tracking"
-                                        thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
-                                        onConfirm={beginCastOff}
-                                        loading={checkingStartGps}
-                                        loadingText="Checking GPS…"
-                                        theme="emerald"
-                                    />
-                                ) : null}
-                            </div>
+                            <StartTrackingFooter
+                                trackingStartFailure={trackingStartFailure}
+                                castOffHandoff={castOffHandoff}
+                                beginCastOff={beginCastOff}
+                                checkingStartGps={checkingStartGps}
+                            />
                         </>
                     )}
                 </div>
@@ -2895,48 +1889,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 estimate, not a certainty. pointer-events-auto so the
                 buttons work; sits above the bottom nav. */}
             {showPropNudge && propConflict.suggested && (
-                <div
-                    className="fixed inset-x-0 z-10000 flex justify-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-300"
-                    style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 76px)' }}
-                    role="alert"
-                >
-                    <div className="w-full max-w-sm rounded-2xl bg-slate-900/96 border border-sky-400/40 shadow-2xl shadow-black/50 px-4 py-3 backdrop-blur-md">
-                        <div className="flex items-start gap-2.5">
-                            <span className="text-lg leading-none mt-0.5">
-                                {propConflict.suggested === 'sail' ? '⛵' : '⚙'}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-[13px] font-bold text-white">
-                                    {propConflict.suggested === 'sail'
-                                        ? 'Looks like you’re sailing'
-                                        : 'Looks like you’re under power'}
-                                </div>
-                                <div className="text-xs text-white/75 leading-snug mt-0.5">
-                                    Logged as {engineRunning ? 'motoring' : 'sailing'} — switch it?
-                                </div>
-                                <div className="flex gap-2 mt-2.5">
-                                    <button
-                                        onClick={() => toggleEngine(propConflict.suggested === 'motor')}
-                                        className="flex-1 h-11 rounded-xl bg-sky-500 text-white text-[12px] font-extrabold uppercase tracking-wider active:scale-[0.97] transition-transform"
-                                    >
-                                        Switch to {propConflict.suggested === 'sail' ? 'Sailing' : 'Motoring'}
-                                    </button>
-                                    <button
-                                        onClick={() =>
-                                            setNudgeDismiss({
-                                                until: Date.now() + 10 * 60 * 1000,
-                                                forDeclared: engineRunning,
-                                            })
-                                        }
-                                        className="px-3 h-11 rounded-xl bg-white/10 text-white/60 text-[12px] font-bold active:scale-[0.97] transition-transform"
-                                    >
-                                        Dismiss
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <PropulsionNudge
+                    propConflict={propConflict}
+                    engineRunning={engineRunning}
+                    toggleEngine={toggleEngine}
+                    setNudgeDismiss={setNudgeDismiss}
+                />
             )}
 
             {/* Empty-track tidy announcement — big friendly modal with a
@@ -3091,163 +2049,30 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 voyages started from other pages. "Just recording" skips both
                 local follow mode and publication — and in pre-start mode it
                 still starts the track (the slide already committed that). */}
-            {(followPromptVoyageId !== null || preStartSheetOpen) &&
-                // PORTALLED TO <body> — the reason two position fixes missed.
-                // PageTransition animates this page with translate3d, and a
-                // transformed ancestor becomes the containing block for `fixed`
-                // children, so `fixed inset-0` was covering the PAGE box, not the
-                // screen: hence a card that sat low and a backdrop that stopped
-                // short of the tab bar. Portalling out of that subtree makes
-                // `fixed` mean the viewport again, so centring is genuinely
-                // screen-centred and the modal covers the whole app. Same trick
-                // LocationStarMenu and RoutePlanner already use here.
-                // Centred rather than offset (Shane 2026-07-19: "can it be a modal
-                // screen instead, centred on the screen"): centring needs no
-                // measurement, so it cannot be wrong by a magic number the way the
-                // two previous attempts were.
-                createPortal(
-                    <div
-                        role="presentation"
-                        className="fixed inset-0 z-10055 flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
-                        onClick={dismissFollowPrompt}
-                    >
-                        <div
-                            ref={followPromptDialogRef}
-                            role="dialog"
-                            aria-modal="true"
-                            aria-labelledby="follow-route-prompt-title"
-                            aria-describedby="follow-route-prompt-description"
-                            className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="shrink-0 border-b border-white/10 px-5 py-4">
-                                <div
-                                    id="follow-route-prompt-title"
-                                    className="text-sm font-black uppercase tracking-widest text-emerald-300"
-                                >
-                                    Following a route?
-                                </div>
-                                <div id="follow-route-prompt-description" className="mt-0.5 text-[12px] text-gray-400">
-                                    Pick one to show on your public page — or just record the track.
-                                </div>
-                            </div>
-                            {followBlockNotice && (
-                                <div
-                                    role="alert"
-                                    className="mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2.5"
-                                >
-                                    <span aria-hidden="true" className="mt-px text-[13px] leading-none text-amber-300">
-                                        {'\u26A0\uFE0F'}
-                                    </span>
-                                    <p className="flex-1 text-[12px] leading-relaxed text-amber-100">
-                                        {followBlockNotice}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        aria-label="Dismiss"
-                                        onClick={() => setFollowBlockNotice(null)}
-                                        className="hit-target-44 -mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[13px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
-                                    >
-                                        {'\u00D7'}
-                                    </button>
-                                </div>
-                            )}
-                            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                                {followPromptRows.map((item) => {
-                                    if (item.type === 'passage') {
-                                        return (
-                                            <SavedRoutePassageHeading
-                                                key={item.key}
-                                                row={{
-                                                    id: item.key,
-                                                    name: item.name,
-                                                    detail: null,
-                                                    kind: 'passage',
-                                                    groupKey: item.key,
-                                                    stamp: 0,
-                                                }}
-                                            />
-                                        );
-                                    }
-                                    const { summary: s, reversible, blockReason, savedRouteId } = item.row.choice;
-                                    return (
-                                        <FollowRouteChoice
-                                            key={item.key}
-                                            summary={s}
-                                            isLeg={item.row.kind === 'leg'}
-                                            savedName={item.row.choice.legName}
-                                            legBadge={
-                                                item.row.kind === 'leg' && item.row.legOrdinal
-                                                    ? `(${ordinalLegLabel(item.row.legOrdinal)})`
-                                                    : undefined
-                                            }
-                                            reversible={reversible}
-                                            blockReason={blockReason}
-                                            onCheckRoute={() => {
-                                                if (!savedRouteId) return;
-                                                // Second tap on a route the check
-                                                // could not decide alone goes to
-                                                // the tracer; the first tries here.
-                                                if (needsTracerRoutes.has(savedRouteId)) {
-                                                    void openRouteInTracer(savedRouteId);
-                                                } else {
-                                                    void recheckRoute(savedRouteId);
-                                                }
-                                            }}
-                                            checkLabel={
-                                                savedRouteId && needsTracerRoutes.has(savedRouteId)
-                                                    ? 'Tap to open it in Route Tracer →'
-                                                    : 'Tap to check this route now →'
-                                            }
-                                            checkingLabel={recheckProgress ?? undefined}
-                                            checking={recheckingRouteId !== null && recheckingRouteId === savedRouteId}
-                                            loading={followPromptLoadingId === s.voyageId}
-                                            disabled={followPromptLoadingId !== null}
-                                            onPick={() => {
-                                                const actionScope = identityScope;
-                                                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                if (preStartSheetOpen) {
-                                                    // Answer parked; tracking starts NOW and the
-                                                    // cast-off effect follows this route the moment
-                                                    // the voyage id is real.
-                                                    preStartAnswerRef.current = s;
-                                                    setPreStartSheetOpen(false);
-                                                    startTrackingVerifiedRef.current();
-                                                    return;
-                                                }
-                                                void applyFollowPick(s, followPromptVoyageId).catch((error) => {
-                                                    if (isAuthIdentityScopeCurrent(actionScope)) {
-                                                        log.warn('Could not start followed route:', error);
-                                                        const message =
-                                                            error instanceof Error &&
-                                                            error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
-                                                                ? error.message.slice(
-                                                                      TRACE_ROUTE_USE_BLOCK_PREFIX.length,
-                                                                  )
-                                                                : 'Couldn’t load this saved route — please try again';
-                                                        setFollowBlockNotice(message);
-                                                        setFollowPromptLoadingId(null);
-                                                    }
-                                                });
-                                            }}
-                                        />
-                                    );
-                                })}
-                            </div>
-                            <div className="shrink-0 border-t border-white/10 px-5 py-3">
-                                <button
-                                    ref={followPromptDismissRef}
-                                    onClick={dismissFollowPrompt}
-                                    disabled={followPromptLoadingId !== null}
-                                    className="w-full min-h-[44px] rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95 disabled:cursor-wait disabled:opacity-50"
-                                >
-                                    {followPromptLoadingId ? 'Loading route…' : 'Just recording'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>,
-                    document.body,
-                )}
+            {(followPromptVoyageId !== null || preStartSheetOpen) && (
+                <FollowRoutePromptSheet
+                    dismissFollowPrompt={dismissFollowPrompt}
+                    followPromptDialogRef={followPromptDialogRef}
+                    followPromptDismissRef={followPromptDismissRef}
+                    followBlockNotice={followBlockNotice}
+                    setFollowBlockNotice={setFollowBlockNotice}
+                    followPromptRows={followPromptRows}
+                    needsTracerRoutes={needsTracerRoutes}
+                    openRouteInTracer={openRouteInTracer}
+                    recheckRoute={recheckRoute}
+                    recheckProgress={recheckProgress}
+                    recheckingRouteId={recheckingRouteId}
+                    followPromptLoadingId={followPromptLoadingId}
+                    setFollowPromptLoadingId={setFollowPromptLoadingId}
+                    followPromptVoyageId={followPromptVoyageId}
+                    identityScope={identityScope}
+                    preStartSheetOpen={preStartSheetOpen}
+                    setPreStartSheetOpen={setPreStartSheetOpen}
+                    preStartAnswerRef={preStartAnswerRef}
+                    startTrackingVerifiedRef={startTrackingVerifiedRef}
+                    applyFollowPick={applyFollowPick}
+                />
+            )}
 
             {/* Voyage Choice Dialog - Continue or New */}
             {showVoyageChoiceDialog && (

@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const source = fs.readFileSync(path.join(process.cwd(), 'pages/LogPage.tsx'), 'utf8');
+// The Log page was split into pages/log/ on 2026-09-03 — the cast-off sheet and
+// the row-building arithmetic now live beside it. Scan the page TOGETHER with
+// the modules it was split into, so the contract below still covers all of it.
+const source = ['pages/LogPage.tsx', 'pages/log/logPageDerive.ts', 'pages/log/FollowRoutePromptSheet.tsx']
+    .map((file) => fs.readFileSync(path.join(process.cwd(), file), 'utf8'))
+    .join('\n');
 const code = source.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
