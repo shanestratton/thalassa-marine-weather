@@ -349,6 +349,29 @@ describe('AnchorWatchPage', () => {
         expect(screen.queryByText('Holding')).not.toBeInTheDocument();
     });
 
+    // ── The Pi keeps the watch: there is no presence to have ──────────────
+    //
+    // A vessel PHONE joins the realtime channel, so Supabase presence tracks
+    // it. The Pi never joins: it POSTs each position to the anchor-relay
+    // function, which broadcasts it. peerConnected is therefore false for the
+    // whole watch, and gating freshness on it made every Pi-kept watch read
+    // "Vessel offline · showing last-known data from 8s ago" while positions
+    // were arriving perfectly every ten seconds (observed 2026-09-04).
+    //
+    // The distinction that fixes it without weakening the phone case is
+    // peerDisconnectedAt: a peer that LEFT is news, a peer that never existed
+    // is not.
+    it('treats a Pi-kept watch as live — no presence ever, but positions arriving', async () => {
+        await renderShoreWatch(
+            { ...CONNECTED_SHORE_STATE, peerConnected: false, peerDisconnectedAt: null },
+            makeShoreData(),
+        );
+
+        expect(screen.getByText('Holding')).toBeInTheDocument();
+        expect(screen.queryByText(/Vessel offline/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/showing last-known/i)).not.toBeInTheDocument();
+    });
+
     it('ages a connected shore feed into last-known state after three missed broadcasts', async () => {
         const now = Date.now();
         const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
