@@ -70,8 +70,14 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                     </div>
                 </div>
 
-                {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
+                {/* Scrollable content. The bottom padding clears the tab bar
+                    AND the 56px Edit FAB pinned over this same corner —
+                    without it the last child (Delete Equipment) sat under
+                    both. Matches the tab-bar clearance used across the app. */}
+                <div
+                    className="flex-1 overflow-y-auto px-4 min-h-0 space-y-3"
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 5rem)' }}
+                >
                     {/* Specs card */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
                         <h3 className="text-label text-gray-400 font-bold uppercase tracking-widest mb-4">

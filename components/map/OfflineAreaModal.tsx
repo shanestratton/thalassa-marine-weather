@@ -270,7 +270,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                     {busy ? (
                         <button
                             onClick={handleCancel}
-                            className="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 transition-all active:scale-95"
+                            className="flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 transition-all active:scale-95"
                         >
                             Cancel
                         </button>
@@ -278,14 +278,14 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                         <>
                             <button
                                 onClick={handleClose}
-                                className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/4 border border-white/8 text-gray-400 hover:bg-white/8 transition-all active:scale-95"
+                                className="min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/4 border border-white/8 text-gray-400 hover:bg-white/8 transition-all active:scale-95"
                             >
                                 Close
                             </button>
                             <button
                                 onClick={handleDownload}
                                 disabled={!canDownload}
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                className={`flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                     canDownload
                                         ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
                                         : 'bg-white/3 border border-white/6 text-gray-400 cursor-not-allowed'

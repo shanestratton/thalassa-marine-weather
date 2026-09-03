@@ -698,7 +698,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             onClick={() => void handleSetUp()}
                             disabled={busy}
                             aria-label="Set up your voyage log"
-                            className="shrink-0 text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1.5 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors disabled:opacity-50"
+                            className="shrink-0 min-h-[44px] text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1.5 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors disabled:opacity-50"
                         >
                             {busy ? 'Setting up…' : 'Set up'}
                         </button>
@@ -713,8 +713,8 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             {setupError}
                         </div>
                         <div className="text-[11px] text-red-200/70 mt-2">
-                            Screenshot this and send to Shane — it&apos;s the actual reason the database refused the
-                            write.
+                            Screenshot this and send it via Settings → Beta Support — it is the reason the server
+                            refused the request.
                         </div>
                     </div>
                 )}
@@ -749,14 +749,14 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         <button
                             onClick={() => openPrivateUrl(publicUrl)}
                             aria-label="Open your voyage log in browser"
-                            className="flex-1 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
+                            className="flex-1 min-h-[44px] text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
                         >
                             Open
                         </button>
                         <button
                             onClick={() => void copy('url', publicUrl)}
                             aria-label="Copy your voyage log share link"
-                            className="flex-1 text-xs font-bold text-sky-300 border border-sky-400/40 hover:bg-sky-500/10 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
+                            className="flex-1 min-h-[44px] text-xs font-bold text-sky-300 border border-sky-400/40 hover:bg-sky-500/10 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
                         >
                             {copiedField === 'url' ? 'Copied!' : 'Copy link'}
                         </button>

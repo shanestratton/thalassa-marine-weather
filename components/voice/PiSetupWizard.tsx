@@ -480,7 +480,7 @@ const PickNetworkPanel: React.FC<{
             <p className="text-lg font-bold text-white">Pick your WiFi</p>
             <button
                 onClick={onRefresh}
-                className="text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300"
+                className="hit-target-44 px-3 py-2 text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300"
             >
                 Refresh
             </button>

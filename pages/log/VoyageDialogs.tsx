@@ -117,10 +117,10 @@ export const StopVoyageDialog: React.FC<StopVoyageDialogProps> = React.memo(({ o
                 className="modal-panel-enter bg-slate-900 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl"
             >
                 <h3 id="stop-voyage-title" className="text-lg font-bold text-white mb-2">
-                    End Voyage?
+                    Stop Tracking?
                 </h3>
                 <p id="stop-voyage-description" className="text-slate-400 text-sm mb-6">
-                    This will finalize your voyage log. You won&apos;t be able to add more entries to this voyage.
+                    This finalises the GPS track for this voyage. You won&apos;t be able to add more entries to it.
                 </p>
                 <div className="flex gap-3">
                     <button
@@ -134,7 +134,7 @@ export const StopVoyageDialog: React.FC<StopVoyageDialogProps> = React.memo(({ o
                         onClick={onConfirm}
                         className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all active:scale-[0.97]"
                     >
-                        End Voyage
+                        Stop Tracking
                     </button>
                 </div>
             </div>

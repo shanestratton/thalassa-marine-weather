@@ -38,7 +38,6 @@ import { saveLargeDataImmediate, DATA_CACHE_KEY } from '../services/nativeStorag
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
 import { supabase } from '../services/supabase';
-import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 import { FEET_PER_METRE, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../services/units';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -271,6 +270,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
         setStep((s) => s + 1);
     };
+
+    // Non-skippers never see steps 5 (vessel details) and 6 (offshore model)
+    // — handleNext jumps 4 → 7. The dots and the "step X of Y" label follow
+    // the route the user is actually on, instead of claiming seven steps and
+    // then skipping two of the dots.
+    const visibleSteps = selectedRole === 'skipper' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 7];
+    const stepPosition = Math.max(1, visibleSteps.indexOf(step) + 1);
 
     const handleBack = () => {
         // If going back from step 7 and non-Skipper, jump to step 4 (skip offshore + vessel)
@@ -712,7 +718,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         aria-label="Go back"
                         onClick={handleBack}
                         style={{ top: 'max(1rem, calc(env(safe-area-inset-top) + 0.5rem))' }}
-                        className="fixed left-4 p-2 text-gray-400 hover:text-white transition-colors flex items-center gap-2 group z-20"
+                        className="fixed left-4 min-h-[44px] px-3 py-2 text-gray-400 hover:text-white transition-colors flex items-center gap-2 group z-20"
                     >
                         <ArrowRightIcon className="w-5 h-5 rotate-180 group-hover:-translate-x-1 transition-transform" />
                         <span className="text-sm font-medium">Back</span>
@@ -722,7 +728,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 <div
                     ref={stepContentRef}
                     role="group"
-                    aria-label={`Setup step ${step} of 7`}
+                    aria-label={`Setup step ${stepPosition} of ${visibleSteps.length}`}
                     tabIndex={-1}
                     className="outline-hidden"
                 >
@@ -859,7 +865,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                    {visibleSteps.map((i) => (
                         <div
                             key={i}
                             className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}

@@ -20,7 +20,7 @@ import {
     DiamondIcon,
     WindIcon,
     AnchorIcon,
-    PowerBoatIcon,
+    WrenchIcon,
 } from '../Icons';
 
 const STORAGE_KEY = 'thalassa_onboarding_complete';
@@ -82,7 +82,7 @@ const slides: OnboardingSlide[] = [
         subtitle: 'Everything about your boat in one place',
         features: [
             { text: 'Logbook, diary, and voyage tracking' },
-            { Icon: PowerBoatIcon, text: "Maintenance, equipment, and ship's stores" },
+            { Icon: WrenchIcon, text: "Maintenance, equipment, and ship's stores" },
             { text: 'Meal planning + community recipe library' },
             { Icon: AnchorIcon, text: 'Anchor watch + MOB safety systems' },
         ],
@@ -237,7 +237,7 @@ export const OnboardingOverlay: React.FC = () => {
                                     <button
                                         aria-label="Skip onboarding"
                                         onClick={dismiss}
-                                        className="text-sm text-white/50 hover:text-white/60 transition-colors"
+                                        className="hit-target-44 px-3 py-2 text-sm text-white/70 hover:text-white transition-colors"
                                     >
                                         Skip
                                     </button>
@@ -246,7 +246,7 @@ export const OnboardingOverlay: React.FC = () => {
                                     ref={primaryActionRef}
                                     aria-label={isLast ? 'Finish onboarding' : `Next: ${slides[current + 1].title}`}
                                     onClick={next}
-                                    className="px-5 py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/30 transition-all active:scale-95"
+                                    className="min-h-11 px-5 py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/30 transition-all active:scale-95"
                                 >
                                     {isLast ? 'Get Started' : 'Next'}
                                 </button>

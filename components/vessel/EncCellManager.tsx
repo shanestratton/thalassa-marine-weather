@@ -173,7 +173,7 @@ const CellRow: React.FC<{
                             isLowConfidenceCatzoc(cell.catzocRange[1]) ? 'text-amber-400' : 'text-emerald-400'
                         }`}
                     >
-                        {'⚡'} CATZOC {CATZOC_LABELS[cell.catzocRange[0]]}
+                        {'⚡'} Survey confidence (CATZOC) {CATZOC_LABELS[cell.catzocRange[0]]}
                         {cell.catzocRange[0] !== cell.catzocRange[1] && `..${CATZOC_LABELS[cell.catzocRange[1]]}`}
                         {isLowConfidenceCatzoc(cell.catzocRange[1]) && ' — verify visually'}
                     </p>
@@ -246,6 +246,25 @@ export const EncCellManager: React.FC = () => {
     const [urlInput, setUrlInput] = useState('');
     const [urlError, setUrlError] = useState<string | null>(null);
     const urlInstallInFlight = useRef(false);
+    // One shared, cancellable timer for "keep 'done' on screen, then clear".
+    // Four separate uncancelled setTimeouts used to survive unmount and fire
+    // setState on a dead component if the skipper left the tab mid-import.
+    const progressClearRef = useRef<number | null>(null);
+
+    const scheduleProgressClear = useCallback(() => {
+        if (progressClearRef.current !== null) window.clearTimeout(progressClearRef.current);
+        progressClearRef.current = window.setTimeout(() => {
+            progressClearRef.current = null;
+            setProgress((p) => (p?.phase === 'done' ? null : p));
+        }, 2500);
+    }, []);
+
+    useEffect(
+        () => () => {
+            if (progressClearRef.current !== null) window.clearTimeout(progressClearRef.current);
+        },
+        [],
+    );
 
     const refreshCells = useCallback(() => {
         setCells(getEncCoverage());
@@ -288,9 +307,9 @@ export const EncCellManager: React.FC = () => {
         } finally {
             setImporting(false);
             // Keep "done" progress on screen briefly, then clear.
-            setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+            scheduleProgressClear();
         }
-    }, [refreshCells]);
+    }, [refreshCells, scheduleProgressClear]);
 
     const handleDelete = useCallback(
         async (cellId: string) => {
@@ -409,9 +428,9 @@ export const EncCellManager: React.FC = () => {
         } finally {
             urlInstallInFlight.current = false;
             setImporting(false);
-            setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+            scheduleProgressClear();
         }
-    }, [importing, refreshCells, urlInput]);
+    }, [importing, refreshCells, scheduleProgressClear, urlInput]);
 
     /**
      * "Sync from Pi" — pulls every chart the Pi has installed but
@@ -442,9 +461,9 @@ export const EncCellManager: React.FC = () => {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
             setImporting(false);
-            setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+            scheduleProgressClear();
         }
-    }, [refreshCells]);
+    }, [refreshCells, scheduleProgressClear]);
 
     // Pi-side installed-cell list. Fetched on every mount (NOT gated on
     // expanded) so we know up-front whether there are charts on the Pi
@@ -556,10 +575,10 @@ export const EncCellManager: React.FC = () => {
                 setError(err instanceof Error ? err.message : String(err));
             } finally {
                 setPullingCellId(null);
-                setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+                scheduleProgressClear();
             }
         },
-        [refreshCells],
+        [refreshCells, scheduleProgressClear],
     );
 
     /*
@@ -772,7 +791,7 @@ export const EncCellManager: React.FC = () => {
                                                             <p className="font-mono text-[11px] text-white/80 truncate">
                                                                 {c.cellId}
                                                             </p>
-                                                            <p className="text-[10px] text-white/35">
+                                                            <p className="text-[10px] text-white/60">
                                                                 {c.sourceHO ? `${c.sourceHO} · ` : ''}ed. {c.edition}
                                                                 {c.sizeBytes
                                                                     ? ` · ${(c.sizeBytes / 1_048_576).toFixed(1)} MB`
@@ -792,13 +811,13 @@ export const EncCellManager: React.FC = () => {
                                                     </div>
                                                 ))}
                                                 {pickerMatches.total === 0 && (
-                                                    <p className="px-3 py-2 text-[10px] text-white/35 italic">
+                                                    <p className="px-3 py-2 text-[10px] text-white/60">
                                                         No pending charts match that filter.
                                                     </p>
                                                 )}
                                             </div>
                                             {pickerMatches.total > pickerMatches.rows.length && (
-                                                <p className="text-[10px] text-white/30 italic">
+                                                <p className="text-[10px] text-white/60">
                                                     Showing {pickerMatches.rows.length} of {pickerMatches.total} — type
                                                     to narrow.
                                                 </p>
@@ -881,14 +900,14 @@ export const EncCellManager: React.FC = () => {
                             your charts live, and a skipper whose Pi is ashore
                             should not be wondering whether their charts went
                             with it (Shane 2026-08-28). */}
-                        <p className="text-[10px] text-gray-500 leading-relaxed px-1">
+                        <p className="text-[10px] text-gray-400 leading-relaxed px-1">
                             Your charts are stored on this phone and keep working with the Pi switched off. The Pi is
                             only used to convert a cell when you import one, and to hold spares you can pull down.
                         </p>
 
                         {/* ── Source attribution / honesty note ── */}
                         <div className="px-3 py-2 rounded-xl bg-white/2 border border-white/4">
-                            <p className="text-[10px] text-gray-500 leading-relaxed">
+                            <p className="text-[10px] text-gray-400 leading-relaxed">
                                 <span className="text-amber-300 font-bold">Important:</span> ENCs improve accuracy where
                                 you have them, but they aren&apos;t infallible. Pacific atolls have known position
                                 errors of 100&ndash;500&nbsp;m in many cells. Always verify visually and cross-reference

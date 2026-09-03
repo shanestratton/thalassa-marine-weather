@@ -12,7 +12,6 @@ import {
     WindIcon,
     RainIcon,
     WaveIcon,
-    GearIcon,
     SunIcon,
     StarIcon,
     TideCurveIcon,
@@ -42,128 +41,129 @@ const PlainGrid: React.FC<{ ids: string[]; children: (id: string) => React.React
     </div>
 );
 
-const getBeaufortConfig = (force: number) => {
-    const configs = [
-        {
-            range: '< 1',
-            desc: 'Calm',
-            sea: 'Mirror-like',
-            color: 'from-sky-400 to-sky-300',
-            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
-            border: 'border-sky-500/30',
-            text: 'text-sky-200',
-        },
-        {
-            range: '1-3',
-            desc: 'Light Air',
-            sea: 'Ripples',
-            color: 'from-sky-400 to-sky-300',
-            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
-            border: 'border-sky-500/30',
-            text: 'text-sky-200',
-        },
-        {
-            range: '4-6',
-            desc: 'Light Breeze',
-            sea: 'Small wavelets',
-            color: 'from-sky-400 to-emerald-300',
-            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
-            border: 'border-sky-500/30',
-            text: 'text-sky-200',
-        },
-        {
-            range: '7-10',
-            desc: 'Gentle Breeze',
-            sea: 'Large wavelets',
-            color: 'from-emerald-400 to-emerald-300',
-            bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
-            border: 'border-emerald-500/30',
-            text: 'text-emerald-200',
-        },
-        {
-            range: '11-16',
-            desc: 'Moderate Breeze',
-            sea: 'Small waves',
-            color: 'from-emerald-400 to-emerald-300',
-            bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
-            border: 'border-emerald-500/30',
-            text: 'text-emerald-200',
-        },
-        {
-            range: '17-21',
-            desc: 'Fresh Breeze',
-            sea: 'Moderate waves',
-            color: 'from-emerald-400 to-yellow-300',
-            bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
-            border: 'border-yellow-500/30',
-            text: 'text-emerald-200',
-        },
-        {
-            range: '22-27',
-            desc: 'Strong Breeze',
-            sea: 'Large waves',
-            color: 'from-yellow-400 to-amber-400',
-            bg: 'bg-linear-to-r from-yellow-900/40 to-slate-900/40',
-            border: 'border-amber-500/30',
-            text: 'text-yellow-200',
-        },
-        {
-            range: '28-33',
-            desc: 'Near Gale',
-            sea: 'Sea heaps up',
-            color: 'from-amber-400 to-red-400',
-            bg: 'bg-linear-to-r from-amber-900/40 to-slate-900/40',
-            border: 'border-red-500/30',
-            text: 'text-amber-200',
-        },
-        {
-            range: '34-40',
-            desc: 'Gale',
-            sea: 'High waves',
-            color: 'from-red-400 to-red-400',
-            bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
-            border: 'border-red-500/40',
-            text: 'text-red-200',
-        },
-        {
-            range: '41-47',
-            desc: 'Strong Gale',
-            sea: 'High waves',
-            color: 'from-red-400 to-red-500',
-            bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
-            border: 'border-red-500/40',
-            text: 'text-red-200',
-        },
-        {
-            range: '48-55',
-            desc: 'Storm',
-            sea: 'Very high',
-            color: 'from-red-500 to-purple-500',
-            bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
-            border: 'border-red-500/40',
-            text: 'text-red-200',
-        },
-        {
-            range: '56-63',
-            desc: 'Violent Storm',
-            sea: 'Exceptionally high',
-            color: 'from-purple-500 to-sky-500',
-            bg: 'bg-linear-to-r from-purple-900/40 to-slate-900/40',
-            border: 'border-purple-500/50',
-            text: 'text-purple-200',
-        },
-        {
-            range: '64+',
-            desc: 'Hurricane',
-            sea: 'Total foam',
-            color: 'from-sky-500 to-slate-400',
-            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
-            border: 'border-slate-400/50',
-            text: 'text-sky-200',
-        },
-    ];
-    return configs[Math.min(force, 12)];
-};
+// Hoisted to module scope: this table is fixed, and rebuilding thirteen
+// object literals on every BeaufortWidget render bought nothing.
+const BEAUFORT_CONFIGS = [
+    {
+        range: '< 1',
+        desc: 'Calm',
+        sea: 'Mirror-like',
+        color: 'from-sky-400 to-sky-300',
+        bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
+        border: 'border-sky-500/30',
+        text: 'text-sky-200',
+    },
+    {
+        range: '1-3',
+        desc: 'Light Air',
+        sea: 'Ripples',
+        color: 'from-sky-400 to-sky-300',
+        bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
+        border: 'border-sky-500/30',
+        text: 'text-sky-200',
+    },
+    {
+        range: '4-6',
+        desc: 'Light Breeze',
+        sea: 'Small wavelets',
+        color: 'from-sky-400 to-emerald-300',
+        bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
+        border: 'border-sky-500/30',
+        text: 'text-sky-200',
+    },
+    {
+        range: '7-10',
+        desc: 'Gentle Breeze',
+        sea: 'Large wavelets',
+        color: 'from-emerald-400 to-emerald-300',
+        bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
+        border: 'border-emerald-500/30',
+        text: 'text-emerald-200',
+    },
+    {
+        range: '11-16',
+        desc: 'Moderate Breeze',
+        sea: 'Small waves',
+        color: 'from-emerald-400 to-emerald-300',
+        bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
+        border: 'border-emerald-500/30',
+        text: 'text-emerald-200',
+    },
+    {
+        range: '17-21',
+        desc: 'Fresh Breeze',
+        sea: 'Moderate waves',
+        color: 'from-emerald-400 to-yellow-300',
+        bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
+        border: 'border-yellow-500/30',
+        text: 'text-emerald-200',
+    },
+    {
+        range: '22-27',
+        desc: 'Strong Breeze',
+        sea: 'Large waves',
+        color: 'from-yellow-400 to-amber-400',
+        bg: 'bg-linear-to-r from-yellow-900/40 to-slate-900/40',
+        border: 'border-amber-500/30',
+        text: 'text-yellow-200',
+    },
+    {
+        range: '28-33',
+        desc: 'Near Gale',
+        sea: 'Sea heaps up',
+        color: 'from-amber-400 to-red-400',
+        bg: 'bg-linear-to-r from-amber-900/40 to-slate-900/40',
+        border: 'border-red-500/30',
+        text: 'text-amber-200',
+    },
+    {
+        range: '34-40',
+        desc: 'Gale',
+        sea: 'High waves',
+        color: 'from-red-400 to-red-400',
+        bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
+        border: 'border-red-500/40',
+        text: 'text-red-200',
+    },
+    {
+        range: '41-47',
+        desc: 'Strong Gale',
+        sea: 'High waves',
+        color: 'from-red-400 to-red-500',
+        bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
+        border: 'border-red-500/40',
+        text: 'text-red-200',
+    },
+    {
+        range: '48-55',
+        desc: 'Storm',
+        sea: 'Very high',
+        color: 'from-red-500 to-purple-500',
+        bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
+        border: 'border-red-500/40',
+        text: 'text-red-200',
+    },
+    {
+        range: '56-63',
+        desc: 'Violent Storm',
+        sea: 'Exceptionally high',
+        color: 'from-purple-500 to-sky-500',
+        bg: 'bg-linear-to-r from-purple-900/40 to-slate-900/40',
+        border: 'border-purple-500/50',
+        text: 'text-purple-200',
+    },
+    {
+        range: '64+',
+        desc: 'Hurricane',
+        sea: 'Total foam',
+        color: 'from-sky-500 to-slate-400',
+        bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
+        border: 'border-slate-400/50',
+        text: 'text-sky-200',
+    },
+] as const;
+
+const getBeaufortConfig = (force: number) => BEAUFORT_CONFIGS[Math.min(force, 12)];
 
 const SeaStateVisual = React.memo(({ force }: { force: number }) => {
     const width = 200;
@@ -408,7 +408,7 @@ export const DetailedMetricsWidget = ({
                 value={
                     current.pressure !== null && current.pressure !== undefined ? Math.round(current.pressure) : '--'
                 }
-                unit="mb"
+                unit="hPa"
                 colorClass="text-sky-300"
                 icon={<GaugeIcon className="w-4 h-4" />}
                 subContent={
@@ -506,12 +506,12 @@ export const DetailedMetricsWidget = ({
         ),
         chill: (
             <DetailTile
-                label="Wind Chill"
+                label="Feels Like"
                 value={`${convertTemp(current.feelsLike, units.temp)}°`}
                 unit=""
                 colorClass="text-emerald-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[11px] text-gray-400">Feels Like</span>}
+                subContent={<span className="text-[11px] text-gray-400">Apparent temp</span>}
             />
         ),
         swell: (
@@ -554,7 +554,7 @@ export const DetailedMetricsWidget = ({
                 value={`${current.swellPeriod || '--'}`}
                 unit="s"
                 colorClass="text-sky-300"
-                icon={<CloudIcon className="w-4 h-4" />}
+                icon={<WaveIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">Peak Energy</span>}
             />
         ),
@@ -583,7 +583,7 @@ export const DetailedMetricsWidget = ({
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-4 pt-8">
             <div className="absolute top-3 left-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                <GearIcon className="w-3 h-3" /> Atmospherics
+                <CloudIcon className="w-3 h-3" /> Atmospherics
             </div>
 
             <Suspense fallback={<PlainGrid ids={activeWidgets}>{(id) => WIDGET_MAP[id] || null}</PlainGrid>}>

@@ -15,13 +15,13 @@
  * - Mod action menus
  */
 
-import React, { useState, useRef, useEffect, useCallback, Suspense as _Suspense } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { lazyRetry } from '../utils/lazyRetry';
 import { useAuthStore } from '../stores/authStore';
 
 const log = createLogger('ChatPage');
-import { ChatService, ChatChannel, DEFAULT_CHANNELS } from '../services/ChatService';
+import { ChatService, ChatChannel, DEFAULT_CHANNELS, type ChatMessage } from '../services/ChatService';
 import { reportMessage } from '../services/ContentModerationService';
 const LonelyHeartsPage = lazyRetry(
     () => import('./LonelyHeartsPage').then((m) => ({ default: m.LonelyHeartsPage })),
@@ -65,7 +65,6 @@ import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 
-import { CREW_RANKS as _CREW_RANKS } from './chat/chatUtils';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
 // --- TYPES ---
@@ -512,6 +511,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         title: string;
         message: string;
         destructive: boolean;
+        /** Verb on the confirm button. `destructive` alone used to pick it,
+            which labelled the Leave Channel dialog's button "Block". */
+        confirmLabel?: string;
         onConfirm: () => Promise<void>;
     } | null>(null);
 
@@ -520,6 +522,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
             title: 'Block User',
             message: `Block ${name} from the platform? This will permanently prevent them from sending messages.`,
             destructive: true,
+            confirmLabel: 'Block',
             onConfirm: async () => {
                 const ok = await ChatService.blockUserPlatform(userId);
                 if (ok) toast.success(`${name} has been blocked from the platform`);
@@ -535,6 +538,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
             title: 'Promote to Admin',
             message: `Make ${name} an Admin? Admins can delete posts, pin messages, mute users, and create channels.`,
             destructive: false,
+            confirmLabel: 'Promote',
             onConfirm: async () => {
                 const ok = await ChatService.setRole(userId, 'admin');
                 if (ok) toast.success(`${name} is now an Admin`);
@@ -551,6 +555,59 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         setIsFirstVisit(false);
         localStorage.setItem(authScopedStorageKey('crew_talk_visited'), 'true');
     };
+
+    // ── Stable child callbacks ─────────────────────────────────────────
+    // ChatMessageList / ChatHeader are React.memo'd. Inline arrows here gave
+    // them a fresh prop identity on every keystroke in the composer (the
+    // message text lives in this component), so the whole 50-message list
+    // re-rendered per character. Hook setters are stable, so these can hold
+    // empty dependency arrays.
+    const handleReportMsg = useCallback(
+        (msg: ChatMessage) => {
+            setReportingMsg(msg);
+            setReportSent(false);
+            setReportError(null);
+        },
+        [setReportingMsg, setReportSent, setReportError],
+    );
+
+    const handleToggleModMenu = useCallback(
+        (msgId: string) => {
+            setShowModMenu((prev) => (prev === msgId ? null : msgId));
+        },
+        [setShowModMenu],
+    );
+
+    const handleOpenProfile = useCallback(() => {
+        setNavDirection('forward');
+        setView('profile');
+    }, []);
+
+    const handleShowBlockConfirm = useCallback(() => setShowBlockConfirm(true), [setShowBlockConfirm]);
+
+    const handleShowProposalForm = useCallback(() => setShowProposalForm(true), [setShowProposalForm]);
+
+    const handleLeaveChannel = useCallback(() => {
+        if (!activeChannel) return;
+        const { id, name } = activeChannel;
+        setConfirmAction({
+            title: 'Leave Channel',
+            message: `Leave "${name}"? You'll need to request access again to rejoin.`,
+            destructive: true,
+            confirmLabel: 'Leave',
+            onConfirm: async () => {
+                const ok = await ChatService.leaveChannel(id);
+                if (ok) {
+                    toast.success(`Left ${name}`);
+                    setActiveChannel(null);
+                    setView('channels');
+                } else {
+                    toast.error('Cannot leave — channel owners must delete the channel instead');
+                }
+                setConfirmAction(null);
+            },
+        });
+    }, [activeChannel, setActiveChannel]);
 
     const goBack = () => {
         setShowModMenu(null);
@@ -594,35 +651,11 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 hasDMPartner={!!dmPartner}
                 onGoBack={goBack}
                 onExit={onBack}
-                onOpenProfile={() => {
-                    setNavDirection('forward');
-                    setView('profile');
-                }}
+                onOpenProfile={handleOpenProfile}
                 onOpenDMInbox={openDMInbox}
-                onToggleBlock={() => setShowBlockConfirm(true)}
-                onLeaveChannel={
-                    activeChannel?.is_private
-                        ? () => {
-                              setConfirmAction({
-                                  title: 'Leave Channel',
-                                  message: `Leave "${activeChannel.name}"? You'll need to request access again to rejoin.`,
-                                  destructive: true,
-                                  onConfirm: async () => {
-                                      const ok = await ChatService.leaveChannel(activeChannel.id);
-                                      if (ok) {
-                                          toast.success(`Left ${activeChannel.name}`);
-                                          setActiveChannel(null);
-                                          setView('channels');
-                                      } else {
-                                          toast.error('Cannot leave — channel owners must delete the channel instead');
-                                      }
-                                      setConfirmAction(null);
-                                  },
-                              });
-                          }
-                        : undefined
-                }
-                onPropose={() => setShowProposalForm(true)}
+                onToggleBlock={handleShowBlockConfirm}
+                onLeaveChannel={activeChannel?.is_private ? handleLeaveChannel : undefined}
+                onPropose={handleShowProposalForm}
             />
 
             {/* ═══════════ WELCOME BANNER ═══════════ */}
@@ -853,12 +886,8 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                 getAvatar={getAvatar}
                                 onOpenDMThread={openDMThread}
                                 onMarkHelpful={handleMarkHelpful}
-                                onReportMsg={(msg) => {
-                                    setReportingMsg(msg);
-                                    setReportSent(false);
-                                    setReportError(null);
-                                }}
-                                onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
+                                onReportMsg={handleReportMsg}
+                                onToggleModMenu={handleToggleModMenu}
                                 onDeleteMessage={handleDeleteMessage}
                                 onPinMessage={handlePinMessage}
                                 onMuteUser={handleMuteUser}
@@ -975,7 +1004,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     setShowAttachMenu={setShowAttachMenu}
                     keyboardOffset={keyboardOffset}
                     inputRef={inputRef}
-                    onSend={(bypass) => sendChannelMessage(bypass)}
+                    onSend={sendChannelMessage}
                     onOpenPinDrop={openPinDrop}
                     onOpenPoiPicker={openPoiPicker}
                     onOpenTrackPicker={openTrackPicker}
@@ -1031,7 +1060,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 title={confirmAction?.title || ''}
                 message={confirmAction?.message || ''}
                 destructive={confirmAction?.destructive || false}
-                confirmLabel={confirmAction?.destructive ? 'Block' : 'Confirm'}
+                confirmLabel={confirmAction?.confirmLabel ?? 'Confirm'}
                 onConfirm={confirmAction?.onConfirm || (() => {})}
                 onCancel={() => setConfirmAction(null)}
             />

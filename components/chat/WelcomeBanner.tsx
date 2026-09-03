@@ -5,7 +5,8 @@ interface WelcomeBannerProps {
 }
 
 export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({ onDismiss }) => (
-    <div className="mx-4 mt-3 fade-slide-down" role="banner" aria-label="Welcome to the Scuttlebutt">
+    // `banner` is the page-header landmark; this is a dismissible notice.
+    <div className="mx-4 mt-3 fade-slide-down" role="status" aria-label="Welcome to the Scuttlebutt">
         <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/3 border border-white/6">
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white/90">Welcome aboard</p>

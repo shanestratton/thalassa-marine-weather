@@ -29,7 +29,7 @@
  */
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPinIcon, TrashIcon } from '../Icons';
+import { MapPinIcon, TrashIcon, StarIcon } from '../Icons';
 import { useSettings } from '../../context/SettingsContext';
 import {
     buildRemoveLocationPatch,
@@ -192,7 +192,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                     triggerHaptic('light');
                     setOpen((v) => !v);
                 }}
-                className={`p-2 transition-colors hover:bg-white/10 rounded-lg ${
+                className={`hit-target-44 p-2 transition-colors hover:bg-white/10 rounded-lg ${
                     alreadySaved ? accent.fill : `text-gray-400 ${accent.textHover}`
                 }`}
                 title={`Save / recall ${target === 'origin' ? 'departure' : 'destination'}`}
@@ -301,7 +301,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                                                 type="button"
                                                 role="menuitem"
                                                 onClick={() => handleRemove(loc.name)}
-                                                className="p-2 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                                                className="hit-target-44 p-2 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                                                 aria-label={`Remove ${loc.name}`}
                                             >
                                                 <TrashIcon className="w-4 h-4" />
@@ -317,22 +317,3 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
         </>
     );
 };
-
-// Inline star icon — matches the visual weight of the existing
-// MapIcon / CrosshairIcon in the right-edge button group. Using a
-// local SVG instead of pulling another Icons.tsx export so the
-// fill/outline switch is trivial.
-const StarIcon: React.FC<{ className?: string; filled: boolean }> = ({ className, filled }) => (
-    <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill={filled ? 'currentColor' : 'none'}
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-    >
-        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-);
