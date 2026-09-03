@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { useFocusTrap } from '../hooks/useAccessibility';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { TrashIcon } from './Icons';
 import { OverlayPortal } from './ui/OverlayPortal';
 

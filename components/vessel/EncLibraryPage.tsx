@@ -155,8 +155,15 @@ function ImportProgress({ progress }: { progress: LocalEncPackProgress }) {
  * Production ENC library. Deliberately imports no Pi service and exposes no
  * discovery, pairing, sync or GDAL controls.
  */
+/* One reader for both the first frame and every refresh. Seeding the state
+   unsorted meant the first paint listed cells in storage order and the mount
+   effect immediately re-read the coverage to re-sort it. */
+function readSortedReferenceCoverage(): EncCell[] {
+    return [...getReferenceCoverage()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMap }) => {
-    const [cells, setCells] = useState<EncCell[]>(() => getReferenceCoverage());
+    const [cells, setCells] = useState<EncCell[]>(readSortedReferenceCoverage);
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState<LocalEncPackProgress | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -168,10 +175,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
     const [urlError, setUrlError] = useState<string | null>(null);
     const inFlight = useRef(false);
 
-    const refresh = useCallback(
-        () => setCells([...getReferenceCoverage()].sort((a, b) => a.id.localeCompare(b.id))),
-        [],
-    );
+    const refresh = useCallback(() => setCells(readSortedReferenceCoverage()), []);
     useEffect(() => {
         refresh();
         return subscribeToEnc(refresh);

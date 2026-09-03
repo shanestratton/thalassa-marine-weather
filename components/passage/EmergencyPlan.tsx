@@ -257,7 +257,9 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         <RadioTowerIcon className="w-3.5 h-3.5" />
                         MAYDAY Protocol (VHF Ch 16)
                     </h5>
-                    <div className="text-xs text-gray-300 space-y-0.5 font-mono leading-relaxed">
+                    {/* The one block on this page that gets read out loud, under way,
+                        by someone who is not calm. 14px. */}
+                    <div className="text-sm text-gray-300 space-y-0.5 font-mono leading-relaxed">
                         <div>
                             <span className="text-red-400 font-bold">1.</span> MAYDAY MAYDAY MAYDAY
                         </div>
@@ -322,7 +324,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                     <p className="text-[11px] text-amber-200/80 leading-relaxed">
                         <span className="font-bold text-amber-400">⚠️ Important:</span> This emergency plan is generated
                         for reference only. Always verify safe harbour availability via VHF radio before diversion.
-                        Maintain updated charts and contact information. The captain is solely responsible for crew
+                        Maintain updated charts and contact information. The skipper is solely responsible for crew
                         safety and vessel operations.
                     </p>
                 </div>
@@ -337,12 +339,12 @@ const ContactCard: React.FC<{ contact: EmergencyContact }> = ({ contact }) => (
         <h5 className="text-[11px] font-bold text-white mb-1.5 truncate">{contact.service}</h5>
         <div className="space-y-1">
             {contact.frequency && (
-                <div className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                <div className="flex items-center gap-1.5 text-sm text-amber-400">
                     <RadioTowerIcon className="w-3 h-3 shrink-0" />
                     <span className="font-mono truncate">{contact.frequency}</span>
                 </div>
             )}
-            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400">
+            <div className="flex items-center gap-1.5 text-sm text-emerald-400">
                 <PhoneIcon className="w-3 h-3 shrink-0" />
                 <span className="font-mono">{contact.phone}</span>
             </div>

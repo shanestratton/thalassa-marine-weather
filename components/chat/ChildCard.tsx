@@ -100,7 +100,7 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                             type="button"
                             ref={closeButtonRef}
                             onClick={onToggle}
-                            className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors active:scale-90"
+                            className="min-h-[44px] min-w-[44px] flex items-center justify-center -ml-2 rounded-xl hover:bg-white/5 transition-colors active:scale-90"
                             aria-label={`Close ${title} and return to passage planning`}
                         >
                             <svg

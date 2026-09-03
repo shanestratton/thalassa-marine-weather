@@ -385,7 +385,10 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         </div>
                     </button>
 
-                    <div className="text-center text-[11px] font-bold tracking-wider uppercase text-slate-400 max-w-xs">
+                    {/* A two-sentence procedure, so it is set as prose: uppercase and
+                        letter-spacing are for labels, not for instructions someone has
+                        to follow with a person in the water. */}
+                    <div className="text-center text-sm font-bold leading-relaxed text-slate-300 max-w-xs">
                         Also immediately: throw a flotation device, shout &ldquo;Man Overboard,&rdquo; assign a spotter,
                         and hit the MOB button on your chartplotter if fitted.
                     </div>
@@ -510,7 +513,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         <br />
                         {formatLon(active.fixLon)}
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1">
+                    <div className="text-xs font-semibold tabular-nums text-slate-300 mt-1">
                         @ {new Date(active.activatedAt).toISOString().slice(11, 19)} UTC
                         {` · ±${Math.round(active.fixAccuracy)}m`}
                     </div>
@@ -524,7 +527,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         <br />
                         {own ? formatLon(own.longitude) : '—'}
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1">
+                    <div className="text-xs font-semibold tabular-nums text-slate-300 mt-1">
                         {ownPositionFresh
                             ? `Fresh fix${own && Number.isFinite(own.accuracy) ? ` · ±${Math.round(own.accuracy)}m` : ''}`
                             : ownPositionAgeSec === null
@@ -608,7 +611,10 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         readOnly
                         value={maydayText}
                         onFocus={(event) => event.currentTarget.select()}
-                        className="mt-2 min-h-36 w-full resize-y rounded-lg border border-white/15 bg-slate-950/80 p-2 font-mono text-[11px] font-medium leading-relaxed text-white"
+                        /* This box only appears once the spoken Mayday has failed —
+                           which is the moment the skipper has to read it aloud off
+                           the screen. Proportional text at 14px, not 11px mono. */
+                        className="mt-2 min-h-36 w-full resize-y rounded-lg border border-white/15 bg-slate-950/80 p-2 text-sm font-medium leading-relaxed text-white"
                     />
                 </div>
             )}

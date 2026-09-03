@@ -116,7 +116,8 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                     <div key={group.date} className="rounded-xl overflow-hidden border border-white/5 bg-slate-900/20">
                         {/* Date Header - Sticky */}
                         <button
-                            aria-label="Select date"
+                            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${isToday ? 'today' : group.displayDate}`}
+                            aria-expanded={isExpanded}
                             onClick={() => toggleDate(group.date)}
                             className={`w-full px-3 py-2 flex items-center justify-between transition-all duration-150 ${
                                 isToday ? 'bg-sky-900/30 hover:bg-sky-900/40' : 'bg-slate-800/50 hover:bg-slate-800/70'
@@ -344,7 +345,12 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                         className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
                     >
                         {/* Type Indicator */}
+                        {/* The colour is the sighted cue; the word is the spoken one.
+                           type.label has been defined and unrendered since this row
+                           was written, so the entry kind reached nobody using a
+                           screen reader. */}
                         <div className={`w-1.5 h-8 rounded-full ${type.color} opacity-70`} />
+                        <span className="sr-only">{entry.entryType} entry</span>
 
                         {/* Time */}
                         <div className="w-12 font-mono font-bold text-white text-sm">{timeStr}</div>
@@ -365,15 +371,15 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                         <div className="flex-1 flex items-center gap-3 overflow-hidden">
                             {/* Speed */}
                             {entry.speedKts != null && (
-                                <span className="text-xs">
-                                    <span className="text-white font-bold">{(entry.speedKts ?? 0).toFixed(1)}</span>
+                                <span className="text-sm tabular-nums">
+                                    <span className="text-white font-bold">{(entry.speedKts ?? 0).toFixed(1)}</span>{' '}
                                     <span className="text-slate-400">kts</span>
                                 </span>
                             )}
 
                             {/* Course */}
                             {entry.courseDeg != null && (
-                                <span className="text-xs flex items-center gap-0.5">
+                                <span className="text-sm tabular-nums flex items-center gap-0.5">
                                     <CompassIcon className="w-3 h-3 text-sky-400" rotation={entry.courseDeg} />
                                     <span className="text-white font-bold">{formatCourseTrue(entry.courseDeg)}</span>
                                 </span>
@@ -382,7 +388,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                             {/* Wind — round to 1 decimal to match The Glass display
                                 (raw stream from NMEA / weather can be 12+ decimals) */}
                             {entry.windSpeed != null && (
-                                <span className="text-xs flex items-center gap-0.5">
+                                <span className="text-sm tabular-nums flex items-center gap-0.5">
                                     <WindIcon className="w-3 h-3 text-slate-400" />
                                     <span className="text-white font-bold">{entry.windSpeed.toFixed(1)}</span>
                                     {entry.beaufortScale != null && (
@@ -437,7 +443,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 {entry.distanceNM != null && (
                                     <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                         <div className="text-[11px] text-slate-400 uppercase">Dist</div>
-                                        <div className="text-xs font-bold text-white">
+                                        <div className="text-sm font-bold text-white tabular-nums">
                                             {(entry.distanceNM ?? 0).toFixed(1)} NM
                                         </div>
                                     </div>
@@ -445,7 +451,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 {entry.speedKts != null && (
                                     <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                         <div className="text-[11px] text-slate-400 uppercase">Speed</div>
-                                        <div className="text-xs font-bold text-white">
+                                        <div className="text-sm font-bold text-white tabular-nums">
                                             {(entry.speedKts ?? 0).toFixed(1)} kts
                                         </div>
                                     </div>
@@ -453,7 +459,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 {entry.courseDeg != null && (
                                     <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                         <div className="text-[11px] text-slate-400 uppercase">Course</div>
-                                        <div className="text-xs font-bold text-white">
+                                        <div className="text-sm font-bold text-white tabular-nums">
                                             {formatCourseTrue(entry.courseDeg)}
                                         </div>
                                     </div>
@@ -467,7 +473,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                         <span className="flex items-center gap-1">
                                             <WindIcon className="w-3 h-3" />
                                             <span className="text-white font-bold">
-                                                {entry.windSpeed.toFixed(1)}kts
+                                                {entry.windSpeed.toFixed(1)} kts
                                             </span>
                                             {entry.windDirection}
                                             {entry.beaufortScale != null && (
@@ -533,7 +539,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 <div className="mt-3 flex gap-2">
                                     {onEdit && (
                                         <button
-                                            aria-label="View propagation details"
+                                            aria-label={`Edit log entry ${timeStr}`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onEdit!(entry);
@@ -558,7 +564,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                     )}
                                     {onDelete && entry.entryType !== 'auto' && (
                                         <button
-                                            aria-label="View propagation details"
+                                            aria-label={`Delete log entry ${timeStr}`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onDelete!(entry.id);

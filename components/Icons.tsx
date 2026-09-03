@@ -89,6 +89,7 @@ export {
     CalendarIcon,
     GaugeIcon,
     PlayIcon,
+    PauseIcon,
     StopIcon,
     SpeakerWaveIcon,
     FuelIcon,

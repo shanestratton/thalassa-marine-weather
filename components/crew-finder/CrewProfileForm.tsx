@@ -91,6 +91,16 @@ interface CrewProfileFormProps {
     fileInputRef: React.RefObject<HTMLInputElement>;
 }
 
+/* One chevron for both selects, built once. The same data-URI used to be
+   spelled out twice in this file and rebuilt on every keystroke. */
+const SELECT_CHEVRON_STYLE: React.CSSProperties = {
+    backgroundImage:
+        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='rgba(255,255,255,0.3)'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E\")",
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 12px center',
+    backgroundSize: '20px',
+};
+
 const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
     state,
     dispatch,
@@ -187,6 +197,10 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 ? editInterests.filter((i) => i !== interest)
                 : [...editInterests, interest],
         });
+
+    /* Looked up once. The state list was being built twice per render — once
+       to decide whether to show the select, once to fill it. */
+    const statesForCountry = editLocationCountry ? getStatesForCountry(editLocationCountry) : [];
 
     const review = profile as Partial<CrewListReviewFields>;
     const resolvedPublicationState = publicationState ?? (publicationReady ? 'ready' : 'blocked');
@@ -423,7 +437,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         aria-pressed={selected}
                                         key={skill}
                                         onClick={() => toggleEditSkill(skill)}
-                                        className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
+                                        className={`min-h-[44px] px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
                                             selected
                                                 ? 'bg-linear-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                                 : 'bg-white/3 text-white/50 border border-white/5 hover:bg-white/5'
@@ -487,13 +501,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 setEditLocationState('');
                             }}
                             className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-base text-white focus:outline-hidden focus:border-emerald-500/30 transition-colors appearance-none"
-                            style={{
-                                backgroundImage:
-                                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='rgba(255,255,255,0.3)'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E\")",
-                                backgroundRepeat: 'no-repeat',
-                                backgroundPosition: 'right 12px center',
-                                backgroundSize: '20px',
-                            }}
+                            style={SELECT_CHEVRON_STYLE}
                         >
                             <option value="" className="bg-[#1a1d2e]">
                                 Select Country
@@ -504,23 +512,17 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 </option>
                             ))}
                         </select>
-                        {editLocationCountry && getStatesForCountry(editLocationCountry).length > 0 && (
+                        {statesForCountry.length > 0 && (
                             <select
                                 value={editLocationState}
                                 onChange={(e) => setEditLocationState(e.target.value)}
                                 className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-base text-white focus:outline-hidden focus:border-emerald-500/30 transition-colors appearance-none"
-                                style={{
-                                    backgroundImage:
-                                        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='rgba(255,255,255,0.3)'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E\")",
-                                    backgroundRepeat: 'no-repeat',
-                                    backgroundPosition: 'right 12px center',
-                                    backgroundSize: '20px',
-                                }}
+                                style={SELECT_CHEVRON_STYLE}
                             >
                                 <option value="" className="bg-[#1a1d2e]">
                                     Select State / Province
                                 </option>
-                                {getStatesForCountry(editLocationCountry).map((s) => (
+                                {statesForCountry.map((s) => (
                                     <option key={s} value={s} className="bg-[#1a1d2e]">
                                         {s}
                                     </option>
@@ -556,7 +558,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     aria-pressed={selected}
                                     key={v}
                                     onClick={() => toggleVibe(v)}
-                                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                                    className={`min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                                         selected
                                             ? 'bg-linear-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
                                             : 'bg-white/3 text-white/50 border border-white/5'
@@ -584,7 +586,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     aria-pressed={selected}
                                     key={lang}
                                     onClick={() => toggleLanguage(lang)}
-                                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                                    className={`min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                                         selected
                                             ? 'bg-linear-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
                                             : 'bg-white/3 text-white/50 border border-white/5'
@@ -614,7 +616,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         aria-pressed={editSmoking === opt}
                                         key={opt}
                                         onClick={() => setEditSmoking(editSmoking === opt ? '' : opt)}
-                                        className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editSmoking === opt
                                                 ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/20'
                                                 : 'bg-white/3 text-white/50 border border-white/5'
@@ -636,7 +638,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         aria-pressed={editDrinking === opt}
                                         key={opt}
                                         onClick={() => setEditDrinking(editDrinking === opt ? '' : opt)}
-                                        className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editDrinking === opt
                                                 ? 'bg-amber-500/20 text-amber-200 border border-amber-400/20'
                                                 : 'bg-white/3 text-white/50 border border-white/5'
@@ -658,7 +660,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         aria-pressed={editPets === opt}
                                         key={opt}
                                         onClick={() => setEditPets(editPets === opt ? '' : opt)}
-                                        className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editPets === opt
                                                 ? 'bg-sky-500/20 text-sky-200 border border-sky-400/20'
                                                 : 'bg-white/3 text-white/50 border border-white/5'
@@ -741,7 +743,11 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                                     idx === 0 ? 'Remove primary headshot' : `Remove photo ${idx + 1}`
                                                 }
                                                 onClick={() => onPhotoRemove(idx)}
-                                                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-400 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
+                                                /* Always visible: there is no hover on a phone, so a
+                                                   hover-revealed remove button was a control nobody
+                                                   could find. hit-target-44 keeps the 24px badge look
+                                                   and gives it a thumb-sized target. */
+                                                className="hit-target-44 absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-400 text-xs flex items-center justify-center opacity-90 transition-opacity"
                                             >
                                                 ✕
                                             </button>
@@ -947,7 +953,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 {/* Delete Listing — only show if profile exists */}
                 {profile?.user_id && (
                     <button
-                        aria-label="Delete this item"
+                        aria-label="Delete Crew List profile"
                         onClick={() => setShowDeleteConfirm(true)}
                         className="w-full mt-6 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-bold hover:bg-red-500/15 transition-all active:scale-[0.98]"
                     >
@@ -987,8 +993,10 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     Retry the trust check before saving or publishing.
                                 </p>
                             )}
+                            {/* No aria-label: the visible text says which of save, publish
+                                or retry this button is about to do, and a fixed label lied
+                                about four of those five states. */}
                             <button
-                                aria-label="Save changes"
                                 onClick={onSaveProfile}
                                 disabled={
                                     saving ||

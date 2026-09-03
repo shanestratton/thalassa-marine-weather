@@ -9,7 +9,7 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('AddEntryModal');
 import { ShipLogService } from '../services/ShipLogService';
 import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/marineFormatters';
-import { useFocusTrap } from '../hooks/useAccessibility';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { GpsService } from '../services/GpsService';
 import { toast } from './Toast';

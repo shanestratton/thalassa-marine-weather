@@ -232,7 +232,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         aria-label="Close cooking mode"
                         onClick={onClose}
                         disabled={workflowBusy}
-                        className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 text-lg transition-colors"
+                        className="w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 text-lg transition-colors"
                     >
                         ✕
                     </button>
@@ -275,7 +275,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         {meal.ingredients.map((ing, i) => (
                             <span
                                 key={i}
-                                className="px-2.5 py-1 rounded-full text-xs bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                                className="px-2.5 py-1 rounded-full text-sm bg-amber-500/10 text-amber-300 border border-amber-500/20"
                             >
                                 {ing.amount} {ing.unit} {ing.name}
                                 {!ing.scalable && <span className="text-amber-500/40 ml-1">📦</span>}
@@ -312,7 +312,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         <button
                             onClick={handleSkip}
                             disabled={starting || skipping}
-                            className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
+                            className="min-h-[44px] px-3 text-xs text-gray-500 hover:text-gray-400 transition-colors"
                         >
                             {skipping ? 'Skipping…' : 'Skip this meal →'}
                         </button>
@@ -349,7 +349,9 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                                     {checkedSteps.has(i) ? '✓' : i + 1}
                                 </div>
                                 <p
-                                    className={`text-sm leading-relaxed pt-1 ${
+                                    /* Large text is this screen's whole brief — it is read at
+                                       arm's length off a bench in a rolling galley. */
+                                    className={`text-lg leading-relaxed pt-1 ${
                                         checkedSteps.has(i) ? 'text-emerald-300/70 line-through' : 'text-white'
                                     }`}
                                 >
@@ -377,7 +379,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                             <button
                                 aria-label="Decrease servings consumed"
                                 onClick={() => setServingsConsumed(Math.max(1, servingsConsumed - 1))}
-                                className="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-colors"
+                                className="w-11 h-11 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-colors"
                             >
                                 −
                             </button>
@@ -389,7 +391,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                                 onClick={() =>
                                     setServingsConsumed(Math.min(meal.servings_planned * 2, servingsConsumed + 1))
                                 }
-                                className="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-colors"
+                                className="w-11 h-11 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-colors"
                             >
                                 +
                             </button>
