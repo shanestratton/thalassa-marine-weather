@@ -748,7 +748,7 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                                     role="option"
                                     aria-selected={tripId === t.id}
                                     onClick={() => pickTrip(t)}
-                                    className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/4 last:border-b-0 transition-colors flex items-center gap-2 ${
+                                    className={`w-full min-h-[44px] px-4 py-2.5 text-left text-sm border-b border-white/4 last:border-b-0 transition-colors flex items-center gap-2 ${
                                         tripId === t.id
                                             ? 'bg-amber-500/8 text-amber-200'
                                             : 'text-white hover:bg-white/5'
@@ -785,12 +785,8 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                             Leg
                         </span>
                         <span className="truncate text-left flex-1">{legSummary}</span>
-                        <span
-                            className="shrink-0 text-[10px] text-amber-400/70"
-                            title={legStatusLabel}
-                            aria-label={legStatusLabel}
-                        >
-                            {legStatusGlyph}
+                        <span className="shrink-0 text-[10px] font-bold text-amber-400/90">
+                            {legStatusGlyph} {legStatusLabel}
                         </span>
                     </div>
                     <svg
@@ -828,7 +824,7 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                                     role="option"
                                     aria-selected={isSelected}
                                     onClick={() => pickLeg(l)}
-                                    className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/4 last:border-b-0 transition-colors flex items-center gap-2 ${
+                                    className={`w-full min-h-[44px] px-4 py-2.5 text-left text-sm border-b border-white/4 last:border-b-0 transition-colors flex items-center gap-2 ${
                                         isSelected
                                             ? 'bg-amber-500/8 text-amber-200'
                                             : isFuture
@@ -837,12 +833,8 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                                     }`}
                                 >
                                     <span className="truncate flex-1">{summary}</span>
-                                    <span
-                                        className="shrink-0 text-[11px] text-amber-400/70 w-4 text-center"
-                                        title={LEG_STATUS_LABEL[l.status]}
-                                        aria-label={LEG_STATUS_LABEL[l.status]}
-                                    >
-                                        {LEG_STATUS_GLYPH[l.status]}
+                                    <span className="shrink-0 text-[11px] font-bold text-amber-400/90">
+                                        {LEG_STATUS_GLYPH[l.status]} {LEG_STATUS_LABEL[l.status]}
                                     </span>
                                 </button>
                             );

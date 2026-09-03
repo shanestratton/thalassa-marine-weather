@@ -7,6 +7,7 @@
  */
 
 import React, { useCallback, useId } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 export interface CrewListConversationMessage {
     id: string;
@@ -259,7 +260,11 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                 )}
                             </button>
                         </div>
-                        <p className="mt-1.5 px-1 text-[11px] text-white/50">Use ⌘/Ctrl + Enter to send.</p>
+                        {/* Keyboard shortcut hint is desktop-only: on the iOS
+                            build there is no ⌘ key, and the Send button is right there. */}
+                        {!Capacitor.isNativePlatform() && (
+                            <p className="mt-1.5 px-1 text-[11px] text-white/50">Use ⌘/Ctrl + Enter to send.</p>
+                        )}
                     </div>
                 </form>
             </section>

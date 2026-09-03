@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TrackMapViewer } from '../components/TrackMapViewer';
 import { VesselSearch } from '../components/map/VesselSearch';
-import { NmeaGaugeOverlay } from '../components/nmea/NmeaGaugeOverlay';
 import { supabase } from '../services/supabase';
 import { PhotoLightbox } from '../src/components/PhotoLightbox';
 
@@ -107,23 +106,6 @@ function VesselSearchHarness() {
         <>
             <button onClick={() => setOpen(true)}>Find vessel</button>
             <VesselSearch visible={open} onClose={() => setOpen(false)} onSelect={() => {}} />
-        </>
-    );
-}
-
-function NmeaGaugeHarness() {
-    const [open, setOpen] = useState(false);
-
-    return (
-        <>
-            <button onClick={() => setOpen(true)}>Open instrument</button>
-            {open && (
-                <NmeaGaugeOverlay
-                    metricId="cog"
-                    metric={{ value: 127, lastUpdated: Date.now(), freshness: 'live' }}
-                    onClose={() => setOpen(false)}
-                />
-            )}
         </>
     );
 }
@@ -240,25 +222,8 @@ describe('viewer overlay accessibility', () => {
         expect(rpc).not.toHaveBeenCalled();
     });
 
-    it('gives the NMEA gauge a labelled modal lifecycle', () => {
-        vi.useFakeTimers();
-        render(<NmeaGaugeHarness />);
-
-        const opener = screen.getByRole('button', { name: 'Open instrument' });
-        opener.focus();
-        fireEvent.click(opener);
-
-        expect(screen.getByRole('dialog', { name: 'Course Over Ground' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Go back' })).toHaveFocus();
-
-        fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-        act(() => {
-            vi.advanceTimersByTime(300);
-        });
-
-        expect(screen.queryByRole('dialog', { name: 'Course Over Ground' })).not.toBeInTheDocument();
-        expect(opener).toHaveFocus();
-    });
+    // The NmeaGaugeOverlay case was removed with the component itself: the
+    // legacy overlay and its five gauges had no importer outside this file.
 
     it('contains voyage-track focus, dismisses on Escape, and restores its opener', () => {
         render(<TrackMapHarness />);

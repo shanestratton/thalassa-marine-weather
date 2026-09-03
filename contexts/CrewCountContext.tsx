@@ -5,7 +5,7 @@
  * React Context so all consumers re-render automatically.
  * Still persists to localStorage for offline survivability.
  */
-import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -68,17 +68,23 @@ export const CrewCountProvider: React.FC<CrewCountProviderProps> = ({ children }
         [],
     );
 
-    // Listen for external crew-changed events (e.g. from settings or onboarding)
+    // Listen for external crew-changed events (e.g. from settings or onboarding).
+    // The functional update keeps the handler free of `crewCount`, so the
+    // window listener is added once instead of being torn down and re-added
+    // every time the crew count changes. Clamp and ignore-if-equal unchanged.
     useEffect(() => {
         const handler = (e: Event) => {
             const detail = (e as CustomEvent).detail;
-            if (typeof detail === 'number' && detail !== crewCount) {
-                setCrewCountRaw(Math.max(1, Math.min(20, detail)));
-            }
+            if (typeof detail !== 'number') return;
+            setCrewCountRaw((prev) => (detail !== prev ? Math.max(1, Math.min(20, detail)) : prev));
         };
         window.addEventListener('thalassa:crew-changed', handler);
         return () => window.removeEventListener('thalassa:crew-changed', handler);
-    }, [crewCount]);
+    }, []);
 
-    return <CrewCountContext.Provider value={{ crewCount, setCrewCount }}>{children}</CrewCountContext.Provider>;
+    // Stable context value — without it every provider render handed each
+    // consumer a brand-new object and re-rendered them all.
+    const value = useMemo(() => ({ crewCount, setCrewCount }), [crewCount, setCrewCount]);
+
+    return <CrewCountContext.Provider value={value}>{children}</CrewCountContext.Provider>;
 };

@@ -159,7 +159,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                 <button
                     aria-label="Show Static Meal Ideas"
                     onClick={() => setShowFallback(true)}
-                    className="w-full py-2 text-[11px] text-gray-400 hover:text-gray-300 transition-colors text-center"
+                    className="w-full min-h-[44px] py-2 text-[11px] text-gray-400 hover:text-gray-300 transition-colors text-center"
                 >
                     Or view offline meal ideas →
                 </button>
@@ -190,7 +190,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                             aria-label="Regenerate content"
                             onClick={handleGenerate}
                             disabled={loading}
-                            className="text-[11px] text-gray-400 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
+                            className="hit-target-44 text-[11px] text-gray-400 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
                         >
                             {loading ? '⏳' : '🔄'} Refresh
                         </button>
@@ -204,7 +204,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                             key={i}
                             aria-label={`Day ${day.day}`}
                             onClick={() => setActiveDay(i)}
-                            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                            className={`shrink-0 min-h-[44px] px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                 i === activeDay
                                     ? 'bg-amber-500/25 text-amber-300 border border-amber-500/30'
                                     : 'bg-white/5 text-gray-400 border border-white/5 hover:bg-white/10'

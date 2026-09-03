@@ -50,8 +50,11 @@ describe('log and route dialog accessibility', () => {
         );
 
         const cancel = screen.getByRole('button', { name: 'Cancel' });
-        const confirm = screen.getByRole('button', { name: 'End Voyage' });
-        const dialog = screen.getByRole('alertdialog', { name: 'End Voyage?' });
+        // Renamed 2026-09-03: the recorder is "Tracking" everywhere else (the
+        // Stop button, the toasts), and "End Voyage" is the separate Vessel-tab
+        // passage action, so this dialog no longer borrows its name.
+        const confirm = screen.getByRole('button', { name: 'Stop Tracking' });
+        const dialog = screen.getByRole('alertdialog', { name: 'Stop Tracking?' });
         const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
         expect(dialog).toContainElement(confirm);
         expect(overlay?.parentElement).toBe(document.body);

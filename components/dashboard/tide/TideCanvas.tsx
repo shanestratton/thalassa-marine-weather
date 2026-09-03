@@ -50,7 +50,9 @@ export const TideCanvas = React.memo(
             const marginTop = 20;
             const marginRight = 0;
             const marginLeft = 0;
-            const marginBottom = 4;
+            // Room for the hour labels below the curve — they are 11px now
+            // (canvas text is not reached by the index.css legibility floor).
+            const marginBottom = 14;
             const plotW = w - marginLeft - marginRight;
             const plotH = h - marginTop - marginBottom;
 
@@ -77,8 +79,8 @@ export const TideCanvas = React.memo(
 
                 // Label every 4 hours
                 if (hour % 4 === 0 && hour < 24) {
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-                    ctx.font = '8px system-ui, sans-serif';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                    ctx.font = '11px system-ui, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
                 }
