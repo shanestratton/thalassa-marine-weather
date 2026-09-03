@@ -135,15 +135,17 @@ describe('the Pi can actually be handed the shore watch', () => {
         // Tied to STATE — watching, sharing, no Pi keeping it — so a Pi that is
         // redeployed or comes up while the hook is already down still gets
         // offered. A one-shot probe inside handleSetAnchor could not.
-        expect(page).toMatch(/if \(viewMode !== 'watching' \|\| !piOfferSession\) return;/);
-        expect(page).toMatch(/if \(AnchorPiWatchKeeper\.isKeeping\(\) \|\| piOfferDeclinedFor === piOfferSession\) \{/);
+        expect(page).toMatch(/if \(viewMode !== 'watching' \|\| !piOfferAnchorKey\) \{/);
+        expect(page).toMatch(
+            /if \(AnchorPiWatchKeeper\.isKeeping\(\) \|\| piOfferDeclinedFor === piOfferAnchorKey\) \{/,
+        );
         const arm = page.slice(page.indexOf('if (success) {'), page.indexOf('First-time hint dismissal'));
         expect(arm).not.toMatch(/probePiWatchCapability/);
     });
 
     it('does not ask again once the skipper has said keep it here', () => {
         const page = read('components/AnchorWatchPage.tsx');
-        expect(page).toMatch(/setPiOfferDeclinedFor\(piOfferSession\)/);
+        expect(page).toMatch(/setPiOfferDeclinedFor\(piOfferAnchorKey\)/);
     });
 
     it('the offer renders in the WATCHING view, not the setup one', () => {
@@ -178,5 +180,19 @@ describe('the Pi can actually be handed the shore watch', () => {
         // is exactly the person who needs it.
         const guard = page.slice(page.indexOf('if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor'));
         expect(guard.slice(0, 400)).toMatch(/probePiWatchCapability/);
+    });
+
+    it('the offer does NOT depend on a shore-share session existing', () => {
+        // The session is created BY accepting the offer. Gating the offer on
+        // it was circular — no session, no probe, no button, no session — and
+        // is why nothing appeared on an armed anchor with Shore Share
+        // un-started (2026-09-03).
+        const page = read('components/AnchorWatchPage.tsx');
+        expect(page).not.toMatch(/piOfferSession/);
+        expect(page).toMatch(/const piOfferAnchorKey =/);
+        expect(page).toMatch(/snapshot\?\.anchorPosition \? String\(snapshot\.anchorPosition\.timestamp\)/);
+        // Accepting creates the session itself, so the punter types nothing.
+        const accept = page.slice(page.indexOf('const handleAcceptPiWatch'), page.indexOf('const handleJoinShore'));
+        expect(accept).toMatch(/await AnchorWatchSyncService\.createSession\(\)/);
     });
 });

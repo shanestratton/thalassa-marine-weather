@@ -345,10 +345,26 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
      * boat was watched. Asked once per session, so "keep it here" is not
      * asked again all night.
      */
-    const piOfferSession = syncState?.connected ? (syncState.sessionCode ?? null) : null;
+    /**
+     * The offer is keyed on the ANCHOR, not on a shore-share session.
+     *
+     * It used to be keyed on syncState.sessionCode — which is circular, and is
+     * why no button ever appeared (Shane 2026-09-03, anchor armed and Shore
+     * Share un-started: "there is no pi button?"). The session does not exist
+     * until the offer is ACCEPTED, so gating the offer on it meant no session,
+     * no probe, no button, no session.
+     *
+     * The anchor's own timestamp is the right key: one offer per hook that
+     * goes down, and a decline that lasts until the next one.
+     */
+    const piOfferAnchorKey =
+        viewMode === 'watching' && snapshot?.anchorPosition ? String(snapshot.anchorPosition.timestamp) : null;
     useEffect(() => {
-        if (viewMode !== 'watching' || !piOfferSession) return;
-        if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor === piOfferSession) {
+        if (viewMode !== 'watching' || !piOfferAnchorKey) {
+            setPiWatchCapable(false);
+            return;
+        }
+        if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor === piOfferAnchorKey) {
             // Still ask the Pi whether it COULD, so the row stays offerable —
             // just do not raise the dialog again.
             let stale = false;
@@ -372,7 +388,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         return () => {
             cancelled = true;
         };
-    }, [viewMode, piOfferSession, piOfferDeclinedFor]);
+    }, [viewMode, piOfferAnchorKey, piOfferDeclinedFor]);
 
     // ── The Pi keeps the watch only when the skipper says so ──
     //
@@ -1697,7 +1713,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 onConfirm={handleAcceptPiWatch}
                 onCancel={() => {
                     setShowPiWatchOffer(false);
-                    setPiOfferDeclinedFor(piOfferSession);
+                    setPiOfferDeclinedFor(piOfferAnchorKey);
                 }}
             />
 
