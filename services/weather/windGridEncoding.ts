@@ -3,8 +3,8 @@
  * WindGrid shape, the texture-encoding constant, and the RGBA encoder the
  * WebGL particle engine uploads.
  *
- * Split out of windField.ts (2026-07-05) so the GPU renderer (WindGLEngine)
- * can be reused on the PUBLIC voyage-log page WITHOUT dragging in the app's
+ * Split out of windField.ts (2026-07-05) so the GPU renderer can be reused on
+ * the PUBLIC voyage-log page WITHOUT dragging in the app's
  * fetch stack (PiCacheService, Capacitor, API keys). The fetching half stays
  * in windField.ts and re-exports these; nothing else changes for the app.
  */

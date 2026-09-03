@@ -106,7 +106,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                             aria-label="Upgrade to premium forecast"
                         >
                             <DiamondIcon className="w-5 h-5" />
-                            Unlock Digital Captain's Log
+                            Unlock the Skipper's Log
                         </button>
                     </div>
                 )}
@@ -137,7 +137,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                                     </div>
                                     <div>
                                         <h3 className="text-sm font-bold text-sky-300 uppercase tracking-widest flex items-center gap-2">
-                                            Captain's Log
+                                            Skipper's Log
                                         </h3>
                                         <div className="flex items-center gap-2">
                                             {/* Label Removed */}

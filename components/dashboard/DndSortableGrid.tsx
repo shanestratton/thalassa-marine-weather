@@ -33,7 +33,10 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
             <div
                 {...attributes}
                 {...listeners}
-                className="absolute top-1.5 right-1.5 p-1.5 text-white/60 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
+                /* hit-target-44 keeps the small visual grip but gives it a thumb's
+                   worth of hit box, and the resting opacity goes to 70 — on touch
+                   there is no hover to reveal it. Desktop keeps the hover reveal. */
+                className="hit-target-44 absolute top-1.5 right-1.5 p-1.5 text-white/60 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing z-30 opacity-70 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
                 title="Drag to reorder"
             >
                 <GripIcon className="w-3 h-3" />

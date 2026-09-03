@@ -41,7 +41,7 @@ vi.mock('../components/Toast', () => ({
     },
 }));
 
-vi.mock('../hooks/useAccessibility', () => ({
+vi.mock('../hooks/useFocusTrap', () => ({
     useFocusTrap: () => ({ current: null }),
 }));
 

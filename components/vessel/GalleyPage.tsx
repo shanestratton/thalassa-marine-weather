@@ -243,7 +243,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 <PageHeader
                     title="Galley"
                     subtitle={
-                        <p className="text-[11px] text-amber-400/60 uppercase tracking-widest">
+                        /* PageHeader's own subtitle weight and size — the 11px/60%
+                           amber was the exact combination PageHeader bumped away from
+                           for glare and spray. */
+                        <p className="text-xs font-bold text-amber-300 uppercase tracking-widest">
                             {visibleActiveMeals.length} active · {visibleSavedRecipes.length} saved · {reservedCount}{' '}
                             reserved
                         </p>
@@ -270,7 +273,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     aria-selected={tab === 'active'}
                     aria-controls="galley-active-panel"
                     tabIndex={tab === 'active' ? 0 : -1}
-                    className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
+                    className={`min-h-[44px] flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
                         tab === 'active'
                             ? 'text-amber-400 border-b-2 border-amber-400'
                             : 'text-gray-500 hover:text-gray-300'
@@ -287,7 +290,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     aria-selected={tab === 'recipes'}
                     aria-controls="galley-recipes-panel"
                     tabIndex={tab === 'recipes' ? 0 : -1}
-                    className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
+                    className={`min-h-[44px] flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
                         tab === 'recipes'
                             ? 'text-sky-400 border-b-2 border-sky-400'
                             : 'text-gray-500 hover:text-gray-300'

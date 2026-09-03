@@ -96,10 +96,10 @@ export const NmeaRateSparkline: React.FC<NmeaRateSparklineProps> = ({
             <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5">
                     <span className={`w-1.5 h-1.5 rounded-full ${tint.dot}`} />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">{label}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">{label}</span>
                 </div>
-                <span className={`text-[11px] font-mono font-bold ${tint.text}`}>
-                    {currentRate.toFixed(1)} <span className="text-white/40">/sec</span>
+                <span className={`text-xs font-mono font-bold ${tint.text}`}>
+                    {currentRate.toFixed(1)} <span className="text-white/60">/sec</span>
                 </span>
             </div>
 
@@ -122,7 +122,7 @@ export const NmeaRateSparkline: React.FC<NmeaRateSparklineProps> = ({
             </svg>
 
             {/* Footer row — total + window + 'now' label */}
-            <div className="flex items-center justify-between mt-1 text-[9px] text-white/40 uppercase tracking-wider font-medium">
+            <div className="flex items-center justify-between mt-1 text-[9px] text-white/60 uppercase tracking-wider font-medium">
                 <span>
                     {total} in last {totalSpanMin.toFixed(0)}m
                 </span>

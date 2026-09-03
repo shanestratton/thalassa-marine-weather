@@ -144,7 +144,9 @@ describe('The Crew List safety-first profile UI', () => {
             'false',
         );
         expect(screen.getByRole('button', { name: 'Add required primary headshot' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+        // The CTA no longer carries a fixed 'Save changes' aria-label: its visible
+        // text says which of save / publish / retry it will actually do.
+        expect(screen.getByRole('button', { name: /Publish Crew List profile/ })).toBeDisabled();
         expect(
             screen.getByText(/still needed: crew list intent, first name, clear primary headshot/i),
         ).toBeInTheDocument();

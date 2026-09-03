@@ -113,26 +113,31 @@ const formatHours = (h: number): string => {
     return `${hrs}h`;
 };
 
+/* Module scope: this is called once per leg per render, and the card
+   re-renders on a 30-second clock. One array, not sixteen strings a tick. */
+const CARDINALS = [
+    'N',
+    'NNE',
+    'NE',
+    'ENE',
+    'E',
+    'ESE',
+    'SE',
+    'SSE',
+    'S',
+    'SSW',
+    'SW',
+    'WSW',
+    'W',
+    'WNW',
+    'NW',
+    'NNW',
+] as const;
+
+const NO_TRACK_ENTRIES: ShipLogEntry[] = [];
+
 const bearingToCardinal = (deg: number): string => {
-    const cardinals = [
-        'N',
-        'NNE',
-        'NE',
-        'ENE',
-        'E',
-        'ESE',
-        'SE',
-        'SSE',
-        'S',
-        'SSW',
-        'SW',
-        'WSW',
-        'W',
-        'WNW',
-        'NW',
-        'NNW',
-    ];
-    return cardinals[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+    return CARDINALS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 };
 
 // Difficulty styling — refreshed 2026-05-05 for higher legibility.
@@ -203,10 +208,12 @@ const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) =>
                     {diff.label}
                 </span>
             </div>
-            <div className="grid grid-cols-4 gap-1 text-[11px] font-mono">
+            {/* text-sm, not the old 12px floor: distance, time to run, heading
+                and the wind on that leg are read off a phone in a cockpit. */}
+            <div className="grid grid-cols-4 gap-1 text-sm font-mono">
                 <div>
                     <span className="text-gray-500">Dist</span>
-                    <div className="text-white">{leg.distanceNM.toFixed(1)}nm</div>
+                    <div className="text-white">{leg.distanceNM.toFixed(1)} NM</div>
                 </div>
                 <div>
                     <span className="text-gray-500">Time</span>
@@ -326,6 +333,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // the fullscreen view.
     const [trackEntries, setTrackEntries] = useState<ShipLogEntry[] | null>(null);
     const [showTrackViewer, setShowTrackViewer] = useState(false);
+    /* Stable identity for the memoised TrackMapViewer: an inline arrow and a
+       fresh [] fallback re-rendered the whole track map on every clock tick. */
+    const closeTrackViewer = useCallback(() => setShowTrackViewer(false), []);
     const [loadingTrack, setLoadingTrack] = useState(false);
     // Ref mirror of the loaded track so the live-poll interval can read the
     // latest without re-subscribing on every appended point.
@@ -722,42 +732,64 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     const effectiveMaxWind = routeConditions?.value?.maxWindKts ?? null;
     const effectiveMaxWave = routeConditions?.value?.maxWaveM ?? null;
 
-    // Build brief data for sharing
-    const shareTurnWaypoints: PassageTurnWaypoint[] = passageMatchesVoyage ? passage.turnWaypoints : [];
-    const briefData: PassageBriefData | null =
-        effectiveDistance != null &&
-        effectiveDepartLat != null &&
-        effectiveDepartLon != null &&
-        effectiveArriveLat != null &&
-        effectiveArriveLon != null
-            ? {
-                  routeName: displayRouteName,
-                  origin: { name: departPort || 'Departure', lat: effectiveDepartLat, lon: effectiveDepartLon },
-                  destination: { name: destPort || 'Arrival', lat: effectiveArriveLat, lon: effectiveArriveLon },
-                  departureTime: passageSchedule.departureTime,
-                  totalDistanceNM: effectiveDistance,
-                  estimatedDuration: passageSchedule.durationHours ?? 0,
-                  speed: passageSchedule.cruisingSpeedKt,
-                  vesselName: passageMatchesVoyage ? (passage.vesselName ?? undefined) : settings.vessel?.name,
-                  turnWaypoints: shareTurnWaypoints.map((wp) => ({
-                      name: wp.name,
-                      lat: wp.lat,
-                      lon: wp.lon,
-                      tws: wp.tws,
-                      bng: wp.bearing,
-                  })),
-              }
-            : null;
+    /* Build brief data for sharing.
+
+       Memoised: SharePassageButton keys its share handlers on this object, so
+       a fresh literal on every 30-second clock tick rebuilt the waypoint list
+       and invalidated both callbacks for no change in content. */
+    const briefData: PassageBriefData | null = useMemo(() => {
+        if (
+            effectiveDistance == null ||
+            effectiveDepartLat == null ||
+            effectiveDepartLon == null ||
+            effectiveArriveLat == null ||
+            effectiveArriveLon == null
+        ) {
+            return null;
+        }
+        const shareTurnWaypoints: PassageTurnWaypoint[] = passageMatchesVoyage ? passage.turnWaypoints : [];
+        return {
+            routeName: displayRouteName,
+            origin: { name: departPort || 'Departure', lat: effectiveDepartLat, lon: effectiveDepartLon },
+            destination: { name: destPort || 'Arrival', lat: effectiveArriveLat, lon: effectiveArriveLon },
+            departureTime: passageSchedule.departureTime,
+            totalDistanceNM: effectiveDistance,
+            estimatedDuration: passageSchedule.durationHours ?? 0,
+            speed: passageSchedule.cruisingSpeedKt,
+            vesselName: passageMatchesVoyage ? (passage.vesselName ?? undefined) : settings.vessel?.name,
+            turnWaypoints: shareTurnWaypoints.map((wp) => ({
+                name: wp.name,
+                lat: wp.lat,
+                lon: wp.lon,
+                tws: wp.tws,
+                bng: wp.bearing,
+            })),
+        };
+    }, [
+        effectiveDistance,
+        effectiveDepartLat,
+        effectiveDepartLon,
+        effectiveArriveLat,
+        effectiveArriveLon,
+        displayRouteName,
+        departPort,
+        destPort,
+        passageSchedule.departureTime,
+        passageSchedule.durationHours,
+        passageSchedule.cruisingSpeedKt,
+        passageMatchesVoyage,
+        passage.turnWaypoints,
+        passage.vesselName,
+        settings.vessel?.name,
+    ]);
 
     // Difficulty summary
-    const difficultySummary =
-        passageMatchesVoyage && passage.legs.length > 0
-            ? (() => {
-                  const counts = { easy: 0, moderate: 0, tough: 0, challenging: 0 };
-                  passage.legs.forEach((l) => counts[l.difficulty]++);
-                  return counts;
-              })()
-            : null;
+    const difficultySummary = useMemo(() => {
+        if (!passageMatchesVoyage || passage.legs.length === 0) return null;
+        const counts = { easy: 0, moderate: 0, tough: 0, challenging: 0 };
+        passage.legs.forEach((l) => counts[l.difficulty]++);
+        return counts;
+    }, [passageMatchesVoyage, passage.legs]);
 
     return (
         <div className="space-y-3">
@@ -840,7 +872,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                             min={effectiveTimeMin}
                             onChange={handleTimeChange}
                             aria-label="Departure Time"
-                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-hidden focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all max-w-full"
+                            className="min-h-[44px] bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-hidden focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all max-w-full"
                             style={{ colorScheme: 'dark', boxSizing: 'border-box' }}
                         />
                     </div>
@@ -860,7 +892,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         Distance
                     </div>
                     <div className="text-lg font-bold text-white font-mono text-center py-2">
-                        {effectiveDistance != null ? `${effectiveDistance.toFixed(1)} nm` : '--'}
+                        {effectiveDistance != null ? `${effectiveDistance.toFixed(1)} NM` : '--'}
                     </div>
                 </div>
 
@@ -901,7 +933,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                                     )}
                                 </div>
                                 {routeConditions?.value?.beyondForecast && (
-                                    <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-amber-300/70">
+                                    <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-amber-300">
                                         Forecast partial
                                     </p>
                                 )}
@@ -1071,8 +1103,8 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 will gracefully show its empty-state. */}
             <TrackMapViewer
                 isOpen={showTrackViewer}
-                onClose={() => setShowTrackViewer(false)}
-                entries={trackEntries ?? []}
+                onClose={closeTrackViewer}
+                entries={trackEntries ?? NO_TRACK_ENTRIES}
             />
             {showTrackViewer && loadingTrack && (
                 <div className="fixed inset-0 z-10000 flex items-center justify-center pointer-events-none">

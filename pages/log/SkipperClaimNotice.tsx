@@ -68,7 +68,7 @@ export const SkipperClaimNotice: React.FC<SkipperClaimNoticeProps> = ({ isTracki
                     type="button"
                     onClick={onOpenVessel}
                     aria-label="Open the Vessel page to take over skipper publishing"
-                    className="mt-2.5 h-10 w-full rounded-xl bg-amber-500/20 px-3 text-[10px] font-black uppercase tracking-[0.06em] text-amber-200 transition-colors active:brightness-110"
+                    className="mt-2.5 h-11 w-full rounded-xl bg-amber-500/20 px-3 text-xs font-black uppercase tracking-[0.06em] text-amber-200 transition-colors active:brightness-110"
                 >
                     Publish from this device
                 </button>
