@@ -131,8 +131,8 @@ export const DEFAULT_MAINTENANCE_TASKS: DefaultTaskTemplate[] = [
         interval_value: 182,
     },
     {
-        title: 'Sanitize Fresh Water Tanks',
-        description: 'Flush and sanitize with dilute bleach solution. Rinse thoroughly.',
+        title: 'Sanitise Fresh Water Tanks',
+        description: 'Flush and sanitise with dilute bleach solution. Rinse thoroughly.',
         category: 'Hull',
         trigger_type: 'annual',
         interval_value: 365,
@@ -184,7 +184,7 @@ export const DEFAULT_MAINTENANCE_TASKS: DefaultTaskTemplate[] = [
         interval_value: 30,
     },
     {
-        title: 'Test VHF Radio Check',
+        title: 'VHF Radio Check',
         description: 'Radio check on Ch 16 or coast station. Verify DSC MMSI programmed.',
         category: 'Safety',
         trigger_type: 'monthly',

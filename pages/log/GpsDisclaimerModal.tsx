@@ -53,14 +53,14 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
                     <span className="text-amber-400 font-semibold">NMEA GPS</span> via a WiFi gateway (e.g. YDWG-02,
                     Vesper, or Bad Elf).
                 </p>
-                <label className="flex items-center gap-2.5 mb-5 cursor-pointer">
+                <label className="flex min-h-[44px] items-center gap-2.5 mb-5 cursor-pointer">
                     <input
                         ref={checkboxRef}
                         type="checkbox"
                         id="gps-disclaimer-dismiss"
-                        className="w-4 h-4 rounded-sm border-white/20 bg-slate-800 accent-amber-500"
+                        className="w-5 h-5 rounded-sm border-white/20 bg-slate-800 accent-amber-500"
                     />
-                    <span className="text-xs text-slate-400">Don't show this again</span>
+                    <span className="text-sm text-slate-400">Don't show this again</span>
                 </label>
                 <button
                     aria-label="Dismiss GPS disclaimer"

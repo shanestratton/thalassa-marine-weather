@@ -175,10 +175,16 @@ const PushToastCard: React.FC<{
             <div className="flex items-start gap-3 p-3.5">
                 <span className="shrink-0 mt-0.5 text-white">{style.icon}</span>
                 <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-black text-white/90 uppercase tracking-wider truncate">
+                    <div className="text-xs font-black text-white/90 uppercase tracking-wider truncate">
                         {toast.title}
                     </div>
-                    <div className="text-xs text-white/80 mt-0.5 line-clamp-2 font-medium">{toast.body}</div>
+                    <div
+                        className={`mt-0.5 line-clamp-2 text-white/90 ${
+                            isCritical ? 'text-base font-semibold' : 'text-sm font-medium'
+                        }`}
+                    >
+                        {toast.body}
+                    </div>
                 </div>
                 {isCritical && <div className="w-2 h-2 rounded-full bg-red-400 animate-ping shrink-0 mt-1" />}
             </div>

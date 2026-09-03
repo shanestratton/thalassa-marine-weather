@@ -84,13 +84,21 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         () => passageRouteFingerprint(routeCoordinates, departure, destination),
         [routeCoordinates, departure, destination],
     );
-    const currentInputFingerprint = passageDataFingerprint('ocean-current-card-input', {
-        departure,
-        destination,
-        courseBearing,
-        distanceNm: dist,
-        cruisingSpeedKts: speed,
-    });
+    // Keyed on the primitive coordinates: `departure`/`destination` are
+    // re-minted by the parent, so keying on the objects would re-hash a
+    // JSON.stringify on every render for an identical string.
+    const currentInputFingerprint = useMemo(
+        () =>
+            passageDataFingerprint('ocean-current-card-input', {
+                departure,
+                destination,
+                courseBearing,
+                distanceNm: dist,
+                cruisingSpeedKts: speed,
+            }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [depLat, depLon, destLat, destLon, courseBearing, dist, speed],
+    );
     const reviewFingerprint =
         briefing?.availability === 'available' && briefingInputFingerprint === currentInputFingerprint
             ? currentReviewFingerprint({
@@ -283,7 +291,10 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     <div className="flex-1">
                         <p className="text-xs text-red-400">{error}</p>
                     </div>
-                    <button onClick={() => fetchCurrents(false)} className="text-[11px] font-bold text-cyan-400">
+                    <button
+                        onClick={() => fetchCurrents(false)}
+                        className="hit-target-44 px-2 text-[11px] font-bold text-cyan-400"
+                    >
                         Retry
                     </button>
                 </div>

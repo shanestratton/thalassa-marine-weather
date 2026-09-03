@@ -102,7 +102,8 @@ describe('AddEntryModal account boundary', () => {
         const onClose = vi.fn();
         const view = render(<AddEntryModal isOpen onClose={onClose} onSuccess={vi.fn()} />);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Fetching Pos' }));
+        // Renamed from the developer-speak placeholder 'Fetching Pos' — the button says what it does.
+        fireEvent.click(screen.getByRole('button', { name: 'Add current GPS position to notes' }));
         act(() => {
             setAuthIdentityScope('account-b');
         });

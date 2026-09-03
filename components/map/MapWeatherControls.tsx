@@ -589,7 +589,7 @@ export function MapWeatherControls({
                             e.preventDefault();
                             void openExternalUrl('https://www.rainviewer.com/');
                         }}
-                        className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-slate-400/80 active:text-sky-300"
+                        className="hit-target-44 flex h-4 w-4 items-center justify-center rounded-full text-[12px] font-bold text-slate-400/80 active:text-sky-300"
                         aria-label="Rain radar data by RainViewer"
                     >
                         ⓘ

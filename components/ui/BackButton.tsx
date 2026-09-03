@@ -12,8 +12,8 @@
  * padding plus min-w/min-h rather than a fixed w-/h- pair, so the hit area
  * holds even if the icon changes size.
  *
- * Inline text-link "back" affordances (CrewDetailView, PlaceholderScreens) are
- * a genuinely different pattern and are NOT in scope for this component.
+ * Inline text-link "back" affordances (CrewDetailView) are a genuinely
+ * different pattern and are NOT in scope for this component.
  */
 import React from 'react';
 

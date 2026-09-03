@@ -142,7 +142,7 @@ export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, 
             onClick={onNext}
             className="w-full bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98]"
         >
-            Continue
+            Next
         </button>
     </div>
 );

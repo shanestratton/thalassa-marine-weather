@@ -54,6 +54,33 @@ export const BellIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+/**
+ * InfoIcon — the circle-i the System Status FAB already drew inline.
+ *
+ * The unicode ℹ it replaced rendered thin and inconsistently across iOS font
+ * variations; this has real visual weight and scales crisply. Lifted out of
+ * SystemStatusButton so the modal header stops disagreeing with its own FAB.
+ */
+export const InfoIcon = ({ className }: { className?: string }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        aria-hidden="true"
+    >
+        <circle cx="12" cy="12" r="9" />
+        <line x1="12" y1="11" x2="12" y2="17" />
+        <circle cx="12" cy="7.5" r="0.75" fill="currentColor" />
+    </svg>
+);
+
 export const XIcon = ({ className }: { className?: string }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"
