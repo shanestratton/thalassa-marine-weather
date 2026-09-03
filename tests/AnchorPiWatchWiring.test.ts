@@ -131,8 +131,9 @@ describe('the Pi can actually be handed the shore watch', () => {
         const page = read('components/AnchorWatchPage.tsx');
         // Only weighing the anchor ends it. 'shore' is precisely the state where
         // the Pi is the only thing still watching the boat.
-        expect(page).toMatch(/viewMode === 'setup' && \(prev === 'watching' \|\| prev === 'shore'\)/);
+        // Nothing derives it from viewMode any more — see the next test.
         expect(page).not.toMatch(/viewMode !== 'watching'[\s\S]{0,120}AnchorPiWatchKeeper\.end\(\)/);
+        expect(page).not.toMatch(/viewMode === 'shore'[\s\S]{0,120}AnchorPiWatchKeeper\.end\(\)/);
     });
 
     it('offers whenever the Pi can take the watch, not only in the instant after arming', () => {
@@ -264,11 +265,24 @@ describe('the Pi can actually be handed the shore watch', () => {
         // Exactly one end() call, and it is the weigh-anchor one.
         const calls = page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? [];
         expect(calls).toHaveLength(1);
-        // …and it fires on a TRANSITION, not on the mere fact of being in
-        // 'setup'. viewMode initialises to 'setup' on every mount, so the
-        // unguarded form ended the watch each time the skipper came BACK to
-        // the page — the mirror image of the unmount bug above.
-        expect(page).toMatch(/if \(viewMode === 'setup' && \(prev === 'watching' \|\| prev === 'shore'\)\)/);
-        expect(page).not.toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\);/);
+        // …and it is in the WEIGH-ANCHOR handler, not an effect. Deriving it
+        // from viewMode failed three times: an unmount cleanup (leaving the
+        // page stopped the Pi), `viewMode === 'setup'` (coming back stopped
+        // it, since that is the initial value), and the transition
+        // 'watching' -> 'setup' (which is what the handoff ITSELF does, when
+        // it stands this phone down — the Pi logged STARTED and STOPPED for
+        // the same session in the same second).
+        expect(page).not.toMatch(/viewMode === 'setup'[\s\S]{0,200}AnchorPiWatchKeeper\.end\(\)/);
+        // Sliced FORWARD from the handler: '}, [viewMode]);' also appears
+        // earlier in the file, so an unanchored indexOf sliced backwards and
+        // silently produced an empty string that matched nothing.
+        const stopAt = page.indexOf('const handleStopWatch');
+        expect(stopAt).toBeGreaterThan(-1);
+        const stop = page.slice(stopAt, page.indexOf('}, [viewMode]);', stopAt));
+        expect(stop.length).toBeGreaterThan(0);
+        expect(stop).toMatch(/await AnchorPiWatchKeeper\.end\(\);/);
+        // And it must not sit on the safety path: an unreachable Pi cannot be
+        // allowed to stop the skipper stopping their own alarm.
+        expect(stop).toMatch(/await AnchorPiWatchKeeper\.end\(\);\s*\} catch/);
     });
 });

@@ -436,25 +436,23 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // What still stops a runaway Pi is the six-hour authorisation lapsing,
     // which is a guarantee that does not depend on any phone being awake,
     // reachable, or even still owned by the skipper.
-    // A TRANSITION out of an active watch, never the mere fact of being in
-    // 'setup'. viewMode initialises to 'setup' on every mount, and
-    // AnchorPiWatchKeeper is a module singleton that outlives this component —
-    // so a plain `if (viewMode === 'setup')` fired on mount and handed the
-    // watch back before the restore effect had even read the snapshot.
+    // NOTHING HERE INFERS "THE ANCHOR CAME UP" FROM STATE.
     //
-    // That is why removing the unmount cleanup was not enough: leaving the page
-    // no longer stopped the Pi, but COMING BACK to it did. Measured on the
-    // Pi: {running: false, sessionCode: null} after every return to the page,
-    // and a shore view stuck trying to reconnect to a session nobody was
-    // publishing to.
-    const prevViewModeRef = useRef<ViewMode | null>(null);
-    useEffect(() => {
-        const prev = prevViewModeRef.current;
-        prevViewModeRef.current = viewMode;
-        if (viewMode === 'setup' && (prev === 'watching' || prev === 'shore')) {
-            void AnchorPiWatchKeeper.end();
-        }
-    }, [viewMode]);
+    // Ending the Pi's watch now happens in handleStopWatch, where the skipper
+    // actually weighs the anchor. Three separate bugs came from deriving it
+    // instead, each one shipped as the fix for the last:
+    //
+    //   1. an unmount cleanup — so leaving the page stopped the Pi, when
+    //      leaving the boat is the entire point of the feature;
+    //   2. `if (viewMode === 'setup')` — viewMode initialises to 'setup', so
+    //      COMING BACK to the page stopped it;
+    //   3. the transition 'watching' -> 'setup' — which is exactly what the
+    //      handoff itself does, because handleAcceptPiWatch calls stopWatch()
+    //      to stand this phone down once the Pi has taken over. The Pi's log
+    //      showed STARTED and STOPPED for session JE2SP7MS2D2R in the SAME
+    //      SECOND.
+    //
+    // Handing the watch over is an explicit choice. Giving it back is too.
 
     // Swing circle visualization extracted to SwingCircleCanvas component
 
@@ -536,6 +534,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         // Vessel host: stopping is a SAFETY action — must never fail silently.
         // If the service throws, the watch may still be armed; tell the user so
         // they can retry rather than walking away thinking it's off.
+        // The anchor is coming up, so the Pi must stop watching it — this is
+        // the one and only place that ends the Pi's watch. Kept off the safety
+        // path: a Pi that cannot be reached must not stop the skipper stopping
+        // their own alarm, and the six-hour authorisation still bounds it.
+        try {
+            await AnchorPiWatchKeeper.end();
+        } catch (e) {
+            log.warn('Could not tell the Pi to stop watching', e);
+        }
         try {
             await AnchorWatchService.stopWatch();
             await AnchorWatchSyncService.leaveSession();
