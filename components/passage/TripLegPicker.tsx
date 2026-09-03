@@ -178,7 +178,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                 <button
                                     ref={closeButtonRef}
                                     onClick={closeLegs}
-                                    className="shrink-0 text-sm font-bold text-gray-400"
+                                    className="shrink-0 min-h-[44px] px-3 -mr-3 text-sm font-bold text-gray-400"
                                 >
                                     Close
                                 </button>
@@ -192,7 +192,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                             requestTracerOpen({ kind: 'load-saved', id: leg.id }, tripSnapshot.scope);
                                             onOpenChart();
                                         }}
-                                        className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
+                                        className="flex min-h-[44px] w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
                                     >
                                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-black text-gray-300">
                                             {i + 1}

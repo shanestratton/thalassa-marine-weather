@@ -223,6 +223,16 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             .filter((z) => z.items.length > 0);
     }, [visibleSummary, filter]);
 
+    // One pass per visible list, not one per item per render: toPurchasable()
+    // scans a 250-row keyword table and normalises every keyword it looks at.
+    const purchaseLabels = useMemo(() => {
+        const labels = new Map<string, ReturnType<typeof purchaseQuantityLabel>>();
+        for (const zone of filteredZones) {
+            for (const item of zone.items) labels.set(item.id, purchaseQuantityLabel(item));
+        }
+        return labels;
+    }, [filteredZones]);
+
     const handleFilterKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
         let nextIndex: number | null = null;
         if (event.key === 'ArrowRight') nextIndex = (index + 1) % FILTERS.length;
@@ -669,7 +679,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                 {/* Items */}
                                 <div className="space-y-1.5">
                                     {zone.items.map((item) => {
-                                        const purchaseQuantity = purchaseQuantityLabel(item);
+                                        const purchaseQuantity =
+                                            purchaseLabels.get(item.id) ?? purchaseQuantityLabel(item);
                                         const isPurchasing = purchasingId === item.id;
 
                                         return (
@@ -805,7 +816,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                         className="shrink-0 px-4 py-3 border-t border-white/6 bg-slate-950"
                         style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                     >
-                        <div className="flex items-center gap-3">
+                        {/* pr-20 keeps the tally clear of the Add-item FAB,
+                            which is fixed over the right end of this row. */}
+                        <div className="flex items-center gap-3 pr-20">
                             <div
                                 className="flex-1 h-2 bg-white/6 rounded-full overflow-hidden"
                                 role="progressbar"
@@ -907,7 +920,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             {priceItem.ingredient_name}
                         </p>
                         <p className="mb-4 rounded-lg border border-emerald-500/15 bg-emerald-500/6 px-3 py-2 text-[11px] text-emerald-200">
-                            Adds {purchaseQuantityLabel(priceItem).primary} to Ship&apos;s Stores.
+                            Adds {(purchaseLabels.get(priceItem.id) ?? purchaseQuantityLabel(priceItem)).primary} to
+                            Ship&apos;s Stores.
                         </p>
 
                         {/* Price input */}

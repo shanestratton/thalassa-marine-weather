@@ -38,14 +38,14 @@ export function getExpiryStatus(expiryDate: string | null): ExpiryStatus {
     return 'valid';
 }
 
-export const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: string; label: string }> = {
+const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: string; label: string }> = {
     valid: { dot: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500/30', label: 'Valid' },
     warning: { dot: 'bg-amber-500', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Expiring Soon' },
     expired: { dot: 'bg-red-500', text: 'text-red-400', border: 'border-red-500/30', label: 'Expired' },
     none: { dot: 'bg-gray-500', text: 'text-gray-400', border: 'border-gray-500/20', label: 'No Expiry' },
 };
 
-export const CATEGORY_ICONS: Record<DocumentCategory, string> = {
+const CATEGORY_ICONS: Record<DocumentCategory, string> = {
     Registration: '🚢',
     Insurance: '🛡️',
     'Crew Visas/IDs': '🪪',

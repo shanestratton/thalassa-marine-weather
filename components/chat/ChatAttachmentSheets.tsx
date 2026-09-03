@@ -12,6 +12,7 @@ import { getStaticMapUrl } from './chatUtils';
 import { Button } from '../ui/Button';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
+import { AlertTriangleIcon } from '../Icons';
 
 // --- Report Modal ---
 export interface ReportModalProps {
@@ -87,7 +88,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                             <button
                                 ref={closeButtonRef}
                                 onClick={onClose}
-                                className="mt-5 w-full py-2.5 rounded-xl bg-white/6 text-xs text-white/70 hover:bg-white/10 transition-colors"
+                                className="mt-5 w-full min-h-[44px] py-2.5 rounded-xl bg-white/6 text-xs text-white/70 hover:bg-white/10 transition-colors"
                             >
                                 Done
                             </button>
@@ -108,7 +109,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                         key={r}
                                         onClick={() => setReportReason(r)}
                                         disabled={reportSubmitting}
-                                        className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${
+                                        className={`w-full min-h-[44px] text-left px-3 py-2 rounded-xl text-xs transition-all ${
                                             reportReason === r
                                                 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
                                                 : 'bg-white/2 border border-white/4 text-white/60 hover:bg-white/4'
@@ -128,7 +129,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                     aria-label="Cancel report"
                                     onClick={onClose}
                                     disabled={reportSubmitting}
-                                    className="flex-1 py-2.5 rounded-xl bg-white/3 text-xs text-white/60 hover:bg-white/6 transition-colors"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-white/3 text-xs text-white/60 hover:bg-white/6 transition-colors"
                                 >
                                     Cancel
                                 </button>
@@ -136,7 +137,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                     aria-label="Submit report"
                                     onClick={onSubmit}
                                     disabled={reportSubmitting}
-                                    className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors disabled:opacity-50"
                                 >
                                     {reportSubmitting ? 'Submitting…' : 'Submit Report'}
                                 </button>
@@ -225,7 +226,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                     <button
                         onClick={onClose}
                         disabled={sending}
-                        className="w-10 h-10 rounded-xl bg-white/4 border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center shrink-0"
+                        className="w-11 h-11 rounded-xl bg-white/4 border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center shrink-0"
                         aria-label="Close current location sheet"
                     >
                         ✕
@@ -243,7 +244,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                     <div className="rounded-2xl border border-amber-400/20 bg-amber-400/6 p-4" role="alert">
                         <div className="flex gap-3">
                             <span className="w-9 h-9 rounded-xl bg-amber-400/10 flex items-center justify-center shrink-0">
-                                ⌁
+                                <AlertTriangleIcon className="w-5 h-5 text-amber-300" />
                             </span>
                             <div>
                                 <p className="text-sm font-semibold text-amber-100">Location unavailable</p>
@@ -278,7 +279,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                 </span>
                                 <div className="min-w-0">
                                     <p className="text-xs font-bold text-emerald-100">Current GPS fix</p>
-                                    <p className="text-[10px] text-emerald-100/60 mt-0.5">
+                                    <p className="text-[10px] text-emerald-100/80 mt-0.5">
                                         {formatFixAge(pinTimestamp)}
                                     </p>
                                 </div>
@@ -437,7 +438,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                     <button
                         onClick={onClose}
                         disabled={sending}
-                        className="w-10 h-10 rounded-xl bg-white/4 border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center shrink-0"
+                        className="w-11 h-11 rounded-xl bg-white/4 border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center shrink-0"
                         aria-label="Close place picker"
                     >
                         ✕
@@ -537,7 +538,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                         type="button"
                                         onClick={onRecenterToMyLocation}
                                         aria-label="Use my current location for this pin"
-                                        className="absolute bottom-3 right-3 z-10 min-h-[42px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur-sm active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
+                                        className="absolute bottom-3 right-3 z-10 min-h-[44px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur-sm active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
                                     >
                                         <span>📍</span>
                                         <span>My location</span>
@@ -669,11 +670,11 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm text-white/70 font-medium truncate">{dateStr}</p>
                                     <p className="text-[11px] text-white/60 tabular-nums">
-                                        {v.distance}nm · {v.entryCount} pts · {durationHrs}h
+                                        {v.distance} NM · {v.entryCount} pts · {durationHrs}h
                                     </p>
                                 </div>
                                 <button
-                                    aria-label="Send attachment"
+                                    aria-label={`Share voyage from ${dateStr}`}
                                     onClick={() => onSendTrack(v)}
                                     disabled={trackSharing}
                                     className="shrink-0 px-3 py-1.5 min-h-[44px] rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
@@ -760,7 +761,7 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
                     <button
                         aria-label="Import shared track to ship's log"
                         onClick={() => onImport(track.trackId, track.title)}
-                        className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
+                        className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
                     >
                         ⬇ Import Track
                     </button>

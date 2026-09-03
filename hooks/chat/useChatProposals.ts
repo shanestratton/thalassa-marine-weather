@@ -74,13 +74,17 @@ export function useChatProposals(options: UseChatProposalsOptions) {
     const loadMemberChannels = useCallback(async () => {
         const identity = getAuthIdentityScope();
         const ids = new Set<string>();
-        for (const ch of channels) {
-            if (ch.is_private) {
-                const isMember = await ChatService.isChannelMember(ch.id);
-                if (!isAuthIdentityScopeCurrent(identity)) return;
-                if (isMember) ids.add(ch.id);
-            }
-        }
+        // One parallel batch, not N serial round trips: each membership check
+        // is its own Supabase query, and on marine LTE the latency was adding
+        // up per private channel.
+        const privateChannels = channels.filter((ch) => ch.is_private);
+        const memberships = await Promise.all(
+            privateChannels.map((ch) => ChatService.isChannelMember(ch.id).catch(() => false)),
+        );
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        privateChannels.forEach((ch, i) => {
+            if (memberships[i]) ids.add(ch.id);
+        });
         setMemberChannelIds(ids);
     }, [channels]);
 

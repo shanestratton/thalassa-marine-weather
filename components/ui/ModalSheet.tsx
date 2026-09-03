@@ -94,9 +94,11 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                     </svg>
                 </button>
 
-                {/* Title */}
+                {/* Title — pr-12 clears the absolutely-positioned close
+                    button, and break-words lets a long title (an email
+                    address, say) wrap instead of running under the X. */}
                 {title && (
-                    <h3 id={modalId} className="text-lg font-black text-white mb-4">
+                    <h3 id={modalId} className="text-lg font-black text-white mb-4 pr-12 break-words">
                         {title}
                     </h3>
                 )}

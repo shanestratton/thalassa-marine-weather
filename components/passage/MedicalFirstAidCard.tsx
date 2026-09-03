@@ -29,6 +29,32 @@ interface KitCategory {
     items: string[];
 }
 
+/** Kit-tab chrome, keyed by the category's colour. Module constants: these
+ *  were literals rebuilt inside the render loops of a card that re-renders on
+ *  every checklist tap. */
+const KIT_TAB_CLASSES: Record<string, { selected: string; idle: string }> = {
+    sky: { selected: 'bg-sky-500/15 border-sky-500/30 text-sky-300', idle: 'bg-white/3 border-white/8 text-gray-400' },
+    amber: {
+        selected: 'bg-amber-500/15 border-amber-500/30 text-amber-300',
+        idle: 'bg-white/3 border-white/8 text-gray-400',
+    },
+    red: { selected: 'bg-red-500/15 border-red-500/30 text-red-300', idle: 'bg-white/3 border-white/8 text-gray-400' },
+};
+
+const KIT_COLOR_STYLES: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+    sky: { bg: 'bg-sky-500/4', border: 'border-sky-500/15', text: 'text-sky-400', dot: 'bg-sky-400' },
+    amber: { bg: 'bg-amber-500/4', border: 'border-amber-500/15', text: 'text-amber-400', dot: 'bg-amber-400' },
+    red: { bg: 'bg-red-500/4', border: 'border-red-500/15', text: 'text-red-400', dot: 'bg-red-400' },
+};
+
+/** Telemedical advice services, by country. */
+const TELEMED_PRESETS = [
+    { label: '🇦🇺 AMSA', number: '+61 2 6230 6811' },
+    { label: '🇮🇹 CIRM Rome', number: '+39 06 5923 0858' },
+    { label: '🇺🇸 USCG', number: '+1 301 295 8104' },
+    { label: '🇳🇿 RCCNZ', number: '+64 4 577 8030' },
+];
+
 const KIT_CATEGORIES: KitCategory[] = [
     {
         key: 'cat_c',
@@ -300,22 +326,15 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                 <div className="flex gap-2 mb-3">
                     {KIT_CATEGORIES.map((cat) => {
                         const isSelected = selectedKit === cat.key;
-                        const colorMap: Record<string, string> = {
-                            sky: isSelected
-                                ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
-                                : 'bg-white/3 border-white/8 text-gray-400',
-                            amber: isSelected
-                                ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                                : 'bg-white/3 border-white/8 text-gray-400',
-                            red: isSelected
-                                ? 'bg-red-500/15 border-red-500/30 text-red-300'
-                                : 'bg-white/3 border-white/8 text-gray-400',
-                        };
+                        const tab = KIT_TAB_CLASSES[cat.color];
                         return (
                             <button
                                 key={cat.key}
                                 onClick={() => selectKit(cat.key)}
-                                className={`flex-1 py-2 px-2 rounded-xl text-center border transition-all active:scale-[0.97] ${colorMap[cat.color]}`}
+                                aria-pressed={isSelected}
+                                className={`min-h-[44px] flex-1 py-2 px-2 rounded-xl text-center border transition-all active:scale-[0.97] ${
+                                    isSelected ? tab.selected : tab.idle
+                                }`}
                             >
                                 <span className="text-[11px] font-bold uppercase tracking-wider block">
                                     {cat.key === 'cat_c' ? 'Coastal' : cat.key === 'cat_b' ? 'Offshore' : 'Ocean'}
@@ -330,27 +349,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                     (() => {
                         const cat = KIT_CATEGORIES.find((c) => c.key === selectedKit);
                         if (!cat) return null;
-                        const colorStyles: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-                            sky: {
-                                bg: 'bg-sky-500/4',
-                                border: 'border-sky-500/15',
-                                text: 'text-sky-400',
-                                dot: 'bg-sky-400',
-                            },
-                            amber: {
-                                bg: 'bg-amber-500/4',
-                                border: 'border-amber-500/15',
-                                text: 'text-amber-400',
-                                dot: 'bg-amber-400',
-                            },
-                            red: {
-                                bg: 'bg-red-500/4',
-                                border: 'border-red-500/15',
-                                text: 'text-red-400',
-                                dot: 'bg-red-400',
-                            },
-                        };
-                        const style = colorStyles[cat.color];
+                        const style = KIT_COLOR_STYLES[cat.color];
                         return (
                             <div className={`${style.bg} border ${style.border} rounded-xl p-3`}>
                                 <h5 className={`text-xs font-bold ${style.text} mb-1`}>{cat.name}</h5>
@@ -381,15 +380,10 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                     value={telemedNumber}
                     onChange={(e) => updateTelemedNumber(e.target.value)}
                     placeholder="+__ ___ ___ ____"
-                    className="w-full px-3 py-2.5 rounded-xl bg-white/4 border border-white/8 text-white text-sm font-mono placeholder:text-gray-500 focus:outline-hidden focus:border-sky-500/30 focus:bg-sky-500/3 transition-all"
+                    className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-white/4 border border-white/8 text-white text-sm font-mono placeholder:text-gray-500 focus:outline-hidden focus:border-sky-500/30 focus:bg-sky-500/3 transition-all"
                 />
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                    {[
-                        { label: '🇦🇺 AMSA', number: '+61 2 6230 6811' },
-                        { label: '🇮🇹 CIRM Rome', number: '+39 06 5923 0858' },
-                        { label: '🇺🇸 USCG', number: '+1 301 295 8104' },
-                        { label: '🇳🇿 RCCNZ', number: '+64 4 577 8030' },
-                    ].map((preset) => (
+                    {TELEMED_PRESETS.map((preset) => (
                         <button
                             key={preset.number}
                             onClick={() => {

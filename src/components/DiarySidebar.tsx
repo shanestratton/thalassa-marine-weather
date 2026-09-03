@@ -22,16 +22,17 @@ interface DiarySidebarProps {
     onPhotoClick: (entry: VoyageLogEntry, index: number) => void;
 }
 
-const formatDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const FULL_DATE = new Intl.DateTimeFormat(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+});
 
-const formatFullDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(undefined, {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-    });
+const formatDate = (iso: string): string => SHORT_DATE.format(new Date(iso));
+
+const formatFullDate = (iso: string): string => FULL_DATE.format(new Date(iso));
 
 // ── Video: may still be crossing from the boat ─────────────────
 /**
@@ -199,7 +200,13 @@ const EntryList: React.FC<{
     title?: string;
     context?: string;
     emptyMessage?: string;
-}> = ({ entries, onSelectEntry, title = 'Voyage Log', context, emptyMessage = 'No log entries published yet.' }) => {
+}> = React.memo(function EntryList({
+    entries,
+    onSelectEntry,
+    title = 'Voyage Log',
+    context,
+    emptyMessage = 'No log entries published yet.',
+}) {
     return (
         <>
             <div className="shrink-0 px-4 py-3 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
@@ -289,7 +296,7 @@ const EntryList: React.FC<{
             )}
         </>
     );
-};
+});
 
 export default function DiarySidebar({
     entries,

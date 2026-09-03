@@ -257,13 +257,14 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 if (!alive) return;
                 const primary = route?.outputs?.[0];
                 if (!primary?.name) {
-                    setSpeaker(null);
+                    setSpeaker((prev) => (prev === null ? prev : null));
                     return;
                 }
-                setSpeaker({
-                    name: primary.name,
-                    icon: primary.isAirPlay ? '📡' : primary.isBluetooth ? '🔊' : primary.isBuiltIn ? '📱' : '🎚️',
-                });
+                const name = primary.name;
+                const icon = primary.isAirPlay ? '📡' : primary.isBluetooth ? '🔊' : primary.isBuiltIn ? '📱' : '🎚️';
+                // Same route, same object — a fresh literal every 5 s was
+                // re-rendering the page for no change.
+                setSpeaker((prev) => (prev && prev.name === name && prev.icon === icon ? prev : { name, icon }));
             });
         };
         read();
@@ -363,6 +364,14 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         [refreshNowPlayingFast],
     );
 
+    /** Stable rail handlers — see PlaylistTileProps. */
+    const handleTileTap = useCallback(
+        (playlistId: string) => {
+            void handlePlayPlaylist(playlistId);
+        },
+        [handlePlayPlaylist],
+    );
+
     const handlePause = useCallback(async () => {
         try {
             await pauseMusic();
@@ -453,6 +462,13 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             setDetailLoading(false);
         }
     }, []);
+
+    const handleTileHold = useCallback(
+        (playlist: UserPlaylist) => {
+            void openDetail(playlist);
+        },
+        [openDetail],
+    );
 
     const closeDetail = useCallback(() => {
         setDetailPlaylist(null);
@@ -838,7 +854,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                     <button
                                         onClick={() => void loadPlaylists()}
                                         disabled={loadingPlaylists}
-                                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/4.5 text-sky-200 transition-all hover:border-sky-400/35 hover:bg-sky-500/10 active:scale-95 disabled:opacity-40"
+                                        className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/4.5 text-sky-200 transition-all hover:border-sky-400/35 hover:bg-sky-500/10 active:scale-95 disabled:opacity-40"
                                         aria-label="Refresh Apple Music library"
                                     >
                                         <RefreshIcon className={`h-4 w-4 ${loadingPlaylists ? 'animate-spin' : ''}`} />
@@ -849,7 +865,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                             setCreateError(null);
                                             setCreateOpen(true);
                                         }}
-                                        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-sky-400/35 bg-sky-600 px-3 text-[11px] font-black uppercase tracking-wider text-white shadow-xl transition-all hover:bg-sky-500 active:scale-95"
+                                        className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-sky-400/35 bg-sky-600 px-3 text-[11px] font-black uppercase tracking-wider text-white shadow-xl transition-all hover:bg-sky-500 active:scale-95"
                                         aria-label="Create playlist"
                                     >
                                         <PlusIcon className="h-3.5 w-3.5" />
@@ -895,8 +911,8 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                                 // skipper just wants the music going).
                                                 // Long-press / ⋯ = detail sheet (Play,
                                                 // Add tracks, Delete).
-                                                onTap={() => void handlePlayPlaylist(p.id)}
-                                                onLongPress={() => void openDetail(p)}
+                                                onTap={handleTileTap}
+                                                onLongPress={handleTileHold}
                                             />
                                         </div>
                                     ))}
@@ -1109,15 +1125,18 @@ const PlayingGlyph: React.FC<{ playing: boolean }> = ({ playing }) => (
 interface PlaylistTileProps {
     playlist: UserPlaylist;
     active: boolean;
-    onTap: () => void;
-    onLongPress: () => void;
+    /** Called with the playlist id so the parent can hold ONE stable handler
+     *  for the whole rail — a per-tile closure defeated React.memo and the
+     *  1 s now-playing poll repainted every card. */
+    onTap: (playlistId: string) => void;
+    onLongPress: (playlist: UserPlaylist) => void;
 }
 
 /** Hold this long for the tap to register as a long-press. Matches
  *  iOS's default long-press recognition window so it feels native. */
 const LONG_PRESS_MS = 500;
 
-const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, onLongPress }) => {
+const PlaylistTile: React.FC<PlaylistTileProps> = React.memo(({ playlist, active, onTap, onLongPress }) => {
     // Track whether the remote artwork URL fails to load. Apple Music's
     // user-library artwork URLs sometimes need credentials WKWebView
     // can't supply, or the CDN host blocks the cross-origin fetch from
@@ -1142,9 +1161,9 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
         timerRef.current = setTimeout(() => {
             suppressClickRef.current = true;
             setPressing(false);
-            onLongPress();
+            onLongPress(playlist);
         }, LONG_PRESS_MS);
-    }, [onLongPress]);
+    }, [onLongPress, playlist]);
 
     const cancelPress = useCallback(() => {
         if (timerRef.current) {
@@ -1161,8 +1180,8 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
             suppressClickRef.current = false;
             return;
         }
-        onTap();
-    }, [onTap]);
+        onTap(playlist.id);
+    }, [onTap, playlist.id]);
 
     return (
         <div className="relative">
@@ -1231,7 +1250,7 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
                 type="button"
                 onClick={() => {
                     triggerHaptic('light');
-                    onLongPress();
+                    onLongPress(playlist);
                 }}
                 aria-label={`More options for ${playlist.name}`}
                 className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-slate-950/75 text-white/85 shadow-xs backdrop-blur-md transition-all hover:border-sky-200/35 hover:bg-sky-500/[0.14] hover:text-sky-100 active:scale-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-400"
@@ -1243,7 +1262,8 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
             </span>
         </div>
     );
-};
+});
+PlaylistTile.displayName = 'PlaylistTile';
 
 // ── Playlist detail sheet — long-press → bottom sheet w/ tracks ────
 
@@ -1327,7 +1347,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     <button
                         ref={closeButtonRef}
                         onClick={onClose}
-                        className="absolute right-3 top-2 w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white active:bg-white/10 transition-colors"
+                        className="hit-target-44 absolute right-3 top-2 w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white active:bg-white/10 transition-colors"
                         aria-label={`Close ${playlist.name} playlist details`}
                     >
                         <CloseIcon className="w-5 h-5" />
@@ -1448,7 +1468,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         <button
                             onClick={onDelete}
                             aria-label={`Delete ${playlist.name} playlist`}
-                            className="text-red-400/80 hover:text-red-300 active:text-red-200 text-xs font-medium px-4 py-2 rounded-lg active:bg-red-500/10 transition-colors"
+                            className="min-h-[44px] text-red-400/80 hover:text-red-300 active:text-red-200 text-xs font-medium px-4 py-2 rounded-lg active:bg-red-500/10 transition-colors"
                         >
                             Delete this playlist
                         </button>
@@ -1598,7 +1618,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                 <div className="flex items-center gap-3 px-5 pt-1 pb-3">
                     <button
                         onClick={onClose}
-                        className="w-9 h-9 -ml-2 rounded-full flex items-center justify-center text-white/80 active:bg-white/10 transition-colors shrink-0"
+                        className="hit-target-44 w-9 h-9 -ml-2 rounded-full flex items-center justify-center text-white/80 active:bg-white/10 transition-colors shrink-0"
                         aria-label={`Back to ${playlistName} playlist details`}
                     >
                         <ChevronLeftIcon className="w-6 h-6" />
