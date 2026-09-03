@@ -19,6 +19,7 @@
  * confused users and the Galley is the natural home for it.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
@@ -124,6 +125,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
+    // Whether something OTHER than this phone is keeping the watch.
+    //
+    // The card used to read AnchorWatchService alone, which is this device's
+    // OWN watch. When the Pi takes the watch, handleAcceptPiWatch stops the
+    // local one — that is the point of going ashore — so the local state goes
+    // idle and this card reported "Off" while the boat was being watched all
+    // night. Wrong, and wrong in the reassuring direction: a glance at the
+    // Vessel page said nothing was guarding the anchor.
+    const [anchorWatchedRemotely, setAnchorWatchedRemotely] = useState(false);
     const [anchorRadius, setAnchorRadius] = useState(0);
     // The daily operational tiles and the Diary/Scuttlebutt pair are now
     // permanently visible. Only the low-priority Settings & Connect area
@@ -318,6 +328,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         return unsub;
     }, []);
 
+    useEffect(
+        () =>
+            AnchorWatchSyncService.onStateChange((state) =>
+                setAnchorWatchedRemotely(state.role === 'shore' && !!state.sessionCode),
+            ),
+        [],
+    );
+
     // Subscribe to PassageStore for the active planned route's
     // destination coords + total distance. Populated when the user
     // plans a route from the Charts page; stays null otherwise.
@@ -463,8 +481,26 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // richer label ("Armed — 45.0m", plus a triangle icon on DRAG ALARM) when the
     // tiles went four-across; the radius is one tap away on the Anchor screen,
     // and the colour-coded dot — which pulses on alarm — does the shouting.
-    const anchorLabelShort: string = anchorStatus === 'alarm' ? 'DRAGGING' : anchorStatus === 'armed' ? 'Armed' : 'Off';
-    const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
+    // 'Off' said nothing useful under a heading that already reads "Anchor" —
+    // off what? Down/Up is what a skipper actually says about an anchor, and
+    // the remote case is named outright so it is never mistaken for this phone
+    // watching (Shane 2026-09-04: "the anchor card says anchor off, maybe it
+    // should say anchor on??? or down?????").
+    const anchorEffectivelyArmed = anchorStatus === 'armed' || anchorWatchedRemotely;
+    const anchorLabelShort: string =
+        anchorStatus === 'alarm'
+            ? 'DRAGGING'
+            : anchorStatus === 'armed'
+              ? 'Down'
+              : anchorWatchedRemotely
+                ? 'Down · Pi'
+                : 'Up';
+    const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorEffectivelyArmed ? '#22d3ee' : '#9ca3af';
+    // The hero card asks the same question ("At Anchor" vs "Underway"), so it
+    // must get the same answer. A boat whose anchor is watched by the Pi is at
+    // anchor; only this phone's involvement changed.
+    const anchorStatusEffective: 'armed' | 'disarmed' | 'alarm' =
+        anchorStatus === 'alarm' ? 'alarm' : anchorEffectivelyArmed ? 'armed' : 'disarmed';
 
     const navigateFromBinder = useCallback(
         (page: string) => {
@@ -690,7 +726,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         voyage={activeVoyage}
                         tripLogActive={tripLogActive}
                         position={position}
-                        anchorStatus={anchorStatus}
+                        anchorStatus={anchorStatusEffective}
                         anchorRadius={anchorRadius}
                         anchorOffset={anchorOffset}
                         anchorBearing={anchorBearing}
@@ -873,7 +909,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         style={{
                                             backgroundColor: anchorColor,
                                             boxShadow:
-                                                anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
+                                                anchorEffectivelyArmed || anchorStatus === 'alarm'
+                                                    ? `0 0 8px ${anchorColor}60`
+                                                    : 'none',
                                             animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
                                         }}
                                     />

@@ -215,18 +215,54 @@ export function fixIsCurrent(fix: VesselFix, now: number = Date.now()): boolean 
 }
 
 /**
+ * Consecutive out-of-circle fixes required before the Pi cries drag.
+ *
+ * The SAME rule the phone uses (services/anchorGpsWatchdog.ALARM_CONFIRM_COUNT).
+ * The Pi used to fire on a bare `distance > swingRadius`: one sample, no
+ * confirmation, no decay. So handing the watch to the Pi silently made the
+ * alarm MORE trigger-happy than the phone it replaced — a single GPS outlier
+ * a few centimetres past the circle woke the skipper, where on the phone it
+ * could not have. Backwards: the Pi is on the boat's own GPS and should be the
+ * steadier watcher, not the twitchier one.
+ *
+ * At the Pi's ten-second cadence this is ~30s genuinely outside the circle.
+ */
+export const ALARM_CONFIRM_COUNT = 3;
+
+/**
+ * Drag-confirmation hysteresis (pure), mirroring the app's nextDragState: the
+ * counter rises on each consecutive breach and DECAYS by one on each fix back
+ * inside, so jitter cannot accumulate its way to an alarm over a long night.
+ */
+export function nextDragState(
+    outsideCount: number,
+    distance: number,
+    swingRadius: number,
+    confirmCount: number = ALARM_CONFIRM_COUNT,
+): { outsideCount: number; alarm: boolean } {
+    if (distance > swingRadius) {
+        const next = outsideCount + 1;
+        return { outsideCount: next, alarm: next >= confirmCount };
+    }
+    return { outsideCount: Math.max(0, outsideCount - 1), alarm: false };
+}
+
+/**
  * The wire shape the shore device already understands. Deliberately identical
  * to what a vessel PHONE broadcasts, because the whole point is that the shore
  * side cannot tell the two apart and needs no changes.
+ *
+ * `alarm` is passed in rather than derived here: confirming a drag needs the
+ * memory of previous fixes, and this function deliberately has none.
  */
-export function buildPositionPayload(assignment: AnchorWatchAssignment, fix: VesselFix) {
+export function buildPositionPayload(assignment: AnchorWatchAssignment, fix: VesselFix, alarm?: boolean) {
     const distance = distanceMetres(assignment.anchorLat, assignment.anchorLon, fix.latitude, fix.longitude);
     return {
         vessel: { latitude: fix.latitude, longitude: fix.longitude, timestamp: fix.timestamp },
         anchor: { latitude: assignment.anchorLat, longitude: assignment.anchorLon },
         distance,
         swingRadius: assignment.swingRadius,
-        isAlarm: distance > assignment.swingRadius,
+        isAlarm: alarm ?? distance > assignment.swingRadius,
         // The shore view reads config.rodeLength and config.waterDepth. A
         // payload without them crashed that view on the Pi's FIRST broadcast
         // (found 2026-09-03 by comparing the two payload shapes rather than
@@ -298,15 +334,31 @@ export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null>
  * One report. No retry — the caller runs this on an interval, and the next
  * tick carries a fresher position than any retry of this one would.
  */
+/** Carried across ticks so a drag can be CONFIRMED rather than guessed from one fix. */
+export interface DragConfirmState {
+    outsideCount: number;
+}
+
 export async function broadcastOnce(
     assignment: AnchorWatchAssignment,
     credential: RelayCredential,
     deps: BroadcastDeps,
+    drag?: DragConfirmState,
 ): Promise<BroadcastOutcome> {
     const now = deps.now?.() ?? Date.now();
     const fix = await currentFix(deps);
     if (!fix) return 'no-fix';
     if (!fixIsCurrent(fix, now)) return 'stale-fix';
+
+    // Confirmation needs the memory of previous fixes, which only a caller
+    // holding DragConfirmState has. The running watch always passes one.
+    let alarm: boolean | undefined;
+    if (drag) {
+        const distance = distanceMetres(assignment.anchorLat, assignment.anchorLon, fix.latitude, fix.longitude);
+        const next = nextDragState(drag.outsideCount, distance, assignment.swingRadius);
+        drag.outsideCount = next.outsideCount;
+        alarm = next.alarm;
+    }
 
     let response: Awaited<ReturnType<FetchLike>>;
     try {
@@ -323,7 +375,7 @@ export async function broadcastOnce(
                 relay_id: credential.relayId,
                 token: credential.token,
                 session_code: assignment.sessionCode,
-                payload: buildPositionPayload(assignment, fix),
+                payload: buildPositionPayload(assignment, fix, alarm),
             }),
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
@@ -367,6 +419,8 @@ export class AnchorWatchRunner {
     private assignment: AnchorWatchAssignment | null = null;
     private credential: RelayCredential | null = null;
     private timer: ReturnType<typeof setInterval> | null = null;
+    /** Reset whenever a watch starts, so a new anchor never inherits old breaches. */
+    private drag: DragConfirmState = { outsideCount: 0 };
     private lastOutcome: BroadcastOutcome | null = null;
 
     constructor(private readonly deps: RunnerDeps) {}
@@ -377,6 +431,8 @@ export class AnchorWatchRunner {
         this.stop();
         this.assignment = assignment;
         this.credential = credential;
+        // A fresh anchor must never inherit breaches counted against the last one.
+        this.drag = { outsideCount: 0 };
         const setIntervalFn = this.deps.setIntervalImpl ?? setInterval;
         this.timer = setIntervalFn(() => void this.tick(), BROADCAST_INTERVAL_MS);
         void this.tick();
@@ -408,7 +464,7 @@ export class AnchorWatchRunner {
         const assignment = this.assignment;
         const credential = this.credential;
         if (!assignment || !credential) return;
-        const outcome = await broadcastOnce(assignment, credential, this.deps);
+        const outcome = await broadcastOnce(assignment, credential, this.deps, this.drag);
         this.lastOutcome = outcome;
         this.deps.onOutcome?.(outcome);
         // A credential the relay rejects outright will never start working, and
