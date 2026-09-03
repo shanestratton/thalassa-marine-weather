@@ -26,7 +26,9 @@ describe('leaked placeholder aria-labels', () => {
         });
     }
     it('the share-position button is not announced as an export', () => {
-        const src = readFileSync('pages/LogPage.tsx', 'utf8');
+        // The Stop / Share position / New Entry row moved out of
+        // pages/LogPage.tsx into pages/log/ on 2026-09-03; same markup, new home.
+        const src = readFileSync('pages/log/TrackingFooterControls.tsx', 'utf8');
         expect(src).toMatch(/aria-label="Share your position"\s+onClick=\{handleShareCurrentPosition\}/);
     });
     it('ResourceCalculator renders its Crew / Days / Meals / Water summary once', () => {
