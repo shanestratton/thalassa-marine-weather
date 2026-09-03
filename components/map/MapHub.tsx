@@ -21,7 +21,6 @@ import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
 import { calculateDistance } from '../../utils/navigationCalculations';
-import { lazyRetry } from '../../utils/lazyRetry';
 
 const log = createLogger('MapHub');
 import mapboxgl from 'mapbox-gl';
@@ -52,7 +51,7 @@ import {
     shouldShowPlanChartKey,
     shouldSuppressChartOverlays,
 } from './mapConstants';
-import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
+import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
 import { useMapFitRequest } from './useMapFitRequest';
@@ -108,10 +107,7 @@ import {
     syncDepareBaseTreatment as encSyncDepareBaseTreatment,
     setEncPopupSuppression,
     setEncDepthPopupEnabled,
-    encHasClickableFeatureAt,
-    encSuppressNextClickPopup,
     setEncDraftAssumed,
-    setEncPlottingMode as encSetPlottingMode,
     SATELLITE_HIDE_LAYERS as ENC_SATELLITE_HIDE_LAYERS,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
@@ -137,8 +133,6 @@ import {
     attachSavedTraceTombstoneLinks,
     deleteTrace,
     tracePinBlocked,
-    snapTraceTapToWater,
-    snapTraceTapToLead,
     rdpTracePoints,
     reverseRouteName,
     bearingDegBetween,
@@ -162,7 +156,6 @@ import {
 } from '../../services/routeTracer';
 import { consumeTracerOpenRequest, consumeTracerAction, peekTracerOpenRequest } from '../../services/deepLink';
 import { loadLogbookRouteForEditing } from '../../services/savedRouteLibrary';
-import { getCachedActiveVoyage } from '../../services/VoyageService';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -176,7 +169,7 @@ import {
 } from '../../services/enc/EncCellMetadata';
 import { evaluateTraceRelease, traceGeometryKey, traceRegistryScope } from '../../services/traceVerification';
 import { useEncChartInventory } from './useEncChartInventory';
-import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
+import { DETAIL_SCRUB_MAX, applyChartDetailLevel } from './encDetailScrubber';
 import { PinDirectionsCta } from './PinDirectionsCta';
 import { ChartDepthControls, LiveTideAckModal } from './ChartDepthControls';
 import { useTideDepthMode } from './useTideDepthMode';
@@ -203,13 +196,7 @@ import {
     distMetres,
     fitTraceBounds,
     isBasemapHybridDuplicateLabelLayer,
-    nearestLegForInsert,
 } from './mapHubHelpers';
-// The only scrubber-furniture layer the imagery hide-list also owns — the
-// islet land-fill dot, hidden over satellite/hybrid so it can't blanket the
-// imagery. Passed to applyChartDetailLevel so its restore side yields (audit
-// rank 8: LNDARE_ISLET was the ~8 Hz default-config styledata loop).
-const IMAGERY_SCRUB_OWNED: ReadonlySet<string> = new Set([ENC_VEC_LAYERS.LNDARE_ISLET]);
 import { useDestinationFlag } from './useDestinationFlag';
 import { useMobMarker } from './useMobMarker';
 import { useAnchorSwingLayer } from './useAnchorSwingLayer';
@@ -220,24 +207,6 @@ import { buildTacticalState } from './buildTacticalState';
 import { MapActionFabs } from './MapActionFabs';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 
-// ── Lazy-loaded overlay components (split into separate chunks) ──
-const ConsensusMatrix = lazyRetry(
-    () => import('./ConsensusMatrix').then((m) => ({ default: m.ConsensusMatrix })),
-    'ConsensusMatrix',
-);
-const VesselSearch = lazyRetry(
-    () => import('./VesselSearch').then((m) => ({ default: m.VesselSearch })),
-    'VesselSearch',
-);
-const AisLegend = lazyRetry(() => import('./AisLegend').then((m) => ({ default: m.AisLegend })), 'AisLegend');
-const CmemsAttribution = lazyRetry(
-    () => import('./CmemsAttribution').then((m) => ({ default: m.CmemsAttribution })),
-    'CmemsAttribution',
-);
-const ChartKeyPanel = lazyRetry(
-    () => import('./ChartKeyPanel').then((module) => ({ default: module.ChartKeyPanel })),
-    'ChartKeyPanel',
-);
 // Eager import — the chip doubles as the live diagnostic pill for the
 // lightning feed, so a lazy chunk that fails to load silently (and
 // leaves the user staring at an empty chart with no feedback) is the
@@ -257,65 +226,40 @@ import { TracerSavedRoutePicker } from './tracer/TracerSavedRoutePicker';
 import { TracerPinEditor } from './tracer/TracerPinEditor';
 import { CoachMark } from '../ui/CoachMark';
 import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
-const AisGuardAlert = lazyRetry(
-    () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
-    'AisGuardAlert',
-);
-const GhostShip = lazyRetry(() => import('./GhostShip').then((m) => ({ default: m.GhostShip })), 'GhostShip');
-const RouteLegend = lazyRetry(() => import('./RouteLegend').then((m) => ({ default: m.RouteLegend })), 'RouteLegend');
-const PassageDataPanel = lazyRetry(
-    () => import('./PassageDataPanel').then((m) => ({ default: m.PassageDataPanel })),
-    'PassageDataPanel',
-);
-const OfflineAreaModal = lazyRetry(
-    () => import('./OfflineAreaModal').then((m) => ({ default: m.OfflineAreaModal })),
-    'OfflineAreaModal',
-);
-// Route review is an intentional, post-planning step. Keeping its report UI
-// out of the initial chart chunk makes first map paint cheaper without
-// compromising the review path once the skipper asks for it.
-const TraceReportModal = lazyRetry(
-    () => import('./TraceReportModal').then((m) => ({ default: m.TraceReportModal })),
-    'TraceReportModal',
-);
-const TraceReportLoading: React.FC = () => (
-    <div
-        role="status"
-        aria-live="polite"
-        className="fixed inset-0 z-10050 flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-sky-200"
-    >
-        Opening route report…
-    </div>
-);
-const RouteTrackPicker = lazyRetry(
-    () => import('./RouteTrackPicker').then((m) => ({ default: m.RouteTrackPicker })),
-    'RouteTrackPicker',
-);
-const RouteTrackPickerLoading: React.FC<{ label: string }> = ({ label }) => (
-    <div
-        role="status"
-        aria-live="polite"
-        className="fixed left-1/2 top-20 z-185 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 text-center text-xs font-bold text-sky-200 shadow-xl"
-    >
-        {label}
-    </div>
-);
-const MapWeatherControls = lazyRetry(
-    () => import('./MapWeatherControls').then((m) => ({ default: m.MapWeatherControls })),
-    'MapWeatherControls',
-);
-const StormPicker = lazyRetry(() => import('./StormPicker').then((m) => ({ default: m.StormPicker })), 'StormPicker');
-const StormPickerLoading: React.FC = () => (
-    <div
-        role="status"
-        aria-live="polite"
-        className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-red-100"
-    >
-        Opening storm picker…
-    </div>
-);
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { usePersistedState, usePersistedStringSet } from '../../hooks/usePersistedState';
+// ── MapHub sub-modules (components/map/mapHub/) ──
+// Lazy overlay chunks, module constants, and the cohesive units lifted out of
+// this file's body. Each is a verbatim move: no logic, prop, default, string,
+// or hook order changed.
+import {
+    AisGuardAlert,
+    AisLegend,
+    ChartKeyPanel,
+    CmemsAttribution,
+    ConsensusMatrix,
+    GhostShip,
+    MapWeatherControls,
+    OfflineAreaModal,
+    PassageDataPanel,
+    RouteLegend,
+    RouteTrackPicker,
+    RouteTrackPickerLoading,
+    StormPicker,
+    StormPickerLoading,
+    TraceReportLoading,
+    TraceReportModal,
+    VesselSearch,
+} from './mapHub/lazyOverlays';
+import { IMAGERY_SCRUB_OWNED } from './mapHub/constants';
+import { useActiveVoyageChartSync } from './mapHub/useActiveVoyageChartSync';
+import { useCycloneCenterLock } from './mapHub/useCycloneCenterLock';
+import { useFollowRouteClearOnPassage } from './mapHub/useFollowRouteClearOnPassage';
+import { useMarkHaloPulse } from './mapHub/useMarkHaloPulse';
+import { useOpenSeaMapRasterHide } from './mapHub/useOpenSeaMapRasterHide';
+import { useTracerChartFloors } from './mapHub/useTracerChartFloors';
+import { useWindLightningBootExclusion } from './mapHub/useWindLightningBootExclusion';
+import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './mapHub/tracerMapGestures';
 // PinViewHandoff + readCurrentPinView moved to ./usePinViewMode (imported above).
 
 // ── Component ──────────────────────────────────────────────────
@@ -1419,32 +1363,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setFixBusyLeg,
         flashTraceFeedback,
     });
-    /** Pulse a temporary amber halo on a chart mark — the answer to "WHICH
-     *  marker am I too close to?" (Shane 2026-07-11). Tapping a mark caution
-     *  flies there and rings the mark itself; WebAnimations, self-removing,
-     *  one halo at a time. */
-    const markHaloRef = useRef<mapboxgl.Marker | null>(null);
-    const pulseMarkHalo = useCallback((p: { lat: number; lon: number }) => {
-        const map = mapRef.current;
-        if (!map) return;
-        markHaloRef.current?.remove();
-        const el = document.createElement('div');
-        el.style.cssText =
-            'width:44px;height:44px;border-radius:50%;border:3px solid #fbbf24;box-shadow:0 0 14px rgba(251,191,36,0.9);pointer-events:none;';
-        el.animate(
-            [
-                { transform: 'scale(0.5)', opacity: 1 },
-                { transform: 'scale(1.6)', opacity: 0 },
-            ],
-            { duration: 1100, iterations: 5, easing: 'ease-out' },
-        );
-        const marker = new mapboxgl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
-        markHaloRef.current = marker;
-        window.setTimeout(() => {
-            marker.remove();
-            if (markHaloRef.current === marker) markHaloRef.current = null;
-        }, 5600);
-    }, []);
+    // The amber mark halo ("WHICH marker am I too close to?") —
+    // components/map/mapHub/useMarkHaloPulse.ts.
+    const pulseMarkHalo = useMarkHaloPulse(mapRef);
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
     // Append a typed GPS fix as the next pin. parseCoordinateString handles
@@ -2447,34 +2368,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         setShowConsensus(false);
     }, [pickerMode, setShowConsensus, setShowTideAck, setStormPickerOpen]);
 
-    /** Active Voyage Mode flag — mirrored from the voyages cache. When
-     *  true, the chart auto-displays the boat's GPS position, the live
-     *  voyage track, and the planned route, regardless of which weather
-     *  layer is on. Listens for `thalassa:active-voyage-changed` so the
-     *  flag flips the moment Cast Off / End Voyage runs. */
-    const initialActiveVoyage = useMemo(() => getCachedActiveVoyage(), []);
-    const [activeVoyageMode, setActiveVoyageMode] = useState<boolean>(initialActiveVoyage?.status === 'active');
-    const [activeVoyageId, setActiveVoyageId] = useState<string | null>(
-        initialActiveVoyage?.status === 'active' ? initialActiveVoyage.id : null,
-    );
-    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(
-        initialActiveVoyage?.status === 'active' ? initialActiveVoyage.voyage_name : null,
-    );
-    useEffect(() => {
-        const sync = () => {
-            const activeVoyage = getCachedActiveVoyage();
-            const isActive = activeVoyage?.status === 'active';
-            setActiveVoyageMode(isActive);
-            setActiveVoyageId(isActive ? activeVoyage.id : null);
-            setActiveVoyageName(isActive ? activeVoyage.voyage_name : null);
-        };
-        const unsubscribeIdentity = subscribeAuthIdentityScope(sync);
-        window.addEventListener('thalassa:active-voyage-changed', sync);
-        return () => {
-            unsubscribeIdentity();
-            window.removeEventListener('thalassa:active-voyage-changed', sync);
-        };
-    }, []);
+    // Active Voyage Mode — the voyages-cache mirror plus the chart's
+    // auto-selection of that voyage's planned route and sailed track, in
+    // components/map/mapHub/useActiveVoyageChartSync.ts. Called exactly where
+    // the state used to be declared so hook order at this position is unchanged.
+    const { activeVoyageMode } = useActiveVoyageChartSync(setActiveChartRoute, setActiveChartTrack);
 
     /** Vessel position + trail are FORCED visible during Active Voyage
      *  Mode, regardless of the user's persisted toggle. The user can
@@ -2482,74 +2380,6 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  no-op for the actual rendering (the underlying preference is
      *  preserved for when the voyage ends). */
     const effectiveVesselTrackingVisible = vesselTrackingVisible || activeVoyageMode;
-
-    /** Auto-select the active voyage's planned route + sailed track on
-     *  the chart so the skipper sees "I am here, I came from there, I'm
-     *  heading there" from one glance — no manual route/track picking
-     *  required while underway. Match planned route by normalised name
-     *  (matches the same scheme CrewManagement uses); match track by
-     *  voyage.id (ShipLogService.startTracking seeds entries.voyageId
-     *  with the voyages-table UUID at Cast Off time). */
-    useEffect(() => {
-        if (!activeVoyageMode || !activeVoyageId) return;
-        let cancelled = false;
-        // FULL fetch — matches the planned route by name (routes need the
-        // whole list) AND seeds the sailed track. Runs on mount and when a
-        // save/delete fires the change event; NOT on the 60s tick (the plan
-        // is fixed for the voyage, so re-listing every route every minute
-        // was pure waste — audit rank 7).
-        const syncRouteAndTrack = async () => {
-            try {
-                const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
-                const { routes, tracks } = await fetchRoutesAndTracks(true);
-                if (cancelled) return;
-                const norm = (s: string) => s.trim().toLowerCase();
-                if (activeVoyageName) {
-                    const wantLabel = norm(activeVoyageName);
-                    const matchedRoute = routes.find((r) => norm(r.label) === wantLabel) ?? null;
-                    if (matchedRoute) setActiveChartRoute((cur) => (cur?.id === matchedRoute.id ? cur : matchedRoute));
-                }
-                const matchedTrack = tracks.find((t) => t.id === activeVoyageId) ?? null;
-                if (matchedTrack) {
-                    setActiveChartTrack((cur) =>
-                        cur?.id === matchedTrack.id && cur.points.length === matchedTrack.points.length
-                            ? cur
-                            : matchedTrack,
-                    );
-                }
-            } catch (e) {
-                log.warn('Active voyage auto-select failed:', e);
-            }
-        };
-        // INCREMENTAL trail refresh — fetches ONLY the active voyage's
-        // entries (bounded by that one passage), not the whole log. Replaces
-        // the rendered track only when it actually GREW (point count changed),
-        // so the trail genuinely extends AND unchanged ticks cost no re-render.
-        const refreshTrail = async () => {
-            try {
-                const { fetchVoyageAsTrack } = await import('../../services/shiplog/RoutesAndTracks');
-                const track = await fetchVoyageAsTrack(activeVoyageId);
-                if (cancelled || !track) return;
-                setActiveChartTrack((cur) =>
-                    cur?.id === track.id && cur.points.length === track.points.length ? cur : track,
-                );
-            } catch (e) {
-                log.warn('Active voyage trail refresh failed:', e);
-            }
-        };
-        void syncRouteAndTrack();
-
-        const onRefresh = () => void syncRouteAndTrack();
-        window.addEventListener('thalassa:routes-and-tracks-changed', onRefresh);
-        // Extend the trail as new GPS points come in — one voyage's fetch,
-        // not the career's.
-        const t = setInterval(() => void refreshTrail(), 60_000);
-        return () => {
-            cancelled = true;
-            window.removeEventListener('thalassa:routes-and-tracks-changed', onRefresh);
-            clearInterval(t);
-        };
-    }, [activeVoyageMode, activeVoyageId, activeVoyageName]);
 
     // Start the silent FPS watchdog when the chart screen mounts. It
     // runs essentially free (one rAF callback) and writes to
@@ -2755,24 +2585,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Rain Squall Map (GMGSI IR with BD Enhancement Curve) ──
     useSquallMap(mapRef, mapReady, browseSquallVisible, location.lat, location.lon, allCyclones, handleSelectStorm);
 
-    // ── Cyclone zoom center-lock — keep selected storm dead-center during zoom ──
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady || !browseCycloneVisible || !closestStorm) return;
-
-        const onZoomEnd = () => {
-            const storm = closestStorm;
-            if (!storm) return;
-            map.easeTo({
-                center: [storm.currentPosition.lon, storm.currentPosition.lat],
-                duration: 300,
-            });
-        };
-        map.on('zoomend', onZoomEnd);
-        return () => {
-            map.off('zoomend', onZoomEnd);
-        };
-    }, [browseCycloneVisible, closestStorm, mapReady, mapRef]);
+    // ── Cyclone zoom center-lock — components/map/mapHub/useCycloneCenterLock.ts ──
+    useCycloneCenterLock(mapRef, mapReady, browseCycloneVisible, closestStorm);
 
     // ── Weather-inspect popup (tap gesture, inspect mode only) ──
     // Hoisted out of the handler map so onMapTap stays a thin router now
@@ -2797,6 +2611,25 @@ export const MapHub: React.FC<MapHubProps> = ({
         vesselSearchMarkerRef.current = null;
         closeWeatherInspect();
     }, [planningSurface, setShowConsensus, setShowTideAck, setStormPickerOpen, closeWeatherInspect]);
+
+    // The tracer's tap / long-press gestures live in
+    // components/map/mapHub/tracerMapGestures.ts. Built here, per render, from
+    // exactly the values the two inline arrow literals used to close over —
+    // refs as ref OBJECTS, never `.current` copied at the boundary.
+    const tracerMapGestureDeps = {
+        mapRef,
+        coordCaptureRef,
+        plotArmedRef,
+        tracerCtxRef,
+        insertAfterRef,
+        capturedCoords,
+        setCapturedCoords,
+        setInsertAfter,
+        setSelectedPin,
+        flashTraceFeedback,
+        browseWeatherInspectMode,
+        showWeatherInspect,
+    };
 
     // ── Map Init ──
     const { dropPin } = useMapInit({
@@ -2831,115 +2664,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSettingPoint: passage.setSettingPoint,
         weatherInspect: browseWeatherInspectMode,
         coordCapture: coordCaptureMode,
-        onMapTap: (lat: number, lon: number) => {
-            const map = mapRef.current;
-            if (!map) return;
-
-            // Tracer active + armed: taps no longer place — placement is
-            // the LONG PRESS (Shane 2026-07-15), so a stray tap mid-pan
-            // can't seed a phantom pin. A tap on a mark/light/water now
-            // shows its ENC popup (Shane 2026-07-16: "tap a marker for its
-            // info without closing the tracer"); we only COACH when the tap
-            // hit nothing to inspect, so the popup isn't buried under a flash.
-            if (coordCaptureRef.current && plotArmedRef.current) {
-                if (!encHasClickableFeatureAt(map, { lat, lng: lon })) {
-                    // Coach the SPECIFIC gesture when the tap grazed a leg:
-                    // mid-route insert exists, but nobody can use a feature
-                    // they are never told about (Shane 2026-08-11 read the
-                    // append fallback as "insert is broken").
-                    const legHere = nearestLegForInsert(
-                        map.project([lon, lat]),
-                        capturedCoords.map((p) => map.project([p.lon, p.lat])),
-                    );
-                    flashTraceFeedback(
-                        legHere > 0
-                            ? `Hold on the line to insert between ${legHere} and ${legHere + 1}`
-                            : 'Hold the chart to drop a pin',
-                    );
-                }
-                return;
-            }
-
-            // Only show weather popup if the user explicitly enabled inspect mode
-            if (!browseWeatherInspectMode) return;
-            // Weather inspect — stays active so the user can tap multiple
-            // locations; they disable via the layer FAB menu.
-            showWeatherInspect(lat, lon);
-        },
-        onMapLongPress: (lat: number, lon: number) => {
-            const map = mapRef.current;
-            if (!map) return;
-
-            // Route Tracer owns the LONG PRESS when active AND ARMED —
-            // record the fix (snapped off the breakwater if the fat finger
-            // just missed the water), splice it mid-trace when an insert is
-            // armed. PAUSED plotting (Shane 2026-07-11: "great when you
-            // want it, and fucken annoying when you don't") hands the
-            // gesture back to the chart.
-            if (coordCaptureRef.current && plotArmedRef.current) {
-                // The release-click after this placement must NOT open a
-                // feature popup where the pin just landed (popups are live
-                // while plotting now).
-                encSuppressNextClickPopup(map);
-                let pt = { lat, lon };
-                const ctx = tracerCtxRef.current;
-                if (ctx) {
-                    // Lead first (Shane 2026-07-17: "shove it directly on top
-                    // of the lead — very hard with fat fingers"): a pin within
-                    // ~120 m of a charted transit means "on the lead", and the
-                    // lead IS navigable water, so the water snap is moot.
-                    const onLead = snapTraceTapToLead(ctx, pt);
-                    if (onLead) {
-                        pt = onLead;
-                        flashTraceFeedback('Snapped onto the lead 🎯');
-                    } else {
-                        const snapped = snapTraceTapToWater(ctx, pt);
-                        if (snapped) {
-                            pt = snapped;
-                            flashTraceFeedback('Snapped to water');
-                        }
-                    }
-                }
-                if (map.getZoom() < 13) {
-                    flashTraceFeedback('Zoomed out — pins are rough, zoom in for channel work');
-                }
-                const after = insertAfterRef.current;
-                if (after !== null) {
-                    insertAfterRef.current = null;
-                    setInsertAfter(null);
-                    setSelectedPin(null);
-                    setCapturedCoords((prev) => [...prev.slice(0, after + 1), pt, ...prev.slice(after + 1)]);
-                    triggerHaptic('light');
-                    return;
-                }
-                // Hold ON the line → insert into that leg (Shane 2026-07-09:
-                // "we need to be able to insert a waypoint along the track").
-                // The leg test uses the RAW press position; the inserted pin
-                // is the water-snapped one. Geometry extracted to
-                // nearestLegForInsert 2026-08-11 and widened — the old
-                // 16 px / middle-80% window was smaller than the fingertip
-                // pressing it, so Shane only ever reached the append
-                // fallback and read insert as missing entirely.
-                const insertLeg = nearestLegForInsert(
-                    map.project([lon, lat]),
-                    capturedCoords.map((p) => map.project([p.lon, p.lat])),
-                );
-                if (insertLeg > 0) {
-                    setCapturedCoords((prev) => [...prev.slice(0, insertLeg), pt, ...prev.slice(insertLeg)]);
-                    flashTraceFeedback(`Inserted between ${insertLeg} and ${insertLeg + 1} — drag to fine-tune`);
-                } else {
-                    setCapturedCoords((prev) => [...prev, pt]);
-                    if (capturedCoords.length >= 2) {
-                        // Say what happened. The silent append here is what
-                        // made a missed insert look like a routing bug.
-                        flashTraceFeedback('Added to the end — hold on the line to insert mid-route');
-                    }
-                }
-                // Medium, not light: the hold earned a firmer thunk than
-                // the old tap ever gave.
-                triggerHaptic('medium');
-            }
-        },
+        onMapTap: createTracerMapTapHandler(tracerMapGestureDeps),
+        onMapLongPress: createTracerMapLongPressHandler(tracerMapGestureDeps),
     });
 
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
@@ -3026,37 +2752,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     weatherCoordsRef.current = weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null;
     weatherRef.current = weather;
 
-    // ── Clear Follow Route when passage mode activates ──
-    const prevShowPassageRef = useRef(passage.showPassage);
-    useEffect(() => {
-        if (passage.showPassage && !prevShowPassageRef.current) {
-            // The 2026-07-05 owner-ask ("show the route on the clean
-            // satellite base, not the busy ENC chart") force-switched to
-            // imagery on EVERY passage — the ghost behind "the old sat map
-            // keeps coming back" all day (2026-07-11). SUPERSEDED by the
-            // purge: the white chart IS the route surface now, on every
-            // platform. Satellite remains a manual peek where allowed.
-            // Force-remove Follow Route layers — the hook's useEffect cleanup
-            // has a timing gap when mapReady transitions while routeCoords changes
-            const map = mapRef.current;
-            if (map) {
-                const FR_LAYERS = [
-                    'follow-route-markers-labels',
-                    'follow-route-markers-circle',
-                    'follow-route-active-line',
-                    'follow-route-previous-line',
-                ];
-                const FR_SOURCES = ['follow-route-active', 'follow-route-previous', 'follow-route-markers'];
-                for (const id of FR_LAYERS) {
-                    if (map.getLayer(id)) map.removeLayer(id);
-                }
-                for (const id of FR_SOURCES) {
-                    if (map.getSource(id)) map.removeSource(id);
-                }
-            }
-        }
-        prevShowPassageRef.current = passage.showPassage;
-    }, [passage.showPassage]);
+    // Clear Follow Route when passage mode activates —
+    // components/map/mapHub/useFollowRouteClearOnPassage.ts.
+    useFollowRouteClearOnPassage(mapRef, passage.showPassage);
 
     // ── Cyclone-aware temporal snap — REMOVED ──
     // Previously this scanned all GFS forecast hours to find the vortex center
@@ -3309,32 +3007,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     // punter's persisted toggle comes back with the browsing chart.
     useLightningLayer(mapRef, mapReady, browseLightningVisible);
 
-    // Resolve the wind/lightning exclusion ONCE AT BOOT.
-    //
-    // The toggle handlers enforce it going forward, but they only fire when
-    // something is tapped — and lightningVisible is PERSISTED
-    // ('thalassa_map_lightning_visible') while wind is on by default. So a
-    // session that ever left lightning on came back with both up, which is the
-    // state Shane screenshotted on 2026-07-22 minutes after the exclusion
-    // landed. A rule enforced only on transitions is not a rule.
-    //
-    // Wind wins: it is the default overlay and the one the model chips and
-    // scrubber below are driving. Lightning is one tap away.
-    const bootExclusionRef = useRef(false);
-    useEffect(() => {
-        // A Plan-owned MapHub must never resolve a Chart preference conflict:
-        // doing so would mutate persisted browsing state from a surface where
-        // neither layer is even rendered. Defer the one-shot until this map is
-        // genuinely back in Chart browsing mode.
-        if (!mapReady || planningSurface || bootExclusionRef.current) return;
-        bootExclusionRef.current = true;
-        if (lightningVisible && (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'))) {
-            setLightningVisible(false);
-        }
-        // Boot-only: deps deliberately exclude the values it reads, so a later
-        // legitimate toggle is not undone by this effect re-running.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapReady, planningSurface]);
+    // Boot-time wind/lightning exclusion —
+    // components/map/mapHub/useWindLightningBootExclusion.ts.
+    useWindLightningBootExclusion(
+        mapReady,
+        planningSurface,
+        lightningVisible,
+        weather.activeLayers,
+        setLightningVisible,
+    );
 
     // ── Ocean Currents (CMEMS via Mapbox raster-particle) ──
     // Gated by VITE_CMEMS_CURRENTS_ENABLED. When the flag is off the hook
@@ -3530,94 +3211,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // arrows at numbered laterals. OBS stays uncluttered, and a picker must
     // remain a pure location-selection surface.
     useBuoyageDirectionLayer(mapRef, mapReady, cleanPlanningMap && !pickerMode);
-    // Tracer WYSIWYG (Shane 2026-07-09 "show markers, leads, laterals
-    // and cardinals"): while tracing, every mark the grader checks
-    // must be ON SCREEN — laterals, cardinals, specials, lights and
-    // the RECTRC leads — even if the punter has flipped the ENC
-    // master toggle off or a mode hid them. styledata re-asserts
-    // because cell loads re-add layers asynchronously; on exit,
-    // visibility goes back to the master toggle + chart-detail owners.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady || !coordCaptureMode) return;
-        const MARK_LAYERS = [
-            ENC_VEC_LAYERS.BOYLAT,
-            ENC_VEC_LAYERS.BCNLAT,
-            ENC_VEC_LAYERS.BOYCAR,
-            ENC_VEC_LAYERS.BCNCAR,
-            ENC_VEC_LAYERS.BOYSPP,
-            ENC_VEC_LAYERS.BCNSPP,
-            ENC_VEC_LAYERS.LIGHTS,
-            ENC_VEC_LAYERS.RECTRC,
-            ENC_VEC_LAYERS.RECTRC_LABEL,
-            ENC_VEC_LAYERS.SOUNDG,
-            ENC_VEC_LAYERS.NAVAIDS_LABEL,
-        ];
-        const apply = (): void => {
-            try {
-                for (const id of MARK_LAYERS) {
-                    if (!map.getLayer(id)) continue;
-                    // The detail scrubber outranks the tracer's re-assert
-                    // (Shane 2026-07-15: "at the clean end of the scrubber
-                    // I have flashing leads as well as markers" — this
-                    // effect force-showed what the scrubber had cut, 120 ms
-                    // apart, forever). Scrubbing clean is explicit intent;
-                    // scrub back left and the marks return for plotting.
-                    if (isScrubHidden(id)) continue;
-                    // Conditional write — an unconditional setLayoutProperty
-                    // emits a styledata that re-invokes this handler, and
-                    // this effect is active during PLOTTING (coordCaptureMode)
-                    // exactly when the user reported zoom locking up. Setting
-                    // only when actually hidden lets steady state emit nothing.
-                    const cur = (map.getLayoutProperty(id, 'visibility') as string | undefined) ?? 'visible';
-                    if (cur !== 'visible') map.setLayoutProperty(id, 'visibility', 'visible');
-                }
-            } catch {
-                /* style mid-swap — styledata re-applies */
-            }
-        };
-        apply();
-        // Coalesce the styledata burst a zoom/tile-load fires into ONE
-        // trailing pass so the re-assert can't pin the thread mid-zoom.
-        let pending: number | null = null;
-        const scheduleApply = () => {
-            if (pending !== null) return;
-            pending = window.setTimeout(() => {
-                pending = null;
-                apply();
-            }, 120);
-        };
-        map.on('styledata', scheduleApply);
-        return () => {
-            if (pending !== null) window.clearTimeout(pending);
-            map.off('styledata', scheduleApply);
-            try {
-                encApplyLayerVisibility(map, encVisible);
-                encApplyChartDetailLayers(map, encChartDetail);
-            } catch {
-                /* layers unmounted — nothing to restore */
-            }
-        };
-    }, [coordCaptureMode, mapReady, encVisible, encChartDetail]);
-
-    // Raise the PLOTTING KEEL FLOOR for as long as the tracer is up. The
-    // effect above force-shows the MARKS you steer by; this one guarantees the
-    // DEPTH you clear by (glaze/bands + safety contour + wrecks, rocks and
-    // obstructions), which no furniture toggle may strip from the one surface
-    // that exists to answer "does this leg float my keel?". Lowered on unmount
-    // so the browsing chart honours the skipper's own toggles again.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady) return;
-        encSetPlottingMode(map, coordCaptureMode);
-        return () => {
-            try {
-                encSetPlottingMode(map, false);
-            } catch {
-                /* layers unmounted — nothing to lower */
-            }
-        };
-    }, [mapReady, coordCaptureMode]);
+    // Tracer chart floors — the WYSIWYG mark re-assert and the plotting keel
+    // floor, in components/map/mapHub/useTracerChartFloors.ts. Called here, below
+    // useEncVectorLayer, because that is what mounts the layers they re-assert.
+    useTracerChartFloors(mapRef, mapReady, coordCaptureMode, encVisible, encChartDetail);
 
     // Seaway Graph debug overlay — compiles gates/edges from the installed
     // cells for the viewport whenever the toggle is on (Phase 10).
@@ -3627,70 +3224,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // components/map/useMapFitRequest.ts.
     useMapFitRequest(mapRef, mapReady);
 
-    // ── Hide OpenSeaMap raster overlays when another source draws navaids ──
-    // Both raster overlays — 'openseamap-overlay' (baked into the map style,
-    // ThalassaMap.tsx) and 'openseamap-permanent' (added by useMapInit) —
-    // show their own seamark icons. When o-charts are active they render
-    // native marks, and when the ENC vector chart is rendering it draws its
-    // own IALA navaids, so hide the rasters to prevent doubled icons.
-    // 'openseamap-permanent' is co-owned by the 'sea' weather toggle
-    // (useWeatherLayers re-syncs it to that toggle on every weather-layer
-    // change), so: when not chart-hidden we defer to the toggle rather than
-    // forcing it visible, and we depend on weather.activeLayers so this
-    // effect re-asserts the hide AFTER useWeatherLayers' sync (which runs
-    // first — hook order) whenever weather layers change.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady) return;
-        const hide = chartsActive || encActive;
-        const apply = (): void => {
-            setOpenSeaMapRasterVisibility(map, {
-                overlay: !hide,
-                permanent: !hide && weather.activeLayers.has('sea'),
-            });
-            // OSM seamark circles retire ENTIRELY while a real chart source
-            // is active (2026-07-11, Shane: "can we kill those?" — green
-            // and blue dot trails down every channel at bay zoom). They
-            // were the wide-zoom read from before broad ENC coverage; the
-            // ENC IALA glyphs (per-mark SCAMIN, ~z13.5+) are now the only
-            // marks worth glass, and the white ramp carries the wide view.
-            // No chart source = circles at every zoom, as before — they're
-            // still the only marks a chartless region has.
-            try {
-                if (map.getLayer('harbour-seamarks-circle')) {
-                    map.setLayoutProperty('harbour-seamarks-circle', 'visibility', hide ? 'none' : 'visible');
-                    if (!hide) map.setLayerZoomRange('harbour-seamarks-circle', 0, 24);
-                }
-                if (map.getLayer('harbour-seamarks-label')) {
-                    map.setLayerZoomRange('harbour-seamarks-label', hide ? 24 : 14, 24);
-                }
-            } catch {
-                /* style mid-swap — styledata re-applies */
-            }
-        };
-        apply();
-        // Re-assert on styledata: 'openseamap-overlay' is BAKED INTO the
-        // basemap style, so every chart-mode/basemap switch resurrects it
-        // without any React dep changing — the doubled icon Shane caught at
-        // Mooloolaba beacon 5 (2026-07-09: OSM's red-outlined-triangle+star
-        // raster icon stamped over our correct green IALA glyph). COALESCED
-        // (2026-07-12): setLayoutProperty/setLayerZoomRange here each emit a
-        // styledata, so running per-tick joined the zoom-freeze storm; a
-        // trailing timer collapses each burst into one pass.
-        let pending: number | null = null;
-        const scheduleApply = () => {
-            if (pending !== null) return;
-            pending = window.setTimeout(() => {
-                pending = null;
-                apply();
-            }, 120);
-        };
-        map.on('styledata', scheduleApply);
-        return () => {
-            if (pending !== null) window.clearTimeout(pending);
-            map.off('styledata', scheduleApply);
-        };
-    }, [mapRef, mapReady, chartsActive, encActive, weather.activeLayers]);
+    // ── Hide OpenSeaMap raster overlays when another source draws navaids —
+    // components/map/mapHub/useOpenSeaMapRasterHide.ts ──
+    useOpenSeaMapRasterHide(mapRef, mapReady, chartsActive, encActive, weather.activeLayers);
 
     // ── Pin View (chat pin tap) — components/map/usePinViewMode.ts ──
     // Pin marker, weather-layer snapshot/restore, identity sync, and the
