@@ -248,9 +248,25 @@ class AnchorPiWatchKeeperClass {
             return false;
         }
 
-        const took = await handOffToPi(assignment, target.relayId, target.baseUrl);
+        // The SAME address ladder the capability probe uses. Without this the
+        // probe could reach the Pi on the tailnet, raise the offer, and then
+        // the handoff would post to the boat-LAN address and fail — asking a
+        // question at one address and acting on the answer at another.
+        const addresses = [target.baseUrl];
+        const remote = piCache.getRemoteBaseUrl();
+        if (remote && remote !== target.baseUrl) addresses.push(remote);
+
+        let took = false;
+        for (const baseUrl of addresses) {
+            took = await handOffToPi(assignment, target.relayId, baseUrl);
+            if (took) {
+                target = { ...target, baseUrl };
+                break;
+            }
+            log.warn(`Pi watch: the Pi at ${baseUrl} did not take the watch`);
+        }
         if (!took) {
-            log.info('Pi did not take the watch; the phone keeps it');
+            log.warn('Pi did not take the watch at any known address; the phone keeps it');
             return false;
         }
         this.current = { assignment, target };
