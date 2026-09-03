@@ -26,22 +26,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../ui/PageHeader';
 import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
-import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
+import { askBosunText, askBosunVoice } from '../../services/voice/bosunVoice';
 import { askCloudVoice } from '../../services/voice/cloudFallback';
 import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
-import { askHaiku, consumeLastTtsError, synthesiseSpeech } from '../../services/voice/orchestrator';
-import { startSpokenReply, type SpokenReply } from '../../services/voice/spokenReplyQueue';
-import { consumeTtsClientError } from '../../services/voice/ttsClient';
+import type { SpokenReply } from '../../services/voice/spokenReplyQueue';
 import { tryHelmCommand } from '../../services/voice/helmVoice';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { selectVoiceQueryRoute } from '../../services/voice/voiceQueryRouting';
 import {
-    isDeepgramAvailable,
-    prewarmAudioContext,
-    prewarmDeepgramWebSocket,
-    prewarmMicStream,
-    prewarmWorkerConnection,
-    prewarmWorkletAsset,
     primeAudioPipeline,
     releasePrewarmedAudioContext,
     releasePrewarmedMicStream,
@@ -51,12 +43,11 @@ import {
     type DeepgramRecognizerHandle,
 } from '../../services/voice/deepgramRecognizer';
 import {
-    isSpeechRecognitionAvailable,
     setSrEventTap,
     startSpeechRecognition,
     type SpeechRecognizerHandle,
 } from '../../services/voice/speechRecognizer';
-import { gatherThalassaContext, prewarmPhoneGpsContext } from '../../services/voice/thalassaContext';
+import { gatherThalassaContext } from '../../services/voice/thalassaContext';
 import { GMAIL_PUBLIC_BETA_ENABLED } from '../../services/voice/integrations/gmail';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../../services/piPublicBetaBoundary';
 import { canAccess } from '../../services/SubscriptionService';
@@ -64,216 +55,28 @@ import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
-    type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useUIStore } from '../../stores/uiStore';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
-import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
-
-/**
- * How many prior turns to send for context. Each turn = one user + one
- * assistant message, so 2 turns = 4 messages. Tuned aggressively down
- * (was 4, was 10 originally) because each call carries 1.5-3K tokens
- * of state context + tool definitions + this history slice, which
- * stacks against per-minute Anthropic rate limits when the skipper
- * fires several queries in succession. Recent style-instructions still
- * persist (e.g. "speak like a pirate") within ~2 turns; older context
- * gets trimmed.
- */
-const HISTORY_TURN_LIMIT = 2;
-
-/**
- * Feature flag — disable Apple SR's slot in the fallback chain.
- *
- * Why this exists: when both Deepgram and Apple SR are wired in,
- * silent failures on the Deepgram path cascade into Apple SR, which
- * then hits its per-device quota lockout, which then cascades into
- * MediaRecorder. The skipper sees the "iOS speech-recognition rate
- * limit" toast and we have no way to tell whether Deepgram even ran.
- *
- * Set to false to make Deepgram → MediaRecorder the only path. Apple
- * SR is skipped entirely — its status pill stays informational but
- * its handler never runs. If Deepgram fails for any reason, the
- * cascade goes straight to MediaRecorder + Scribe (loses the live
- * OVER gesture but keeps the question quality via strip-at-stop).
- *
- * Flip to true once we're confident Deepgram is reliable on the
- * skipper's iOS device.
- */
-const ENABLE_APPLE_SR_FALLBACK = false;
-
-/**
- * The native AppleMusic plugin owns Calypso's response TTS. Its playback
- * path can leave iOS's single shared AVAudioSession in `.playback`, which
- * means a still-live WKWebView MediaStream may report as started while
- * delivering no microphone samples. Keep the bridge deliberately optional:
- * web builds and an older installed native shell simply keep the existing
- * capture path, while a current iOS shell hands the session back to input
- * immediately before we acquire/reuse the microphone.
- */
-type AppleMusicNativeBridge = {
-    cancelTtsAudio?: () => Promise<{ status: string }>;
-    prepareVoiceInput?: () => Promise<{ status: string }>;
-    releaseVoiceInput?: () => Promise<{ status: string }>;
-};
-
-function getAppleMusicNativeBridge(): AppleMusicNativeBridge | undefined {
-    return (
-        globalThis as typeof globalThis & {
-            Capacitor?: {
-                Plugins?: {
-                    AppleMusic?: AppleMusicNativeBridge;
-                };
-            };
-        }
-    ).Capacitor?.Plugins?.AppleMusic;
-}
-
-async function prepareNativeVoiceInput(): Promise<boolean> {
-    const plugin = getAppleMusicNativeBridge();
-    if (!plugin) return false;
-
-    if (plugin.prepareVoiceInput) {
-        try {
-            // The current native shell stops its AVAudioPlayer itself before
-            // switching to `.playAndRecord`, so this is one ordered bridge
-            // call rather than two racing requests to the shared session.
-            await plugin.prepareVoiceInput();
-            return true;
-        } catch (error) {
-            // Do not prevent the browser fallback from trying getUserMedia.
-            // A second, older-shell fallback below still stops native TTS.
-            console.warn('[BosunConsole] native voice-input session handoff failed:', error);
-        }
-    }
-
-    try {
-        // Backward compatibility for an installed native shell from before
-        // prepareVoiceInput existed. It cannot restore the input category,
-        // but it can at least stop a competing native TTS player.
-        await plugin.cancelTtsAudio?.();
-    } catch {
-        // A cancelled / already-finished utterance is not a capture failure.
-    }
-    return false;
-}
-
-function releaseNativeVoiceInput(): void {
-    void getAppleMusicNativeBridge()
-        ?.releaseVoiceInput?.()
-        .catch(() => undefined);
-}
-
-/**
- * Detect "over" at the end of an utterance. The skipper can say "over"
- * as a hands-free alternative to tap-to-send — same as ham-radio
- * etiquette. We strip it from the transcript before sending so Haiku
- * doesn't see "over" as part of the question.
- *
- * Apple SR is autocorrect-happy and tends to insert punctuation that
- * the previous word-boundary regex couldn't handle ("doing? Over.",
- * "doing, over!", smart quotes, etc.). The two-stage match below is
- * more forgiving: strip trailing punctuation/whitespace first, then
- * look for the literal final word "over".
- *
- * Examples:
- *   "what's the wind doing over"      → matched, cleaned = "what's the wind doing"
- *   "What's the wind doing? Over."    → matched, cleaned = "What's the wind doing?"
- *   "over."                            → matched, cleaned = ""
- *   "moreover"                         → not matched (no whitespace before)
- *   "the storm's moving over to it"   → not matched (not at end)
- */
-function detectOverSuffix(text: string): { matched: boolean; cleaned: string } {
-    // Strip trailing punctuation/whitespace so SR-added periods or
-    // exclamation marks don't break the suffix match.
-    const stripped = text.replace(/[\s.,;:!?'"]+$/, '');
-    if (/^over$/i.test(stripped)) {
-        return { matched: true, cleaned: '' };
-    }
-    const m = stripped.match(/^(.+?)\s+over$/i);
-    if (m) return { matched: true, cleaned: m[1].trim() };
-    return { matched: false, cleaned: text };
-}
-
-/**
- * Convert recent VoiceTurns into the {role, text} shape the edge function
- * expects. Drops everything except the user's transcript and the assistant's
- * final answer text — no tool_use/tool_result blocks, since we replay just
- * the conversational thread for continuity.
- */
-function buildHistory(turns: VoiceTurn[]): VoiceHistoryTurn[] {
-    const recent = turns.slice(-HISTORY_TURN_LIMIT);
-    const out: VoiceHistoryTurn[] = [];
-    for (const t of recent) {
-        const userText = (t.transcript || '').trim();
-        const asstTextRaw = (t.response.answer_text || '').trim();
-        if (!userText || !asstTextRaw) continue;
-        // Identity-bias fix: persisted history may contain pre-rename
-        // assistant turns where she introduced herself as "Bosun". When
-        // those get sent back as history, the model picks up the old
-        // identity and re-asserts it ("I'm Bosun") even though the
-        // current system prompt says Calypso. Replace on the wire so
-        // the conversation thread is consistent. Captain's user-text
-        // is left alone — they may have legitimately referred to her
-        // as Bosun and we don't rewrite their words.
-        const asstText = asstTextRaw.replace(/\bBosun\b/g, 'Calypso');
-        out.push({ role: 'user', text: userText });
-        out.push({ role: 'assistant', text: asstText });
-    }
-    return out;
-}
-
-interface BosunConsoleProps {
-    /**
-     * Optional back-navigation callback. When provided, the page header
-     * renders a back button that calls this. Routed pages typically pass
-     * `() => setPage('dashboard')` (or wherever the skipper came from).
-     */
-    onBack?: () => void;
-}
-
-interface TargetState {
-    bosun: TalkButtonState;
-    cloud: TalkButtonState;
-}
-
-const initialTargetState: TargetState = { bosun: 'idle', cloud: 'idle' };
-
-interface VoiceOperation {
-    readonly identity: AuthIdentityScope;
-    readonly lifecycleGeneration: number;
-}
-
-const PREWARM_FAIL_OPEN_MS = 6_000;
-
-function voiceDiagnosticsEnabled(): boolean {
-    if (!import.meta.env.DEV) return false;
-    try {
-        return localStorage.getItem('thalassa_voice_diagnostics') === '1';
-    } catch {
-        return false;
-    }
-}
-
-/** Decode a base64 string to a Blob URL for HTML5 audio playback. */
-function audioFromBase64(b64: string, mimeType = 'audio/mpeg'): string {
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mimeType });
-    return URL.createObjectURL(blob);
-}
-
-/**
- * Quick connectivity check for the cloud fallback. Probe-driven
- * (uiStore.isOffline ← internetProbe), NOT navigator.onLine — a boat LAN
- * with a dead WAN uplink reports onLine=true, which would send the voice
- * pipeline down the cloud path just to time out.
- */
-async function checkCloudReachable(): Promise<boolean> {
-    return !useUIStore.getState().isOffline;
-}
+import type { VoiceQueryResponse, VoiceTurn } from '../../types/voice';
+import { ConversationTurn } from './bosunConsole/ConversationTurn';
+import { usePlayResponseAudio, useStopAudio, useUnlockAudio } from './bosunConsole/audioPlaybackHooks';
+import { buildHistory, detectOverSuffix, voiceDiagnosticsEnabled } from './bosunConsole/helpers';
+import {
+    getAppleMusicNativeBridge,
+    prepareNativeVoiceInput,
+    releaseNativeVoiceInput,
+} from './bosunConsole/nativeVoiceSession';
+import { useDeepgramPrewarm, useRearmPrewarm } from './bosunConsole/prewarmHooks';
+import { useAppleSrStatusProbe, useReachabilityProbe, useStorageDiagnosticsProbe } from './bosunConsole/probeHooks';
+import {
+    ENABLE_APPLE_SR_FALLBACK,
+    initialTargetState,
+    type BosunConsoleProps,
+    type TargetState,
+    type VoiceOperation,
+} from './bosunConsole/types';
+import { useRunOrchestrator } from './bosunConsole/useRunOrchestrator';
 
 export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const [buttonState, setButtonState] = useState<TargetState>(initialTargetState);
@@ -648,288 +451,22 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 
     // ── Effects ─────────────────────────────────────────────────────────
 
-    // Probe availability when console opens + every 30s
-    useEffect(() => {
-        // BosunConsole now mounts/unmounts via the page registry, so the
-        // legacy isOpen guard is redundant — effects always run on mount.
-        let cancelled = false;
-        const probe = async () => {
-            const [bosun, cloud] = await Promise.all([isBosunReachable(), checkCloudReachable()]);
-            if (!cancelled) {
-                setBosunAvailable(bosun);
-                setCloudAvailable(cloud);
-            }
-        };
-        void probe();
-        const interval = setInterval(probe, 30_000);
-        return () => {
-            cancelled = true;
-            clearInterval(interval);
-        };
-    }, []);
+    useReachabilityProbe(setBosunAvailable, setCloudAvailable);
 
-    // Probe SR availability on console open. Surfaces the result in the
-    // header pill so the skipper doesn't need Web Inspector or Xcode logs
-    // to tell whether the on-device fast-path is going to be in play.
-    //
-    // Skipped entirely when ENABLE_APPLE_SR_FALLBACK is false — calling
-    // even the availability check on Apple's SFSpeechRecognizer API
-    // counts against iOS's per-device rate limit and can lock the
-    // audio session for 30-60 minutes if quota was already low.
-    useEffect(() => {
-        // BosunConsole now mounts/unmounts via the page registry, so the
-        // legacy isOpen guard is redundant — effects always run on mount.
-        if (!ENABLE_APPLE_SR_FALLBACK) {
-            // Don't even ask iOS about SR — keep the audio system clean.
-            setSrStatus('unsupported');
-            setSrStatusError('Apple SR disabled by feature flag');
-            return;
-        }
-        let cancelled = false;
-        const probe = async () => {
-            try {
-                const available = await isSpeechRecognitionAvailable(true);
-                if (cancelled) return;
-                if (available) {
-                    setSrStatus('available');
-                    setSrStatusError(null);
-                } else {
-                    // Distinguish "unsupported" from "denied" by re-checking
-                    // permission state directly. If the bridge throws, the
-                    // catch below sets 'unsupported'.
-                    try {
-                        const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
-                        const status = await SpeechRecognition.checkPermissions();
-                        if (cancelled) return;
-                        setSrStatus(status.speechRecognition === 'denied' ? 'denied' : 'unsupported');
-                        setSrStatusError(null);
-                    } catch (err) {
-                        if (cancelled) return;
-                        setSrStatus('unsupported');
-                        setSrStatusError((err as Error).message);
-                    }
-                }
-            } catch (err) {
-                if (cancelled) return;
-                setSrStatus('error');
-                setSrStatusError((err as Error).message);
-            }
-        };
-        void probe();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    useAppleSrStatusProbe(setSrStatus, setSrStatusError);
 
-    // localStorage usage probe on console open. iOS WKWebView caps
-    // localStorage at ~5 MB per origin; once full, setItem() throws
-    // verbatim "The quota has been exceeded." which has been
-    // confusing the skipper. Logging the size + breakdown to the
-    // debug strip lets us see at a glance whether storage pressure
-    // is the actual cause.
-    useEffect(() => {
-        // BosunConsole now mounts/unmounts via the page registry, so the
-        // legacy isOpen guard is redundant — effects always run on mount.
-        // The probe copies every stored value, so only pay for it when the
-        // diagnostics strip that shows the result is actually on.
-        if (!showVoiceDiagnostics) return;
-        try {
-            let total = 0;
-            const big: Array<{ key: string; size: number }> = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const k = localStorage.key(i);
-                if (k === null) continue;
-                const v = localStorage.getItem(k) ?? '';
-                const size = k.length + v.length;
-                total += size;
-                if (size > 50_000) big.push({ key: k, size });
-            }
-            big.sort((a, b) => b.size - a.size);
-            const totalKb = (total / 1024).toFixed(0);
-            const topKeys =
-                big
-                    .slice(0, 3)
-                    .map((b) => `${b.key.slice(0, 22)}=${(b.size / 1024).toFixed(0)}KB`)
-                    .join(', ') || '(none >50KB)';
-            setSrEventLog((prev) => [
-                ...prev.slice(-19),
-                { ts: Date.now(), msg: `[storage] total=${totalKb}KB; top: ${topKeys}` },
-            ]);
-        } catch (err) {
-            setSrEventLog((prev) => [
-                ...prev.slice(-19),
-                { ts: Date.now(), msg: `[storage] probe failed: ${(err as Error).message}` },
-            ]);
-        }
-    }, [showVoiceDiagnostics]);
+    useStorageDiagnosticsProbe(showVoiceDiagnostics, setSrEventLog);
 
-    // Probe Deepgram availability on console open. This is a runtime
-    // capability check (mediaDevices, WebSocket, AudioWorklet, supabase
-    // creds) — not a network probe — so it returns instantly. The actual
-    // token mint + WS open happens inside startDeepgramRecognizer at
-    // tap-time.
-    //
-    // On success, also fire a background prewarm to mint a Deepgram
-    // ephemeral token and cache it for ~20s. This eliminates the
-    // 150-300ms token-mint round-trip from the cold-start critical path
-    // when the skipper actually taps to talk — biggest single
-    // contributor to the "OVER doesn't fire on first run" bug.
-    useEffect(() => {
-        // BosunConsole now mounts/unmounts via the page registry, so the
-        // legacy isOpen guard is redundant — effects always run on mount.
-        const operation = captureVoiceOperation();
-        let cancelled = false;
-        let readyReported = false;
-        const markReady = (degraded: boolean) => {
-            if (readyReported || cancelled || !isVoiceOperationCurrent(operation)) return;
-            readyReported = true;
-            setPrewarmDegraded(degraded);
-            setPrewarmReady(true);
-            if (!degraded) {
-                void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {
-                    /* ignore — web/sim has no haptics */
-                });
-            }
-        };
-        // Warm-up is an optimisation, never an availability gate. A network,
-        // auth, GPS or microphone probe is allowed six seconds, after which
-        // typed mode stays usable and speech retries on the user's tap.
-        const failOpenTimer = window.setTimeout(() => markReady(true), PREWARM_FAIL_OPEN_MS);
-
-        void isDeepgramAvailable(true)
-            .then((available) => {
-                if (cancelled || !isVoiceOperationCurrent(operation)) return;
-                setDeepgramStatus(available ? 'available' : 'unavailable');
-                if (!available) {
-                    markReady(true);
-                    return;
-                }
-                // Multi-prewarm to slash cold-start latency on first
-                // tap. Each one shaves a chunk off the tap-to-ready
-                // critical path:
-                //   - prewarmMicStream: getUserMedia. Dominant cold-
-                //     start cost on iOS (~1.0-1.4s). Acquires the mic
-                //     NOW so tap-to-ready skips it.
-                //   - prewarmWorkerConnection: GET to the CF Worker so
-                //     DNS+TLS+TCP are established for WS reuse.
-                //   - prewarmWorkletAsset: pre-fetches /pcm-worklet.js
-                //     so WKWebView caches it, saving ~50-150ms on the
-                //     first audioWorklet.addModule() at tap time.
-                //
-                // We track all four with Promise.all so we can flip
-                // prewarmReady=true the moment everything is warm, fire
-                // a haptic so the skipper feels "ready", and update the
-                // button subtitle from "Warming up…" to the normal
-                // "Tap to talk" state.
-                //
-                // prewarmAudioContext is now run AFTER prewarmMicStream
-                // resolves so it can wire the full audio graph (mic →
-                // worklet → ring buffer) ahead of tap. The earlier
-                // empty-transcript regression was rooted in forcing
-                // sampleRate:16000 on iOS — that's removed; iOS picks
-                // its native rate and the recognizer reads it back.
-                // The ring buffer captures leading audio so the first
-                // words after tap don't get clipped by AVAudioSession
-                // activation latency.
-                void Promise.allSettled([
-                    prewarmMicStream().then(async (ok) => {
-                        if (ok) {
-                            // Chained so the mic stream is alive when
-                            // prewarmAudioContext tries to wire it
-                            // into a MediaStreamSource.
-                            await prewarmAudioContext();
-                        }
-                        return ok;
-                    }),
-                    prewarmWorkletAsset(),
-                    // Full WebSocket prewarm — opens the Cloudflare Worker
-                    // proxy + Deepgram upstream so tap-to-ready skips the
-                    // ~150-300ms WS handshake. Includes a 5-second
-                    // KeepAlive ping inside Deepgram's 12-second idle
-                    // timeout. Subsumes prewarmWorkerConnection (kept as
-                    // a fallback below if WS prewarm fails for any
-                    // reason).
-                    prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
-                    // Reverse-geocode the phone GPS in the background so
-                    // Calypso's first reply can say "near Newport,
-                    // Queensland" instead of reading raw coords aloud.
-                    // Returns silently when offshore (no nearby place
-                    // name) — Calypso falls back to coords in that case
-                    // per the system prompt's PHONE GPS rules.
-                    prewarmPhoneGpsContext(),
-                ]).then((results) => {
-                    if (cancelled || !isVoiceOperationCurrent(operation)) {
-                        releasePrewarmedMicStream();
-                        releasePrewarmedWebSocket();
-                        releasePrewarmedAudioContext();
-                        return;
-                    }
-                    markReady(results.some((result) => result.status === 'rejected'));
-                });
-            })
-            .catch(() => {
-                if (cancelled || !isVoiceOperationCurrent(operation)) return;
-                setDeepgramStatus('unavailable');
-                markReady(true);
-            });
-        return () => {
-            cancelled = true;
-            window.clearTimeout(failOpenTimer);
-            // Release everything that was prewarmed when the console
-            // unmounts: mic (so iOS indicator stops), the held
-            // Cloudflare Worker WebSocket (with its keep-alive timer),
-            // and the prewarmed audio context + graph (closes the
-            // AudioContext, disconnects the worklet, frees memory).
-            // Safe even if no prewarm happened — releases are no-ops
-            // when the corresponding cache is empty.
-            releasePrewarmedMicStream();
-            releasePrewarmedWebSocket();
-            releasePrewarmedAudioContext();
-        };
-    }, [captureVoiceOperation, identityGeneration, isVoiceOperationCurrent]);
-
-    /**
-     * Re-arm the prewarm pipeline after a recognizer session ends.
-     *
-     * Background: the mount-time prewarm (above) makes the FIRST tap fast.
-     * But the recognizer's teardown closes the AudioContext, stops the mic
-     * tracks, and closes the WebSocket — by design, so the iOS mic
-     * indicator goes off and resources free. The downside is every
-     * subsequent tap cold-starts (~200-500ms), and on iOS that's enough to
-     * eat the first few words of speech.
-     *
-     * Fix: kick the same prewarm chain again the moment a session ends, so
-     * by the time the user is ready to tap again everything is warm. Fire-
-     * and-forget; we don't block the response cycle on it. Each prewarm
-     * function is idempotent and safe to call when the slot is null
-     * (which it always is post-teardown, since consume + teardown null
-     * out prewarmedMicStream / prewarmedAudio / prewarmedWebSocket).
-     *
-     * Skips setPrewarmReady — already true from the mount-time prewarm.
-     * If a re-arm somehow fails we don't toggle it false; falling through
-     * to a cold getUserMedia/context build is still functional, just slower.
-     */
-    const rearmPrewarm = useCallback(
-        (operation: VoiceOperation) => {
-            if (!isVoiceOperationCurrent(operation)) return;
-            void Promise.all([
-                prewarmMicStream().then(async (ok) => {
-                    if (ok) await prewarmAudioContext();
-                    return ok;
-                }),
-                prewarmWorkletAsset(),
-                prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
-            ]).then(() => {
-                if (isVoiceOperationCurrent(operation)) return;
-                // A transition may occur while getUserMedia/WS acquisition is
-                // pending. Release anything that completed after the cutover.
-                releasePrewarmedMicStream();
-                releasePrewarmedWebSocket();
-                releasePrewarmedAudioContext();
-            });
-        },
-        [isVoiceOperationCurrent],
+    useDeepgramPrewarm(
+        captureVoiceOperation,
+        isVoiceOperationCurrent,
+        identityGeneration,
+        setDeepgramStatus,
+        setPrewarmDegraded,
+        setPrewarmReady,
     );
+
+    const rearmPrewarm = useRearmPrewarm(isVoiceOperationCurrent);
 
     // Auto-scroll on new content
     useEffect(() => {
@@ -981,177 +518,16 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         setButtonState((prev) => ({ ...prev, [which]: s }));
     }, []);
 
-    const stopAudio = useCallback(() => {
-        const audio = audioRef.current;
-        if (audio && !audio.paused) {
-            try {
-                audio.pause();
-                audio.currentTime = 0;
-            } catch {
-                /* ignore */
-            }
-        }
-    }, []);
+    const stopAudio = useStopAudio(audioRef);
 
-    /**
-     * Unlock audio playback for iOS WKWebView.
-     *
-     * iOS only lets HTMLAudio.play() succeed without warning when called
-     * from a synchronous user-gesture handler. After our async fetch + STT
-     * round-trip, that gesture context is gone, and audio.play() rejects
-     * with NotAllowedError (silently — text shows but no voice plays).
-     *
-     * The fix: when the user taps the talk button (real user gesture),
-     * synchronously create + play a silent buffer on a persistent Audio
-     * element. iOS marks that element as "user-gesture-authorized" for the
-     * lifetime of the page. Future src changes + play() calls on the SAME
-     * element work without needing a fresh gesture.
-     *
-     * Must be called synchronously inside the tap handler — NOT inside
-     * useCallback (callbacks are fine but they must run before any await).
-     */
-    const unlockAudio = useCallback(
-        (operation: VoiceOperation) => {
-            if (!isVoiceOperationCurrent(operation)) return;
-            if (!audioRef.current) {
-                audioRef.current = new Audio();
-                audioRef.current.preload = 'auto';
-            }
-            const audio = audioRef.current;
-            // CRITICAL: clear stale onended/onerror from the previous response.
-            // Without this, the silent unlock WAV's 'ended' event fires the
-            // OLD closure (e.g. setOneButton('cloud', 'idle') from cycle 1)
-            // which then clobbers the 'recording' state we're about to set —
-            // observed as "tap → tap to send → straight back to tap to talk".
-            audio.onended = null;
-            audio.onerror = null;
+    const unlockAudio = useUnlockAudio(audioRef, isVoiceOperationCurrent);
 
-            // Tiny silent WAV (44-byte RIFF header, no samples) — just enough
-            // to satisfy iOS that this Audio element is in a "playing" lineage.
-            const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-            try {
-                audio.muted = true;
-                audio.src = silentWav;
-                // .play() returns a Promise we don't await — fire and continue.
-                // The promise resolves successfully on iOS when called from
-                // within a user gesture, even with the silent buffer.
-                const p = audio.play();
-                if (p && typeof p.then === 'function') {
-                    p.then(() => {
-                        if (!isVoiceOperationCurrent(operation) || audioRef.current !== audio) return;
-                        audio.pause();
-                        audio.muted = false;
-                        audio.currentTime = 0;
-                    }).catch(() => {
-                        if (!isVoiceOperationCurrent(operation) || audioRef.current !== audio) return;
-                        audio.muted = false;
-                    });
-                }
-            } catch {
-                /* ignore — we'll surface the real error on actual playback */
-            }
-        },
-        [isVoiceOperationCurrent],
-    );
-
-    const playResponseAudio = useCallback(
-        (response: VoiceQueryResponse, to: 'bosun' | 'cloud', operation: VoiceOperation) => {
-            if (!isVoiceOperationCurrent(operation)) return;
-            if (!response.audio_b64) {
-                setOneButton(to, 'idle');
-                return;
-            }
-
-            // ── iOS native: route through the AppleMusic plugin's
-            //    playTtsAudio. That path uses AVAudioPlayer in our
-            //    `.playback + .mixWithOthers` session AND explicitly
-            //    pauses MusicKit before playback / resumes after, so
-            //    Calypso narrating doesn't kill the user's music. The
-            //    HTML5 fallback below activates a different audio
-            //    session that interrupts MusicKit permanently.
-            const audio_b64 = response.audio_b64;
-            void (async () => {
-                try {
-                    const { Capacitor } = await import('@capacitor/core');
-                    if (!isVoiceOperationCurrent(operation)) return;
-                    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
-                        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } })
-                            .Capacitor;
-                        const plugin = cap?.Plugins?.AppleMusic as
-                            | {
-                                  playTtsAudio: (opts: { audio_b64: string }) => Promise<{ status: string }>;
-                                  cancelTtsAudio?: () => Promise<{ status: string }>;
-                              }
-                            | undefined;
-                        if (plugin) {
-                            try {
-                                await plugin.playTtsAudio({ audio_b64 });
-                            } catch {
-                                /* swallow — TTS already failed; nothing to surface */
-                            }
-                            if (!isVoiceOperationCurrent(operation)) {
-                                void plugin.cancelTtsAudio?.().catch(() => undefined);
-                                return;
-                            }
-                            setOneButton(to, 'idle');
-                            return;
-                        }
-                    }
-                } catch {
-                    /* fall through to HTML5 path */
-                }
-
-                // ── HTML5 Audio fallback (web / non-iOS-native) ──
-                try {
-                    if (!isVoiceOperationCurrent(operation)) return;
-                    const url = audioFromBase64(audio_b64);
-                    if (!isVoiceOperationCurrent(operation)) {
-                        URL.revokeObjectURL(url);
-                        return;
-                    }
-                    audioUrlsRef.current.push(url);
-
-                    // Reuse the unlocked Audio element from the user tap. If
-                    // it doesn't exist (text-input path), create one —
-                    // playback may not work on iOS but text is still rendered.
-                    let audio = audioRef.current;
-                    if (!audio) {
-                        audio = new Audio();
-                        audioRef.current = audio;
-                    }
-                    try {
-                        audio.pause();
-                    } catch {
-                        /* ignore */
-                    }
-                    audio.src = url;
-                    audio.muted = false;
-                    audio.currentTime = 0;
-                    audio.onended = () => {
-                        if (isVoiceOperationCurrent(operation) && audioRef.current === audio) setOneButton(to, 'idle');
-                    };
-                    audio.onerror = () => {
-                        if (isVoiceOperationCurrent(operation) && audioRef.current === audio) setOneButton(to, 'idle');
-                    };
-
-                    const playPromise = audio.play();
-                    if (playPromise && typeof playPromise.then === 'function') {
-                        playPromise.catch((err: Error) => {
-                            if (!isVoiceOperationCurrent(operation) || audioRef.current !== audio) return;
-                            if (err?.name === 'NotAllowedError') {
-                                setErrorMessage(
-                                    'Audio playback blocked by iOS — tap a talk button first to enable, then replay this answer.',
-                                );
-                            }
-                            setOneButton(to, 'idle');
-                        });
-                    }
-                } catch {
-                    if (isVoiceOperationCurrent(operation)) setOneButton(to, 'idle');
-                }
-            })();
-        },
-        [isVoiceOperationCurrent, setErrorMessage, setOneButton],
+    const playResponseAudio = usePlayResponseAudio(
+        audioRef,
+        audioUrlsRef,
+        isVoiceOperationCurrent,
+        setErrorMessage,
+        setOneButton,
     );
 
     const appendTurn = useCallback(
@@ -1195,13 +571,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         [appendTurn, isVoiceOperationCurrent, playResponseAudio, scheduleVoiceTimeout, setOneButton],
     );
 
-    /**
-     * Run the on-device orchestrator path: Haiku tool-loop runs locally
-     * via anthropic-proxy, dispatching Pi tools and thalassa_weather
-     * client-side, then ElevenLabs TTS via elevenlabs-tts. Returns the
-     * standard VoiceQueryResponse envelope so handleResponse can stay
-     * agnostic to which path produced the answer.
-     */
     // Settings → Calypso integrations. Apple Music is always on for
     // Skipper tier — auth is handled in-app on the Music page, no
     // separate toggle. Gmail still requires (a) tier access AND (b)
@@ -1217,109 +586,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         [tier, calypsoEmailEnabled],
     );
 
-    const runOrchestrator = useCallback(
-        async (
-            text: string,
-            operation: VoiceOperation,
-            signal: AbortSignal,
-            /**
-             * Speak the reply as it streams. True for a turn the skipper
-             * started with their voice — asking out loud and getting silent
-             * text back is the complaint this fixes. A TYPED question stays
-             * text-only: someone at the keyboard, possibly with guests aboard,
-             * did not ask to be talked at.
-             */
-            spoken: boolean,
-        ): Promise<VoiceQueryResponse> => {
-            if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
-            const context = gatherThalassaContext();
-            const history = buildHistory(turns);
-
-            // Speak sentence-by-sentence off the stream. Time-to-first-word
-            // becomes "first sentence written" instead of "whole reply
-            // written, then synthesised, then played".
-            // A new spoken turn silences the previous one. Speech outlives
-            // the request that produced it, so without this the answer to the
-            // last question talks over the next one.
-            spokenReplyRef.current?.cancel();
-            const reply = spoken ? startSpokenReply() : null;
-            spokenReplyRef.current = reply;
-            // Stays attached until playback finishes, not just until the
-            // request does — an abort mid-sentence has to stop the audio.
-            const abortSpeech = () => reply?.cancel();
-            signal.addEventListener('abort', abortSpeech, { once: true });
-            const detachAbort = () => signal.removeEventListener('abort', abortSpeech);
-
-            let result;
-            try {
-                result = await askHaiku({
-                    text,
-                    context,
-                    history,
-                    integrations: integrationsEnabled,
-                    signal,
-                    onTextDelta: reply ? (delta) => reply.push(delta) : undefined,
-                    onTurnEnd: reply ? () => reply.flush() : undefined,
-                });
-            } catch (err) {
-                reply?.cancel();
-                detachAbort();
-                throw err;
-            }
-            if (!isVoiceOperationCurrent(operation)) {
-                reply?.cancel();
-                detachAbort();
-                throw new Error('Voice operation cancelled');
-            }
-            if (!reply) detachAbort();
-
-            if (reply) {
-                // Don't await — the text belongs on screen now, while the
-                // remaining sentences are still being spoken.
-                void reply.end().then(() => {
-                    detachAbort();
-                    if (spokenReplyRef.current === reply) spokenReplyRef.current = null;
-                    // TWO channels, because there are two TTS clients. The
-                    // spoken queue goes through ttsClient.speak, which records
-                    // its failures in its own module-level slot — checking only
-                    // the orchestrator's meant the path that actually went
-                    // quiet was the one path that never reported why.
-                    const ttsError = consumeTtsClientError() ?? consumeLastTtsError();
-                    if (ttsError && isVoiceOperationCurrent(operation)) setErrorMessage(ttsError);
-                });
-                return {
-                    transcript: text,
-                    answer_text: result.answerText,
-                    // Already spoken by the queue — handing audio to
-                    // playResponseAudio as well would say it twice.
-                    audio_b64: undefined,
-                    source: 'cloud',
-                    tool_calls: result.toolCalls.map((name) => ({ name, args: {}, status: 'success' as const })),
-                };
-            }
-
-            const audio_b64 = await synthesiseSpeech(result.answerText, signal);
-            if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
-            // A null here means ElevenLabs refused — quota, auth, or
-            // unreachable. Saying nothing turned every one of those into
-            // "Calypso just writes now" with no way to tell why.
-            if (!audio_b64) {
-                const ttsError = consumeLastTtsError();
-                if (ttsError) setErrorMessage(ttsError);
-            }
-            return {
-                transcript: text,
-                answer_text: result.answerText,
-                audio_b64: audio_b64 ?? undefined,
-                source: 'cloud',
-                tool_calls: result.toolCalls.map((name) => ({
-                    name,
-                    args: {},
-                    status: 'success' as const,
-                })),
-            };
-        },
-        [turns, integrationsEnabled, isVoiceOperationCurrent, setErrorMessage],
+    const runOrchestrator = useRunOrchestrator(
+        turns,
+        integrationsEnabled,
+        isVoiceOperationCurrent,
+        setErrorMessage,
+        spokenReplyRef,
     );
 
     const sendVoiceQuery = useCallback(
@@ -2259,74 +1531,3 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         </div>
     );
 };
-
-// ───────────────────────────────────────────────────────────────────────
-// ConversationTurn
-// ───────────────────────────────────────────────────────────────────────
-
-const ConversationTurn = React.memo<{
-    turn: VoiceTurn;
-    onReplay: (response: VoiceQueryResponse) => void;
-}>(({ turn, onReplay }) => {
-    const isBosun = turn.response.source === 'bosun';
-    // Attribution: turns the local skipper authored have no userName
-    // (we set it on remote turns only). When userName is set, the turn
-    // came from a crewmate and we label it. "You said" stays for self.
-    const speakerLabel = turn.userName ? `${turn.userName} said` : 'You said';
-    const isCrew = Boolean(turn.userName);
-    return (
-        <div className="space-y-2">
-            <div
-                className={`px-4 py-3 rounded-2xl ${
-                    isCrew ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'
-                }`}
-            >
-                <p
-                    className={`text-[10px] uppercase tracking-widest mb-1 ${
-                        isCrew ? 'text-amber-300' : 'text-gray-400'
-                    }`}
-                >
-                    {speakerLabel}
-                </p>
-                <p className="text-sm text-white">{turn.transcript}</p>
-            </div>
-            <div
-                className={`px-4 py-3 rounded-2xl ${
-                    isBosun ? 'bg-sky-500/10 border border-sky-500/20' : 'bg-slate-200/10 border border-slate-300/20'
-                }`}
-            >
-                <div className="flex items-center justify-between mb-1">
-                    <p className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full ${isBosun ? 'bg-sky-400' : 'bg-slate-300'}`} />
-                        {isBosun ? 'Calypso on the boat' : 'Calypso cloud'}
-                    </p>
-                    {turn.response.audio_b64 && (
-                        <button
-                            onClick={() => onReplay(turn.response)}
-                            className="hit-target-44 px-2 py-2 -mr-2 text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 flex items-center gap-1"
-                            aria-label="Replay this answer"
-                        >
-                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M8 5v14l11-7z" />
-                            </svg>
-                            Replay
-                        </button>
-                    )}
-                </div>
-                <p className="text-sm text-white whitespace-pre-wrap">{turn.response.answer_text}</p>
-                {turn.response.tool_calls && turn.response.tool_calls.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-white/10">
-                        <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Tools used</p>
-                        {turn.response.tool_calls.map((tc, i) => (
-                            <p key={i} className="text-[11px] text-gray-400">
-                                {tc.name.replace(/^thalassa_/, '').replace(/_/g, ' ')}
-                                {tc.status === 'success' ? '' : ` — ${tc.status}`}
-                            </p>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-});
-ConversationTurn.displayName = 'ConversationTurn';
