@@ -314,7 +314,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             description={`That is all ${listings.length} ${listings.length === 1 ? 'profile' : 'profiles'} for this Crew List search. Check back for new sailing opportunities.`}
                         />
                         <button
-                            aria-label="To Start"
+                            aria-label="Review profiles from the start"
                             onClick={goToStart}
                             className="px-6 py-3 rounded-2xl bg-linear-to-r from-emerald-500/25 to-sky-500/25 border border-emerald-400/20 text-emerald-300 font-bold text-sm transition-all active:scale-95 mt-4"
                         >
@@ -383,15 +383,19 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                 />
                                                 {allPhotos.length > 1 && (
                                                     <>
-                                                        <div
-                                                            className="absolute top-0 left-0 w-1/2 h-full z-10 cursor-pointer"
+                                                        <button
+                                                            type="button"
+                                                            aria-label="Previous photo"
+                                                            className="absolute top-0 left-0 w-1/2 h-full z-10 cursor-pointer bg-transparent"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 setCardPhotoIndex((prev) => Math.max(0, prev - 1));
                                                             }}
                                                         />
-                                                        <div
-                                                            className="absolute top-0 right-0 w-1/2 h-full z-10 cursor-pointer"
+                                                        <button
+                                                            type="button"
+                                                            aria-label="Next photo"
+                                                            className="absolute top-0 right-0 w-1/2 h-full z-10 cursor-pointer bg-transparent"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 setCardPhotoIndex((prev) =>

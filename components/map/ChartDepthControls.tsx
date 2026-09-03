@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import type { TideOffsetRead } from '../../services/TideOffsetService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { MoonIcon } from '../Icons';
 
 export const TIDE_DEPTH_ACK_KEY = 'thalassa_tide_depth_ack_v1';
 
@@ -70,7 +71,7 @@ export function ChartDepthControls({
                                 ? 'Depths shown at a future tide — tap to return to now'
                                 : 'Live tide depth is on — tap to return to chart datum'
                         }
-                        className="absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
+                        className="absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95"
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
@@ -160,7 +161,7 @@ export function ChartDepthControls({
 
             {encHydration.remaining > 0 && encVisible && surfaceVisible && (
                 <div
-                    className="pointer-events-none absolute bottom-[calc(20rem+env(safe-area-inset-bottom))] left-1/2 z-9980 -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg sm:bottom-[calc(7.25rem+env(safe-area-inset-bottom))]"
+                    className="pointer-events-none absolute bottom-[calc(20rem+env(safe-area-inset-bottom))] left-1/2 z-9980 -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[12px] font-bold text-teal-300 shadow-lg sm:bottom-[calc(7.25rem+env(safe-area-inset-bottom))]"
                     aria-live="polite"
                 >
                     Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})
@@ -177,10 +178,9 @@ export function ChartDepthControls({
                         background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
                         borderColor: 'rgba(220, 80, 60, 0.35)',
                         color: '#e07a5f',
-                        fontSize: 18,
                     }}
                 >
-                    ☾
+                    <MoonIcon className="h-5 w-5" />
                 </button>
             )}
 

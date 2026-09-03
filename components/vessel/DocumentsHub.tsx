@@ -96,12 +96,20 @@ async function writeUriToCache(dataUri: string, fileName: string): Promise<strin
 }
 
 /**
- * Open a document file — resolves fresh URL, writes to cache, opens via native share sheet.
- * This lets the user preview PDFs, images, etc. via their preferred app.
+ * Present a document file through the native share sheet.
+ *
+ * Resolves a fresh download URL (re-signing an expired Supabase link), writes
+ * it to the cache, then hands it to Share. Opening, sharing and "Save to
+ * Files" were three near-identical copies of this body; on iOS there is no
+ * direct download, so saving IS the share sheet.
  */
-async function openDocFile(uri: string, doc: ShipDocument, isCurrent: () => boolean): Promise<boolean> {
+async function presentDocFile(
+    uri: string,
+    doc: ShipDocument,
+    isCurrent: () => boolean,
+    opts: { text?: string; dialogTitle: string },
+): Promise<boolean> {
     try {
-        // Resolve fresh download URL (re-signs Supabase URLs if expired)
         const freshUri = await DocumentSyncService.getDownloadUrl(uri);
         if (!isCurrent()) return false;
         const fileUri = await writeUriToCache(freshUri, doc.document_name);
@@ -109,50 +117,16 @@ async function openDocFile(uri: string, doc: ShipDocument, isCurrent: () => bool
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
+            ...(opts.text ? { text: opts.text } : {}),
             files: [fileUri],
-            dialogTitle: `Open ${doc.document_name}`,
+            dialogTitle: opts.dialogTitle,
         });
         return true;
     } catch (e: unknown) {
         if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
-        log.warn(' openDocFile failed:', e);
+        log.warn(' presentDocFile failed:', e);
         return false;
     }
-}
-
-/**
- * Share a document file via native share sheet (AirDrop, Mail, Files, etc.)
- * Uses the same Capacitor Filesystem + Share pattern as GPX export.
- */
-async function shareDocFile(uri: string, doc: ShipDocument, isCurrent: () => boolean): Promise<boolean> {
-    try {
-        // Resolve fresh download URL (re-signs Supabase URLs if expired)
-        const freshUri = await DocumentSyncService.getDownloadUrl(uri);
-        if (!isCurrent()) return false;
-        const fileUri = await writeUriToCache(freshUri, doc.document_name);
-        if (!isCurrent()) return false;
-        const { Share } = await import('@capacitor/share');
-        await Share.share({
-            title: doc.document_name,
-            text: `Ship's Document: ${doc.document_name} (${doc.category})`,
-            files: [fileUri],
-            dialogTitle: `Share ${doc.document_name}`,
-        });
-        return true;
-    } catch (e: unknown) {
-        if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
-        log.warn(' shareDocFile failed:', e);
-        return false;
-    }
-}
-
-/**
- * Save a document to the device (Downloads / Files).
- * Writes to cache then opens share sheet so user can "Save to Files".
- */
-async function saveDocFile(uri: string, doc: ShipDocument, isCurrent: () => boolean): Promise<boolean> {
-    // On iOS, there's no direct "download" — use share sheet with Save to Files
-    return shareDocFile(uri, doc, isCurrent);
 }
 
 // SwipeableDocCard now in ./documents/SwipeableDocCard.tsx
@@ -269,18 +243,25 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         () => (dataScopeKey === getAuthIdentityScope().key ? documents : []),
         [dataScopeKey, documents],
     );
-    const filtered = visibleDocuments.filter((d) => {
-        if (!searchQuery.trim()) return true;
-        return d.document_name.toLowerCase().includes(searchQuery.toLowerCase());
-    });
+    // Memoised: this ran a toLowerCase() per document per render, and the
+    // search box re-renders the hub on every keystroke.
+    const filtered = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return visibleDocuments;
+        return visibleDocuments.filter((d) => d.document_name.toLowerCase().includes(q));
+    }, [visibleDocuments, searchQuery]);
 
     // Group by category, sorted alphabetically within each group
-    const grouped = CATEGORIES.map((cat) => ({
-        ...cat,
-        docs: filtered
-            .filter((d) => d.category === cat.id)
-            .sort((a, b) => a.document_name.localeCompare(b.document_name)),
-    })).filter((g) => g.docs.length > 0);
+    const grouped = useMemo(
+        () =>
+            CATEGORIES.map((cat) => ({
+                ...cat,
+                docs: filtered
+                    .filter((d) => d.category === cat.id)
+                    .sort((a, b) => a.document_name.localeCompare(b.document_name)),
+            })).filter((g) => g.docs.length > 0),
+        [filtered],
+    );
 
     // ── Handlers ──
     const resetForm = () => {
@@ -428,7 +409,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         const scope = getAuthIdentityScope();
         if (doc.file_uri) {
             triggerHaptic('light');
-            const ok = await openDocFile(doc.file_uri, { ...doc }, () => currentOperation(scope));
+            const ok = await presentDocFile(doc.file_uri, { ...doc }, () => currentOperation(scope), {
+                dialogTitle: `Open ${doc.document_name}`,
+            });
             if (!ok && currentOperation(scope)) toast.error('Could not open document');
         } else {
             if (currentOperation(scope)) openEditForm(doc);
@@ -457,7 +440,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         let ok = 0;
         for (const doc of selected) {
             if (!currentOperation(scope)) return;
-            if (doc.file_uri && (await saveDocFile(doc.file_uri, doc, () => currentOperation(scope)))) ok++;
+            if (
+                doc.file_uri &&
+                (await presentDocFile(doc.file_uri, doc, () => currentOperation(scope), {
+                    text: `Ship's Document: ${doc.document_name} (${doc.category})`,
+                    dialogTitle: `Share ${doc.document_name}`,
+                }))
+            )
+                ok++;
         }
         if (!currentOperation(scope)) return;
         toast.success(`📥 Saved ${ok} of ${selected.length} file${selected.length > 1 ? 's' : ''}`);
@@ -502,8 +492,18 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     };
 
     // ── Expiry stats ──
-    const expiredCount = visibleDocuments.filter((d) => getExpiryStatus(d.expiry_date) === 'expired').length;
-    const warningCount = visibleDocuments.filter((d) => getExpiryStatus(d.expiry_date) === 'warning').length;
+    // One pass instead of two, and one getExpiryStatus (a `new Date`) per
+    // document instead of two.
+    const { expiredCount, warningCount } = useMemo(() => {
+        let expired = 0;
+        let warning = 0;
+        for (const d of visibleDocuments) {
+            const status = getExpiryStatus(d.expiry_date);
+            if (status === 'expired') expired++;
+            else if (status === 'warning') warning++;
+        }
+        return { expiredCount: expired, warningCount: warning };
+    }, [visibleDocuments]);
     const pendingSyncCount = loading ? 0 : DocumentSyncService.pendingCount;
 
     // ── Render ──

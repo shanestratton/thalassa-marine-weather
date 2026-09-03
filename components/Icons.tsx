@@ -38,6 +38,7 @@ export {
     SearchIcon,
     EyeIcon,
     BellIcon,
+    InfoIcon,
     XIcon,
     CheckIcon,
     GearIcon,

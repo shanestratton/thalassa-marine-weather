@@ -3,7 +3,7 @@
  * Collects hull type, keel, rigging, dimensions, tankage, crew.
  */
 import React from 'react';
-import { SearchIcon, GearIcon, DropletIcon, AnchorIcon } from '../Icons';
+import { FuelIcon, DropletIcon, UsersIcon } from '../Icons';
 import { YachtDatabaseSearch } from '../settings/YachtDatabaseSearch';
 import type { VesselProfile, LengthUnit, WeightUnit, VolumeUnit } from '../../types';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
@@ -305,7 +305,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
             >
                 {vesselType === 'observer' ? (
                     <div className="text-center py-10">
-                        <SearchIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <UsersIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                         <h2 className="text-xl font-bold text-white mb-2">Crew Member Mode</h2>
                         <p className="text-gray-400 mb-8">
                             Crew members skip vessel setup. We&apos;ll optimize the display for general sea state
@@ -339,7 +339,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                     aria-label="Select sailing vessel"
                                     aria-pressed={vesselType === 'sail'}
                                     onClick={() => onVesselTypeChange('sail')}
-                                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
+                                    className={`min-h-11 flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
                                 >
                                     ⛵ Sailing
                                 </button>
@@ -348,7 +348,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                     aria-label="Select power vessel"
                                     aria-pressed={vesselType === 'power'}
                                     onClick={() => onVesselTypeChange('power')}
-                                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
+                                    className={`min-h-11 flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
                                 >
                                     🚤 Power
                                 </button>
@@ -468,7 +468,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                             aria-pressed={hullType === ht}
                                             key={ht}
                                             onClick={() => onHullTypeChange(ht)}
-                                            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
+                                            className={`min-h-11 flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
                                         </button>
@@ -493,7 +493,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                             aria-pressed={keelType === kt}
                                             key={kt}
                                             onClick={() => onKeelTypeChange(kt)}
-                                            className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
+                                            className={`min-h-11 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {kt === 'centerboard' ? 'C/Board' : kt}
                                         </button>
@@ -715,7 +715,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                         <div>
                                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
                                                 <span className="flex items-center gap-1">
-                                                    <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
+                                                    <FuelIcon className="w-3 h-3 text-amber-400" /> Fuel
                                                 </span>{' '}
                                                 <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
                                             </label>
@@ -761,7 +761,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                     {/* Crew */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                            <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
+                                            <UsersIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
                                         </label>
                                         <input
                                             type="number"

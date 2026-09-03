@@ -162,7 +162,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                         <button
                                             aria-label={`Withdraw introduction to ${name}`}
                                             onClick={() => onWithdrawIntroduction(introduction.request.id)}
-                                            className="min-h-[38px] rounded-xl px-2.5 text-xs font-bold text-sky-100/65 transition-colors hover:bg-white/5"
+                                            className="min-h-[44px] rounded-xl px-2.5 text-xs font-bold text-sky-100/65 transition-colors hover:bg-white/5"
                                         >
                                             Withdraw
                                         </button>

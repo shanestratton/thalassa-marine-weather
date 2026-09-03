@@ -42,7 +42,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                 <button
                     aria-label="Go back"
                     onClick={onBack}
-                    className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white/60 mb-4 transition-colors"
+                    className="flex min-h-[44px] items-center gap-1.5 -ml-2 px-2 text-sm text-white/60 hover:text-white mb-4 transition-colors"
                 >
                     ← Back to Crew List
                 </button>
@@ -60,7 +60,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         ) : (
                             <div className="w-full h-full bg-linear-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
                                 <span className="text-3xl">
-                                    {selectedCard.listing_type === 'seeking_crew' ? '🚢' : '⛵'}
+                                    {selectedCard.listing_type === 'seeking_crew' ? '⚓' : '🧭'}
                                 </span>
                             </div>
                         )}
@@ -97,7 +97,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Region
                                 </p>
-                                <p className="text-sm text-white/70">📍 {selectedCard.sailing_region}</p>
+                                <p className="text-sm text-white/70">⛵ {selectedCard.sailing_region}</p>
                             </div>
                         )}
                         {selectedCard.sailing_experience && (
@@ -166,9 +166,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     {/* Skills */}
                     {selectedCard.skills.length > 0 && (
                         <div>
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-2">
-                                Seeking:
-                            </p>
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-2">Skills</p>
                             <div className="flex flex-wrap gap-1.5">
                                 {selectedCard.skills.map((skill) => (
                                     <span

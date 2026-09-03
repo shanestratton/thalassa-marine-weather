@@ -39,7 +39,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         </div>
                         <button
                             onClick={onDetectLocation}
-                            className="p-2 bg-sky-500/20 text-sky-400 rounded-lg"
+                            className="hit-target-44 p-2 bg-sky-500/20 text-sky-400 rounded-lg"
                             aria-label="Detect current location"
                         >
                             <CompassIcon rotation={0} className="w-4 h-4" />
@@ -59,9 +59,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="kts">Knots</option>
-                            <option value="mph">MPH</option>
-                            <option value="kmh">KM/H</option>
-                            <option value="mps">M/S</option>
+                            <option value="mph">mph</option>
+                            <option value="kmh">km/h</option>
+                            <option value="mps">m/s</option>
                         </select>
                     </div>
                     {/* Distance */}

@@ -505,14 +505,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             isCanonicalSavedRouteDraft(draft, canonicalIds, exactPassageVoyageIds),
         );
     });
-    const [savedRoutesLoading, setSavedRoutesLoading] = useState(() => {
-        const canonicalTraces = loadSavedTraces();
-        const canonicalIds = new Set(canonicalTraces.map((trace) => trace.id));
-        const exactPassageVoyageIds = canonicalPassageVoyageIds(canonicalTraces);
-        return getCachedDraftVoyages().every(
-            (draft) => !isCanonicalSavedRouteDraft(draft, canonicalIds, exactPassageVoyageIds),
-        );
-    });
+    // `every(not canonical)` over the cached list is exactly "the filtered list
+    // above came back empty", so reuse it rather than re-reading storage and
+    // rebuilding the same two id sets a second time on mount.
+    const [savedRoutesLoading, setSavedRoutesLoading] = useState(draftVoyages.length === 0);
     // Once an account's route library has answered at least once, leave its
     // deliberate empty state on screen while background refreshes run. The
     // old flow reset this to `true` whenever an empty cache was re-read,
@@ -1585,7 +1581,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 void loadData();
             }, 1200);
         } else {
-            setInviteError(result.error || 'Failed to send invite');
+            setInviteError(result.error || 'Could not send invite');
             triggerHaptic('heavy');
         }
         setInviteLoading(false);
@@ -1616,7 +1612,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             throw new Error('Crew mutation was rejected');
         } catch {
             if (!scopeStillOwnsPage(scope)) return;
-            toast.error(mode === 'captain' ? 'Failed to remove crew' : 'Failed to leave vessel');
+            toast.error(mode === 'captain' ? 'Could not remove crew' : 'Could not leave vessel');
             if (mode === 'captain') {
                 setMyCrew((prev) => [...prev, member]);
             } else {
@@ -1653,7 +1649,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             );
             setMyCrew([]);
         } else {
-            toast.error('Failed to disband group');
+            toast.error('Could not disband group');
         }
     };
 
@@ -2352,10 +2348,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             // button; once it lights up, everything after it
                             // — route check, GPS — is advisory or automatic.
                             disabled={!allCardsReady}
-                            className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
+                            // Locked reads as inert, not invisible: opacity-30 over
+                            // gray-500 left the label unreadable in sunlight, so the
+                            // skipper could not see what the gate was even called.
+                            className={`shrink-0 px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
                                 allCardsReady
                                     ? 'bg-linear-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
-                                    : 'bg-white/3 border-white/8 text-gray-500'
+                                    : 'bg-white/3 border-white/10 text-gray-400'
                             } inline-flex items-center justify-center gap-2`}
                         >
                             <AnchorIcon className="w-4 h-4" />
@@ -2612,7 +2611,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 const selected = editRegisters.includes(reg);
                                 return (
                                     <button
-                                        aria-label="Register new crew member"
+                                        aria-pressed={selected}
                                         key={reg}
                                         type="button"
                                         onClick={() => {
@@ -2698,7 +2697,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             <AlertTriangleIcon className="w-4 h-4" />
                             <span>This action cannot be undone</span>
                         </p>
-                        <p className="text-[11px] text-red-300/70 leading-relaxed">
+                        <p className="text-sm text-red-200 leading-relaxed">
                             This will permanently remove{' '}
                             <strong>
                                 all {visibleCrew.length} crew member{visibleCrew.length !== 1 ? 's' : ''}
