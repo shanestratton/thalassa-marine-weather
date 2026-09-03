@@ -139,7 +139,7 @@ export const AnchorDashboardSection: React.FC = () => {
                 <div className="flex flex-wrap gap-2 pt-1">
                     <button
                         onClick={() => void save()}
-                        className="rounded-xl bg-sky-500/15 px-3 py-2 text-[12px] font-bold text-sky-300 active:scale-[0.98]"
+                        className="min-h-[44px] rounded-xl bg-sky-500/15 px-3 py-2 text-[12px] font-bold text-sky-300 active:scale-[0.98]"
                     >
                         Save
                     </button>
@@ -147,14 +147,14 @@ export const AnchorDashboardSection: React.FC = () => {
                         onClick={() => void test()}
                         disabled={testing}
                         aria-busy={testing}
-                        className="rounded-xl bg-white/6 px-3 py-2 text-[12px] font-bold text-gray-200 active:scale-[0.98] disabled:opacity-60"
+                        className="min-h-[44px] rounded-xl bg-white/6 px-3 py-2 text-[12px] font-bold text-gray-200 active:scale-[0.98] disabled:opacity-60"
                     >
                         {testing ? 'Testing…' : 'Test connection'}
                     </button>
                     {savedToken && (
                         <button
                             onClick={() => void forget()}
-                            className="rounded-xl bg-white/4 px-3 py-2 text-[12px] font-bold text-gray-400 active:scale-[0.98]"
+                            className="min-h-[44px] rounded-xl bg-white/4 px-3 py-2 text-[12px] font-bold text-gray-400 active:scale-[0.98]"
                         >
                             Forget
                         </button>

@@ -67,6 +67,10 @@ interface ScopedMaintenanceHistory {
 
 // ── Category config + SwipeableTaskCard — now in ./maintenance/ ──
 
+// Category display order: Repair first, then rest. Module scope so the memos
+// below can list it honestly in their dependency arrays.
+const CATEGORY_ORDER: MaintenanceCategory[] = ['Repair', 'Engine', 'Safety', 'Hull', 'Rigging', 'Routine'];
+
 export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── State ──
     const [taskData, setTaskData] = useState<ScopedMaintenanceTasks>(() => ({
@@ -202,9 +206,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         setEngineHoursEditIdentity(null);
     }, [engineHoursInput, engineHours, engineHoursEditIdentity]);
 
-    // Category display order: Repair first, then rest
-    const CATEGORY_ORDER: MaintenanceCategory[] = ['Repair', 'Engine', 'Safety', 'Hull', 'Rigging', 'Routine'];
-
     const tasksWithStatus = useMemo(() => {
         const withStatus = tasks.map((t) => calculateStatus(t, engineHours));
         // Sort: category order first, then alphabetical within each category
@@ -214,7 +215,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (catA !== catB) return catA - catB;
             return a.title.localeCompare(b.title);
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tasks, engineHours]);
 
     // Group tasks by category for rendering
@@ -225,18 +225,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (catTasks.length > 0) groups.push({ category: cat, tasks: catTasks });
         }
         return groups;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tasksWithStatus]);
 
     // Status counts for the header
-    const counts = useMemo(() => {
-        const all = tasks.map((t) => calculateStatus(t, engineHours));
-        return {
-            red: all.filter((t) => t.status === 'red').length,
-            yellow: all.filter((t) => t.status === 'yellow').length,
-            green: all.filter((t) => t.status === 'green').length,
-        };
-    }, [tasks, engineHours]);
+    const counts = useMemo(
+        () =>
+            tasksWithStatus.reduce(
+                (acc, t) => {
+                    if (t.status in acc) acc[t.status as 'red' | 'yellow' | 'green']++;
+                    return acc;
+                },
+                { red: 0, yellow: 0, green: 0 },
+            ),
+        [tasksWithStatus],
+    );
 
     // ── Log Service ──
     const handleLogService = useCallback(async () => {
@@ -541,16 +543,28 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <>
                             <OfflineBadge />
                             {counts.red > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black">
+                                <span
+                                    className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black"
+                                    title="Overdue"
+                                    aria-label={`${counts.red} overdue`}
+                                >
                                     {counts.red}
                                 </span>
                             )}
                             {counts.yellow > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black">
+                                <span
+                                    className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black"
+                                    title="Due soon"
+                                    aria-label={`${counts.yellow} due soon`}
+                                >
                                     {counts.yellow}
                                 </span>
                             )}
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black">
+                            <span
+                                className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black"
+                                title="Up to date"
+                                aria-label={`${counts.green} up to date`}
+                            >
                                 {counts.green}
                             </span>
                         </>

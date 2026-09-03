@@ -5,7 +5,14 @@ import type { MatrixParam } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast, ForecastDay } from '../../types';
 import { resolveForecastModel } from '../../services/weather/forecastModels';
 import type { MetricKey } from './hero/MetricDeepDiveModal';
-import { convertTemp, convertSpeed, convertLength, convertDistance, convertPrecip } from '../../utils';
+import {
+    convertTemp,
+    convertSpeed,
+    convertLength,
+    convertDistance,
+    convertPrecip,
+    cardinalToDegrees,
+} from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useDraggable } from '@dnd-kit/core';
 import { lazyRetry } from '../../utils/lazyRetry';
@@ -126,231 +133,26 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
     const color = isStable ? 'text-white/60' : improving ? 'text-emerald-400' : 'text-red-400';
 
     return (
-        <span className={`inline-flex ml-1 ${color}`}>
+        <span className={`inline-flex items-center ml-1 ${color}`}>
             {isStable ? (
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
                     <line x1="1" y1="4" x2="7" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
             ) : isUp ? (
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
                     <path d="M4 1L7 5H1L4 1Z" fill="currentColor" />
                 </svg>
             ) : (
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
                     <path d="M4 7L1 3H7L4 7Z" fill="currentColor" />
                 </svg>
             )}
+            {/* The colour alone carried improving/worsening; say it too. */}
+            <span className="sr-only">
+                {isStable ? 'steady' : improving ? `${trend}, improving` : `${trend}, worsening`}
+            </span>
         </span>
     );
-};
-
-// --- Premium SVG Compass Widget ---
-const _CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, size = 200 }) => {
-    const needleRotation = degrees;
-    const cx = size / 2;
-    const cy = size / 2;
-    const outerR = size * 0.45;
-    const innerR = size * 0.39;
-    const cardinalR = size * 0.28;
-    const labelR = size * 0.19;
-
-    return (
-        <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
-                <defs>
-                    {/* Compass face gradient — deep, rich dark */}
-                    <radialGradient id="compassFaceLg" cx="50%" cy="35%" r="55%">
-                        <stop offset="0%" stopColor="rgba(30,41,59,0.98)" />
-                        <stop offset="70%" stopColor="rgba(15,23,42,0.99)" />
-                        <stop offset="100%" stopColor="rgba(8,12,21,1)" />
-                    </radialGradient>
-
-                    {/* Bezel gradient — metallic silver ring */}
-                    <linearGradient id="bezelGradLg" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="rgba(148,163,184,0.45)" />
-                        <stop offset="50%" stopColor="rgba(71,85,105,0.25)" />
-                        <stop offset="100%" stopColor="rgba(148,163,184,0.45)" />
-                    </linearGradient>
-
-                    {/* Needle gradient */}
-                    <linearGradient id="needleGradLg" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#f87171" />
-                        <stop offset="100%" stopColor="#ef4444" />
-                    </linearGradient>
-
-                    {/* Teal accent gradient */}
-                    <linearGradient id="tealAccentLg" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="rgba(94,234,212,0.9)" />
-                        <stop offset="100%" stopColor="rgba(45,212,191,0.7)" />
-                    </linearGradient>
-                </defs>
-
-                {/* Outer glow ring (Filter Removed to Save GPU) */}
-                <circle cx={cx} cy={cy} r={outerR + 2} fill="none" stroke="rgba(94,234,212,0.15)" strokeWidth="6" />
-
-                {/* Outer bezel ring — metallic */}
-                <circle cx={cx} cy={cy} r={outerR} fill="none" stroke="url(#bezelGradLg)" strokeWidth="2" />
-
-                {/* Inner bezel ring */}
-                <circle cx={cx} cy={cy} r={outerR - 3} fill="none" stroke="rgba(148,163,184,0.08)" strokeWidth="0.5" />
-
-                {/* Face background */}
-                <circle
-                    cx={cx}
-                    cy={cy}
-                    r={innerR}
-                    fill="url(#compassFaceLg)"
-                    stroke="rgba(94,234,212,0.1)"
-                    strokeWidth="0.5"
-                />
-
-                {/* Degree tick marks */}
-                {Array.from({ length: 72 }).map((_, i) => {
-                    const angle = i * 5;
-                    const rad = ((angle - 90) * Math.PI) / 180;
-                    const isCardinal = angle % 90 === 0;
-                    const isIntercardinal = angle % 45 === 0 && !isCardinal;
-                    const isMajor = angle % 30 === 0;
-                    const isMinor10 = angle % 10 === 0;
-                    const len = isCardinal ? 12 : isIntercardinal ? 9 : isMajor ? 7 : isMinor10 ? 5 : 3;
-                    const r1 = innerR - len;
-                    const r2 = innerR - 1;
-                    const color = isCardinal
-                        ? 'rgba(94,234,212,0.8)'
-                        : isIntercardinal
-                          ? 'rgba(94,234,212,0.4)'
-                          : isMajor
-                            ? 'rgba(255,255,255,0.3)'
-                            : isMinor10
-                              ? 'rgba(255,255,255,0.18)'
-                              : 'rgba(255,255,255,0.08)';
-                    const width = isCardinal ? 1.5 : isIntercardinal ? 1 : 0.5;
-
-                    return (
-                        <line
-                            key={i}
-                            x1={cx + r1 * Math.cos(rad)}
-                            y1={cy + r1 * Math.sin(rad)}
-                            x2={cx + r2 * Math.cos(rad)}
-                            y2={cy + r2 * Math.sin(rad)}
-                            stroke={color}
-                            strokeWidth={width}
-                        />
-                    );
-                })}
-
-                {/* Cardinal labels */}
-                {[
-                    { l: 'N', a: 0, c: '#f87171', s: 16, w: '800' },
-                    { l: 'E', a: 90, c: 'rgba(255,255,255,0.5)', s: 13, w: '600' },
-                    { l: 'S', a: 180, c: 'rgba(255,255,255,0.5)', s: 13, w: '600' },
-                    { l: 'W', a: 270, c: 'rgba(255,255,255,0.5)', s: 13, w: '600' },
-                ].map(({ l, a, c, s, w }) => {
-                    const rad = ((a - 90) * Math.PI) / 180;
-                    return (
-                        <text
-                            key={l}
-                            x={cx + cardinalR * Math.cos(rad)}
-                            y={cy + cardinalR * Math.sin(rad)}
-                            textAnchor="middle"
-                            dominantBaseline="central"
-                            fill={c}
-                            fontSize={s}
-                            fontWeight={w}
-                            fontFamily="system-ui"
-                        >
-                            {l}
-                        </text>
-                    );
-                })}
-
-                {/* Intercardinal labels */}
-                {[
-                    { l: 'NE', a: 45 },
-                    { l: 'SE', a: 135 },
-                    { l: 'SW', a: 225 },
-                    { l: 'NW', a: 315 },
-                ].map(({ l, a }) => {
-                    const rad = ((a - 90) * Math.PI) / 180;
-                    return (
-                        <text
-                            key={l}
-                            x={cx + labelR * Math.cos(rad)}
-                            y={cy + labelR * Math.sin(rad)}
-                            textAnchor="middle"
-                            dominantBaseline="central"
-                            fill="rgba(255,255,255,0.2)"
-                            fontSize={9}
-                            fontWeight="500"
-                            fontFamily="system-ui"
-                        >
-                            {l}
-                        </text>
-                    );
-                })}
-
-                {/* Needle group — rotates to wind direction */}
-                <g
-                    transform={`rotate(${needleRotation} ${cx} ${cy})`}
-                    style={{ transition: 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                >
-                    {/* Needle glow (behind) (Filter removed) */}
-                    <polygon
-                        points={`${cx},${cy - innerR + 8} ${cx - 5},${cy} ${cx + 5},${cy}`}
-                        fill="rgba(248,113,113,0.35)"
-                    />
-
-                    {/* North needle (red) */}
-                    <polygon
-                        points={`${cx},${cy - innerR + 8} ${cx - 4},${cy - 2} ${cx},${cy - 6} ${cx + 4},${cy - 2}`}
-                        fill="url(#needleGradLg)"
-                    />
-
-                    {/* South needle (subtle) */}
-                    <polygon
-                        points={`${cx},${cy + innerR - 12} ${cx - 3},${cy + 2} ${cx},${cy + 6} ${cx + 3},${cy + 2}`}
-                        fill="rgba(148,163,184,0.15)"
-                    />
-
-                    {/* Center pivot — outer ring */}
-                    <circle
-                        cx={cx}
-                        cy={cy}
-                        r="5"
-                        fill="rgba(15,23,42,0.9)"
-                        stroke="rgba(94,234,212,0.5)"
-                        strokeWidth="1"
-                    />
-                    {/* Center pivot — inner dot */}
-                    <circle cx={cx} cy={cy} r="2.5" fill="rgba(94,234,212,0.9)" />
-                </g>
-            </svg>
-        </div>
-    );
-};
-
-// --- Cardinal → Degrees helper ---
-const cardinalToDeg = (dir?: string): number | null => {
-    if (!dir) return null;
-    const map: Record<string, number> = {
-        N: 0,
-        NNE: 22.5,
-        NE: 45,
-        ENE: 67.5,
-        E: 90,
-        ESE: 112.5,
-        SE: 135,
-        SSE: 157.5,
-        S: 180,
-        SSW: 202.5,
-        SW: 225,
-        WSW: 247.5,
-        W: 270,
-        WNW: 292.5,
-        NW: 315,
-        NNW: 337.5,
-    };
-    return map[dir.toUpperCase()] ?? null;
 };
 
 // --- Small directional arrow (for WAVE/SWELL cells) ---
@@ -388,7 +190,7 @@ const InstrumentCell: React.FC<{
             className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
             onClick={onClick}
             title={tooltip}
-            aria-label={tooltip ? `${label}: ${value}${unit ? ' ' + unit : ''}. ${tooltip}` : undefined}
+            aria-label={`${label}: ${value}${unit ? ' ' + unit : ''}${tooltip ? `. ${tooltip}` : ''}`}
         >
             {/* Header: icon + label + trend — locked to a single 12px line */}
             <div className="flex items-center gap-1 opacity-90 h-3">
@@ -462,7 +264,6 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     data,
     units,
     cardTime,
-    sources: _sources,
     trends,
     isLive = true,
     locationType,
@@ -501,8 +302,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             ? Math.round(topRowData.swellPeriod)
             : '--';
     const windDir = topRowData.windDirection || '--';
-    const _windDeg = topRowData.windDegree || 0;
-    const swellDirDeg = cardinalToDeg(topRowData.swellDirection || undefined);
+    const swellDirDeg = cardinalToDegrees(topRowData.swellDirection) ?? null;
 
     const safeRound = (v: number | null | undefined): number | string =>
         v !== null && v !== undefined && !isNaN(v) ? Math.round(v) : '--';
@@ -516,20 +316,23 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         return isNaN(num) ? converted : Math.round(num);
     })();
     const pressureVal = safeRound(data.pressure);
-    const _seaTemp =
-        data.waterTemperature !== null && data.waterTemperature !== undefined && !isNaN(data.waterTemperature)
-            ? convertTemp(data.waterTemperature, units.temp)
-            : '--';
     const humidityVal = safeRound(data.humidity);
 
     // Rain: live = daily mm total, forecast = precipChance %
     const rainValue = useMemo(() => {
         if (isLive && hourly?.length) {
             // Sum today's hourly precipitation amounts for daily total (mm)
-            const todayStr = new Date().toLocaleDateString('en-CA');
-            const todayTotal = hourly
-                .filter((h) => new Date(h.time).toLocaleDateString('en-CA') === todayStr)
-                .reduce((sum, h) => sum + (h.precipitation ?? 0), 0);
+            // Numeric device-local day bounds — same set of hours as the old
+            // toLocaleDateString('en-CA') string compare, without building an
+            // Intl formatter for every hourly entry.
+            const dayStart = new Date();
+            dayStart.setHours(0, 0, 0, 0);
+            const start = dayStart.getTime();
+            const end = start + 86_400_000;
+            const todayTotal = hourly.reduce((sum, h) => {
+                const t = new Date(h.time).getTime();
+                return t >= start && t < end ? sum + (h.precipitation ?? 0) : sum;
+            }, 0);
             if (units.temp === 'F') {
                 // Imperial: convert mm → inches. convertPrecip returns a fully
                 // formatted string ('0.39"', '<0.01"', 'TRACE') with the inch
@@ -567,7 +370,6 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const isGustImproving = trends?.windGust === 'down';
     const isWaveImproving = trends?.waveHeight === 'down';
     const isVisImproving = trends?.visibility === 'up';
-    const _isPressureImproving = trends?.pressure === 'up'; // Rising pressure = improving weather
     const isHumidityImproving = trends?.humidity === 'down'; // Lower humidity = more comfortable
 
     // PERF: useState kept to maintain hook order (React rules-of-hooks).

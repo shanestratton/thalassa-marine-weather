@@ -730,6 +730,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     useEffect(() => {
         // BosunConsole now mounts/unmounts via the page registry, so the
         // legacy isOpen guard is redundant — effects always run on mount.
+        // The probe copies every stored value, so only pay for it when the
+        // diagnostics strip that shows the result is actually on.
+        if (!showVoiceDiagnostics) return;
         try {
             let total = 0;
             const big: Array<{ key: string; size: number }> = [];
@@ -758,7 +761,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 { ts: Date.now(), msg: `[storage] probe failed: ${(err as Error).message}` },
             ]);
         }
-    }, []);
+    }, [showVoiceDiagnostics]);
 
     // Probe Deepgram availability on console open. This is a runtime
     // capability check (mediaDevices, WebSocket, AudioWorklet, supabase
@@ -2020,7 +2023,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
           : route === 'cloud'
             ? 'Calypso cloud'
             : route === 'bosun'
-              ? 'Calypso local (3B)'
+              ? 'Calypso on the boat'
               : 'Calypso offline';
     const typedTarget: 'bosun' | 'cloud' = route ?? 'cloud';
 
@@ -2105,7 +2108,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         </p>
                         <p className="text-xs max-w-[280px]">
                             {PI_INTEGRATION_ENABLED
-                                ? 'One Calypso, two brains behind her. Local 3B on the Pi when reachable, cloud Haiku otherwise — the active brain shows under the button.'
+                                ? "One Calypso, two brains behind her. She answers from the boat's Pi when it is reachable, otherwise from the cloud — the active source shows under the button."
                                 : PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE}
                         </p>
                     </div>
@@ -2142,14 +2145,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                             }`}
                         />
                         {srActive
-                            ? activeRecognizerKind === 'deepgram'
-                                ? 'Deepgram active'
-                                : activeRecognizerKind === 'apple-sr'
-                                  ? 'Apple SR active'
-                                  : 'Streaming STT active'
+                            ? 'Hearing you'
                             : activeRecognizerKind === 'media-recorder'
-                              ? 'Recording — Scribe will transcribe on send'
-                              : 'STT pending… (will use Scribe if it stays gray)'}
+                              ? 'Recording — transcribed when you send'
+                              : 'Listening…'}
                     </p>
                 </div>
             )}
@@ -2265,10 +2264,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 // ConversationTurn
 // ───────────────────────────────────────────────────────────────────────
 
-const ConversationTurn: React.FC<{
+const ConversationTurn = React.memo<{
     turn: VoiceTurn;
     onReplay: (response: VoiceQueryResponse) => void;
-}> = ({ turn, onReplay }) => {
+}>(({ turn, onReplay }) => {
     const isBosun = turn.response.source === 'bosun';
     // Attribution: turns the local skipper authored have no userName
     // (we set it on remote turns only). When userName is set, the turn
@@ -2299,13 +2298,13 @@ const ConversationTurn: React.FC<{
                 <div className="flex items-center justify-between mb-1">
                     <p className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
                         <span className={`w-1.5 h-1.5 rounded-full ${isBosun ? 'bg-sky-400' : 'bg-slate-300'}`} />
-                        {isBosun ? 'Calypso local (3B)' : 'Calypso cloud'}
+                        {isBosun ? 'Calypso on the boat' : 'Calypso cloud'}
                     </p>
                     {turn.response.audio_b64 && (
                         <button
                             onClick={() => onReplay(turn.response)}
-                            className="text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 flex items-center gap-1"
-                            aria-label="Replay audio"
+                            className="hit-target-44 px-2 py-2 -mr-2 text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 flex items-center gap-1"
+                            aria-label="Replay this answer"
                         >
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M8 5v14l11-7z" />
@@ -2319,8 +2318,9 @@ const ConversationTurn: React.FC<{
                     <div className="mt-2 pt-2 border-t border-white/10">
                         <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Tools used</p>
                         {turn.response.tool_calls.map((tc, i) => (
-                            <p key={i} className="text-[11px] text-gray-400 font-mono">
-                                {tc.name}({Object.keys(tc.args).length ? '...' : ''}) → {tc.status}
+                            <p key={i} className="text-[11px] text-gray-400">
+                                {tc.name.replace(/^thalassa_/, '').replace(/_/g, ' ')}
+                                {tc.status === 'success' ? '' : ` — ${tc.status}`}
                             </p>
                         ))}
                     </div>
@@ -2328,4 +2328,5 @@ const ConversationTurn: React.FC<{
             </div>
         </div>
     );
-};
+});
+ConversationTurn.displayName = 'ConversationTurn';

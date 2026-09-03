@@ -58,7 +58,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={!!uploadProgress}
-                        className="text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                        className="min-h-[44px] px-2 text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"
                     >
                         {myAvatarUrl ? '🔄 Change Photo' : '📷 Upload Photo'}
                     </button>
@@ -66,13 +66,13 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                         <button
                             aria-label="Remove profile avatar"
                             onClick={onRemovePhoto}
-                            className="text-sm text-white/40 hover:text-red-400 transition-colors"
+                            className="min-h-[44px] px-2 text-sm text-white/40 hover:text-red-400 transition-colors"
                         >
                             Remove
                         </button>
                     )}
                 </div>
-                <p className="text-xs text-white/60">JPEG/PNG • Max 2MB • AI-moderated 🍺</p>
+                <p className="text-xs text-white/60">JPEG/PNG • Max 2MB • AI-moderated</p>
             </div>
 
             {/* Upload progress */}

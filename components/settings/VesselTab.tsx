@@ -204,6 +204,21 @@ function defaultFleetVessel(index: number): VesselProfile {
     };
 }
 
+// Pure constant — module scope so the ~8 MetricInputs on this tab don't each
+// rebuild ten objects and thirty closures on every keystroke in any field.
+const UNIT_CONVERSIONS: Record<string, Record<string, (n: number) => number>> = {
+    ft: { m: (n) => n * 0.3048, ft: (n) => n },
+    m: { ft: (n) => n / 0.3048, m: (n) => n },
+    lbs: { kg: (n) => n * 0.453592, tonnes: (n) => n * 0.000453592, lbs: (n) => n },
+    kg: { lbs: (n) => n / 0.453592, tonnes: (n) => n / 1000, kg: (n) => n },
+    tonnes: { lbs: (n) => n / 0.000453592, kg: (n) => n * 1000, tonnes: (n) => n },
+    kts: { mph: (n) => n * 1.15078, kmh: (n) => n * 1.852, kts: (n) => n },
+    mph: { kts: (n) => n / 1.15078, kmh: (n) => n * 1.60934, mph: (n) => n },
+    kmh: { kts: (n) => n / 1.852, mph: (n) => n / 1.60934, kmh: (n) => n },
+    gal: { l: (n) => n * 3.78541, gal: (n) => n },
+    l: { gal: (n) => n / 3.78541, l: (n) => n },
+};
+
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
     label,
@@ -226,21 +241,8 @@ function MetricInput({
     placeholder?: string;
     isEstimated?: boolean;
 }) {
-    const conversions: Record<string, Record<string, (n: number) => number>> = {
-        ft: { m: (n) => n * 0.3048, ft: (n) => n },
-        m: { ft: (n) => n / 0.3048, m: (n) => n },
-        lbs: { kg: (n) => n * 0.453592, tonnes: (n) => n * 0.000453592, lbs: (n) => n },
-        kg: { lbs: (n) => n / 0.453592, tonnes: (n) => n / 1000, kg: (n) => n },
-        tonnes: { lbs: (n) => n / 0.000453592, kg: (n) => n * 1000, tonnes: (n) => n },
-        kts: { mph: (n) => n * 1.15078, kmh: (n) => n * 1.852, kts: (n) => n },
-        mph: { kts: (n) => n / 1.15078, kmh: (n) => n * 1.60934, mph: (n) => n },
-        kmh: { kts: (n) => n / 1.852, mph: (n) => n / 1.60934, kmh: (n) => n },
-        gal: { l: (n) => n * 3.78541, gal: (n) => n },
-        l: { gal: (n) => n / 3.78541, l: (n) => n },
-    };
-
     // Convert from standard (stored) unit → display unit
-    const toDisplay = conversions[standardUnit]?.[unitType];
+    const toDisplay = UNIT_CONVERSIONS[standardUnit]?.[unitType];
     const displayVal = toDisplay ? toDisplay(valInStandard) : valInStandard;
 
     const [localVal, setLocalVal] = useState(displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '');
@@ -272,7 +274,7 @@ function MetricInput({
         const numericVal = parseFloat(localVal);
         if (isNaN(numericVal)) return;
         // Convert from display unit → standard (stored) unit
-        const toStandard = conversions[unitType]?.[standardUnit];
+        const toStandard = UNIT_CONVERSIONS[unitType]?.[standardUnit];
         if (toStandard) {
             onChangeValue(Math.round(toStandard(numericVal) * 100) / 100);
         } else {
@@ -653,7 +655,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const candidateName = candidate.vessel.name?.trim() || 'Unnamed vessel';
                                     const type = candidate.vessel.type;
                                     const typeLabel =
-                                        type === 'power' ? 'Power' : type === 'observer' ? 'Observer' : 'Sail';
+                                        type === 'power' ? 'Power' : type === 'observer' ? 'Crew' : 'Sail';
                                     return (
                                         <option key={candidate.id} value={candidate.id}>
                                             {candidateName} · {typeLabel}
@@ -1121,7 +1123,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             <div className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
                                 {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
                                     <button
-                                        aria-label="Select hull type"
+                                        aria-label={`Hull type: ${ht}`}
+                                        aria-pressed={vessel?.hullType === ht}
                                         key={ht}
                                         onClick={() => updateVessel('hullType', ht)}
                                         className={`flex-1 px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
@@ -1140,7 +1143,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             <div className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
                                 {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
                                     <button
-                                        aria-label="Select keel type"
+                                        aria-label={`Keel type: ${kt}`}
+                                        aria-pressed={vessel?.keelType === kt}
                                         key={kt}
                                         onClick={() => updateVessel('keelType', kt)}
                                         className={`px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
