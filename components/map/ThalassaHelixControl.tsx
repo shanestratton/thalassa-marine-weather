@@ -14,6 +14,7 @@
  */
 import React, { useRef, useCallback, useEffect, memo, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { PauseIcon, PlayIcon } from '../Icons';
 import { CHL_GRADIENT, CURRENT_WAVE_GRADIENT, MLD_GRADIENT, SST_GRADIENT } from './marineLayerRamps';
 import { WIND_GRADIENT } from './windRamp';
 
@@ -554,7 +555,14 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                         border: `1px solid ${accent}30`,
                                     }}
                                 >
-                                    <span className="text-xs">{isPlaying ? '⏸' : '▶️'}</span>
+                                    {/* SVG, not emoji: on iOS '▶️' draws as a colour tile and
+                                        '⏸' falls back to a text glyph, so the two states of one
+                                        button looked like two different controls. */}
+                                    {isPlaying ? (
+                                        <PauseIcon className="w-4 h-4 text-white" />
+                                    ) : (
+                                        <PlayIcon className="w-4 h-4 text-white" />
+                                    )}
                                 </button>
 
                                 {/* Track */}

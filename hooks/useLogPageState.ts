@@ -969,10 +969,11 @@ export function useLogPageState() {
     // arrives with LOAD_DATA's Supabase round-trip — on dead boat comms this
     // predicate would otherwise burst-poll at 1 s forever over a voyage that
     // is recording fine.
-    const stillAcquiring = !voyageHasRecordedFix(
-        state.entries,
-        state.currentVoyageId ?? ShipLogService.getCurrentVoyageId(),
+    const hasRecordedFix = useMemo(
+        () => voyageHasRecordedFix(state.entries, state.currentVoyageId ?? ShipLogService.getCurrentVoyageId()),
+        [state.entries, state.currentVoyageId],
     );
+    const stillAcquiring = !hasRecordedFix;
 
     useEffect(() => {
         if (!state.isTracking) return;
@@ -1970,7 +1971,9 @@ export function useLogPageState() {
                 toast.success('Voyage archived');
                 reloadCareerData();
             } else {
-                toast.error('Failed to archive voyage — check if the "archived" column exists in Supabase');
+                // The schema hint belongs in the log, not in front of a skipper.
+                log.warn('archiveVoyage failed — check the "archived" column exists in Supabase');
+                toast.error('Couldn’t archive this voyage. Try again.');
             }
         },
         [dispatch, identityScope, toast, reloadCareerData],

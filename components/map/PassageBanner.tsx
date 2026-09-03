@@ -327,7 +327,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                             window.dispatchEvent(new CustomEvent('thalassa:passage-clear'));
                             triggerHaptic('light');
                         }}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors shrink-0 active:scale-95"
+                        className="hit-target-44 w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors shrink-0 active:scale-95"
                         aria-label="Close passage planner"
                     >
                         <svg

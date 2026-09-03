@@ -3,7 +3,7 @@ import { t } from '../theme';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/createLogger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
-import { useFocusTrap } from '../hooks/useAccessibility';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal, type OverlayLayer } from './ui/OverlayPortal';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 

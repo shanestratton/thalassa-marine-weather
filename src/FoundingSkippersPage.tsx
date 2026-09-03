@@ -9,6 +9,7 @@ import {
     type FoundingSkipperApplication,
     submitFoundingSkipperApplication,
 } from './foundingSkipperApplication';
+import { sourceFromLocation } from './feedbackSubmission';
 
 type SubmitApplication = (application: FoundingSkipperApplication) => Promise<void>;
 type FieldErrors = Partial<
@@ -20,12 +21,6 @@ type FieldErrors = Partial<
 
 interface FoundingSkippersPageProps {
     submitApplication?: SubmitApplication;
-}
-
-function sourceFromLocation(): string {
-    if (typeof window === 'undefined') return 'direct';
-    const candidate = new URLSearchParams(window.location.search).get('source')?.trim().toLowerCase() ?? '';
-    return /^[a-z0-9][a-z0-9_-]{0,39}$/.test(candidate) ? candidate : 'direct';
 }
 
 function validate(values: {
@@ -65,7 +60,9 @@ function FieldError({ id, children }: { id: string; children?: string }) {
 export function FoundingSkippersPage({
     submitApplication = submitFoundingSkipperApplication,
 }: FoundingSkippersPageProps) {
-    const source = useMemo(sourceFromLocation, []);
+    // One source parser for both public pages — the copy here carried its own
+    // (identical) pattern; only the SSR guard was local, so it stays local.
+    const source = useMemo(() => (typeof window === 'undefined' ? 'direct' : sourceFromLocation(window.location)), []);
     const sendingRef = useRef(false);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
