@@ -72,6 +72,31 @@ export interface PiWatchCapability {
  * can see the vessel on the bus right now.
  */
 /**
+ * iOS's own words for a failed connection, turned into something a skipper can
+ * act on from the cockpit.
+ *
+ * URLSession returns NSURLErrorNotConnectedToInternet — "The Internet
+ * connection appears to be offline." — when there is no route to the host,
+ * which on this app's addresses almost always means the phone is off the boat
+ * network with the tailnet down, NOT that the phone has no internet. Shane saw
+ * exactly that on 2026-09-03: the phone on home Wi-Fi, the Pi healthy, and its
+ * boat-LAN address (192.168.1.180) only reachable through the tailnet's subnet
+ * route — which his iPhone was not connected to. The literal message sent him
+ * looking at his internet, which was fine.
+ */
+function describeTransportFailure(message: string): string {
+    const offline = /offline|not connected to the internet|network is unreachable|no route to host/i.test(message);
+    const timedOut = /timed? ?out/i.test(message);
+    if (offline) {
+        return 'Your phone cannot reach the boat network — check Tailscale is on, or join the boat’s Wi-Fi';
+    }
+    if (timedOut) {
+        return 'The Pi did not answer in time — it may be asleep or off the network';
+    }
+    return `Could not reach the Pi (${message})`;
+}
+
+/**
  * One request to one address. Says whether the TRANSPORT failed, because that
  * is the case worth retrying somewhere else.
  */
@@ -118,7 +143,7 @@ async function askPiCapability(
         const message = err instanceof Error ? err.message : String(err);
         log.warn(`Pi watch: capability probe to ${baseUrl} failed — ${message}`);
         return {
-            result: { capable: false, reason: `Could not reach the Pi (${message})`, hasFix: false },
+            result: { capable: false, reason: describeTransportFailure(message), hasFix: false },
             transportFailed: true,
         };
     }
@@ -162,11 +187,24 @@ export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatch
     } catch (err) {
         log.warn(`Pi watch: health check itself failed — ${err instanceof Error ? err.message : String(err)}`);
     }
-    const secondUrl = piCache.getBaseUrl();
-    if (!secondUrl || secondUrl === baseUrl) return first.result;
+    // Try, in order, whatever the ladder now says, then the tailnet address
+    // outright. The second matters on its own: _useRemote only flips when
+    // checkHealth's own remote probe succeeded, so a phone whose health tick
+    // failed at BOTH addresses is left pointing at the boat LAN — and never
+    // asks the off-boat address at all, which is the one that would work.
+    const candidates: string[] = [];
+    const laddered = piCache.getBaseUrl();
+    if (laddered && laddered !== baseUrl) candidates.push(laddered);
+    const remote = piCache.getRemoteBaseUrl();
+    if (remote && remote !== baseUrl && !candidates.includes(remote)) candidates.push(remote);
+    if (candidates.length === 0) return first.result;
 
-    log.warn(`Pi watch: retrying the capability probe at ${secondUrl}`);
-    return (await askPiCapability(secondUrl, timeoutMs)).result;
+    for (const url of candidates) {
+        log.warn(`Pi watch: retrying the capability probe at ${url}`);
+        const next = await askPiCapability(url, timeoutMs);
+        if (!next.transportFailed) return next.result;
+    }
+    return first.result;
 }
 
 class AnchorPiWatchKeeperClass {
