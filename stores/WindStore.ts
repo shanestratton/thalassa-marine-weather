@@ -11,7 +11,7 @@
  *   WindStore.getState() — snapshot
  */
 
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { WindGrid } from '../services/weather/windField';
 import type { WeatherModelId } from '../services/weather/MultiModelWeatherService';
 
@@ -151,13 +151,10 @@ export const WindStore = {
 
 // ── React Hook ─────────────────────────────────────────────────
 
+/** React 18's own external-store subscription: no local mirror state, no
+ *  missed update between render and effect, no tearing. getState() already
+ *  returns the stable `state` object, which is what useSyncExternalStore
+ *  requires of a snapshot. */
 export function useWindStore(): WindState {
-    const [s, setS] = useState(WindStore.getState());
-    useEffect(() => WindStore.subscribe(setS), []);
-    return s;
-}
-
-export function useWindMode(): { isGlobalMode: boolean; toggleMode: () => void } {
-    const { isGlobalMode } = useWindStore();
-    return { isGlobalMode, toggleMode: WindStore.toggleMode };
+    return useSyncExternalStore(WindStore.subscribe, WindStore.getState);
 }

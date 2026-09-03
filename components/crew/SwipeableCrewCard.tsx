@@ -27,7 +27,10 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
     return (
         <div className="relative overflow-hidden rounded-xl">
             {/* Delete/Leave zone (revealed on swipe) */}
-            <div
+            <button
+                type="button"
+                aria-label={deleteLabel}
+                tabIndex={swipeOffset > 0 ? 0 : -1}
                 className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 onClick={() => {
                     resetSwipe();
@@ -45,7 +48,7 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
                     </svg>
                     <span className="text-[11px] font-bold">{deleteLabel}</span>
                 </div>
-            </div>
+            </button>
 
             {/* Main card (slides on swipe) — ref attaches native touch listeners */}
             <div

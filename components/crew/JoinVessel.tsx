@@ -136,7 +136,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
             {/* Close button */}
             <button
                 onClick={onClose}
-                className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10 transition-colors"
+                className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10 transition-colors"
                 aria-label="Close vessel join form"
             >
                 ✕
@@ -173,7 +173,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                         <h2 id="join-vessel-title" className="text-2xl font-bold text-white mb-2">
                             Join a Vessel
                         </h2>
-                        <p className="text-sm text-gray-400">Enter the 6-digit manifest code from your Skipper</p>
+                        <p className="text-sm text-gray-400">Enter the 6-character manifest code from your Skipper</p>
                     </div>
 
                     {/* Code input grid */}
@@ -197,7 +197,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                                             ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
                                             : 'bg-white/5 border-white/10 text-white focus:border-amber-500/50 focus:bg-amber-500/5'
                                     }`}
-                                    aria-label={`Code digit ${i + 1}`}
+                                    aria-label={`Code character ${i + 1}`}
                                 />
                             </React.Fragment>
                         ))}
@@ -210,7 +210,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                         disabled={status === 'checking' || code.some((c) => !c)}
                         className="w-full max-w-[280px] py-4 bg-linear-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-sm font-bold text-amber-300 uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                     >
-                        {status === 'checking' ? '⏳ Checking...' : '⚓ Join Vessel'}
+                        {status === 'checking' ? '⏳ Checking…' : '⚓ Join Vessel'}
                     </button>
 
                     <p className="text-[11px] text-gray-500 max-w-[260px]">

@@ -48,9 +48,11 @@ const CAT_COLORS: Record<number, string> = {
     0: 'bg-sky-500',
 };
 
-/** Haversine great-circle distance (km). Good enough for a storm-picker UI. */
-function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    return Math.round(calculateDistance(lat1, lon1, lat2, lon2) * 1.852);
+/** Haversine great-circle distance (NM). Good enough for a storm-picker UI.
+ *  NM, not km: every other distance on the chart — ThreatBanner, AisGuardAlert,
+ *  AnchorageTonightSheet, PassageBanner — is nautical miles. */
+function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    return Math.round(calculateDistance(lat1, lon1, lat2, lon2));
 }
 
 /** Trim storm names that sometimes arrive as "Hurricane Kiko" / "Tropical Storm Iona". */
@@ -78,8 +80,8 @@ export const StormPicker: React.FC<StormPickerProps> = ({
 
     // Sort by distance — closest first is the most useful default for skippers.
     const sorted = [...cyclones].sort((a, b) => {
-        const da = distanceKm(userLat, userLon, a.currentPosition.lat, a.currentPosition.lon);
-        const db = distanceKm(userLat, userLon, b.currentPosition.lat, b.currentPosition.lon);
+        const da = distanceNm(userLat, userLon, a.currentPosition.lat, a.currentPosition.lon);
+        const db = distanceNm(userLat, userLon, b.currentPosition.lat, b.currentPosition.lon);
         return da - db;
     });
 
@@ -145,7 +147,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                         {/* Storm list */}
                         <div className="max-h-[60vh] overflow-y-auto">
                             {sorted.map((storm, idx) => {
-                                const dist = distanceKm(
+                                const dist = distanceNm(
                                     userLat,
                                     userLon,
                                     storm.currentPosition.lat,
@@ -181,7 +183,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                                 {storm.maxWindKts} kt
                                                 {storm.minPressureMb ? ` · ${storm.minPressureMb} hPa` : ''}
                                                 {' · '}
-                                                {dist > 1000 ? `${dist.toLocaleString()} km` : `${dist} km`}
+                                                {dist > 1000 ? `${dist.toLocaleString()} NM` : `${dist} NM`}
                                             </div>
                                         </div>
 

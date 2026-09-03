@@ -10,6 +10,22 @@ import { CardDisplayValues } from './hero/types';
 
 import { useUI } from '../../context/UIContext';
 
+// Critical warnings that CANNOT be dismissed (life/vessel safety).
+// Module scope, matching CompactHeaderRow and WarningDetails: this array and
+// its closure were being rebuilt on every render of the banner.
+const CRITICAL_PATTERNS = [
+    'STORM WARNING',
+    'GALE WARNING',
+    'DANGEROUS SEAS',
+    'FREEZING SPRAY',
+    'FREEZE WARNING',
+    'EXCESSIVE HEAT',
+    'DENSE FOG',
+    'STORM WATCH',
+    'GALE WATCH',
+];
+const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
+
 export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     const { setPage } = useUI();
     const [dismissed, setDismissed] = React.useState<Set<string>>(() => {
@@ -22,20 +38,6 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
             return new Set();
         }
     });
-
-    // Critical warnings that CANNOT be dismissed (life/vessel safety)
-    const CRITICAL_PATTERNS = [
-        'STORM WARNING',
-        'GALE WARNING',
-        'DANGEROUS SEAS',
-        'FREEZING SPRAY',
-        'FREEZE WARNING',
-        'EXCESSIVE HEAT',
-        'DENSE FOG',
-        'STORM WATCH',
-        'GALE WATCH',
-    ];
-    const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
 
     // Filter out dismissed non-critical alerts
     const activeAlerts = (alerts || []).filter((a) => isCritical(a) || !dismissed.has(a));

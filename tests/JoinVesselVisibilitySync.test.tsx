@@ -43,7 +43,8 @@ describe('JoinVessel visibility reconciliation', () => {
         render(<JoinVessel onJoined={vi.fn()} onClose={vi.fn()} />);
 
         for (const [index, character] of Array.from('AB1234').entries()) {
-            fireEvent.change(screen.getByRole('textbox', { name: `Code digit ${index + 1}` }), {
+            // Label follows the copy fix: the manifest code is alphanumeric, not digits.
+            fireEvent.change(screen.getByRole('textbox', { name: `Code character ${index + 1}` }), {
                 target: { value: character },
             });
         }

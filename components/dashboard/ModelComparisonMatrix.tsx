@@ -351,7 +351,7 @@ function buildSeries(spread: ModelSpreadResult | null, spec: ParamSpec, nowMs: n
 
 const CHART_W = 320;
 const CHART_H = 140;
-const CHART_PAD_L = 32;
+const CHART_PAD_L = 38; // room for three-digit hPa ticks at the raised label size
 const CHART_PAD_R = 12;
 const CHART_PAD_T = 12;
 const CHART_PAD_B = 20;
@@ -601,8 +601,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                                 x={CHART_PAD_L - 5}
                                                 y={y + 3}
                                                 textAnchor="end"
-                                                className="fill-gray-500"
-                                                style={{ fontSize: '9px', fontFamily: 'monospace' }}
+                                                className="fill-gray-400"
+                                                style={{ fontSize: '11px', fontFamily: 'monospace' }}
                                             >
                                                 {tickLabel(t)}
                                             </text>
@@ -654,8 +654,8 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                             x={x}
                                             y={CHART_H - 4}
                                             textAnchor="middle"
-                                            className="fill-gray-500"
-                                            style={{ fontSize: '9px', fontFamily: 'monospace', fontWeight: 700 }}
+                                            className="fill-gray-400"
+                                            style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700 }}
                                         >
                                             {col.label}
                                         </text>
@@ -766,7 +766,13 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                     Avg spread · {avgVariance.toFixed(spec.decimals)} {spec.unit || 'idx'}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1 text-[9px] font-mono text-gray-500">
+                            <div
+                                role="img"
+                                aria-label={`Confidence by horizon — ${confidence
+                                    .map((c, i) => `${TIME_COLS[i].label}: ${c.level === 'none' ? 'no data' : c.level}`)
+                                    .join(', ')}`}
+                                className="flex items-center gap-1 text-[9px] font-mono text-gray-500"
+                            >
                                 {confidence.map((c, i) => (
                                     <span
                                         key={i}

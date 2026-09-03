@@ -93,7 +93,7 @@ function buildChipElement(label: string): HTMLDivElement {
     el.className = 'destination-flag-chip';
     el.style.cssText = `
         position: absolute;
-        bottom: 50px;
+        bottom: 54px;
         left: 50%; transform: translateX(-50%);
         background: rgba(15, 23, 42, 0.85);
         backdrop-filter: blur(12px);
@@ -102,7 +102,11 @@ function buildChipElement(label: string): HTMLDivElement {
         border-radius: 12px;
         padding: 4px 8px;
         color: rgba(255,255,255,0.9);
-        font-size: 10px;
+        /* 12px, not 10: this chip carries the destination name, the distance
+           to run and the bearing, and it is set in inline CSS where the
+           app-wide legibility floor cannot reach it. bottom bumped 50 → 54px
+           so the taller chip still clears the flag. */
+        font-size: 12px;
         font-weight: 600;
         white-space: nowrap;
         pointer-events: none;
