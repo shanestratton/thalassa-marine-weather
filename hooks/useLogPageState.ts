@@ -120,7 +120,9 @@ interface LogPageState {
 
 // ─── ACTIONS ──────────────────────────────────────────────────────────────────
 
-type LogPageAction =
+// Exported so LogPage's extracted sub-views can type the `dispatch` prop they
+// forward — the actions themselves are unchanged.
+export type LogPageAction =
     | { type: 'RESET_IDENTITY' }
     | {
           type: 'LOAD_DATA';
