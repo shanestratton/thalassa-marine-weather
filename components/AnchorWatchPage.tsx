@@ -41,7 +41,6 @@ import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
 import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
-import { ConfirmDialog } from './ui/ConfirmDialog';
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
@@ -68,10 +67,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [showPiWatchOffer, setShowPiWatchOffer] = useState(false);
     const [piHandoffBusy, setPiHandoffBusy] = useState(false);
     /** The session the skipper already said "no, keep it here" about. */
-    const [piOfferDeclinedFor, setPiOfferDeclinedFor] = useState<string | null>(null);
     /** Whether the Pi says it can take the watch, so the row below can offer it. */
     const [piWatchCapable, setPiWatchCapable] = useState(false);
     const [piHasFix, setPiHasFix] = useState(false);
+    /** Why the Pi cannot keep the watch, in the Pi's own words. Shown so a
+     *  missing offer is a sentence on screen instead of silence. */
+    const [piWatchReason, setPiWatchReason] = useState<string | null>(null);
     /** Whether the Pi HAS it. Mirrored into state because the keeper is not reactive. */
     const [piKeepingWatch, setPiKeepingWatch] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
@@ -381,6 +382,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     useEffect(() => {
         if (viewMode !== 'watching' || !piOfferAnchorKey) {
             setPiWatchCapable(false);
+            setPiWatchReason(null);
             return;
         }
         let stopped = false;
@@ -390,6 +392,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             if (stopped) return;
             setPiWatchCapable(cap.capable);
             setPiHasFix(cap.hasFix);
+            setPiWatchReason(cap.capable ? null : cap.reason);
             if (cap.capable && !AnchorPiWatchKeeper.isKeeping() && autoOfferedForRef.current !== piOfferAnchorKey) {
                 autoOfferedForRef.current = piOfferAnchorKey;
                 setShowPiWatchOffer(true);
@@ -1557,10 +1560,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 to the feature short of weighing anchor. */}
             {piWatchCapable && !piKeepingWatch && (
                 <button
-                    onClick={() => {
-                        setPiOfferDeclinedFor(null);
-                        setShowPiWatchOffer(true);
-                    }}
+                    onClick={() => setShowPiWatchOffer(true)}
                     className="mx-3 mb-2 flex min-h-[56px] items-center gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 text-left transition-all active:scale-[0.99]"
                 >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-500/15 text-lg">
@@ -1576,6 +1576,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </span>
                     <span className="shrink-0 text-sky-300/60">›</span>
                 </button>
+            )}
+
+            {/* No Pi offer, and WHY. Six fixes were shipped blind because this
+                line did not exist: the probe has several failure exits and
+                every one of them used to look identical from the deck. */}
+            {!piWatchCapable && !piKeepingWatch && piWatchReason && (
+                <div className="mx-3 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
+                    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Pi watch unavailable
+                    </span>
+                    <span className="block text-[12px] font-medium leading-4 text-slate-400">{piWatchReason}</span>
+                </div>
             )}
 
             {/* Main Card — gradient glass, fits available space */}
@@ -1727,10 +1739,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 busy={piHandoffBusy}
                 piHasFix={piHasFix}
                 onAccept={handleAcceptPiWatch}
-                onDecline={() => {
-                    setShowPiWatchOffer(false);
-                    setPiOfferDeclinedFor(piOfferAnchorKey);
-                }}
+                onDecline={() => setShowPiWatchOffer(false)}
             />
 
             <SignInScreen

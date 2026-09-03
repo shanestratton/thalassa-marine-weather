@@ -90,7 +90,11 @@ describe('the Pi can actually be handed the shore watch', () => {
     it('a Pi that will not take the watch leaves the phone keeping it', () => {
         const keeper = read('services/anchorPiWatchKeeper.ts');
         // Every failure path returns false; nothing here throws into the page.
-        expect(keeper).toMatch(/if \(!target\) return false;/);
+        // begin() still gives up rather than throwing when there is no
+        // reachable, paired Pi — but only AFTER forcing one health check,
+        // because the cached mirror being stale is what killed the offer.
+        expect(keeper).toMatch(/await piCache\.ping\(\);/);
+        expect(keeper).toMatch(/the phone keeps the watch'\);\n {12}return false;/);
         expect(keeper).toMatch(/if \(!took\) \{/);
         expect(keeper).not.toMatch(/\bthrow new /);
     });
@@ -171,7 +175,13 @@ describe('the Pi can actually be handed the shore watch', () => {
 
     it('does not ask again once the skipper has said keep it here', () => {
         const page = read('components/AnchorWatchPage.tsx');
-        expect(page).toMatch(/setPiOfferDeclinedFor\(piOfferAnchorKey\)/);
+        // The latch, not a decline flag. `piOfferDeclinedFor` used to record
+        // the refusal, but the latch already stops the second ask — it is set
+        // when the modal is FIRST raised, whatever the skipper then chooses —
+        // so the flag was written twice and read nowhere. Two mechanisms for
+        // one rule is how the effect ended up depending on its own outcome.
+        expect(page).toMatch(/autoOfferedForRef\.current = piOfferAnchorKey;/);
+        expect(page).not.toMatch(/piOfferDeclinedFor/);
     });
 
     it('the offer renders in the WATCHING view, not the setup one', () => {
@@ -195,7 +205,7 @@ describe('the Pi can actually be handed the shore watch', () => {
         // The prompt is asked once per session. Without a second route, "no,
         // keep it here" locked the feature away until the anchor was weighed.
         expect(page).toMatch(/Hand the watch to the Pi/);
-        expect(page).toMatch(/setPiOfferDeclinedFor\(null\);\s*setShowPiWatchOffer\(true\);/);
+        expect(page).toMatch(/onClick=\{\(\) => setShowPiWatchOffer\(true\)\}/);
         // The row only appears when the Pi can actually take it and has not.
         expect(page).toMatch(/\{piWatchCapable && !piKeepingWatch && \(/);
     });
