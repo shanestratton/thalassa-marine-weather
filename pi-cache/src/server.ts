@@ -625,11 +625,18 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
             anonKey: SUPABASE_ANON_KEY,
         },
     );
+    // Logged because the app cannot see this from ashore, and every diagnosis
+    // of "the shore view says vessel offline" has come down to whether the Pi
+    // was ever told, and whether something later told it to stop. Both were
+    // silent, so both were guessed at.
+    console.log(`⚓ Anchor watch STARTED for session ${sessionCode} (r=${swingRadius}m)`);
     return res.json({ status: 'ok', watch: anchorWatch.describe() });
 });
 
 app.delete('/api/anchor/watch', requireAppApi, (_req, res) => {
+    const was = anchorWatch.describe();
     anchorWatch.stop();
+    console.log(`⚓ Anchor watch STOPPED (was ${was.running ? `running ${was.sessionCode}` : 'not running'})`);
     return res.json({ status: 'ok', watch: anchorWatch.describe() });
 });
 app.use('/api/weather', createWeatherRoutes(cache, proxyConfig));
