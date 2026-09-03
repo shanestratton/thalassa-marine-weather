@@ -30,6 +30,7 @@ import {
     WrenchIcon,
     UsersIcon,
     LifeBuoyIcon,
+    XIcon,
 } from './Icons';
 
 // Event category type for type safety
@@ -314,17 +315,10 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                     </div>
                     <button
                         onClick={onClose}
-                        className="text-slate-400 hover:text-white transition-colors p-1"
+                        className="hit-target-44 p-1 rounded-full text-slate-400 hover:text-white transition-colors"
                         aria-label="Close dialog"
                     >
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M6 18L18 6M6 6l12 12"
-                            />
-                        </svg>
+                        <XIcon className="w-6 h-6" />
                     </button>
                 </div>
 
@@ -336,7 +330,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <div className="grid grid-cols-4 gap-2">
                             {EVENT_CATEGORIES.map((cat) => (
                                 <button
-                                    aria-label="Event Category"
+                                    aria-pressed={eventCategory === cat.value}
                                     key={cat.value}
                                     type="button"
                                     onClick={() => setEventCategory(cat.value)}
@@ -399,7 +393,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                     <div className="flex gap-2">
                         {/* Position — 2/3 width */}
                         <button
-                            aria-label="Fetching Pos"
+                            aria-label="Add current GPS position to notes"
                             type="button"
                             disabled={fetchingPos}
                             onClick={async () => {
@@ -459,7 +453,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
                         {/* Voice — 1/6 width */}
                         <button
-                            aria-label="SR"
+                            aria-label={listening ? 'Listening — tap to stop' : 'Dictate notes'}
                             type="button"
                             onClick={() => {
                                 const actionScope = openOwnerRef.current;

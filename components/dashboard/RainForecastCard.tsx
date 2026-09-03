@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { XIcon } from '../Icons';
 import { analyzeRain, getIntensityLabel, type RainAnalysis } from './rainAnalysis';
 
 interface MinutelyRain {
@@ -595,10 +596,10 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                         <button
                             ref={closeButtonRef}
                             onClick={onClose}
-                            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                            className="hit-target-44 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
                             aria-label="Close rain forecast detail"
                         >
-                            <span className="text-white/70 text-sm">✕</span>
+                            <XIcon className="w-4 h-4 text-white/70" />
                         </button>
                     </div>
 

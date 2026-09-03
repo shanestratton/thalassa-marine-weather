@@ -437,6 +437,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the skipper keeps tracing. Debounced so a burst of pin edits costs one
     // run; the service is single-flight + per-run capped, so this stays cheap.
     const [coordsCopied, setCoordsCopied] = useState(false);
+    // Same discipline as the tracer feedback timer: one at a time, and gone on
+    // unmount so a late tick can't setState on a dead MapHub.
+    const coordsCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(
+        () => () => {
+            if (coordsCopiedTimerRef.current) clearTimeout(coordsCopiedTimerRef.current);
+        },
+        [],
+    );
     const coordCaptureRef = useRef(false);
     /** The PEN switch (Shane 2026-07-11: stray taps while the tracer is
      *  open dropped unwanted pins — "great when you want it, and fucken
@@ -911,7 +920,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         try {
             await navigator.clipboard.writeText(text);
             setCoordsCopied(true);
-            setTimeout(() => setCoordsCopied(false), 1500);
+            if (coordsCopiedTimerRef.current) clearTimeout(coordsCopiedTimerRef.current);
+            coordsCopiedTimerRef.current = setTimeout(() => {
+                coordsCopiedTimerRef.current = null;
+                setCoordsCopied(false);
+            }, 1500);
         } catch {
             /* clipboard blocked — the on-screen list is still copyable by hand */
         }
@@ -1072,7 +1085,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             }),
         [capturedCoords, tracerStatus, legVerdicts, ackedLegs, settings.vessel, departureMs, departureLabel],
     );
-    const traceReleaseGate = getTraceReleaseGate();
+    /* Memoised on the same inputs the callback already closes over. This gate
+       builds the whole ENC registry fingerprint (every cell in scope, sorted
+       and joined) and it was doing that on EVERY MapHub render — including
+       each 3 s GPS re-stamp. Save and Sail still call getTraceReleaseGate()
+       directly at tap time, so the persisted `checkedAt` stays fresh. */
+    const traceReleaseGate = useMemo(() => getTraceReleaseGate(), [getTraceReleaseGate]);
 
     /**
      * An acknowledgement has to survive leaving this screen.
@@ -3259,22 +3277,29 @@ export const MapHub: React.FC<MapHubProps> = ({
         // with useWeatherLayers' minZoom floor, and not a valid dependency.
     }, [weather.userLayers, planningSurface]);
 
+    /* useWeatherLayers returns a fresh object literal on every call, so keying
+       these on `weather` re-minted both callbacks on EVERY MapHub render and
+       defeated the radial menu's memoisation. toggleLayer/selectInGroup are
+       []-dep useCallbacks inside the hook, so their identities are genuinely
+       stable; activeLayers only changes when a layer is toggled. */
+    const { activeLayers: wxActiveLayers, toggleLayer: wxToggleLayer, selectInGroup: wxSelectInGroup } = weather;
+
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
-            if ((layer === 'wind' || layer === 'velocity') && !weather.activeLayers.has(layer)) {
+            if ((layer === 'wind' || layer === 'velocity') && !wxActiveLayers.has(layer)) {
                 windOnGuards(layer);
             }
-            weather.toggleLayer(layer);
+            wxToggleLayer(layer);
         },
-        [weather, windOnGuards],
+        [wxActiveLayers, wxToggleLayer, windOnGuards],
     );
 
     const helmSelectInGroup = useCallback(
         (layer: WeatherLayer, group: WeatherLayer[]) => {
             if (layer === 'wind' || layer === 'velocity') windOnGuards(layer);
-            weather.selectInGroup(layer, group);
+            wxSelectInGroup(layer, group);
         },
-        [weather, windOnGuards],
+        [wxSelectInGroup, windOnGuards],
     );
 
     // ── Lightning Strikes (Blitzortung) ──
@@ -4169,7 +4194,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         }}
                                         aria-expanded={!panelFolded}
                                         aria-label={panelFolded ? 'Expand tracer panel' : 'Collapse tracer panel'}
-                                        className="flex h-9 w-full items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-black uppercase tracking-widest text-amber-300 active:scale-95"
+                                        className="flex min-h-[44px] w-full items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-black uppercase tracking-widest text-amber-300 active:scale-95"
                                     >
                                         <span className="text-lg leading-none text-gray-400">
                                             {panelFolded ? '▸' : '▾'}
@@ -4195,13 +4220,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setPlotArmed((a) => !a);
                                                 }}
                                                 aria-pressed={plotArmed}
-                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[10px] font-black uppercase tracking-wide active:scale-95 ${
+                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[12px] font-black uppercase tracking-wide active:scale-95 ${
                                                     plotArmed
                                                         ? 'bg-amber-500/20 text-amber-300'
                                                         : 'bg-white/10 text-gray-300'
                                                 }`}
                                             >
-                                                {plotArmed ? '✏️ Plotting' : '⏸ Paused'}
+                                                {plotArmed ? '✏️ Plot' : '⏸ Paused'}
                                             </button>
                                             {COURSE_FRAME_VISIBLE &&
                                                 (capturedCoords.length > 0 || traceOrigin) &&
@@ -4255,17 +4280,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 into "needs +12.5 m tide" in deep water — draft
                                 had been saved through the wrong unit toggle). */}
                                         {vesselDraftIsAssumed(settings.vessel) ? (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-amber-400">
                                                 ⚠ Assumed {vesselDraftMetres(settings.vessel).toFixed(1)} m draft —
                                                 confirm Draft in Settings → Vessel before following or Cast Off.
                                             </div>
                                         ) : vesselDraftMetres(settings.vessel) > 6 ? (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-amber-400">
                                                 ⚠ Checking a {vesselDraftMetres(settings.vessel).toFixed(1)} m keel —
                                                 that reads like a units mix-up. Check Draft in Settings → Vessel.
                                             </div>
                                         ) : (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] text-gray-400">
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm text-gray-400">
                                                 Checking {vesselDraftMetres(settings.vessel).toFixed(1)} m keel +{' '}
                                                 {DEFAULT_TIDE_SAFETY_M} m margin at low tide
                                             </div>
@@ -4328,7 +4353,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </div>
                                         )}
                                         {tracerStatus === 'nochart' && (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-amber-400">
                                                 No ENC charts here — legs can't be depth-checked.
                                             </div>
                                         )}
@@ -4339,7 +4364,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             fits the depth grid or refuses outright) and its "add a
                                             mid pin" advice is auto-densify's job now. */}
                                         {tracerStatus === 'toolarge' && (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-amber-400">
                                                 A leg is over 115 NM — too long for the chart check. Split it into
                                                 shorter legs.
                                             </div>
@@ -4403,7 +4428,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                 : 'Proven lane loaded — check it, then ⚡ Auto or keep tracing',
                                                         );
                                                     }}
-                                                    className="w-full rounded-lg bg-emerald-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95"
+                                                    className="min-h-[44px] w-full rounded-lg bg-emerald-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95"
                                                 >
                                                     ⭐ Use the proven lane here
                                                 </button>
@@ -4442,7 +4467,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 above — grid reads happen per grading pass, not
                                 per render. */}
                                         {pinDiagnosis && (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-red-400">
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-red-400">
                                                 {pinDiagnosis}
                                             </div>
                                         )}
@@ -4470,7 +4495,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setPlotArmed((a) => !a);
                                                 }}
                                                 aria-pressed={plotArmed}
-                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 ${
+                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[12px] font-black uppercase tracking-wide active:scale-95 ${
                                                     plotArmed
                                                         ? 'bg-amber-500/20 text-amber-300'
                                                         : 'bg-white/10 text-gray-300'
@@ -4556,7 +4581,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         triggerHaptic('light');
                                                         setShowReport(true);
                                                     }}
-                                                    className="flex-1 rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-100 active:scale-95"
+                                                    className="min-h-[44px] flex-1 rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-100 active:scale-95"
                                                 >
                                                     📋 Route report
                                                 </button>
@@ -4668,13 +4693,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             {capturedCoords.length >= 2 && !traceReleaseGate.allowed && (
                                                 <div
                                                     role="status"
-                                                    className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] font-bold leading-snug text-amber-200"
+                                                    className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-sm font-bold leading-snug text-amber-200"
                                                 >
                                                     Route not ready to save, export or sail: {traceReleaseGate.reason}
                                                 </div>
                                             )}
                                             {traceReleaseGate.verification?.result === 'danger-acknowledged' && (
-                                                <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1.5 text-[10px] font-black leading-snug text-red-200">
+                                                <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1.5 text-sm font-black leading-snug text-red-200">
                                                     Checked route includes explicitly acknowledged no-go legs. That
                                                     warning travels with the saved/exported route.
                                                 </div>

@@ -138,18 +138,22 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                         const color = SAFETY_COLORS[safety] || SAFETY_COLORS.unknown;
                         const widthPct = 100 / data.segments.length;
 
+                        const depthText = seg.depth_m !== null ? `${Math.abs(seg.depth_m)}m` : 'unknown';
+
                         return (
-                            <div
+                            <button
                                 key={i}
-                                className={`${color.bg} relative group cursor-default transition-opacity hover:opacity-80`}
+                                type="button"
+                                aria-label={`Segment ${i + 1}: depth ${depthText}, ${safety}`}
+                                className={`${color.bg} relative group transition-opacity hover:opacity-80`}
                                 style={{ width: `${widthPct}%` }}
-                                title={`Depth: ${seg.depth_m !== null ? `${Math.abs(seg.depth_m)}m` : 'unknown'} (${safety})`}
+                                title={`Depth: ${depthText} (${safety})`}
                             >
-                                {/* Tooltip on hover */}
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-black/90 rounded-sm text-[11px] text-white font-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 border border-white/10">
+                                {/* Reads on tap and on focus, not only on hover — there is no hover at sea */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-black/90 rounded-sm text-[11px] text-white font-mono whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100 transition-opacity pointer-events-none z-10 border border-white/10">
                                     {seg.depth_m !== null ? `${Math.abs(seg.depth_m)}m` : '?'}
                                 </div>
-                            </div>
+                            </button>
                         );
                     })}
                 </div>

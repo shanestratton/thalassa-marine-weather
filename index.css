@@ -1821,6 +1821,17 @@ body,
     }
 }
 
+/* Undo toast countdown bar — the same linear deplete the old rAF loop drew, for free */
+@keyframes undoProgress {
+    from {
+        width: 100%;
+    }
+
+    to {
+        width: 0%;
+    }
+}
+
 /* Success flash — brief green highlight on save */
 @keyframes successFlash {
     0% {

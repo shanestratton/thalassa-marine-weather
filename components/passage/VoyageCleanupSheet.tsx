@@ -175,7 +175,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                     <button
                         ref={closeButtonRef}
                         onClick={onClose}
-                        className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
+                        className="w-11 h-11 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
                         aria-label="Close cleanup sheet"
                     >
                         ✕
@@ -225,13 +225,13 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                             <button
                                                 onClick={() => handleDeleteVoyage(v)}
                                                 disabled={busyId === v.id}
-                                                className="flex-1 py-2 rounded-lg bg-red-500/15 border border-red-500/25 text-red-300 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/25 active:scale-[0.97] disabled:opacity-40"
+                                                className="flex-1 min-h-[44px] py-2 rounded-lg bg-red-500/15 border border-red-500/25 text-red-300 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/25 active:scale-[0.97] disabled:opacity-40"
                                             >
                                                 {busyId === v.id ? 'Deleting…' : 'Confirm Delete'}
                                             </button>
                                             <button
                                                 onClick={() => setConfirmId(null)}
-                                                className="px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97]"
+                                                className="min-h-[44px] px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97]"
                                             >
                                                 Cancel
                                             </button>
@@ -239,7 +239,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                     ) : (
                                         <button
                                             onClick={() => setConfirmId(`voyage:${v.id}`)}
-                                            className="w-full py-2 rounded-lg bg-red-500/6 border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/12 active:scale-[0.97]"
+                                            className="w-full min-h-[44px] py-2 rounded-lg bg-red-500/6 border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/12 active:scale-[0.97]"
                                         >
                                             🗑 Delete
                                         </button>
@@ -271,13 +271,13 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                             <button
                                                 onClick={() => handleDeleteRoute(r)}
                                                 disabled={busyId === r.id}
-                                                className="flex-1 py-2 rounded-lg bg-red-500/15 border border-red-500/25 text-red-300 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/25 active:scale-[0.97] disabled:opacity-40"
+                                                className="flex-1 min-h-[44px] py-2 rounded-lg bg-red-500/15 border border-red-500/25 text-red-300 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/25 active:scale-[0.97] disabled:opacity-40"
                                             >
                                                 {busyId === r.id ? 'Deleting…' : 'Confirm Delete'}
                                             </button>
                                             <button
                                                 onClick={() => setConfirmId(null)}
-                                                className="px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97]"
+                                                className="min-h-[44px] px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97]"
                                             >
                                                 Cancel
                                             </button>
@@ -285,7 +285,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                     ) : (
                                         <button
                                             onClick={() => setConfirmId(`route:${r.id}`)}
-                                            className="w-full py-2 rounded-lg bg-red-500/6 border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/12 active:scale-[0.97]"
+                                            className="w-full min-h-[44px] py-2 rounded-lg bg-red-500/6 border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/12 active:scale-[0.97]"
                                         >
                                             🗑 Delete (cascades to voyage row)
                                         </button>
@@ -301,7 +301,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                     <button
                         onClick={refresh}
                         disabled={loading}
-                        className="w-full py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97] disabled:opacity-50"
+                        className="w-full min-h-[44px] py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97] disabled:opacity-50"
                     >
                         {loading ? 'Refreshing…' : '↻ Refresh'}
                     </button>
