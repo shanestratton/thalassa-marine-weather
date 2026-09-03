@@ -57,13 +57,24 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({ value, isLive, accen
     const dead = value === null;
     const opacity = dead ? 0.25 : isLive ? 1 : 0.45;
 
+    // Geometry lives in the memo with the tick, not in the render body: the
+    // card is 72 ticks and the endpoints never move, so recomputing 144 trig
+    // calls on every heading update bought nothing.
     const ticks = useMemo(() => {
-        const items: Array<{ deg: number; kind: 'cardinal' | 'major' | 'medium' | 'minor' }> = [];
+        const items: Array<{
+            deg: number;
+            kind: 'cardinal' | 'major' | 'medium' | 'minor';
+            x1: number;
+            y1: number;
+            x2: number;
+            y2: number;
+        }> = [];
         for (let d = 0; d < 360; d += 5) {
-            items.push({
-                deg: d,
-                kind: d % 90 === 0 ? 'cardinal' : d % 30 === 0 ? 'major' : d % 10 === 0 ? 'medium' : 'minor',
-            });
+            const kind = d % 90 === 0 ? 'cardinal' : d % 30 === 0 ? 'major' : d % 10 === 0 ? 'medium' : 'minor';
+            const len = kind === 'cardinal' ? 20 : kind === 'major' ? 16 : kind === 'medium' ? 11 : 6;
+            const outer = polarToCart(CX, CY, RADIUS - 6, d);
+            const inner = polarToCart(CX, CY, RADIUS - 6 - len, d);
+            items.push({ deg: d, kind, x1: outer.x, y1: outer.y, x2: inner.x, y2: inner.y });
         }
         return items;
     }, []);
@@ -104,17 +115,14 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({ value, isLive, accen
                     }}
                     opacity={opacity}
                 >
-                    {ticks.map(({ deg, kind }) => {
-                        const len = kind === 'cardinal' ? 20 : kind === 'major' ? 16 : kind === 'medium' ? 11 : 6;
-                        const outer = polarToCart(CX, CY, RADIUS - 6, deg);
-                        const inner = polarToCart(CX, CY, RADIUS - 6 - len, deg);
+                    {ticks.map(({ deg, kind, x1, y1, x2, y2 }) => {
                         return (
                             <line
                                 key={deg}
-                                x1={outer.x}
-                                y1={outer.y}
-                                x2={inner.x}
-                                y2={inner.y}
+                                x1={x1}
+                                y1={y1}
+                                x2={x2}
+                                y2={y2}
                                 stroke={kind === 'cardinal' ? '#f8fafc' : 'rgba(255,255,255,0.5)'}
                                 strokeWidth={kind === 'cardinal' ? 2.4 : kind === 'major' ? 1.6 : 0.8}
                                 strokeLinecap="round"

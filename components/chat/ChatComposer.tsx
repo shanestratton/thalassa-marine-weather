@@ -71,7 +71,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                     {/* Client filter warning */}
                     {filterWarning && (
                         <div className="mb-2 p-3 rounded-xl bg-amber-500/6 border border-amber-500/12 fade-slide-down">
-                            <p className="text-[11px] text-amber-400/80 mb-2">⚠️ {filterWarning.warning}</p>
+                            <p className="text-xs text-amber-300 mb-2">⚠️ {filterWarning.warning}</p>
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => {
@@ -98,7 +98,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
 
                     {isMuted ? (
                         <div className="flex items-center justify-center gap-2 py-2 rounded-xl bg-red-500/4 border border-red-500/6">
-                            <span className="text-[11px] text-red-400/50">
+                            <span className="text-xs text-red-300">
                                 🔇 Muted until {mutedUntil?.toLocaleTimeString()}
                             </span>
                         </div>
@@ -115,7 +115,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     aria-controls={showAttachMenu ? attachMenuId : undefined}
                                     className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all duration-200 shrink-0 active:scale-90 ${
                                         showAttachMenu
-                                            ? 'bg-sky-500/15 border border-sky-500/25 rotate-45'
+                                            ? 'bg-sky-500/15 border border-sky-500/25'
                                             : 'bg-white/3 border border-white/4 hover:bg-white/6'
                                     }`}
                                 >
@@ -223,7 +223,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                         : 'bg-white/3 border border-white/4 hover:bg-white/6'
                                 }`}
                             >
-                                📢
+                                ❓
                             </button>
                             <div className="flex-1 relative">
                                 <input

@@ -12,6 +12,14 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { ConsensusMatrixData, ConsensusRow, ModelPoint } from '../../services/ConsensusMatrixEngine';
 
+/** Header colour key — one table, not a fresh literal per model per render. */
+const MODEL_COLORS: Record<string, string> = {
+    GFS: '#38bdf8',
+    ECMWF: '#a78bfa',
+    ICON: '#34d399',
+    GEM: '#fb923c',
+};
+
 interface ConsensusMatrixProps {
     data: ConsensusMatrixData;
     onScrubPosition?: (lat: number, lon: number, hoursFromDep: number) => void;
@@ -66,11 +74,7 @@ const ScatterBar: React.FC<{ models: ModelPoint[]; maxScale?: number }> = ({ mod
 
 // ── Row Component ─────────────────────────────────────────────
 
-const ConsensusRowView: React.FC<{
-    row: ConsensusRow;
-    onIntersect?: () => void;
-    rowRef?: React.RefObject<HTMLDivElement>;
-}> = ({ row, onIntersect: _onIntersect, rowRef }) => {
+const ConsensusRowView: React.FC<{ row: ConsensusRow }> = ({ row }) => {
     const bgClass = row.exceedsComfort
         ? 'bg-red-500/6 border-red-500/20'
         : row.confidence === 'low'
@@ -79,8 +83,6 @@ const ConsensusRowView: React.FC<{
 
     return (
         <div
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ref={rowRef as any}
             data-hours={row.hoursFromDep}
             data-lat={row.lat}
             data-lon={row.lon}
@@ -136,6 +138,13 @@ const ConsensusRowView: React.FC<{
                                     backgroundColor: m.color,
                                 }}
                             />
+                            {/* The model NAME rides with the number. Sky and
+                                emerald are hard to tell apart through a
+                                polarised lens, and `title` never opens on iOS,
+                                so the dot alone left the reading unattributed. */}
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                                {m.model}
+                            </span>
                             <span
                                 className={`tabular-nums ${
                                     m.isOutlier
@@ -204,9 +213,9 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
         let closestRow: ConsensusRow | null = null;
         let closestDist = Infinity;
 
+        const containerRect = container.getBoundingClientRect();
         for (const [idx, el] of rowRefs.current.entries()) {
             const rect = el.getBoundingClientRect();
-            const containerRect = container.getBoundingClientRect();
             const rowCenter = rect.top - containerRect.top + scrollTop + rect.height / 2;
             const dist = Math.abs(rowCenter - centerY);
             if (dist < closestDist && data.rows[idx]) {
@@ -242,7 +251,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                     {onClose && (
                         <button
                             onClick={onClose}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors active:scale-95"
+                            className="hit-target-44 w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors active:scale-95"
                             aria-label="Close consensus matrix"
                         >
                             <svg
@@ -269,23 +278,15 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                     >
                         {data.dataSource === 'live' ? '● LIVE MULTI-MODEL' : '○ GRID ESTIMATE'}
                     </span>
-                    {data.modelsUsed.map((model) => {
-                        const colorMap: Record<string, string> = {
-                            GFS: '#38bdf8',
-                            ECMWF: '#a78bfa',
-                            ICON: '#34d399',
-                            GEM: '#fb923c',
-                        };
-                        return (
-                            <div key={model} className="flex items-center gap-1">
-                                <div
-                                    className="w-2 h-2 rounded-full"
-                                    style={{ backgroundColor: colorMap[model] || '#888' }}
-                                />
-                                <span className="text-[11px] font-bold text-gray-400">{model}</span>
-                            </div>
-                        );
-                    })}
+                    {data.modelsUsed.map((model) => (
+                        <div key={model} className="flex items-center gap-1">
+                            <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: MODEL_COLORS[model] || '#888' }}
+                            />
+                            <span className="text-[11px] font-bold text-gray-400">{model}</span>
+                        </div>
+                    ))}
                 </div>
 
                 {/* Summary stats */}

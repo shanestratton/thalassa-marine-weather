@@ -335,16 +335,21 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
         };
     }, []);
 
-    // Update GPS age ticker every second
+    // Update GPS age ticker every second. The interval is created ONCE and
+    // reads the latest position through a ref: depending on `position` tore
+    // the ticker down and rebuilt it on every 3 s poll.
+    const positionRef = useRef(position);
+    positionRef.current = position;
     useEffect(() => {
         tickRef.current = setInterval(() => {
-            if (position) {
-                const ageSec = Math.floor((Date.now() - position.timestamp) / 1000);
+            const p = positionRef.current;
+            if (p) {
+                const ageSec = Math.floor((Date.now() - p.timestamp) / 1000);
                 setGpsAge(ageSec < 5 ? 'LIVE' : `${ageSec}s ago`);
             }
         }, 1000);
         return () => clearInterval(tickRef.current);
-    }, [position]);
+    }, []);
 
     // ── SOG/COG from GPS ──
     const sogKts = position ? position.speed * 1.94384 : 0; // m/s to knots
@@ -652,7 +657,7 @@ const DscSelector: React.FC<{
                 aria-pressed={isActive}
             >
                 <div className="text-[11px] font-extrabold tracking-widest uppercase">{label}</div>
-                <div className="text-[9px] font-bold tracking-wider uppercase opacity-70 mt-0.5">{hint}</div>
+                <div className="text-[9px] font-bold tracking-wider uppercase mt-0.5">{hint}</div>
             </button>
         );
     };
@@ -705,7 +710,7 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
                         Transcript
                     </div>
-                    <div data-testid="dsc-transcript" className="text-[12px] text-slate-300 leading-relaxed">
+                    <div data-testid="dsc-transcript" className="text-base font-medium leading-relaxed text-white">
                         {transcript || 'Awaiting GPS…'}
                     </div>
                 </div>
@@ -741,16 +746,12 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
                 >
                     On your VHF
                 </div>
-                <ol className="space-y-1 list-decimal list-inside text-[12px] text-slate-200 leading-relaxed">
+                <ol className="space-y-1 list-decimal list-inside text-sm text-slate-200 leading-relaxed">
                     {steps.map((s, i) => (
                         <li key={i}>{s}</li>
                     ))}
                 </ol>
-                <div
-                    className={`mt-2 text-[10px] font-bold tracking-wide uppercase ${
-                        isDistress ? 'text-red-400/80' : 'text-amber-400/80'
-                    }`}
-                >
+                <div className={`mt-2 text-xs font-bold ${isDistress ? 'text-red-300' : 'text-amber-300'}`}>
                     This app does not transmit DSC — it prepares the voice script.
                 </div>
             </div>
@@ -759,7 +760,7 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
                 <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
                     Voice Transcript
                 </div>
-                <div data-testid="dsc-transcript" className="text-[13px] text-white leading-relaxed font-medium">
+                <div data-testid="dsc-transcript" className="text-base font-medium leading-relaxed text-white">
                     {transcript || 'Awaiting GPS…'}
                 </div>
             </div>

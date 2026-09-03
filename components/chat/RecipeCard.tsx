@@ -5,7 +5,7 @@
  * showing title, servings, cook time, and image thumbnail.
  * Same pattern as PinDropCard for location shares.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getRecipeById, parseRecipeShareMessage, type StoredRecipe } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
 import { SafeImage } from '../ui/SafeImage';
@@ -16,7 +16,10 @@ interface RecipeCardProps {
 }
 
 export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
-    const parsed = parseRecipeShareMessage(message);
+    // The caller already parsed this message to decide to render a RecipeCard;
+    // memoising at least keeps the second parse to once per message rather than
+    // once per render of a scrolling chat list.
+    const parsed = useMemo(() => parseRecipeShareMessage(message), [message]);
     const data = parsed?.recipe;
     const [expanded, setExpanded] = useState(false);
     const [recipe, setRecipe] = useState<StoredRecipe | null>(null);

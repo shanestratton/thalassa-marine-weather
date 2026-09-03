@@ -59,7 +59,7 @@ export const Toggle = React.memo(
             role="switch"
             aria-checked={checked}
             aria-label={label}
-            className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
+            className="relative inline-flex items-center cursor-pointer py-2.5 px-2 -mr-2 group"
             onClick={(e) => {
                 e.stopPropagation();
                 void triggerHaptic('light');
@@ -72,7 +72,7 @@ export const Toggle = React.memo(
                 }`}
             >
                 <div
-                    className={`absolute top-3 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-8' : 'left-3'}`}
+                    className={`absolute top-3.5 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-8' : 'left-3'}`}
                 ></div>
             </div>
         </button>

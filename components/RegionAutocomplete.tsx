@@ -285,13 +285,17 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
             {showDropdown && suggestions.length > 0 && (
                 <div
                     ref={dropdownRef}
+                    role="listbox"
                     className="absolute z-50 left-0 right-0 mt-1 bg-slate-800 border border-white/15 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto"
                 >
                     {suggestions.map((suggestion, i) => (
+                        // No aria-label: the region name IS the button's text,
+                        // and the placeholder label was hiding it.
                         <button
-                            aria-label="Select location suggestion"
                             key={suggestion}
                             type="button"
+                            role="option"
+                            aria-selected={i === highlightedIndex}
                             onClick={() => selectSuggestion(suggestion)}
                             className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
                                 i === highlightedIndex

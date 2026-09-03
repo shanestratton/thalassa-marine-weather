@@ -272,8 +272,8 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 <button
                     onClick={onClose}
                     style={{
-                        width: 32,
-                        height: 32,
+                        width: 44,
+                        height: 44,
                         borderRadius: 10,
                         background: 'rgba(255,255,255,0.06)',
                         border: '1px solid rgba(255,255,255,0.1)',
@@ -351,13 +351,13 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                                 >
                                     {r.name || `MMSI ${r.mmsi}`}
                                 </div>
-                                <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>
-                                    MMSI {r.mmsi} • {r.sog > 0 ? `${r.sog.toFixed(1)} kn` : 'Stationary'}
+                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
+                                    MMSI {r.mmsi} • {r.sog > 0 ? `${r.sog.toFixed(1)} kts` : 'Stationary'}
                                 </div>
                             </div>
                             <span
                                 style={{
-                                    fontSize: 10,
+                                    fontSize: 12,
                                     color: '#64748b',
                                     flexShrink: 0,
                                     padding: '2px 6px',

@@ -80,8 +80,13 @@ export const AisGuardAlert: React.FC = () => {
                             <div style={{ fontSize: 16, fontWeight: 800, color: '#fca5a5', fontFamily: 'monospace' }}>
                                 {alert.distanceNm.toFixed(1)} NM
                             </div>
-                            <div style={{ fontSize: 10, color: '#fca5a5', opacity: 0.7 }}>
-                                {alert.bearing}° • {alert.sog.toFixed(1)} kn
+                            {/* Bearing and speed of a target inside the guard
+                                ring are the two numbers the skipper acts on —
+                                they read at the size of the vessel name, not
+                                below it. Inline fontSize is out of reach of the
+                                CSS legibility floor. */}
+                            <div style={{ fontSize: 13, color: '#fca5a5', opacity: 0.9 }}>
+                                {alert.bearing}° • {alert.sog.toFixed(1)} kts
                             </div>
                         </div>
                         {/* The only way out. 44x44 so it is hittable on a

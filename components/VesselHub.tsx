@@ -20,7 +20,6 @@
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
-import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
@@ -34,7 +33,6 @@ import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
-import { lazyRetry } from '../utils/lazyRetry';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 import { WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
@@ -48,13 +46,11 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import { ConfirmDialog } from './ui/ConfirmDialog';
-import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
+import { BackButton } from './ui/BackButton';
+import { PUBLIC_BETA_ACCESS, TIER_INFO } from '../services/SubscriptionService';
+import type { SubscriptionTier } from '../types/settings';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { vesselCrewAboard } from '../services/units';
-const AdminPanel = lazyRetry(
-    () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
-    'AdminPanel_Vessel',
-);
 
 interface VesselHubProps {
     onNavigate: (page: string) => void;
@@ -131,7 +127,7 @@ const ALERT_SAFETY_CONTROL_CARD = {
 // ── Bathymetric contour background SVG ──
 const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cdefs%3E%3Cpattern id='c' patternUnits='userSpaceOnUse' width='100' height='100'%3E%3Cpath d='M50 10 C60 25,85 30,90 50 C95 70,75 85,50 90 C25 95,10 75,10 50 C10 25,30 5,50 10Z' fill='none' stroke='rgba(100,140,180,0.04)' stroke-width='0.5'/%3E%3Cpath d='M50 25 C55 35,70 38,75 50 C80 62,68 72,50 75 C32 78,22 65,22 50 C22 35,38 28,50 25Z' fill='none' stroke='rgba(100,140,180,0.03)' stroke-width='0.5'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='400' height='400' fill='url(%23c)'/%3E%3C/svg%3E")`;
 
-export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, onSave: _onSave }) => {
+export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings }) => {
     // ── Vessel state ──
     const { settings: ctx, updateSettings } = useSettings();
     const authenticatedUserId = useAuthStore((state) => state.user?.id ?? null);
@@ -145,7 +141,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
-    const [showAdminPanel, setShowAdminPanel] = useState(false);
     // The daily operational tiles and the Diary/Scuttlebutt pair are now
     // permanently visible. Only the low-priority Settings & Connect area
     // remains collapsible; it starts closed.
@@ -179,7 +174,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             return false;
         }
     });
-    const [_isAdmin, setIsAdmin] = useState(false);
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
     const rawVesselName = (ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined;
@@ -351,17 +345,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             return next;
         });
     };
-
-    // Load admin role async
-    useEffect(() => {
-        ChatService.initialize()
-            .then(() => {
-                setIsAdmin(ChatService.isAdmin());
-            })
-            .catch(() => {
-                // Non-critical — admin check is best-effort
-            });
-    }, []);
 
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
@@ -610,16 +593,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 }}
             >
                 <div className="flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
-                    <button
+                    <BackButton
                         onClick={() => {
                             triggerHaptic('light');
                             setBinderOpen(false);
                         }}
-                        aria-label="Back to Vessel"
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-lg font-black text-gray-300 active:scale-95"
-                    >
-                        ‹
-                    </button>
+                        label="Back to Vessel"
+                        className="shrink-0"
+                    />
                     <span className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
@@ -1178,8 +1159,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             Inventory · Reference
                         </span>
                     </span>
-                    <span aria-hidden className="shrink-0 text-[13px] font-black text-gray-500">
-                        ›
+                    <span aria-hidden className="shrink-0">
+                        <ChevronRight />
                     </span>
                 </button>
 
@@ -1277,10 +1258,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 label="Account & Settings"
                                 status={(() => {
                                     if (PUBLIC_BETA_ACCESS.enabled) return PUBLIC_BETA_ACCESS.label;
+                                    // One source of truth for plan names —
+                                    // the hub used to invent its own ("Vessel
+                                    // Owner"/"Crew Plan") and disagree with
+                                    // Settings and the paywall.
                                     const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                    if (tier === 'owner') return 'Vessel Owner';
-                                    if (tier === 'crew') return 'Crew Plan';
-                                    return 'Free Plan';
+                                    return (
+                                        (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ??
+                                        TIER_INFO.free
+                                    ).label;
                                 })()}
                                 statusColor={(() => {
                                     if (PUBLIC_BETA_ACCESS.enabled) return '#67E8F9';
@@ -1302,9 +1288,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     </CollapsibleContent>
                 </div>
             </div>
-
-            {/* Admin Panel Modal */}
-            <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
         </div>
     );
 });
@@ -1709,14 +1692,14 @@ const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix
                 {icon}
             </span>
         )}
-        {label && <span className="text-[11px] uppercase tracking-wider text-white/40">{label}</span>}
+        {label && <span className="text-[11px] uppercase tracking-wider text-white/60">{label}</span>}
         {/* The VALUE is the datum the skipper is actually reading at a glance,
             so it carries the size. Labels and units stay subordinate but sit at
             11px rather than 10px — the project's own stated legibility floor. */}
         <span className={color ? 'font-bold text-xl leading-none' : 'text-[17px] font-semibold text-white/90'}>
             {value}
         </span>
-        {unit && <span className="text-[11px] text-white/40">{unit}</span>}
+        {unit && <span className="text-[11px] text-white/60">{unit}</span>}
         {suffix && <span className="text-[11px] text-white/60 ml-0.5">{suffix}</span>}
     </span>
 );
@@ -2189,22 +2172,22 @@ const NavStationHero: React.FC<{
                 <div className="w-full flex items-center gap-3 px-4 py-1 text-[11px]">
                     {voyageDay !== null && (
                         <span className="font-mono text-white/70 tabular-nums">
-                            <span className="text-white/40 uppercase tracking-wider mr-1">Day</span>
+                            <span className="text-white/60 uppercase tracking-wider mr-1">Day</span>
                             {voyageDay}
                         </span>
                     )}
                     {distRemainingNm !== null && (
                         <span className="ml-auto font-mono text-white/85 tabular-nums">
                             {distRemainingNm.toFixed(1)}
-                            <span className="text-white/40 text-[10px] ml-0.5">NM</span>
-                            <span className="text-white/40 text-[10px] uppercase tracking-wider ml-1">to go</span>
+                            <span className="text-white/60 text-[10px] ml-0.5">NM</span>
+                            <span className="text-white/60 text-[10px] uppercase tracking-wider ml-1">to go</span>
                         </span>
                     )}
                     {showRouteNm && routeNm !== null && (
                         <span className="ml-auto font-mono text-white/60 tabular-nums">
                             {routeNm.toFixed(0)}
-                            <span className="text-white/40 text-[10px] ml-0.5">NM</span>
-                            <span className="text-white/40 text-[10px] uppercase tracking-wider ml-1">total</span>
+                            <span className="text-white/60 text-[10px] ml-0.5">NM</span>
+                            <span className="text-white/60 text-[10px] uppercase tracking-wider ml-1">total</span>
                         </span>
                     )}
                 </div>
@@ -2249,7 +2232,7 @@ const NavStationHero: React.FC<{
                 <span className="font-mono text-white/85 tabular-nums truncate flex-1 text-[13px] font-semibold">
                     {position ? formatCoord(position.latitude, position.longitude) : 'Awaiting GPS fix…'}
                 </span>
-                <span className="text-white/40 text-[10px] uppercase tracking-wider shrink-0">
+                <span className="text-white/60 text-[10px] uppercase tracking-wider shrink-0">
                     {formatTimeSince(position?.timestamp ?? null)}
                 </span>
             </button>
@@ -2258,12 +2241,12 @@ const NavStationHero: React.FC<{
             {showSog && (
                 <div className="flex items-center gap-3 px-4 pt-1.5 pb-1 border-t border-white/6 text-[11px]">
                     <span className="font-mono text-white/85 tabular-nums">
-                        <span className="text-white/40 uppercase tracking-wider mr-1">SOG</span>
+                        <span className="text-white/60 uppercase tracking-wider mr-1">SOG</span>
                         {sogKt.toFixed(1)}
-                        <span className="text-white/40 text-[10px] ml-0.5">kt</span>
+                        <span className="text-white/60 text-[10px] ml-0.5">kt</span>
                         {cogDeg !== null && (
                             <span className="ml-2">
-                                <span className="text-white/40 uppercase tracking-wider mr-1">COG</span>
+                                <span className="text-white/60 uppercase tracking-wider mr-1">COG</span>
                                 {Math.round(cogDeg).toString().padStart(3, '0')}°
                             </span>
                         )}
@@ -2537,16 +2520,6 @@ const GpxIcon: React.FC<{ color: string }> = ({ color }) => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-        />
-    </svg>
-);
-
-const NoticeIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
         />
     </svg>
 );
