@@ -68,6 +68,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [piHandoffBusy, setPiHandoffBusy] = useState(false);
     /** The session the skipper already said "no, keep it here" about. */
     const [piOfferDeclinedFor, setPiOfferDeclinedFor] = useState<string | null>(null);
+    /** Whether the Pi says it can take the watch, so the row below can offer it. */
+    const [piWatchCapable, setPiWatchCapable] = useState(false);
+    /** Whether the Pi HAS it. Mirrored into state because the keeper is not reactive. */
+    const [piKeepingWatch, setPiKeepingWatch] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState | null>(null);
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(null);
@@ -344,10 +348,26 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const piOfferSession = syncState?.connected ? (syncState.sessionCode ?? null) : null;
     useEffect(() => {
         if (viewMode !== 'watching' || !piOfferSession) return;
-        if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor === piOfferSession) return;
+        if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor === piOfferSession) {
+            // Still ask the Pi whether it COULD, so the row stays offerable —
+            // just do not raise the dialog again.
+            let stale = false;
+            void probePiWatchCapability().then((cap) => {
+                if (!stale) setPiWatchCapable(cap.capable);
+            });
+            return () => {
+                stale = true;
+            };
+        }
         let cancelled = false;
         void probePiWatchCapability().then((cap) => {
-            if (!cancelled && cap.capable) setShowPiWatchOffer(true);
+            if (cancelled) return;
+            // Remembered whether or not we prompt, so declining leaves a way
+            // BACK IN rather than a dead end (Shane 2026-09-03: "once i
+            // pressed the no, keep it here button, how do i get it back to ask
+            // me the question").
+            setPiWatchCapable(cap.capable);
+            if (cap.capable) setShowPiWatchOffer(true);
         });
         return () => {
             cancelled = true;
@@ -571,6 +591,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             }
             setViewMode('shore');
             setShowPiWatchOffer(false);
+            setPiKeepingWatch(true);
             toast.success('The Pi is keeping the watch. This phone is now your shore monitor.');
         } catch (e) {
             log.error('Pi watch handoff failed', e);
@@ -1491,6 +1512,22 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </span>
                     <span className="text-xs text-amber-500/60">Waiting…</span>
                 </div>
+            )}
+
+            {/* The way back to the offer after "no, keep it here".
+                Without this, declining once was a dead end for the whole
+                session: the prompt is asked once and there was no other route
+                to the feature short of weighing anchor. */}
+            {piWatchCapable && !piKeepingWatch && (
+                <button
+                    onClick={() => {
+                        setPiOfferDeclinedFor(null);
+                        setShowPiWatchOffer(true);
+                    }}
+                    className="mx-3 mb-2 min-h-[44px] rounded-xl border border-sky-500/25 bg-sky-500/8 px-3 text-sm font-bold text-sky-300 active:scale-[0.99] transition-all"
+                >
+                    Hand the watch to the Pi
+                </button>
             )}
 
             {/* Main Card — gradient glass, fits available space */}

@@ -101,7 +101,8 @@ describe('the Pi can actually be handed the shore watch', () => {
         // Paired, configured, AND seeing the vessel on the bus right now.
         expect(server).toMatch(/capable: paired && !!SUPABASE_ANON_KEY && hasFix/);
         const page = read('components/AnchorWatchPage.tsx');
-        expect(page).toMatch(/if \(!cancelled && cap\.capable\) setShowPiWatchOffer\(true\)/);
+        expect(page).toMatch(/if \(cancelled\) return;/);
+        expect(page).toMatch(/if \(cap\.capable\) setShowPiWatchOffer\(true\);/);
     });
 
     it('handing over follows the one order that is safe', () => {
@@ -135,9 +136,7 @@ describe('the Pi can actually be handed the shore watch', () => {
         // redeployed or comes up while the hook is already down still gets
         // offered. A one-shot probe inside handleSetAnchor could not.
         expect(page).toMatch(/if \(viewMode !== 'watching' \|\| !piOfferSession\) return;/);
-        expect(page).toMatch(
-            /if \(AnchorPiWatchKeeper\.isKeeping\(\) \|\| piOfferDeclinedFor === piOfferSession\) return;/,
-        );
+        expect(page).toMatch(/if \(AnchorPiWatchKeeper\.isKeeping\(\) \|\| piOfferDeclinedFor === piOfferSession\) \{/);
         const arm = page.slice(page.indexOf('if (success) {'), page.indexOf('First-time hint dismissal'));
         expect(arm).not.toMatch(/probePiWatchCapability/);
     });
@@ -161,5 +160,23 @@ describe('the Pi can actually be handed the shore watch', () => {
         // And gated on the view as well as the flag, so a late-resolving probe
         // cannot raise it somewhere it makes no sense.
         expect(page).toMatch(/isOpen=\{showPiWatchOffer && viewMode === 'watching'\}/);
+    });
+
+    it('declining is not a dead end — there is a way back to the offer', () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        // The prompt is asked once per session. Without a second route, "no,
+        // keep it here" locked the feature away until the anchor was weighed.
+        expect(page).toMatch(/Hand the watch to the Pi/);
+        expect(page).toMatch(/setPiOfferDeclinedFor\(null\);\s*setShowPiWatchOffer\(true\);/);
+        // The row only appears when the Pi can actually take it and has not.
+        expect(page).toMatch(/\{piWatchCapable && !piKeepingWatch && \(/);
+    });
+
+    it('capability is probed even when the prompt is suppressed', () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        // Otherwise the row could never appear for someone who declined, which
+        // is exactly the person who needs it.
+        const guard = page.slice(page.indexOf('if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor'));
+        expect(guard.slice(0, 400)).toMatch(/probePiWatchCapability/);
     });
 });
