@@ -249,4 +249,21 @@ describe('the Pi can actually be handed the shore watch', () => {
         const accept = page.slice(page.indexOf('const handleAcceptPiWatch'), page.indexOf('const handleJoinShore'));
         expect(accept).toMatch(/await AnchorWatchSyncService\.createSession\(\)/);
     });
+
+    it('UNMOUNTING the page must not end the Pi’s watch', () => {
+        // The point of handing the watch to the Pi is that the skipper can
+        // pocket the phone and leave the boat — so the anchor page going away
+        // is the expected case, not the exceptional one. A cleanup here meant
+        // switching tabs (or any remount React chose) silently stopped the Pi.
+        // Observed on the first successful handoff: the Pi reported
+        // {running:false, sessionCode:null, lastOutcome:'sent'} and the shore
+        // view sat reporting "vessel offline".
+        const page = read('components/AnchorWatchPage.tsx');
+        // No bare unmount-cleanup effect calling end().
+        expect(page).not.toMatch(/\(\) => \(\) => \{\s*void AnchorPiWatchKeeper\.end\(\);\s*\},\s*\[\],/);
+        // Exactly one end() call, and it is the weigh-anchor one.
+        const calls = page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? [];
+        expect(calls).toHaveLength(1);
+        expect(page).toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\);/);
+    });
 });
