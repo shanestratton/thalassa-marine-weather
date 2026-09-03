@@ -13,8 +13,10 @@ import {
     AnchorWatchRunner,
     BROADCAST_INTERVAL_MS,
     POSITION_MAX_AGE_MS,
+    ALARM_CONFIRM_COUNT,
     broadcastOnce,
     buildPositionPayload,
+    nextDragState,
     currentFix,
     distanceMetres,
     fixIsCurrent,
@@ -373,4 +375,50 @@ test('sends config undefined rather than half a config when the app sent neither
     // it must never be handed { rodeLength: undefined } and format NaN.
     const payload = buildPositionPayload(ASSIGNMENT, { latitude: -27.19508, longitude: 153.10555, timestamp: 1 });
     assert.equal(payload.config, undefined);
+});
+
+// ── A drag must be CONFIRMED, not guessed from one fix ────────────────────
+//
+// The Pi used to send `isAlarm: distance > swingRadius` — one sample, no
+// confirmation. Handing the watch to the Pi therefore made the alarm MORE
+// trigger-happy than the phone it replaced, which requires three consecutive
+// breaches and decays on any fix back inside. The Pi sees the boat's own GPS;
+// it should be the steadier watcher, not the twitchier one.
+
+test('does not cry drag on a single fix outside the circle', () => {
+    const drag = { outsideCount: 0 };
+    const step = () => {
+        const next = nextDragState(drag.outsideCount, 40, 35.14);
+        drag.outsideCount = next.outsideCount;
+        return next.alarm;
+    };
+    assert.equal(step(), false, 'one breach is a GPS outlier, not a drag');
+    assert.equal(step(), false, 'two is still not enough');
+    assert.equal(step(), true, `fires on breach ${ALARM_CONFIRM_COUNT}`);
+});
+
+test('a fix back inside decays the count, so jitter cannot accumulate overnight', () => {
+    let drag = { outsideCount: 0 };
+    const feed = (distance: number) => {
+        const next = nextDragState(drag.outsideCount, distance, 35.14);
+        drag = { outsideCount: next.outsideCount };
+        return next.alarm;
+    };
+    assert.equal(feed(40), false);
+    assert.equal(feed(40), false);
+    assert.equal(feed(10), false, 'back inside');
+    assert.equal(drag.outsideCount, 1, 'decayed by one, not reset to zero');
+    assert.equal(feed(40), false, 'so the next breach is only the second');
+    assert.equal(feed(40), true);
+});
+
+test('the payload carries the CONFIRMED alarm, not the bare comparison', () => {
+    // 0.001 deg of latitude is ~111 m — comfortably outside the 40 m circle,
+    // unlike the anchor's own coordinates, which are 0 m from it.
+    const fix = { latitude: ASSIGNMENT.anchorLat + 0.001, longitude: ASSIGNMENT.anchorLon, timestamp: 1 };
+    // Well outside the circle, but unconfirmed: the wire must say no alarm.
+    const unconfirmed = buildPositionPayload(ASSIGNMENT, fix, false);
+    assert.equal(unconfirmed.isAlarm, false);
+    assert.ok(unconfirmed.distance > ASSIGNMENT.swingRadius, 'and it really is outside');
+    assert.equal(buildPositionPayload(ASSIGNMENT, fix, true).isAlarm, true);
 });
