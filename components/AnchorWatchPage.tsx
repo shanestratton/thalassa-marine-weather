@@ -436,8 +436,24 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // What still stops a runaway Pi is the six-hour authorisation lapsing,
     // which is a guarantee that does not depend on any phone being awake,
     // reachable, or even still owned by the skipper.
+    // A TRANSITION out of an active watch, never the mere fact of being in
+    // 'setup'. viewMode initialises to 'setup' on every mount, and
+    // AnchorPiWatchKeeper is a module singleton that outlives this component —
+    // so a plain `if (viewMode === 'setup')` fired on mount and handed the
+    // watch back before the restore effect had even read the snapshot.
+    //
+    // That is why removing the unmount cleanup was not enough: leaving the page
+    // no longer stopped the Pi, but COMING BACK to it did. Measured on the
+    // Pi: {running: false, sessionCode: null} after every return to the page,
+    // and a shore view stuck trying to reconnect to a session nobody was
+    // publishing to.
+    const prevViewModeRef = useRef<ViewMode | null>(null);
     useEffect(() => {
-        if (viewMode === 'setup') void AnchorPiWatchKeeper.end();
+        const prev = prevViewModeRef.current;
+        prevViewModeRef.current = viewMode;
+        if (viewMode === 'setup' && (prev === 'watching' || prev === 'shore')) {
+            void AnchorPiWatchKeeper.end();
+        }
     }, [viewMode]);
 
     // Swing circle visualization extracted to SwingCircleCanvas component

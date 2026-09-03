@@ -131,7 +131,7 @@ describe('the Pi can actually be handed the shore watch', () => {
         const page = read('components/AnchorWatchPage.tsx');
         // Only weighing the anchor ends it. 'shore' is precisely the state where
         // the Pi is the only thing still watching the boat.
-        expect(page).toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\)/);
+        expect(page).toMatch(/viewMode === 'setup' && \(prev === 'watching' \|\| prev === 'shore'\)/);
         expect(page).not.toMatch(/viewMode !== 'watching'[\s\S]{0,120}AnchorPiWatchKeeper\.end\(\)/);
     });
 
@@ -264,6 +264,11 @@ describe('the Pi can actually be handed the shore watch', () => {
         // Exactly one end() call, and it is the weigh-anchor one.
         const calls = page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? [];
         expect(calls).toHaveLength(1);
-        expect(page).toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\);/);
+        // …and it fires on a TRANSITION, not on the mere fact of being in
+        // 'setup'. viewMode initialises to 'setup' on every mount, so the
+        // unguarded form ended the watch each time the skipper came BACK to
+        // the page — the mirror image of the unmount bug above.
+        expect(page).toMatch(/if \(viewMode === 'setup' && \(prev === 'watching' \|\| prev === 'shore'\)\)/);
+        expect(page).not.toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\);/);
     });
 });
