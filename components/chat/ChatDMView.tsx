@@ -48,7 +48,9 @@ function renderMessageContent(message: string, isMine: boolean): React.ReactNode
     if (parseRecipeShareMessage(message)) {
         return <RecipeCard message={message} isMine={isMine} />;
     }
-    return <p className="text-xs text-white/70 leading-relaxed">{message}</p>;
+    // Channel messages render at text-lg (ChatMessageList). A private message
+    // is the same kind of content and was reading two sizes smaller.
+    return <p className="text-base text-white/70 leading-relaxed">{message}</p>;
 }
 
 function getConversationPreview(message: string): string {
@@ -96,7 +98,7 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                 </div>
                 <div className="text-left flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                        <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
+                        <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
                         <span className="text-[11px] text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
                     </div>
                     <p className="text-[11px] text-white/60 truncate">{getConversationPreview(conv.last_message)}</p>

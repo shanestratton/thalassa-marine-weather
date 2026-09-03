@@ -31,6 +31,23 @@ interface ConnectivityChipProps {
 
 const POLL_INTERVAL_MS = 5_000;
 
+// Only the two states the chip actually renders. 'online' returns null before
+// this table is ever read (see the guard below), so it had no entry to earn —
+// and the table itself is fixed, so it lives at module scope rather than being
+// rebuilt on every 5 s poll.
+const STYLES: Record<Exclude<Connectivity, 'online'>, { dot: string; label: string; tooltip: string }> = {
+    pi: {
+        dot: 'bg-emerald-400',
+        label: 'Pi',
+        tooltip: 'Boat-network Pi cache — cached tiles, fleet-shared fetches',
+    },
+    offline: {
+        dot: 'bg-red-400 animate-pulse',
+        label: 'Offline',
+        tooltip: 'No network — only cached data is available; live feeds will not update',
+    },
+};
+
 export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) => {
     const [piUp, setPiUp] = useState<boolean>(() => piCache.isAvailable());
     // Probe-driven WAN state, NOT navigator.onLine: on a boat LAN with a
@@ -56,23 +73,6 @@ export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) =
     // data). Ordinary internet shows nothing.
     if (state === 'online') return null;
 
-    const STYLES: Record<Connectivity, { dot: string; label: string; tooltip: string }> = {
-        pi: {
-            dot: 'bg-emerald-400',
-            label: 'Pi',
-            tooltip: 'Boat-network Pi cache — cached tiles, fleet-shared fetches',
-        },
-        online: {
-            dot: 'bg-amber-400',
-            label: 'Online',
-            tooltip: 'Cellular or WiFi — fetches go direct to upstream (cellular data may apply)',
-        },
-        offline: {
-            dot: 'bg-red-400 animate-pulse',
-            label: 'Offline',
-            tooltip: 'No network — only cached data is available; live feeds will not update',
-        },
-    };
     const s = STYLES[state];
 
     return (

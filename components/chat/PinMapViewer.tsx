@@ -205,7 +205,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     ref={closeButtonRef}
                     aria-label="Close pin drop map"
                     onClick={onClose}
-                    className="w-10 h-10 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center active:scale-90 transition-transform"
+                    className="w-11 h-11 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center active:scale-90 transition-transform"
                 >
                     <svg
                         width="18"
@@ -222,7 +222,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 <h2 id="pin-map-viewer-title" className="text-sm font-semibold text-white/80 truncate max-w-[60%]">
                     {caption}
                 </h2>
-                <div className="w-10" /> {/* spacer */}
+                <div className="w-11" /> {/* spacer */}
             </div>
 
             {/* Map */}
@@ -252,7 +252,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     <button
                         aria-label="Export pin as GPX"
                         onClick={() => exportPinAsGPX(lat, lng, caption)}
-                        className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 active:scale-95 transition-transform"
+                        className="shrink-0 min-h-[44px] flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 active:scale-95 transition-transform"
                     >
                         <span className="text-sm">📥</span>
                         <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">GPX</span>

@@ -203,7 +203,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
 
                     <div className="relative flex items-center gap-4 py-1">
                         <div className="h-px bg-white/10 flex-1"></div>
-                        <label htmlFor={homePortInputId} className="text-[11px] text-gray-500 font-bold uppercase">
+                        <label htmlFor={homePortInputId} className="text-[11px] text-gray-400 font-bold uppercase">
                             Home Port <span className="text-sky-300">*</span>
                         </label>
                         <div className="h-px bg-white/10 flex-1"></div>
