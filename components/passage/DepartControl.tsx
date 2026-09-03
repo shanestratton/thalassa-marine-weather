@@ -92,7 +92,7 @@ export const DepartControl: React.FC = () => {
             <div className="mb-2 flex items-baseline justify-between">
                 <span className="text-[11px] font-black uppercase tracking-widest text-sky-300">🕐 Departure</span>
                 {departureMs === null && (
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-emerald-300">
                         leaving now
                     </span>
                 )}
@@ -147,7 +147,7 @@ export const DepartControl: React.FC = () => {
                             (document.activeElement as HTMLElement | null)?.blur?.();
                             setDeparture(null);
                         }}
-                        className="h-9 flex-1 rounded-xl bg-white/10 text-[11px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
+                        className="min-h-[44px] flex-1 rounded-xl bg-white/10 text-[11px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
                     >
                         Now
                     </button>

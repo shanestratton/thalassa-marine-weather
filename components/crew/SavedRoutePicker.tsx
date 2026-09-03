@@ -68,7 +68,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                     triggerHaptic('light');
                     setOpen(true);
                 }}
-                className="w-full flex items-center justify-between gap-2 bg-white/6 border border-white/12 rounded-lg px-3 py-2.5 text-sm text-left focus:outline-hidden focus:border-violet-500/40"
+                className="w-full min-h-[44px] flex items-center justify-between gap-2 bg-white/6 border border-white/12 rounded-lg px-3 py-2.5 text-sm text-left focus:outline-hidden focus:border-violet-500/40"
             >
                 <span className={selected ? 'text-white' : 'text-gray-400'}>
                     {selected ? [selected.name, selected.legBadge].filter(Boolean).join(' ') : 'Choose a saved route…'}
@@ -114,7 +114,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                     ref={closeButtonRef}
                                     type="button"
                                     onClick={() => setOpen(false)}
-                                    className="min-h-[40px] rounded-xl border border-white/10 px-3 py-1.5 text-xs font-black text-gray-300"
+                                    className="min-h-[44px] rounded-xl border border-white/10 px-3 py-1.5 text-xs font-black text-gray-300"
                                 >
                                     Close
                                 </button>

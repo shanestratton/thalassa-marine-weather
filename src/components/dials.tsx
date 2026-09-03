@@ -43,7 +43,7 @@ export const ArcDial: React.FC<{
     const live = value != null;
     const frac = live ? Math.max(0, Math.min(1, value / max)) : 0;
     return (
-        <DialFrame label={label}>
+        <DialFrame label={`${label} ${unit}`}>
             <path
                 d={arcPath(cx, cy, r, ARC_START, ARC_START + ARC_SWEEP)}
                 fill="none"
@@ -70,9 +70,6 @@ export const ArcDial: React.FC<{
                 fontFamily="ui-monospace, monospace"
             >
                 {live ? (Number.isInteger(value) ? value : value.toFixed(1)) : '--'}
-            </text>
-            <text x={cx} y={cy + 12} textAnchor="middle" fill="#94a3b8" fontSize="7" fontWeight="700">
-                {unit}
             </text>
         </DialFrame>
     );
@@ -121,7 +118,7 @@ export const CompassDial: React.FC<{ value: number | null; label: string; accent
                 y={cy + r + 12}
                 textAnchor="middle"
                 fill="#fff"
-                fontSize="14"
+                fontSize="16"
                 fontWeight="800"
                 fontFamily="ui-monospace, monospace"
             >
@@ -179,7 +176,7 @@ export const WindDial: React.FC<{
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="#fff"
-                fontSize="12"
+                fontSize="16"
                 fontWeight="800"
                 fontFamily="ui-monospace, monospace"
             >

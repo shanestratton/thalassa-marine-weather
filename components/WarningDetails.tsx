@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WarningDetails');
-import { AlertTriangleIcon, ChevronLeftIcon } from './Icons';
+import { AlertTriangleIcon } from './Icons';
+import { BackButton } from './ui/BackButton';
 import { useUI } from '../context/UIContext';
 
 interface WarningDetailsProps {
@@ -63,13 +64,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         <div className="flex flex-col h-full bg-slate-900 text-white animate-in fade-in slide-in-from-right-4 duration-300">
             {/* Header */}
             <div className="flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-slate-900 border-b border-white/10 shrink-0">
-                <button
-                    aria-label="View warning details page"
-                    onClick={() => setPage('dashboard')}
-                    className="p-2 -ml-2 rounded-full hover:bg-white/10 active:bg-white/20 transition-colors"
-                >
-                    <ChevronLeftIcon className="w-6 h-6 text-sky-400" />
-                </button>
+                <BackButton onClick={() => setPage('dashboard')} label="Back to conditions" className="-ml-2" />
                 <div className="flex items-center gap-2 flex-1">
                     <AlertTriangleIcon className="w-5 h-5 text-red-500" />
                     <h2 className="text-lg font-bold uppercase tracking-wider">Active Warnings</h2>
@@ -118,9 +113,9 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                                     </div>
                                     {!isCritical(alert) && (
                                         <button
-                                            aria-label="Close warning details"
+                                            aria-label={`Dismiss warning: ${alert}`}
                                             onClick={() => dismiss(alert)}
-                                            className="shrink-0 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/70 font-bold text-xs px-3 py-2 rounded-xl transition-colors uppercase tracking-wider mt-1"
+                                            className="shrink-0 min-h-[44px] bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/70 font-bold text-xs px-3 py-2 rounded-xl transition-colors uppercase tracking-wider mt-1"
                                         >
                                             Dismiss
                                         </button>

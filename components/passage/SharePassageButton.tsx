@@ -15,7 +15,7 @@
 
 import React, { useState, useCallback, useId, useRef } from 'react';
 import { Share } from '@capacitor/share';
-import { Filesystem, Directory, Encoding as _Encoding } from '@capacitor/filesystem';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import { generatePassageBrief, type PassageBriefData } from '../../services/PassageBriefService';
 import { generatePassagePdf, getPassagePdfFileName } from '../../services/PassagePdfService';
 import { triggerHaptic } from '../../utils/system';
@@ -375,7 +375,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                                 htmlFor="passage-share-manual-fallback"
                                 className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-300"
                             >
-                                Selectable manual fallback
+                                Passage brief text — copy and send it yourself
                             </label>
                             <textarea
                                 id="passage-share-manual-fallback"

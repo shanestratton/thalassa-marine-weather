@@ -45,8 +45,9 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
     };
 
     const timestamp = new Date(entry.timestamp);
-    const timeStr = timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    // en-AU to match the rest of the app's dates ('2 Sep', not 'Sep 2').
+    const timeStr = timestamp.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const dateStr = timestamp.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' });
 
     return (
         <OverlayPortal
@@ -77,7 +78,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                     <button
                         onClick={onClose}
                         className="text-slate-400 hover:text-white transition-colors p-1"
-                        aria-label="Close diary entry editor"
+                        aria-label="Close log entry editor"
                     >
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
@@ -144,7 +145,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                             Cancel
                         </button>
                         <button
-                            aria-label="Save diary entry"
+                            aria-label="Save log entry"
                             type="submit"
                             className="flex-1 px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50"
                             disabled={saving}

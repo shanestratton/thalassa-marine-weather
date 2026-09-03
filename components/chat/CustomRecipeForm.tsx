@@ -364,7 +364,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         value={ing.name}
                         onChange={(e) => updateIngredient(ing.key, 'name', e.target.value)}
                         placeholder="Ingredient"
-                        className="flex-1 min-w-0 bg-white/4 border border-white/8 rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
+                        className="flex-1 min-w-0 min-h-[44px] bg-white/4 border border-white/8 rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                     />
                     <input
                         value={ing.amount}
@@ -373,12 +373,12 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         type="number"
                         inputMode="decimal"
                         step="0.1"
-                        className="w-16 bg-white/4 border border-white/8 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30 text-center"
+                        className="w-16 min-h-[44px] bg-white/4 border border-white/8 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30 text-center"
                     />
                     <select
                         value={ing.unit}
                         onChange={(e) => updateIngredient(ing.key, 'unit', e.target.value)}
-                        className="w-20 bg-white/4 border border-white/8 rounded-lg px-1.5 py-2 text-xs text-white focus:outline-hidden focus:border-amber-500/30 appearance-none"
+                        className="w-20 min-h-[44px] bg-white/4 border border-white/8 rounded-lg px-1.5 py-2 text-xs text-white focus:outline-hidden focus:border-amber-500/30 appearance-none"
                     >
                         {UNIT_OPTIONS.map((u) => (
                             <option key={u} value={u} className="bg-slate-900 text-white">
@@ -388,7 +388,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     </select>
                     <button
                         onClick={() => removeIngredient(ing.key)}
-                        className="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center text-xs shrink-0 hover:bg-red-500/20 transition-colors mt-0.5"
+                        className="w-8 h-8 min-w-[44px] min-h-[44px] rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center text-xs shrink-0 hover:bg-red-500/20 transition-colors mt-0.5"
                         aria-label="Remove ingredient"
                     >
                         ✕
@@ -618,7 +618,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     {step > 0 && (
                         <button
                             onClick={() => setStep(step - 1)}
-                            className="px-5 py-2.5 rounded-xl bg-white/6 border border-white/8 text-xs font-bold text-gray-300 hover:bg-white/10 transition-colors"
+                            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-white/6 border border-white/8 text-xs font-bold text-gray-300 hover:bg-white/10 transition-colors"
                         >
                             Back
                         </button>
@@ -628,7 +628,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         <button
                             onClick={() => setStep(step + 1)}
                             disabled={!canAdvance()}
-                            className="px-6 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/25 text-xs font-bold text-amber-300 hover:bg-amber-500/25 disabled:opacity-30 transition-all active:scale-95"
+                            className="min-h-[44px] px-6 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/25 text-xs font-bold text-amber-300 hover:bg-amber-500/25 disabled:opacity-30 transition-all active:scale-95"
                         >
                             Next →
                         </button>
@@ -637,7 +637,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                             onClick={handleSave}
                             disabled={saving || !canAdvance() || privatePhotoBlocked}
                             aria-describedby={privatePhotoBlocked ? 'private-recipe-photo-notice' : undefined}
-                            className="px-6 py-2.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 disabled:opacity-30 transition-all active:scale-95 flex items-center gap-2"
+                            className="min-h-[44px] px-6 py-2.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 disabled:opacity-30 transition-all active:scale-95 flex items-center gap-2"
                         >
                             {saving ? <>⏳ Saving...</> : <>✨ Save Recipe</>}
                         </button>

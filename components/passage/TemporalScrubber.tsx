@@ -1,13 +1,14 @@
 /**
  * TemporalScrubber — The 4th Dimension Controller
  *
- * Butter-smooth custom timeline scrubber matching the SynopticScrubber style.
+ * Butter-smooth custom timeline scrubber.
  * No native <input type="range"> — custom div-based track/thumb with
  * pointer events for cross-platform (mouse + touch) smoothness.
  */
 
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { FONT, SIZE } from '../../styles/typeScale';
+import { PlayIcon } from '../Icons';
 
 interface TemporalScrubberProps {
     maxTimeHours: number;
@@ -30,13 +31,22 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
         const isDraggingRef = useRef(false);
         const rafRef = useRef<number | null>(null);
 
+        // Latest-hour mirror. currentHour used to be an effect dependency, so
+        // every tick tore down and rebuilt the interval; the ref keeps one
+        // interval per play session while each tick still reads the live hour.
+        const hourRef = useRef(currentHour);
+        useEffect(() => {
+            hourRef.current = currentHour;
+        }, [currentHour]);
+
         // ── Auto-playback ──
         useEffect(() => {
             if (isPlaying && maxTimeHours > 0) {
                 const tickMs = Math.max(50, 100 / playbackSpeed);
                 intervalRef.current = setInterval(() => {
-                    onChange(Math.min(currentHour + 0.5, maxTimeHours));
-                    if (currentHour >= maxTimeHours - 0.5) {
+                    const hour = hourRef.current;
+                    onChange(Math.min(hour + 0.5, maxTimeHours));
+                    if (hour >= maxTimeHours - 0.5) {
                         setIsPlaying(false);
                     }
                 }, tickMs);
@@ -44,7 +54,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
             return () => {
                 if (intervalRef.current) clearInterval(intervalRef.current);
             };
-        }, [isPlaying, currentHour, maxTimeHours, playbackSpeed, onChange]);
+        }, [isPlaying, maxTimeHours, playbackSpeed, onChange]);
 
         const togglePlay = useCallback(() => {
             if (currentHour >= maxTimeHours) {
@@ -254,8 +264,8 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                         onClick={togglePlay}
                         disabled={computing || maxTimeHours === 0}
                         style={{
-                            width: 32,
-                            height: 32,
+                            width: 44,
+                            height: 44,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -270,7 +280,14 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                         }}
                         aria-label={isPlaying ? 'Pause simulation' : 'Play simulation'}
                     >
-                        <span style={{ fontSize: 14 }}>{isPlaying ? '⏸' : '▶️'}</span>
+                        {isPlaying ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <rect x="6" y="4" width="4" height="16" rx="1" />
+                                <rect x="14" y="4" width="4" height="16" rx="1" />
+                            </svg>
+                        ) : (
+                            <PlayIcon className="w-4 h-4" />
+                        )}
                     </button>
 
                     {/* Custom track */}

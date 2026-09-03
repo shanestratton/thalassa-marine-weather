@@ -198,8 +198,8 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             // Parked in the free right-edge band instead: above MapActionFabs
             // (80px + inset, 48px tall, so clear of 128px) and below
             // ChartKeyPanel (bottom-44 = 176px). Deliberately NOT
-            // calc(64px + inset + 8px) — that is SynopticScrubber's exact
-            // offset at z-500 across the full width, which would re-hide it.
+            // calc(64px + inset + 8px) — the full-width chart furniture band
+            // at z-500 sits there, and it would re-hide this chip.
             className="absolute right-2 z-140 pointer-events-auto max-w-[280px]"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 136px)' }}
             role="contentinfo"

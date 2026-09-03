@@ -24,23 +24,28 @@ interface UnitPreferencesStepProps {
     onNext: () => void;
 }
 
-const UnitRow: React.FC<{ label: string; options: string[]; current: string; onChange: (v: string) => void }> = ({
-    label,
-    options,
-    current,
-    onChange,
-}) => (
+const UnitRow: React.FC<{
+    label: string;
+    options: string[];
+    current: string;
+    onChange: (v: string) => void;
+    /** Display text per option value — the stored value is always the option itself. */
+    labels?: Record<string, string>;
+}> = ({ label, options, current, onChange, labels }) => (
     <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
         <span className="text-gray-300 font-medium">{label}</span>
-        <div className="flex bg-black/20 rounded-lg p-1">
+        {/* The visible unit is the button's name, so no aria-label; the group
+            names it so 'kts' is announced inside 'Wind Speed'. */}
+        <div role="group" aria-label={label} className="flex bg-black/20 rounded-lg p-1">
             {options.map((u) => (
                 <button
-                    aria-label="Change setting"
                     key={u}
+                    type="button"
+                    aria-pressed={current === u}
                     onClick={() => onChange(u)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${current === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
+                    className={`min-h-11 px-3 flex items-center justify-center rounded-lg text-xs font-bold uppercase transition-all ${current === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                 >
-                    {u}
+                    {labels?.[u] ?? u}
                 </button>
             ))}
         </div>
@@ -71,6 +76,7 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
                 <UnitRow
                     label="Wind Speed"
                     options={['kts', 'mph', 'kmh']}
+                    labels={{ kmh: 'km/h' }}
                     current={prefSpeed}
                     onChange={(v) => onSpeedChange(v as SpeedUnit)}
                 />
@@ -81,7 +87,7 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
                     onChange={(v) => onWaveHeightChange(v as LengthUnit)}
                 />
                 <UnitRow
-                    label="Tide Height / Length"
+                    label="Tide Height / Boat Length"
                     options={['m', 'ft']}
                     current={prefLength}
                     onChange={(v) => onLengthChange(v as LengthUnit)}
@@ -89,6 +95,7 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
                 <UnitRow
                     label="Temperature"
                     options={['C', 'F']}
+                    labels={{ C: '°C', F: '°F' }}
                     current={prefTemp}
                     onChange={(v) => onTempChange(v as TempUnit)}
                 />
