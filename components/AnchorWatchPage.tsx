@@ -42,6 +42,7 @@ import { SignInScreen } from './SignInScreen';
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
 import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
 /** Vessel positions are broadcast every five seconds; three missed updates are stale. */
@@ -70,6 +71,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [piOfferDeclinedFor, setPiOfferDeclinedFor] = useState<string | null>(null);
     /** Whether the Pi says it can take the watch, so the row below can offer it. */
     const [piWatchCapable, setPiWatchCapable] = useState(false);
+    const [piHasFix, setPiHasFix] = useState(false);
     /** Whether the Pi HAS it. Mirrored into state because the keeper is not reactive. */
     const [piKeepingWatch, setPiKeepingWatch] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
@@ -359,36 +361,47 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
      */
     const piOfferAnchorKey =
         viewMode === 'watching' && snapshot?.anchorPosition ? String(snapshot.anchorPosition.timestamp) : null;
+    // Asked REPEATEDLY, not once.
+    //
+    // Five times the handoff underneath worked and the offer never appeared,
+    // and this is why: the probe ran a single time at the moment the anchor
+    // was armed. If the Pi status poll had not yet marked the Pi reachable —
+    // the app had just come to the foreground, the phone was still joining the
+    // boat's network, the pinned-key identity gate had not finished — the
+    // answer was "no Pi", `piWatchCapable` stayed false, and nothing ever
+    // asked again for the life of that anchor. A race, and one the skipper
+    // could never see or retry.
+    //
+    // So it keeps looking while the anchor is down: every 10s until a Pi
+    // answers, every 30s after, which costs one small request on the boat's
+    // own LAN. The modal is raised at most once per anchor by the latch below,
+    // so a Pi that wakes up an hour later gets offered, and a skipper who said
+    // no is not asked twice.
+    const autoOfferedForRef = useRef<string | null>(null);
     useEffect(() => {
         if (viewMode !== 'watching' || !piOfferAnchorKey) {
             setPiWatchCapable(false);
             return;
         }
-        if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor === piOfferAnchorKey) {
-            // Still ask the Pi whether it COULD, so the row stays offerable —
-            // just do not raise the dialog again.
-            let stale = false;
-            void probePiWatchCapability().then((cap) => {
-                if (!stale) setPiWatchCapable(cap.capable);
-            });
-            return () => {
-                stale = true;
-            };
-        }
-        let cancelled = false;
-        void probePiWatchCapability().then((cap) => {
-            if (cancelled) return;
-            // Remembered whether or not we prompt, so declining leaves a way
-            // BACK IN rather than a dead end (Shane 2026-09-03: "once i
-            // pressed the no, keep it here button, how do i get it back to ask
-            // me the question").
+        let stopped = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const look = async () => {
+            const cap = await probePiWatchCapability();
+            if (stopped) return;
             setPiWatchCapable(cap.capable);
-            if (cap.capable) setShowPiWatchOffer(true);
-        });
-        return () => {
-            cancelled = true;
+            setPiHasFix(cap.hasFix);
+            if (cap.capable && !AnchorPiWatchKeeper.isKeeping() && autoOfferedForRef.current !== piOfferAnchorKey) {
+                autoOfferedForRef.current = piOfferAnchorKey;
+                setShowPiWatchOffer(true);
+            }
+            timer = setTimeout(() => void look(), cap.capable ? 30_000 : 10_000);
         };
-    }, [viewMode, piOfferAnchorKey, piOfferDeclinedFor]);
+        void look();
+        return () => {
+            stopped = true;
+            if (timer) clearTimeout(timer);
+        };
+    }, [viewMode, piOfferAnchorKey]);
 
     // ── The Pi keeps the watch only when the skipper says so ──
     //
@@ -1548,9 +1561,20 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         setPiOfferDeclinedFor(null);
                         setShowPiWatchOffer(true);
                     }}
-                    className="mx-3 mb-2 min-h-[44px] rounded-xl border border-sky-500/25 bg-sky-500/8 px-3 text-sm font-bold text-sky-300 active:scale-[0.99] transition-all"
+                    className="mx-3 mb-2 flex min-h-[56px] items-center gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 text-left transition-all active:scale-[0.99]"
                 >
-                    Hand the watch to the Pi
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-500/15 text-lg">
+                        ⚓
+                    </span>
+                    <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] font-black tracking-tight text-sky-200">
+                            Hand the watch to the Pi
+                        </span>
+                        <span className="block text-[12px] font-medium text-sky-300/70">
+                            {piHasFix ? 'Aboard, mains powered, has a fix' : 'Aboard and ready'}
+                        </span>
+                    </span>
+                    <span className="shrink-0 text-sky-300/60">›</span>
                 </button>
             )}
 
@@ -1698,20 +1722,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 anchor"). Gated on viewMode too, so a late-resolving probe can
                 never raise it over a view where there is no anchor to hand
                 over. */}
-            <ConfirmDialog
+            <AnchorPiWatchOfferModal
                 isOpen={showPiWatchOffer && viewMode === 'watching'}
-                title="Let the Pi keep the watch?"
-                message={
-                    'Your boat’s Pi can take the anchor watch. It is mains powered, wired to the instruments, ' +
-                    'and it does not sleep or leave the boat in your pocket.\n\n' +
-                    'Say yes and this phone becomes your shore monitor — it stops watching from aboard and ' +
-                    'starts following the boat, so you can take it ashore. Say no and this phone keeps the ' +
-                    'watch exactly as it does now.'
-                }
-                confirmLabel={piHandoffBusy ? 'Handing over…' : 'Yes, the Pi watches'}
-                cancelLabel="No, keep it here"
-                onConfirm={handleAcceptPiWatch}
-                onCancel={() => {
+                busy={piHandoffBusy}
+                piHasFix={piHasFix}
+                onAccept={handleAcceptPiWatch}
+                onDecline={() => {
                     setShowPiWatchOffer(false);
                     setPiOfferDeclinedFor(piOfferAnchorKey);
                 }}

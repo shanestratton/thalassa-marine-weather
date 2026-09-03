@@ -59,6 +59,8 @@ export interface PiWatchCapability {
     capable: boolean;
     /** Plain words for the skipper when it cannot — never an error code. */
     reason: string | null;
+    /** Whether the Pi can currently see the vessel, for the offer to say so. */
+    hasFix: boolean;
 }
 
 /**
@@ -71,25 +73,26 @@ export interface PiWatchCapability {
  */
 export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatchCapability> {
     const target = resolvePiWatchTarget();
-    if (!target) return { capable: false, reason: null };
+    if (!target) return { capable: false, reason: null, hasFix: false };
     try {
         const res = await pinnedPiRequest({
             url: `${target.baseUrl}/api/anchor/capability`,
             readTimeout: timeoutMs,
             responseType: 'text',
         });
-        if (res.status < 200 || res.status >= 300) return { capable: false, reason: null };
+        if (res.status < 200 || res.status >= 300) return { capable: false, reason: null, hasFix: false };
         const body = typeof res.data === 'string' ? (JSON.parse(res.data) as unknown) : null;
-        if (!body || typeof body !== 'object') return { capable: false, reason: null };
-        const parsed = body as { capable?: unknown; reason?: unknown };
+        if (!body || typeof body !== 'object') return { capable: false, reason: null, hasFix: false };
+        const parsed = body as { capable?: unknown; reason?: unknown; hasFix?: unknown };
         return {
             capable: parsed.capable === true,
             reason: typeof parsed.reason === 'string' ? parsed.reason : null,
+            hasFix: parsed.hasFix === true,
         };
     } catch {
         // An older Pi has no such route, and a sleeping one answers nothing.
         // Both mean the same thing here: do not offer.
-        return { capable: false, reason: null };
+        return { capable: false, reason: null, hasFix: false };
     }
 }
 
