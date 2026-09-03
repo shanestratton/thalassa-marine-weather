@@ -71,32 +71,14 @@ export interface PiWatchCapability {
  * watched. So the offer is only made when the Pi is paired, configured, and
  * can see the vessel on the bus right now.
  */
-export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatchCapability> {
-    // ── ASK THE PI, DO NOT ASK THE MIRROR ────────────────────────────────
-    //
-    // This used to start with `resolvePiWatchTarget()`, which returns null
-    // unless piCache's CACHED status already says `reachable` and already
-    // carries a diaryRelayId. That mirror is refreshed by a health poll that
-    // backs off to five-minute intervals, and nothing on the anchor page can
-    // make it refresh — so a phone whose last health tick failed answered
-    // "there is no Pi" for the whole night, without ever sending a packet,
-    // while `curl` to the same Pi from a laptop returned capable:true.
-    //
-    // Measured on Shane's own iPhone 2026-09-03: every app launch from
-    // 06:26 to 13:04 reached the Pi within 1-2 s; every launch from 14:10
-    // onward — including 15:40 and 15:44, the launches of the build that
-    // carried the fixed offer — reached it not once. Six fixes to WHERE and
-    // WHEN the offer was raised could not matter, because the probe was
-    // returning false before any I/O.
-    //
-    // The Pi's /api/anchor/capability is always-200 and self-describing, and
-    // asking it costs one small request on the boat's own LAN. relayId is
-    // needed to HAND OVER, not to ASK — begin() still requires it.
-    const baseUrl = piCache.getBaseUrl();
-    if (!baseUrl) {
-        log.warn('Pi watch: no Pi host is configured on this phone — not offering the watch');
-        return { capable: false, reason: 'No Pi is set up on this phone yet', hasFix: false };
-    }
+/**
+ * One request to one address. Says whether the TRANSPORT failed, because that
+ * is the case worth retrying somewhere else.
+ */
+async function askPiCapability(
+    baseUrl: string,
+    timeoutMs: number,
+): Promise<{ result: PiWatchCapability; transportFailed: boolean }> {
     try {
         const res = await pinnedPiRequest({
             url: `${baseUrl}/api/anchor/capability`,
@@ -106,36 +88,85 @@ export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatch
         });
         if (res.status < 200 || res.status >= 300) {
             log.warn(`Pi watch: capability probe to ${baseUrl} answered HTTP ${res.status}`);
-            return { capable: false, reason: `The Pi answered ${res.status}`, hasFix: false };
+            return {
+                result: { capable: false, reason: `The Pi answered ${res.status}`, hasFix: false },
+                transportFailed: false,
+            };
         }
         const body = typeof res.data === 'string' ? (JSON.parse(res.data) as unknown) : null;
         if (!body || typeof body !== 'object') {
             log.warn(`Pi watch: capability probe to ${baseUrl} returned an unreadable body`);
-            return { capable: false, reason: 'The Pi sent something unreadable', hasFix: false };
+            return {
+                result: { capable: false, reason: 'The Pi sent something unreadable', hasFix: false },
+                transportFailed: false,
+            };
         }
         const parsed = body as { capable?: unknown; reason?: unknown; hasFix?: unknown };
-        const out = {
+        const result = {
             capable: parsed.capable === true,
             reason: typeof parsed.reason === 'string' ? parsed.reason : null,
             hasFix: parsed.hasFix === true,
         };
-        if (!out.capable) {
-            log.warn(`Pi watch: the Pi says it cannot keep the watch — ${out.reason ?? 'no reason given'}`);
+        if (!result.capable) {
+            log.warn(`Pi watch: the Pi says it cannot keep the watch — ${result.reason ?? 'no reason given'}`);
         }
-        return out;
+        return { result, transportFailed: false };
     } catch (err) {
-        // An older Pi has no such route, a sleeping one answers nothing, and
-        // an unpaired phone is refused natively with PIN_REQUIRED. They are
-        // NOT the same thing to whoever reads this next, so say which.
-        //
         // log.warn, not log.info: createLogger silences info() in production
-        // builds (utils/createLogger.ts), and the shipped iOS bundle is a
-        // production build — an info() here would be invisible on the device,
-        // which is how this failure stayed silent through six attempts.
+        // builds, and the shipped iOS bundle is one — which is how this
+        // subsystem stayed silent through six attempts.
         const message = err instanceof Error ? err.message : String(err);
         log.warn(`Pi watch: capability probe to ${baseUrl} failed — ${message}`);
-        return { capable: false, reason: `Could not reach the Pi (${message})`, hasFix: false };
+        return {
+            result: { capable: false, reason: `Could not reach the Pi (${message})`, hasFix: false },
+            transportFailed: true,
+        };
     }
+}
+
+/**
+ * Can the Pi keep this watch?
+ *
+ * ASK THE PI, NOT THE CACHED MIRROR. This used to start with
+ * resolvePiWatchTarget(), which returns null unless piCache's cached status
+ * already says `reachable` — a mirror refreshed by a health poll that backs
+ * off to five-minute intervals and that nothing on the anchor page can force.
+ * So it answered "no Pi" without sending a packet.
+ *
+ * AND ASK AT THE RIGHT ADDRESS. getBaseUrl() returns the BOAT-LAN host until
+ * checkHealth's ladder has flipped _useRemote to the tailnet address, and that
+ * ladder runs only on the same backed-off poll. Measured 2026-09-03 with Shane
+ * ashore at Newport: the probe reached the Pi's LAN IP and iOS answered
+ * NSURLErrorNotConnectedToInternet — "Could not reach the Pi (The Internet
+ * connection appears to be offline.)" — while the Pi was healthy on its 100.x
+ * address the whole time. A phone off the boat could therefore never be
+ * offered the handoff, which is precisely the phone that needs it.
+ *
+ * So a transport failure runs the ladder once and asks again. Only a transport
+ * failure: a Pi that answers "no, I cannot" is a real answer, not a wrong
+ * address, and re-pinging on it would poll the boat's LAN for nothing.
+ */
+export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatchCapability> {
+    const baseUrl = piCache.getBaseUrl();
+    if (!baseUrl) {
+        log.warn('Pi watch: no Pi host is configured on this phone — not offering the watch');
+        return { capable: false, reason: 'No Pi is set up on this phone yet', hasFix: false };
+    }
+
+    const first = await askPiCapability(baseUrl, timeoutMs);
+    if (!first.transportFailed) return first.result;
+
+    log.warn('Pi watch: transport failed — running the health ladder in case the phone has left the boat LAN');
+    try {
+        await piCache.ping();
+    } catch (err) {
+        log.warn(`Pi watch: health check itself failed — ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const secondUrl = piCache.getBaseUrl();
+    if (!secondUrl || secondUrl === baseUrl) return first.result;
+
+    log.warn(`Pi watch: retrying the capability probe at ${secondUrl}`);
+    return (await askPiCapability(secondUrl, timeoutMs)).result;
 }
 
 class AnchorPiWatchKeeperClass {
