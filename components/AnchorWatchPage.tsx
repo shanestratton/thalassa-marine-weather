@@ -413,19 +413,32 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // this phone to the SHORE side, and that is a decision about where the
     // skipper is going, which no ping can know.
     //
-    // The watch is given back when the anchor is weighed, and when this page
-    // goes away entirely. Note what is NOT here: viewMode 'shore' must never
-    // end it, because 'shore' is exactly the state where the Pi is the only
-    // thing still watching the boat.
+    // WEIGHING THE ANCHOR ENDS IT. NOTHING ELSE DOES.
+    //
+    // Note what is NOT here, and why each absence is deliberate:
+    //
+    // viewMode 'shore' must never end it — 'shore' is exactly the state where
+    // the Pi is the only thing still watching the boat.
+    //
+    // Nor may UNMOUNTING end it. There used to be a cleanup here that called
+    // end() when the page went away, on the reasoning that the watch should be
+    // "given back when this page goes away entirely". That defeats the whole
+    // feature: the point of handing the watch to the Pi is that the skipper can
+    // pocket the phone and leave the boat, so the anchor page going away is the
+    // EXPECTED case, not the exceptional one. Switching tabs was enough to do
+    // it, and so was any remount React chose to perform.
+    //
+    // Observed 2026-09-03 on Shane's first successful handoff: the Pi reported
+    // {running: false, sessionCode: null, lastOutcome: 'sent'} — it broadcast
+    // once, then the page unmounted and told it to stop, and the shore view sat
+    // there reporting "vessel offline, last-known data from Ns ago".
+    //
+    // What still stops a runaway Pi is the six-hour authorisation lapsing,
+    // which is a guarantee that does not depend on any phone being awake,
+    // reachable, or even still owned by the skipper.
     useEffect(() => {
         if (viewMode === 'setup') void AnchorPiWatchKeeper.end();
     }, [viewMode]);
-    useEffect(
-        () => () => {
-            void AnchorPiWatchKeeper.end();
-        },
-        [],
-    );
 
     // Swing circle visualization extracted to SwingCircleCanvas component
 
