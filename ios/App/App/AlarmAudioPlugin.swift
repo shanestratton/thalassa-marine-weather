@@ -96,6 +96,27 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
         return wave
     }()
 
+    /**
+     Audio-session activation runs here, never on the main thread.
+
+     `AVAudioSession.setActive` is synchronous and can take long enough to
+     stall the UI — Xcode flags it as such (AVAudioSession_iOS.mm:978). Apple's
+     suggested `activateWithOptions:completionHandler:` is `API_AVAILABLE(ios(27.0))`
+     and this app deploys to iOS 17, so the fix is to move the synchronous call
+     off the main thread rather than to adopt an API we cannot ship.
+
+     Serial on purpose: activate and deactivate must not overlap, or a
+     deactivate racing an activate can leave the session down while the alarm
+     believes it is up.
+
+     WHAT DELIBERATELY STAYS ON MAIN: the AVAudioPlayer, all plugin state, and
+     the delegate. AVAudioPlayer delivers audioPlayerDidFinishPlaying on the
+     run loop that started playback, and a GCD queue thread has no run loop —
+     moving the player here would silently disable the alarm's own recovery
+     net, in exactly the failure case it exists for.
+     */
+    private let audioSessionQueue = DispatchQueue(label: "com.thalassa.alarm-audio-session")
+
     public override func load() {
         let center = NotificationCenter.default
         notificationTokens.append(
@@ -135,34 +156,44 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
                     return
                 }
 
-                do {
-                    // A bridge call needs a definitive answer. Do not enqueue a
-                    // background retry and then reject while that retry can
-                    // later resurrect playback behind JavaScript's back.
-                    try self.resumeAlarmImmediately(reason: "explicit start retry")
+                // A bridge call needs a definitive answer. Do not enqueue a
+                // background retry and then reject while that retry can
+                // later resurrect playback behind JavaScript's back.
+                self.resumeAlarmImmediately(reason: "explicit start retry") { [weak self] error in
+                    guard let self = self else { return }
+                    if let error = error {
+                        self.cancelRequestedAlarmAndRestoreSession()
+                        print("[AlarmAudio] Explicit resume failed: \(error)")
+                        call.reject("Alarm audio is active but could not resume playback.")
+                        return
+                    }
                     call.resolve(["playing": true])
-                } catch {
-                    self.cancelRequestedAlarmAndRestoreSession()
-                    print("[AlarmAudio] Explicit resume failed: \(error)")
-                    call.reject("Alarm audio is active but could not resume playback.")
                 }
                 return
             }
 
-            do {
-                self.resumeRetryWorkItem?.cancel()
-                self.resumeRetryWorkItem = nil
-                try self.configureAndActivateAudioSession(capturePreviousConfiguration: true)
-                try self.startLoopingAlarmPlayer()
-                self.alarmRequested = true
-                self.isPlaying = true
+            self.resumeRetryWorkItem?.cancel()
+            self.resumeRetryWorkItem = nil
+            self.configureAndActivateAudioSession(capturePreviousConfiguration: true) { [weak self] error in
+                guard let self = self else { return }
+                if let error = error {
+                    self.cancelRequestedAlarmAndRestoreSession()
+                    print("[AlarmAudio] Failed to start alarm: \(error)")
+                    call.reject("Failed to start alarm audio: \(error.localizedDescription)")
+                    return
+                }
+                do {
+                    try self.startLoopingAlarmPlayer()
+                    self.alarmRequested = true
+                    self.isPlaying = true
 
-                call.resolve(["playing": true])
-                print("[AlarmAudio] Continuous alarm playback started")
-            } catch {
-                self.cancelRequestedAlarmAndRestoreSession()
-                print("[AlarmAudio] Failed to start alarm: \(error)")
-                call.reject("Failed to start alarm audio: \(error.localizedDescription)")
+                    call.resolve(["playing": true])
+                    print("[AlarmAudio] Continuous alarm playback started")
+                } catch {
+                    self.cancelRequestedAlarmAndRestoreSession()
+                    print("[AlarmAudio] Failed to start alarm: \(error)")
+                    call.reject("Failed to start alarm audio: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -213,7 +244,17 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
         alarmPlayer = nil
     }
 
-    private func configureAndActivateAudioSession(capturePreviousConfiguration: Bool) throws {
+    /**
+     Configure and activate the session off the main thread, then answer on it.
+
+     The capture of the previous configuration stays on main because it reads
+     plugin state (savedSessionConfiguration); only setCategory/setActive —
+     the calls that block — cross to the audio queue.
+     */
+    private func configureAndActivateAudioSession(
+        capturePreviousConfiguration: Bool,
+        completion: @escaping (Error?) -> Void
+    ) {
         let session = AVAudioSession.sharedInstance()
         if capturePreviousConfiguration && savedSessionConfiguration == nil {
             savedSessionConfiguration = SavedSessionConfiguration(
@@ -222,8 +263,16 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
                 options: session.categoryOptions
             )
         }
-        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
-        try session.setActive(true)
+        audioSessionQueue.async {
+            var failure: Error?
+            do {
+                try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+                try session.setActive(true)
+            } catch {
+                failure = error
+            }
+            DispatchQueue.main.async { completion(failure) }
+        }
     }
 
     private func handleAudioSessionInterruption(_ notification: Notification) {
@@ -271,10 +320,11 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
         resumeRetryWorkItem = nil
         guard alarmRequested else { return }
 
-        do {
-            try resumeAlarmImmediately(reason: reason)
-        } catch {
-            isPlaying = false
+        resumeAlarmImmediately(reason: reason) { [weak self] error in
+            guard let self = self, let error = error else { return }
+            // The lease may have been dropped while the session was activating.
+            guard self.alarmRequested else { return }
+            self.isPlaying = false
             print("[AlarmAudio] Resume after \(reason) failed: \(error)")
             // A retained owner lease still requests safety audio. Keep a
             // single bounded-backoff recovery task alive until playback comes
@@ -289,18 +339,34 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
                     retryDelay: nextDelay
                 )
             }
-            resumeRetryWorkItem = workItem
+            self.resumeRetryWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
         }
     }
 
-    private func resumeAlarmImmediately(reason: String) throws {
+    /**
+     Resume playback. The session is activated off the main thread, so the
+     result arrives in a completion rather than a `throws` — the ORDER is
+     unchanged: activate, then play, then mark playing.
+     */
+    private func resumeAlarmImmediately(reason: String, completion: @escaping (Error?) -> Void) {
         resumeRetryWorkItem?.cancel()
         resumeRetryWorkItem = nil
-        try configureAndActivateAudioSession(capturePreviousConfiguration: false)
-        try startLoopingAlarmPlayer()
-        isPlaying = true
-        print("[AlarmAudio] Alarm resumed after \(reason)")
+        configureAndActivateAudioSession(capturePreviousConfiguration: false) { [weak self] error in
+            guard let self = self else { return }
+            if let error = error {
+                completion(error)
+                return
+            }
+            do {
+                try self.startLoopingAlarmPlayer()
+                self.isPlaying = true
+                print("[AlarmAudio] Alarm resumed after \(reason)")
+                completion(nil)
+            } catch {
+                completion(error)
+            }
+        }
     }
 
     private func cancelRequestedAlarmAndRestoreSession() {
@@ -326,20 +392,32 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
         resumeAlarmAfterSystemEvent(reason: "decoder error")
     }
 
+    /**
+     Give the session back, off the main thread.
+
+     Fire-and-forget by design: nothing downstream waits on the teardown, and
+     the caller has already stopped the player, so a slow deactivate cannot
+     leave the alarm sounding. The previous configuration is read on main and
+     carried into the queue, so the ordering — deactivate, then restore the
+     category — is preserved inside one serial block.
+     */
     private func restoreAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("[AlarmAudio] Failed to deactivate audio session: \(error)")
-        }
-        if let previous = savedSessionConfiguration {
+        let previous = savedSessionConfiguration
+        savedSessionConfiguration = nil
+        audioSessionQueue.async {
             do {
-                try session.setCategory(previous.category, mode: previous.mode, options: previous.options)
+                try session.setActive(false, options: .notifyOthersOnDeactivation)
             } catch {
-                print("[AlarmAudio] Failed to restore audio-session category: \(error)")
+                print("[AlarmAudio] Failed to deactivate audio session: \(error)")
+            }
+            if let previous = previous {
+                do {
+                    try session.setCategory(previous.category, mode: previous.mode, options: previous.options)
+                } catch {
+                    print("[AlarmAudio] Failed to restore audio-session category: \(error)")
+                }
             }
         }
-        savedSessionConfiguration = nil
     }
 }
