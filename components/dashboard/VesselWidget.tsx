@@ -29,6 +29,19 @@ export interface VesselStatus {
 
 export type VesselStatusStyles = Record<string, string>;
 
+/**
+ * One label per hydrostatic figure. The compact card and the full card show
+ * the same three numbers and used to name them differently ("Comfort" vs
+ * "Motion Comfort", "Capsize" vs "Capsize Risk"), which reads as two
+ * different measurements. CSF is a ratio, not a risk percentage — say so.
+ */
+const HYDRO_LABELS = {
+    hullSpeed: 'Hull Speed',
+    displacement: 'Displacement',
+    motionComfort: 'Motion Comfort',
+    capsize: 'Capsize Ratio',
+} as const;
+
 const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile; vesselStatus: VesselStatus }) => {
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
@@ -66,13 +79,17 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
 
             <div className="grid grid-cols-2 gap-4 mt-2">
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                    <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Hull Speed</span>
+                    <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                        {HYDRO_LABELS.hullSpeed}
+                    </span>
                     <span className="text-xl font-mono font-bold text-white">
                         {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-400">kts</span>
                     </span>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                    <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
+                    <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                        {HYDRO_LABELS.displacement}
+                    </span>
                     <span className="text-xl font-mono font-bold text-white">
                         {(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-400">t</span>
                     </span>
@@ -82,7 +99,7 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
                         {mcr && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                 <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
-                                    Comfort
+                                    {HYDRO_LABELS.motionComfort}
                                 </span>
                                 <span
                                     className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}
@@ -94,7 +111,7 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
                         {csf && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                 <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
-                                    Capsize
+                                    {HYDRO_LABELS.capsize}
                                 </span>
                                 <span
                                     className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}
@@ -168,10 +185,8 @@ const VesselStatusWidgetComponent = ({
                     </div>
                     <div className="bg-white/5 rounded-xl p-3 border border-white/5 mt-auto">
                         <div className="flex justify-between items-center text-xs">
-                            <span className="text-gray-400 font-bold uppercase tracking-wider">Daylight Remaining</span>
-                            <span className="text-white font-mono">
-                                {(current.uvIndex ?? 0) > 0 ? 'High Visibility' : 'Night Mode'}
-                            </span>
+                            <span className="text-gray-400 font-bold uppercase tracking-wider">Daylight</span>
+                            <span className="text-white font-mono">{(current.uvIndex ?? 0) > 0 ? 'Day' : 'Night'}</span>
                         </div>
                     </div>
                 </Card>
@@ -278,7 +293,7 @@ const VesselStatusWidgetComponent = ({
                     <div className="grid grid-cols-2 gap-4 mt-2">
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                             <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
-                                Theoretical Hull Speed
+                                {HYDRO_LABELS.hullSpeed}
                             </span>
                             <span className="text-xl font-mono font-bold text-white">
                                 {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-400">kts</span>
@@ -286,7 +301,7 @@ const VesselStatusWidgetComponent = ({
                         </div>
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                             <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
-                                Displacement
+                                {HYDRO_LABELS.displacement}
                             </span>
                             <span className="text-xl font-mono font-bold text-white">
                                 {(vessel.displacement / 2204.62).toFixed(1)}{' '}
@@ -298,7 +313,7 @@ const VesselStatusWidgetComponent = ({
                                 {mcr && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                         <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
-                                            Motion Comfort
+                                            {HYDRO_LABELS.motionComfort}
                                         </span>
                                         <span
                                             className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}
@@ -310,7 +325,7 @@ const VesselStatusWidgetComponent = ({
                                 {csf && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                         <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
-                                            Capsize Risk
+                                            {HYDRO_LABELS.capsize}
                                         </span>
                                         <span
                                             className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}

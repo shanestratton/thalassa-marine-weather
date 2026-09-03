@@ -112,15 +112,30 @@ export const HeroSection = ({
             });
         }
 
-        // Build today's hourly: filter to today's date
-        let todayHourly: HourlyForecast[] = [];
-        if (hourly && Array.isArray(hourly)) {
-            todayHourly = hourly.filter((h) => {
-                if (!h || !h.time) return false;
-                const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
-                return localDateStr === todayISO;
-            });
+        // Bucket the hourly array by local calendar day ONCE.
+        //
+        // Every row used to re-filter the whole array, constructing a fresh
+        // Intl.DateTimeFormat per hour per row (toLocaleDateString does that
+        // internally) — 11 rows x ~240 hours on a 10-day forecast. One pass
+        // with one reused formatter gives byte-identical buckets: filter
+        // preserves order, and Intl.DateTimeFormat('en-CA', { timeZone })
+        // .format(d) yields the same YYYY-MM-DD string toLocaleDateString does.
+        const hourlyByDay = new Map<string, HourlyForecast[]>();
+        if (hourly && Array.isArray(hourly) && hourly.length > 0) {
+            const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone });
+            for (const h of hourly) {
+                if (!h || !h.time) continue;
+                const when = new Date(h.time);
+                if (Number.isNaN(when.getTime())) continue;
+                const key = dayKey.format(when);
+                const bucket = hourlyByDay.get(key);
+                if (bucket) bucket.push(h);
+                else hourlyByDay.set(key, [h]);
+            }
         }
+
+        // Build today's hourly
+        const todayHourly: HourlyForecast[] = hourlyByDay.get(todayISO) ?? [];
 
         // merge of WeatherMetrics + ForecastDay with null/undefined mismatch
         const todayMetrics: Record<string, unknown> = {
@@ -182,13 +197,7 @@ export const HeroSection = ({
                 seenIsoDates.add(fDate);
 
                 const targetDate = f.isoDate;
-                let dayHourly: HourlyForecast[] = [];
-                if (targetDate && hourly && Array.isArray(hourly)) {
-                    dayHourly = hourly.filter((h) => {
-                        const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
-                        return localDateStr === targetDate;
-                    });
-                }
+                const dayHourly: HourlyForecast[] = targetDate ? (hourlyByDay.get(targetDate) ?? []) : [];
 
                 // merge of WeatherMetrics + ForecastDay
                 const metrics: Record<string, unknown> = {

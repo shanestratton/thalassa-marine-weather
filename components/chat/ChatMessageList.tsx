@@ -2,7 +2,7 @@
  * ChatMessageList — Channel message rendering with pins, tracks, mod actions.
  * Extracted from ChatPage to reduce monolith complexity.
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ChatMessage } from '../../services/ChatService';
 import {
     getAvatarGradient,
@@ -101,15 +101,21 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
         messageEndRef,
     }) => {
         const { setPage } = useUI();
-        const regularMessages = messages.filter((m) => !m.is_pinned);
+        const regularMessages = useMemo(() => messages.filter((m) => !m.is_pinned), [messages]);
 
         // Windowed rendering — show only last PAGE_SIZE messages, expand on demand
         const [visiblePages, setVisiblePages] = useState(1);
         const visibleCount = visiblePages * PAGE_SIZE;
         const hasMore = regularMessages.length > visibleCount;
-        const windowedMessages = hasMore
-            ? regularMessages.slice(regularMessages.length - visibleCount)
-            : regularMessages;
+        // Memoised so opening a mod menu or a rank tooltip no longer re-slices
+        // the whole channel on every keystroke-sized state change.
+        const windowedMessages = useMemo(
+            () =>
+                regularMessages.length > visibleCount
+                    ? regularMessages.slice(regularMessages.length - visibleCount)
+                    : regularMessages,
+            [regularMessages, visibleCount],
+        );
 
         const loadMore = useCallback(() => {
             setVisiblePages((p) => p + 1);
@@ -396,7 +402,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         </span>
                                                         <button
                                                             aria-label="View rank"
-                                                            className="relative"
+                                                            className="relative hit-target-44"
                                                             onMouseEnter={() => onSetRankTooltip(msg.id)}
                                                             onMouseLeave={() => onSetRankTooltip(null)}
                                                             onClick={() =>
@@ -536,7 +542,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                             const isImporting = importingTrackId === track.trackId;
                                                             return (
                                                                 <button
-                                                                    aria-label="Show Track Disclaimer"
+                                                                    aria-label={`Import voyage track ${track.title}`}
                                                                     onClick={() => onShowTrackDisclaimer(track)}
                                                                     disabled={isImporting}
                                                                     className="mt-1.5 rounded-2xl overflow-hidden border border-sky-500/15 bg-linear-to-r from-sky-500/6 to-sky-500/4 max-w-[280px] px-3 py-2.5 text-left w-full hover:from-sky-500/12 hover:to-sky-500/8 transition-all active:scale-[0.98] disabled:opacity-50"
@@ -600,14 +606,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                     </p>
                                                 )}
 
-                                                {/* Action row */}
+                                                {/* Action row — visible at rest. There is no hover on a phone, so
+                                                    opacity-0 made Helpful/Report/Mod unreachable on the only device
+                                                    that matters here. */}
                                                 {!isDeleted && !isSelf && (
-                                                    <div className="flex items-center gap-3 mt-1.5 h-6 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                                                    <div className="flex items-center gap-3 mt-1.5 min-h-[44px] opacity-70 group-hover:opacity-100 transition-opacity duration-150">
                                                         <button
                                                             onClick={() => onMarkHelpful(msg.id)}
                                                             disabled={likedMessages.has(msg.id)}
                                                             aria-label={`Mark as helpful${msg.helpful_count > 0 ? `, ${msg.helpful_count} found helpful` : ''}`}
-                                                            className={`text-sm transition-colors flex items-center gap-1 active:scale-95 min-h-[36px] ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
+                                                            className={`text-sm transition-colors flex items-center gap-1 active:scale-95 min-h-[44px] ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
                                                         >
                                                             Helpful
                                                             {msg.helpful_count > 0 && ` · ${msg.helpful_count}`}
@@ -615,15 +623,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         <button
                                                             onClick={() => onReportMsg(msg)}
                                                             aria-label="Report message"
-                                                            className="text-sm text-white/50 hover:text-amber-400/60 transition-colors min-h-[36px]"
+                                                            className="text-sm text-white/50 hover:text-amber-400/60 transition-colors min-h-[44px]"
                                                         >
                                                             Report
                                                         </button>
                                                         {isMod && (
                                                             <button
-                                                                aria-label="Toggle message details"
+                                                                aria-label="Moderation actions"
+                                                                aria-expanded={showModMenu === msg.id}
                                                                 onClick={() => onToggleModMenu(msg.id)}
-                                                                className="text-[11px] text-white/40 hover:text-red-400/60 transition-colors"
+                                                                className="hit-target-44 text-[11px] text-white/40 hover:text-red-400/60 transition-colors"
                                                             >
                                                                 Mod
                                                             </button>

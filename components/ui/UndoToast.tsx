@@ -4,7 +4,7 @@
  * Automatically dismisses after `duration` ms unless user clicks Undo.
  * Renders as a fixed bottom bar so it doesn't block the UI.
  */
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface UndoToastProps {
     message: string;
@@ -20,33 +20,15 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
     onDismissRef.current = onDismiss;
     const onUndoRef = useRef(onUndo);
     onUndoRef.current = onUndo;
-    const [progress, setProgress] = useState(100);
-    const startRef = useRef(0);
-    const frameRef = useRef<number>(0);
-
-    const animate = useCallback(() => {
-        const elapsed = Date.now() - startRef.current;
-        const pct = Math.max(0, 100 - (elapsed / duration) * 100);
-        setProgress(pct);
-        if (pct > 0) {
-            frameRef.current = requestAnimationFrame(animate);
-        }
-    }, [duration]);
 
     useEffect(() => {
-        if (!isOpen) {
-            setProgress(100);
-            return;
-        }
-        startRef.current = Date.now();
-        frameRef.current = requestAnimationFrame(animate);
+        if (!isOpen) return;
         timerRef.current = setTimeout(() => onDismissRef.current(), duration);
 
         return () => {
             if (timerRef.current) clearTimeout(timerRef.current);
-            if (frameRef.current) cancelAnimationFrame(frameRef.current);
         };
-    }, [isOpen, duration, animate]);
+    }, [isOpen, duration]);
 
     if (!isOpen) return null;
 
@@ -77,7 +59,6 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
                         aria-label="Undo delete action"
                         onClick={() => {
                             if (timerRef.current) clearTimeout(timerRef.current);
-                            if (frameRef.current) cancelAnimationFrame(frameRef.current);
                             onUndoRef.current();
                         }}
                         className="hit-target-44 shrink-0 px-4 py-1.5 bg-amber-500/20 text-amber-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-500/30 active:scale-95 transition-all"
@@ -85,11 +66,11 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
                         Undo
                     </button>
                 </div>
-                {/* Progress bar */}
+                {/* Progress bar — CSS-driven so the countdown costs no per-frame React renders */}
                 <div className="mt-2 h-0.5 bg-white/5 rounded-full overflow-hidden">
                     <div
-                        className="h-full bg-amber-500/40 rounded-full transition-none"
-                        style={{ width: `${progress}%` }}
+                        className="h-full bg-amber-500/40 rounded-full"
+                        style={{ animation: `undoProgress ${duration}ms linear forwards` }}
                     />
                 </div>
             </div>

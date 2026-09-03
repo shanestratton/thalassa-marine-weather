@@ -14,7 +14,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
-import { AnchorIcon } from './Icons';
+import { AnchorIcon, InfoIcon, RouteIcon } from './Icons';
 import { NmeaListenerService } from '../services/NmeaListenerService';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../services/GpsReceiverStatusService';
@@ -94,18 +94,8 @@ const SystemStatusModal: React.FC<{
     onClose: () => void;
     onNavigateAnchor: () => void;
     onStopFollowing: () => void;
-    onRefreshRoute: () => void;
     onAcceptChange: () => void;
-    onDismissChange: () => void;
-}> = ({
-    state,
-    onClose,
-    onNavigateAnchor,
-    onStopFollowing,
-    onRefreshRoute: _onRefreshRoute,
-    onAcceptChange,
-    onDismissChange: _onDismissChange,
-}) => {
+}> = ({ state, onClose, onNavigateAnchor, onStopFollowing, onAcceptChange }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
@@ -156,7 +146,7 @@ const SystemStatusModal: React.FC<{
                 <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 z-10 border-b border-white/6">
                     <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
-                            <span className="text-sky-400 text-sm font-bold">ℹ</span>
+                            <InfoIcon className="w-4 h-4 text-sky-400" />
                         </div>
                         <h2 id="system-status-title" className="text-base font-bold text-white tracking-tight">
                             System Status
@@ -365,21 +355,7 @@ const SystemStatusModal: React.FC<{
 
                     {/* ── Follow Route (Passage Planning) ── */}
                     <SystemRow
-                        icon={
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M9 6.75V15m0 0l3-3m-3 3l-3-3m12-1.5V15m0 0l3-3m-3 3l-3-3"
-                                />
-                            </svg>
-                        }
+                        icon={<RouteIcon className="w-4 h-4" />}
                         label="Following Route"
                         active={state.followRoute.active}
                         detail={
@@ -502,7 +478,7 @@ const SystemStatusModal: React.FC<{
  * (audit 2026-08-28).
  *
  * Keeps the first sentence and drops the raw native string the service appends
- * for support; that belongs on the NMEA page, not in a 11px row.
+ * for support; that belongs on the NMEA page, not in a two-line summary row.
  */
 function shortNmeaFault(raw: string | null): string | null {
     if (!raw) return null;
@@ -539,11 +515,9 @@ const SystemRow: React.FC<{
             <p className={`text-xs font-bold uppercase tracking-widest ${active ? 'text-white' : 'text-slate-500'}`}>
                 {label}
             </p>
-            <p
-                className={`text-[11px] leading-relaxed mt-0.5 truncate ${active ? 'text-slate-400' : 'text-slate-400'}`}
-            >
-                {detail}
-            </p>
+            {/* Two lines, not one truncated: the NMEA fault sentence and the
+                anchor distance are the whole point of the row. */}
+            <p className="text-xs leading-snug mt-0.5 line-clamp-2 text-slate-300">{detail}</p>
         </div>
 
         {/* Action button */}
@@ -560,7 +534,7 @@ const SystemRow: React.FC<{
                     e.stopPropagation();
                     action.onClick();
                 }}
-                className={`shrink-0 min-h-[44px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                className={`shrink-0 min-h-[44px] px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all active:scale-95 ${
                     action.destructive
                         ? 'bg-red-500/15 border border-red-500/30 text-red-400'
                         : 'bg-sky-500/15 border border-sky-500/30 text-sky-400'
@@ -652,8 +626,6 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
         isRefreshing: routeRefreshing,
         stopFollowing,
         acceptRouteChange,
-        dismissRouteChange,
-        refreshRoute,
     } = useFollowRoute();
 
     // ── Pi Cache state (silent — no toasts, it's a background service) ──
@@ -725,8 +697,17 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             if (document.hidden) return;
 
             // GPS Tracking
+            // getTrackingStatus()/refresh() hand back a fresh object every
+            // call, so without this compare React re-rendered the always-mounted
+            // header FAB every 5 s on identical data.
             const ts = ShipLogService.getTrackingStatus();
-            setGpsTracking(ts);
+            setGpsTracking((prev) =>
+                prev.isTracking === ts.isTracking &&
+                prev.currentIntervalMs === ts.currentIntervalMs &&
+                prev.isRapidMode === ts.isRapidMode
+                    ? prev
+                    : ts,
+            );
             const nav = ShipLogService.getGpsNavData();
             setIsMoving(nav.sogKts !== null && nav.sogKts > 0.5);
 
@@ -739,7 +720,15 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             // fallback so an old fix cannot keep a receiver row lit.
             GpsPrecision.checkStaleness();
             void GpsReceiverStatusService.refresh().then((status) => {
-                if (!disposed) setGpsReceiver(status);
+                if (!disposed)
+                    setGpsReceiver((prev) =>
+                        prev.active === status.active &&
+                        prev.kind === status.kind &&
+                        prev.label === status.label &&
+                        prev.detail === status.detail
+                            ? prev
+                            : status,
+                    );
             });
         };
 
@@ -951,15 +940,9 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                         stopFollowing();
                         setShowModal(false);
                     }}
-                    onRefreshRoute={() => {
-                        refreshRoute();
-                    }}
                     onAcceptChange={() => {
                         acceptRouteChange();
                         setShowModal(false);
-                    }}
-                    onDismissChange={() => {
-                        dismissRouteChange();
                     }}
                 />
             )}

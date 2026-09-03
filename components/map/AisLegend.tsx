@@ -76,6 +76,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                 <button
                     aria-label={`${guardState.enabled ? 'Disable' : 'Enable'} AIS guard zone`}
                     aria-pressed={guardState.enabled}
+                    className="hit-target-44"
                     /* The double-click handler is GONE. It shared this button with onClick,
                        so a double-tap toggled the guard ON then OFF on its way to opening
                        the radius picker — a picker that has its own button right beside this
@@ -103,7 +104,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     <span style={{ fontSize: 12 }}>🛡️</span>
                     <span
                         style={{
-                            fontSize: 9,
+                            fontSize: 12,
                             fontWeight: 800,
                             color: guardState.enabled ? '#fca5a5' : '#64748b',
                             letterSpacing: 0.3,
@@ -117,6 +118,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     type="button"
                     aria-label="Choose AIS guard zone radius"
                     aria-expanded={showRadiusPicker}
+                    className="hit-target-44"
                     onClick={() => setShowRadiusPicker((open) => !open)}
                     style={{
                         width: 28,
@@ -191,6 +193,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                             type="button"
                             aria-label={`Set AIS guard zone radius to ${r} nautical miles`}
                             aria-pressed={r === guardState.radiusNm}
+                            className="hit-target-44"
                             key={r}
                             onClick={() => selectRadius(r)}
                             style={{

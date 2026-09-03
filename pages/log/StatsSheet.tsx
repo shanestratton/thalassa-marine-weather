@@ -96,14 +96,13 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                         </svg>
                     </button>
                 </div>
-                <p className="text-sm text-slate-400 mt-2">Analyze your sailing performance</p>
+                <p className="text-sm text-slate-400 mt-2">Analyse your sailing performance</p>
             </div>
 
             <div className="flex-1 flex flex-col justify-center px-4 pb-8">
                 <div className="space-y-4 max-w-2xl mx-auto w-full">
                     {/* Selected Voyage Card */}
                     <button
-                        aria-label="View voyage statistics"
                         onClick={() => {
                             onSelectVoyage(effectiveVoyageId);
                             onShowStats();
@@ -132,7 +131,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                         </div>
                         {voyageEntryCount > 0 && (
                             <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold">
-                                {voyageEntryCount} pts
+                                {voyageEntryCount} entries
                             </span>
                         )}
                         <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -142,7 +141,6 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
 
                     {/* All Voyages Card */}
                     <button
-                        aria-label="View all statistics"
                         onClick={() => {
                             onSelectVoyage(null);
                             onShowStats();
@@ -170,7 +168,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                             <div className="text-slate-400 text-sm mt-1">Combined statistics across every voyage</div>
                         </div>
                         <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
-                            {sailedEntryCount} pts
+                            {sailedEntryCount} entries
                         </span>
                         <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
