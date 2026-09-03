@@ -101,8 +101,9 @@ describe('the Pi can actually be handed the shore watch', () => {
         // Paired, configured, AND seeing the vessel on the bus right now.
         expect(server).toMatch(/capable: paired && !!SUPABASE_ANON_KEY && hasFix/);
         const page = read('components/AnchorWatchPage.tsx');
-        expect(page).toMatch(/if \(cancelled\) return;/);
-        expect(page).toMatch(/if \(cap\.capable\) setShowPiWatchOffer\(true\);/);
+        expect(page).toMatch(/if \(stopped\) return;/);
+        // Raised only on a capable answer, and never over a Pi already keeping it.
+        expect(page).toMatch(/if \(cap\.capable && !AnchorPiWatchKeeper\.isKeeping\(\)/);
     });
 
     it('handing over follows the one order that is safe', () => {
@@ -136,11 +137,36 @@ describe('the Pi can actually be handed the shore watch', () => {
         // redeployed or comes up while the hook is already down still gets
         // offered. A one-shot probe inside handleSetAnchor could not.
         expect(page).toMatch(/if \(viewMode !== 'watching' \|\| !piOfferAnchorKey\) \{/);
-        expect(page).toMatch(
-            /if \(AnchorPiWatchKeeper\.isKeeping\(\) \|\| piOfferDeclinedFor === piOfferAnchorKey\) \{/,
-        );
         const arm = page.slice(page.indexOf('if (success) {'), page.indexOf('First-time hint dismissal'));
         expect(arm).not.toMatch(/probePiWatchCapability/);
+    });
+
+    it('KEEPS looking, because asking once loses a race the skipper cannot see', () => {
+        // The bug behind five straight reports of "there is no Pi button".
+        // The probe ran once, at the instant the anchor was armed. A Pi that
+        // was not yet marked reachable — app just foregrounded, phone still
+        // joining the boat network, pinned-key identity gate unfinished —
+        // produced a permanent false for the life of that anchor, with no way
+        // for the skipper to retry.
+        const page = read('components/AnchorWatchPage.tsx');
+        const poll = page.slice(
+            page.indexOf('const autoOfferedForRef'),
+            page.indexOf('}, [viewMode, piOfferAnchorKey]);'),
+        );
+        expect(poll).toMatch(/setTimeout\(\(\) => void look\(\), cap\.capable \? 30_000 : 10_000\)/);
+        // Re-armed on every answer, so a Pi that wakes up an hour later is found.
+        expect(poll).toMatch(/void look\(\);/);
+        // And it stops when the page does — no timer outliving the anchor.
+        expect(poll).toMatch(/stopped = true;[\s\S]{0,80}clearTimeout\(timer\)/);
+    });
+
+    it('raises the modal at most once per anchor, by a latch and not by the decline flag', () => {
+        // Gating the auto-open on `piOfferDeclinedFor` put that state in the
+        // effect's deps, so declining re-ran the effect. The latch is keyed on
+        // the anchor itself: one offer per hook that goes down.
+        const page = read('components/AnchorWatchPage.tsx');
+        expect(page).toMatch(/autoOfferedForRef\.current !== piOfferAnchorKey/);
+        expect(page).toMatch(/autoOfferedForRef\.current = piOfferAnchorKey;/);
     });
 
     it('does not ask again once the skipper has said keep it here', () => {
@@ -156,7 +182,7 @@ describe('the Pi can actually be handed the shore watch', () => {
         // anchor left to hand over.
         const setupBranch = page.indexOf("if (viewMode === 'setup') {");
         const shoreBranch = page.indexOf("if (viewMode === 'shore') {");
-        const dialog = page.indexOf('title="Let the Pi keep the watch?"');
+        const dialog = page.indexOf('<AnchorPiWatchOfferModal');
         expect(setupBranch).toBeGreaterThan(-1);
         expect(dialog).toBeGreaterThan(shoreBranch); // past every early return
         // And gated on the view as well as the flag, so a late-resolving probe
@@ -177,9 +203,27 @@ describe('the Pi can actually be handed the shore watch', () => {
     it('capability is probed even when the prompt is suppressed', () => {
         const page = read('components/AnchorWatchPage.tsx');
         // Otherwise the row could never appear for someone who declined, which
-        // is exactly the person who needs it.
-        const guard = page.slice(page.indexOf('if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor'));
-        expect(guard.slice(0, 400)).toMatch(/probePiWatchCapability/);
+        // is exactly the person who needs it. The poll is unconditional; only
+        // the RAISING of the modal is latched.
+        const poll = page.slice(
+            page.indexOf('const autoOfferedForRef'),
+            page.indexOf('}, [viewMode, piOfferAnchorKey]);'),
+        );
+        expect(poll).toMatch(/const cap = await probePiWatchCapability\(\);/);
+        expect(poll).toMatch(/setPiWatchCapable\(cap\.capable\);/);
+    });
+
+    it('the modal is centred and portalled, never a bottom sheet', () => {
+        // Standing rule: every modal centred and clear of the tab bar with its
+        // own internal scroll. A bottom sheet here would put the very button
+        // being offered underneath the tab bar.
+        const modal = read('components/anchor/AnchorPiWatchOfferModal.tsx');
+        expect(modal).toMatch(/OverlayPortal/);
+        expect(modal).toMatch(/flex items-center justify-center/);
+        expect(modal).toMatch(/max-h-\[80vh\] overflow-y-auto/);
+        // The big button, and the touch floor on both.
+        expect(modal).toMatch(/min-h-\[64px\] w-full/);
+        expect(modal).toMatch(/min-h-\[48px\] w-full/);
     });
 
     it('the offer does NOT depend on a shore-share session existing', () => {
