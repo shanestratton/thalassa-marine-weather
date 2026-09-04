@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ModalSheet } from '../../components/ui/ModalSheet';
 import { OverlayPortal } from '../../components/ui/OverlayPortal';
 import { CreatePlaylistSheet } from '../../components/music/musicPage/CreatePlaylistSheet';
+import { PinDropSheet } from '../../components/chat/ChatAttachmentSheets';
+import { ChatComposer } from '../../components/chat/ChatComposer';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { initGlobalKeyboardScroll } from '../../utils/keyboardScroll';
 import '../../index.css';
 
@@ -92,9 +95,79 @@ function BottomDialog() {
         </OverlayPortal>
     );
 }
+function CurrentLocationHarness() {
+    const keyboardHeight = useKeyboardOffset();
+    const [sharingLocation, setSharingLocation] = useState(true);
+    const [note, setNote] = useState('');
+    const [message, setMessage] = useState('Unsent channel draft');
+    const [shared, setShared] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
+    // Match ChatPage's clipped flex shell and separate, pinned composer.
+    // No GPS, login or message delivery: all state stays in this fixture.
+    return (
+        <main className="h-full overflow-hidden bg-slate-950 pt-[60px] text-white">
+            <div
+                className="flex h-full flex-col overflow-hidden"
+                style={keyboardHeight ? { height: `calc(100% - ${keyboardHeight}px)` } : undefined}
+                data-testid="chat-shell"
+            >
+                <header className="shrink-0 px-4 py-3" data-testid="chat-header">
+                    Scuttlebutt
+                </header>
+                <div className="flex-1 overflow-y-auto">Channel messages</div>
+                {sharingLocation && (
+                    <PinDropSheet
+                        pinLat={0}
+                        pinLng={0}
+                        pinCaption={note}
+                        setPinCaption={setNote}
+                        pinLoading={false}
+                        pinSource="current"
+                        pinAccuracy={5}
+                        pinTimestamp={Date.now()}
+                        locationError={null}
+                        saveToMyPlaces={false}
+                        setSaveToMyPlaces={() => {}}
+                        sending={false}
+                        onSendPin={() => setShared(note)}
+                        onRetryLocation={() => {}}
+                        onChoosePlace={() => {}}
+                        onClose={() => setSharingLocation(false)}
+                    />
+                )}
+                {!sharingLocation && (
+                    <ChatComposer
+                        messageText={message}
+                        setMessageText={setMessage}
+                        isQuestion={false}
+                        setIsQuestion={() => {}}
+                        filterWarning={null}
+                        setFilterWarning={() => {}}
+                        isMuted={false}
+                        mutedUntil={null}
+                        showAttachMenu={false}
+                        setShowAttachMenu={() => {}}
+                        keyboardOffset={keyboardHeight}
+                        inputRef={inputRef}
+                        onSend={() => {
+                            throw new Error('Note must not send a channel message');
+                        }}
+                        onOpenPinDrop={() => {}}
+                        onOpenPoiPicker={() => {}}
+                        onOpenTrackPicker={() => {}}
+                    />
+                )}
+                <output data-testid="shared-note" className="sr-only">
+                    {shared}
+                </output>
+            </div>
+        </main>
+    );
+}
 function Harness() {
     const [open, setOpen] = useState(false);
     const mode = new URLSearchParams(location.search).get('mode');
+    if (mode === 'current-location') return <CurrentLocationHarness />;
     return (
         <main className="h-screen bg-slate-950 p-4 text-white">
             <button className="p-3" onClick={() => setOpen(true)}>

@@ -990,7 +990,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
             )}
 
             {/* ═══════════════════ COMPOSE BAR ═══════════════════ */}
-            {view === 'messages' && (
+            {/* Current-location sharing has its own note/send row. Keeping a
+                second composer below it leaves no editing room in landscape. */}
+            {view === 'messages' && !showPinSheet && (
                 <ChatComposer
                     messageText={messageText}
                     setMessageText={setMessageText}

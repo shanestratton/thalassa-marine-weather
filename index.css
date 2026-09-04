@@ -3538,8 +3538,8 @@ body,
    has to lift itself, which is what this does.
 
    Found via Drop a Pin (Shane 2026-08-13: "the keyboard hides what you
-   are writing"). Share my location sits beside it in the same file and
-   has always worked — purely because it has no internal scroll box.
+   are writing"). Inline current-location sharing instead shrinks within
+   ChatPage's keyboard-resized flex layout; it must not add this inset too.
 
    Override --sheet-max-vh on the element when 68vh is not right.
 

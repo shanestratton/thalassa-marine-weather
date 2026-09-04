@@ -17,15 +17,15 @@
  *   It is not enough for a bottom-anchored sheet that scrolls INTERNALLY.
  *   There the nearest scrolling surface is the sheet itself, so the guard
  *   scrolls content around inside a box whose bottom is still under the
- *   keyboard. Share my location works precisely because it has no internal
- *   scroll box; Drop a Pin had `max-h-[68vh] overflow-y-auto` and did not.
+ *   keyboard. Inline current-location sharing instead shrinks within the
+ *   keyboard-resized ChatPage and scrolls locally; it must not lift twice.
  *
  * So: internal scroll + bottom anchored ⇒ .thalassa-keyboard-safe-sheet.
  *
  * This test is deliberately a source contract rather than a render test.
- * The failure is geometric and only exists on a real device with a real
- * keyboard — jsdom has no keyboard, no visual viewport and no layout, so a
- * render test would assert nothing about the actual bug.
+ * Geometry is also covered by browser-tests/keyboard-layout.spec.ts using
+ * real attachment components and a simulated keyboard; jsdom alone cannot
+ * prove field visibility.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -84,7 +84,7 @@ describe('keyboard-safe bottom sheets', () => {
         expect(block).toContain("data-keyboard-open='true'");
     });
 
-    it('Drop a Pin uses it; Share my location deliberately does not', () => {
+    it('Drop a Pin lifts itself; current location shrinks inside the resized chat', () => {
         const sheets = read('components/chat/ChatAttachmentSheets.tsx');
 
         const poi = sheets.slice(
@@ -101,7 +101,12 @@ describe('keyboard-safe bottom sheets', () => {
             sheets.indexOf('export const PinDropSheet'),
             sheets.indexOf('PinDropSheet.displayName'),
         );
-        expect(pin).not.toContain('overflow-y-auto');
+        expect(pin).toContain('min-h-0 shrink overflow-y-auto');
+        expect(pin).toContain('data-keyboard-focus-scope');
+        expect(pin).not.toContain('thalassa-keyboard-safe-sheet');
+        // The note/send row replaces the normal composer while sharing, so
+        // two pinned entry bars cannot consume the entire landscape viewport.
+        expect(read('components/ChatPage.tsx')).toContain("view === 'messages' && !showPinSheet && (");
     });
 
     it('no bottom sheet scrolls internally without the utility', () => {
