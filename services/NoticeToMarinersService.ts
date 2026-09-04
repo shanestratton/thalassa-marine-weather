@@ -385,6 +385,19 @@ type ChangeCallback = (notices: Notice[]) => void;
 class NoticeToMarinersServiceClass {
     private notices: Notice[] = [];
     private lastFetchAt = 0;
+
+    /**
+     * Per-source last-known warnings, and whether that source is answering.
+     *
+     * A merged cache replaced wholesale by whichever sources happened to
+     * succeed made a failing source's warnings VANISH, while stamping the
+     * result fresh — so a UKHO outage silently removed every UKHO warning and
+     * the app looked confident about it (audit 2026-09-04, item 6).
+     *
+     * For navigation warnings that is the worst available failure: a warning
+     * that disappears reads exactly like a warning that was cancelled.
+     */
+    private bySource: Record<string, { notices: Notice[]; fetchedAt: number; failing: boolean; error?: string }> = {};
     private inflight: Promise<Notice[]> | null = null;
     private listeners = new Set<ChangeCallback>();
     private loadedFromCache = false;
@@ -418,23 +431,42 @@ class NoticeToMarinersServiceClass {
                 // Fetch all sources in parallel. Each source is independent —
                 // if one fails (network blip, scraping breakage), the others
                 // still contribute. Promise.allSettled lets us partial-merge.
+                const names = ['nga', 'amsa', 'ukho', 'linz'] as const;
                 const sources = await Promise.allSettled([fetchNga(), fetchAmsa(), fetchUkho(), fetchLinz()]);
-                const list: RawBroadcastWarn[] = [];
+                const now = Date.now();
                 let anySucceeded = false;
-                for (const result of sources) {
+                sources.forEach((result, i) => {
+                    const name = names[i];
                     if (result.status === 'fulfilled') {
-                        list.push(...result.value);
                         anySucceeded = true;
-                    } else {
-                        log.warn(`Notice source failed: ${result.reason}`);
+                        this.bySource[name] = {
+                            notices: result.value.map(normalise),
+                            fetchedAt: now,
+                            failing: false,
+                        };
+                        return;
                     }
+                    // KEEP what this source last told us. Dropping it would
+                    // remove live warnings from the chart because a scraper
+                    // broke, and the merged result would still look fresh.
+                    const previous = this.bySource[name];
+                    const reason = String(result.reason).slice(0, 200);
+                    log.warn(
+                        `Notice source ${name} failed (holding ${previous?.notices.length ?? 0} known): ${reason}`,
+                    );
+                    this.bySource[name] = {
+                        notices: previous?.notices ?? [],
+                        fetchedAt: previous?.fetchedAt ?? 0,
+                        failing: true,
+                        error: reason,
+                    };
+                });
+                if (!anySucceeded && Object.values(this.bySource).every((s) => s.notices.length === 0)) {
+                    throw new Error('All notice sources failed and nothing is held from before');
                 }
-                if (!anySucceeded) {
-                    throw new Error('All notice sources failed');
-                }
+                const list: Notice[] = Object.values(this.bySource).flatMap((s) => s.notices);
                 const seen = new Set<string>();
                 const notices = list
-                    .map(normalise)
                     // Sources may overlap or each occasionally double-publish
                     // — dedupe by (navArea, msgYear, msgNumber) id.
                     .filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)))
@@ -458,6 +490,25 @@ class NoticeToMarinersServiceClass {
         })();
 
         return this.inflight;
+    }
+
+    /**
+     * Which sources are answering, and how old each one's warnings are.
+     *
+     * Exposed because "fresh" was a single timestamp over a merged list: a
+     * source could be hours stale, or dead and holding, and nothing in the
+     * result said so. A caller showing navigation warnings needs to be able to
+     * say "UKHO unavailable — showing what it last sent, 3 h ago" rather than
+     * presenting a quietly shorter list as current.
+     */
+    getSourceHealth(): Array<{ source: string; failing: boolean; fetchedAt: number; count: number; error?: string }> {
+        return Object.entries(this.bySource).map(([source, s]) => ({
+            source,
+            failing: s.failing,
+            fetchedAt: s.fetchedAt,
+            count: s.notices.length,
+            error: s.error,
+        }));
     }
 
     onChange(cb: ChangeCallback): () => void {
