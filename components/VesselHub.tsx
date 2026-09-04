@@ -499,6 +499,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // The hero card asks the same question ("At Anchor" vs "Underway"), so it
     // must get the same answer. A boat whose anchor is watched by the Pi is at
     // anchor; only this phone's involvement changed.
+    // Only draw the arc once there is a real circle to draw.
+    const anchorShowSwing = (anchorEffectivelyArmed || anchorStatus === 'alarm') && anchorRadius > 0;
     const anchorStatusEffective: 'armed' | 'disarmed' | 'alarm' =
         anchorStatus === 'alarm' ? 'alarm' : anchorEffectivelyArmed ? 'armed' : 'disarmed';
 
@@ -900,22 +902,34 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
                                 className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
-                                <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
-                                    style={{ background: `${anchorColor}1f` }}
-                                >
-                                    <div
-                                        className="h-3 w-3 rounded-full"
-                                        style={{
-                                            backgroundColor: anchorColor,
-                                            boxShadow:
-                                                anchorEffectivelyArmed || anchorStatus === 'alarm'
-                                                    ? `0 0 8px ${anchorColor}60`
-                                                    : 'none',
-                                            animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
-                                        }}
+                                {anchorShowSwing ? (
+                                    // The live arc, moved here from the hero
+                                    // card: where the boat actually sits in its
+                                    // circle is the one thing worth a picture.
+                                    <SwingArc
+                                        radiusM={anchorRadius}
+                                        offsetM={anchorOffset}
+                                        bearingDeg={anchorBearing}
+                                        alarm={anchorStatus === 'alarm'}
                                     />
-                                </div>
+                                ) : (
+                                    <div
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                        style={{ background: `${anchorColor}1f` }}
+                                    >
+                                        <div
+                                            className="h-3 w-3 rounded-full"
+                                            style={{
+                                                backgroundColor: anchorColor,
+                                                boxShadow:
+                                                    anchorEffectivelyArmed || anchorStatus === 'alarm'
+                                                        ? `0 0 8px ${anchorColor}60`
+                                                        : 'none',
+                                                animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                                            }}
+                                        />
+                                    </div>
+                                )}
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
                                 <p
                                     className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
@@ -923,6 +937,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     {anchorLabelShort}
                                 </p>
+                                {anchorShowSwing && (
+                                    // How far out, of how far allowed — the
+                                    // reading the arc is a picture of.
+                                    <p className="text-[9px] font-bold leading-none tabular-nums text-slate-400">
+                                        {Math.round(anchorOffset)}m of {Math.round(anchorRadius)}m
+                                    </p>
+                                )}
                             </button>
                         </div>
 
@@ -1709,6 +1730,13 @@ const NavStationHero: React.FC<{
     // than the whole payload.
     const weatherOnlySlim = (state.label === 'At Rest' || state.label === 'Underway') && !showSwing && vesselNameSet;
     if (weatherOnlySlim) return null;
+
+    // At anchor this card only repeats what the Anchor tile below already says,
+    // and the swing arc has moved down there with it (Shane 2026-09-04: "when
+    // we are at anchor, can we remove the card the says at anchor"). A DRAG
+    // ALARM is emphatically not the same thing — that is the one moment this
+    // card exists for, so it stays, red and pulsing.
+    if (anchorStatus === 'armed') return null;
 
     return (
         <div
