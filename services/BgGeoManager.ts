@@ -386,6 +386,22 @@ class BgGeoManagerClass {
                 if (enabled) {
                     throw new Error('Background location remained enabled after its final lease requested stop.');
                 }
+                // Drain the SDK's own location table.
+                //
+                // Nothing in this app ever reads it — fixes arrive via
+                // onLocation — so every row is dead weight that the config cap
+                // above only trims as NEW fixes arrive. On a device that has
+                // been running unbounded (11,090 rows measured 2026-09-04)
+                // that would take another voyage to work off. Emptying it here
+                // gives the storage back at the natural moment: the engine has
+                // stopped and there is nothing left to record.
+                //
+                // Deliberately AFTER the stop is verified, and deliberately
+                // unable to fail the stop: giving back storage must never be
+                // the reason a skipper cannot end a voyage.
+                void BackgroundGeolocation.destroyLocations().catch((error) => {
+                    log.warn('Could not clear the SDK location queue (harmless, it is never read)', error);
+                });
             } catch (e) {
                 // Keep the final owner. Claiming zero here would strand an
                 // enabled native engine with nobody able to release it.
@@ -876,6 +892,30 @@ class BgGeoManagerClass {
                 // No HTTP — we handle data locally via Supabase.
                 http: {
                     autoSync: false,
+                },
+
+                // A QUEUE NOBODY DRAINS.
+                //
+                // Fixes reach this app through onLocation (see
+                // _wireSubscriptions); getLocations() and destroyLocations()
+                // are called NOWHERE in the tree. But the SDK also writes
+                // every fix to its own SQLite, and maxRecordsToPersist
+                // defaults to -1 — no limit — so that database grew for the
+                // life of every voyage and was never read, never pruned.
+                //
+                // Measured on Shane's phone 2026-09-04, after an hour-long
+                // route: 11,090 rows, 11MB, on a device whose app died 1ms
+                // after entering the native teardown and never returned. And
+                // it compounded — each failed stop left the queue intact, so
+                // the next attempt had more to chew through than the last.
+                //
+                // Bounded rather than disabled (0 would switch persistence
+                // off entirely). A thousand fixes is a small forensic window
+                // if we ever wire a crash-recovery path, and it caps the
+                // database at roughly a megabyte instead of unbounded.
+                persistence: {
+                    maxRecordsToPersist: 1000,
+                    maxDaysToPersist: 1,
                 },
             });
 
