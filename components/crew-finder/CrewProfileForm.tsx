@@ -223,7 +223,13 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 // SCROLLING CONTENT, and the CTA stopped being scrolling content
                 // when it became a pinned footer. Its comment still claims it
                 // clears the nav for exactly that reason — stale, now corrected.
-                height: 'calc(100dvh - 12.5rem - 4rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
+                // …minus 8px, so the pinned CTA sits a deliberate 8px ABOVE
+                // the menu rather than flush against it (Shane 2026-09-04:
+                // "exactly 8px above the menu area"). Same gap the Instrument
+                // Panel CTA uses, and derived the same way — from the nav's own
+                // 4rem + inset — so it holds on a notched phone and moves with
+                // the nav if the nav ever changes height.
+                height: 'calc(100dvh - 12.5rem - 4rem - 8px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
             }}
         >
             {/* Scrollable form area */}
@@ -962,7 +968,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 )}
             </div>
             {/* Save — pinned CTA footer outside scroll */}
-            <div className="shrink-0 px-5 py-3 border-t border-white/6 bg-slate-950">
+            {/* The pinned CTA footer. Its clearance is owned by the container
+                height above, not by padding here — see the note there. */}
+            <div className="shrink-0 rounded-b-2xl border-t border-white/6 bg-slate-950 px-5 py-3">
                 {(() => {
                     const isComplete =
                         !!editListingType && !!editFirstName.trim() && !!editPhotos[0] && editBio.trim().length >= 20;
