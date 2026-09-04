@@ -29,6 +29,7 @@ import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/
 import { voyageSummariesSessionReadable } from '../services/shiplog/VoyageSummary';
 import { withTimeout } from '../utils/deadline';
 import { crumb } from '../utils/flightRecorder';
+import { registerCensusProbe, takeCensus } from '../services/memoryCensus';
 import {
     getCachedVoyageTrack,
     setCachedVoyageTrack,
@@ -1133,6 +1134,21 @@ export function useLogPageState() {
         dispatch({ type: 'SET_PRECISION_MODE', isPrecisionMode: newState });
     }, [dispatch, identityScope, state.isPrecisionMode]);
 
+    // WHAT THE LOG PAGE IS HOLDING.
+    //
+    // The census exonerated everything it measured — ENC 0, tiles 0, GL 0,
+    // DOM 2,590 — while the web layer walked into iOS's 2GB per-process
+    // ceiling on THIS page. So the numbers it could not see are the ones that
+    // matter now: how many entries and voyages this page has in memory.
+    useEffect(() => {
+        const unregisterEntries = registerCensusProbe('logEntries', () => entriesRef.current.length);
+        const unregisterVoyages = registerCensusProbe('logVoyages', () => loadedVoyagesRef.current.size);
+        return () => {
+            unregisterEntries();
+            unregisterVoyages();
+        };
+    }, []);
+
     const handleStopTracking = useCallback(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         dispatch({ type: 'SHOW_STOP_DIALOG', show: true });
@@ -1155,6 +1171,9 @@ export function useLogPageState() {
         // written synchronously at each phase boundary, so whichever step is
         // fatal, the NEXT boot can name it instead of us guessing again.
         crumb('stop:begin', stoppedVoyageId ?? 'no-id');
+        // A census AT the moment, not up to five seconds stale. The periodic
+        // tick can miss the run-up entirely when the death is this fast.
+        void takeCensus();
         try {
             crumb('stop:service-in');
             // Exact-voyage teardown: every other caller passes the id it
