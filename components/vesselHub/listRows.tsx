@@ -60,7 +60,9 @@ export const OfficeRow: React.FC<{
         <div className="p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
             {icon}
         </div>
-        <span className="flex-1 text-[13px] font-bold text-white tracking-wide">{label}</span>
+        {/* min-w-0 + truncate: the label yields, so a long status can never
+            make this row two lines tall. */}
+        <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-white tracking-wide">{label}</span>
         {badge !== undefined && (
             <span
                 className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${
@@ -70,7 +72,17 @@ export const OfficeRow: React.FC<{
                 {badge}
             </span>
         )}
-        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: statusColor }}>
+        {/* NEVER WRAPS. Uppercase with wide tracking, "Plan Your Voyage" is
+            long enough to fold onto a second line on a narrow phone — so the
+            row rendered TALL with the placeholder, then snapped shorter the
+            moment the crew count loaded and replaced it with "3 CREW". Shane
+            2026-09-04: "the plan your voyage part that comes up and then
+            disappears… enables it to grow first and then settle to the right
+            size." A row's height must not depend on the text inside it. */}
+        <span
+            className="shrink-0 whitespace-nowrap text-[11px] font-bold uppercase tracking-widest"
+            style={{ color: statusColor }}
+        >
             {status}
         </span>
         <ChevronRight />
