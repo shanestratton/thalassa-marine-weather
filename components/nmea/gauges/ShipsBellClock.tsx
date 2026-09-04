@@ -77,8 +77,20 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
         return marks;
     }, []);
 
+    // FILLS THE SCREEN IT IS GIVEN.
+    //
+    // This was capped at 300px, which left a bulkhead clock sitting as a
+    // postage stamp in the middle of a phone. The face is vector, so it costs
+    // nothing to draw it at any size (Shane 2026-09-04: "make the clock so that
+    // it fits the entire width of the screen. shrink and grow depending on the
+    // punters screen").
+    //
+    // min(100%, 70vh) is what makes it behave on BOTH axes: on a phone, where
+    // the section is taller than it is wide, 100% wins and the face spans the
+    // screen; on a short or landscape screen 70vh wins, so a square that fills
+    // the width can never run off the bottom.
     return (
-        <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
+        <div className="relative mx-auto w-full" style={{ maxWidth: 'min(100%, 70vh)', aspectRatio: '1' }}>
             <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Ship's bell clock">
                 <defs>
                     <linearGradient id="bell-bezel" x1="0" y1="0" x2="0" y2="1">

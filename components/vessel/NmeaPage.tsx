@@ -319,7 +319,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                 <div
                     ref={keyboardScrollRef}
                     className="flex-1 px-4 min-h-0 overflow-y-auto"
-                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                    // nav + inset + 8px gap + the pinned CTA (~52px) + 8px,
+                    // so the last card scrolls clear of the button instead of
+                    // stopping underneath it.
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 68px)' }}
                 >
                     {/* ═══ POSITION SOURCE ═══
                         Always rendered — including when the answer is just
@@ -554,24 +557,42 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         boat's OWN transponder reports are part of what is
                         shared, and AISHub is public. */}
                     <FleetSharingCard connected={isConnected} />
-
-                    {/* ═══ INSTRUMENT PANEL CTA ═══ */}
-                    {onNavigateToGlass && (
-                        <div style={{ paddingBottom: '8px' }}>
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('medium');
-                                    onNavigateToGlass();
-                                }}
-                                aria-label="Open Instrument Panel"
-                                className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 via-cyan-500 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 border border-sky-400/20 flex items-center justify-center gap-2"
-                            >
-                                <span className="text-lg">🧭</span>
-                                <span>Instrument Panel</span>
-                            </button>
-                        </div>
-                    )}
                 </div>
+
+                {/* ═══ INSTRUMENT PANEL CTA ═══
+                    PINNED, not scrolled to. It used to be the last child of the
+                    scroller, so the way into the Instrument Panel was only
+                    visible once you had scrolled past every gateway setting —
+                    the one thing on this page a skipper wants mid-passage was
+                    the hardest to reach.
+
+                    Shane 2026-09-04: "put the Instrument CTA Button at the
+                    bottom of the screen, exactly 8px above the top of the menu
+                    section". The nav is `h-16` + the safe-area inset
+                    (App.tsx), so the top of the menu is 4rem + inset from the
+                    bottom, and this sits 8px above that — the gap is derived
+                    from the nav rather than eyeballed, so it stays 8px if the
+                    nav ever changes height.
+
+                    z-800 keeps it under the nav (z-900) and over the page. */}
+                {onNavigateToGlass && (
+                    <div
+                        className="fixed left-0 right-0 z-800 px-4"
+                        style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                    >
+                        <button
+                            onClick={() => {
+                                triggerHaptic('medium');
+                                onNavigateToGlass();
+                            }}
+                            aria-label="Open Instrument Panel"
+                            className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 via-cyan-500 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 border border-sky-400/20 flex items-center justify-center gap-2"
+                        >
+                            <span className="text-lg">🧭</span>
+                            <span>Instrument Panel</span>
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
