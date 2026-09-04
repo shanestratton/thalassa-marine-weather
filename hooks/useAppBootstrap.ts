@@ -296,6 +296,14 @@ export function useAppBootstrap() {
                 // large at the time, which is the part every previous fix had
                 // to guess at.
                 if (lastCensus) console.warn(`[WebContentKill] ${census.describeCensus(lastCensus)}`);
+                if (lastCensus) {
+                    // …and on the CARD, where a skipper can screenshot it.
+                    // console.warn is invisible on a device, so every reading
+                    // of "what was large at death" had to be pulled off the
+                    // phone over USB.
+                    const { attachLastCensusInfo } = await import('../utils/flightRecorder');
+                    attachLastCensusInfo(census.describeCensus(lastCensus));
+                }
                 if (lastCensus?.sinceBootMs != null) {
                     // Bound the time of death on the Last Flight card too —
                     // the crumb trail alone hid 91 s of life in kill #28.

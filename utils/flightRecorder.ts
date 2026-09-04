@@ -206,6 +206,25 @@ export function attachLastAliveInfo(sinceBootSecs: number): void {
     };
 }
 
+/**
+ * Put the dead session's census ON THE CARD, not just in the console.
+ *
+ * describeCensus() has been written to console.warn since it was built — which
+ * is invisible on a device, so every reading had to be pulled off the phone
+ * over USB. Only the "last alive" SECONDS reached the Last Flight card, and
+ * the numbers that say WHAT WAS LARGE never did.
+ *
+ * That gap cost this hunt several round trips: the card said the process died
+ * and how long it lived, and nothing about why (2026-09-05).
+ */
+export function attachLastCensusInfo(description: string): void {
+    if (!lastReport || lastReport.verdict === 'clean-start' || !description) return;
+    lastReport = {
+        ...lastReport,
+        summary: `${lastReport.summary}\nAT DEATH: ${description}`,
+    };
+}
+
 /** The previous run's trail, for surfacing in a debug view. */
 export function lastFlightTrail(): Crumb[] {
     return read(PREV_KEY);
