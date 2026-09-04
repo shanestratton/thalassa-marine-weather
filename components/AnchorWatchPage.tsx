@@ -841,7 +841,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 {/* Setup remains compact in portrait, but it must be a real
                     scrollport on short landscape/keyboard viewports so the
                     arming control can never be clipped below the screen. */}
-                <div className="anchor-setup-scroll flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-y-contain pb-[98px]">
+                {/* Bottom clearance DERIVED from the nav, not guessed at.
+                    The old value was a literal 98px: 64px of tab bar plus a
+                    hardcoded stab at the safe-area inset — right on a notched
+                    iPhone, wrong on everything else. The nav is h-16 plus
+                    env(safe-area-inset-bottom) (App.tsx), so this is that plus
+                    the 8px Shane asked for, and it holds on any device. */}
+                <div
+                    className="anchor-setup-scroll flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-y-contain"
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                >
                     {/* First-time-user guidance card — added 2026-05-17.
                         Shows for users who haven't yet armed an anchor
                         watch (gated by the
@@ -1005,8 +1014,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             </div>
                         </div>
 
-                        {/* ── Slide to Confirm — safety orange ── */}
-                        <div className="pt-1 pb-2">
+                        {/* ── Slide to Confirm — safety orange ──
+                            No bottom padding of its own: the scroller owns the
+                            8px gap to the menu, so a second source of spacing
+                            here would make the real distance the sum of two
+                            numbers nobody could reason about. */}
+                        <div className="pt-1">
                             {/* The VPN hairpin notice used to sit here. Removed
                                 2026-09-04 at Shane's call: "VPN's are for
                                 advanced users only, so they will not [need]
@@ -1453,7 +1466,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             : 0;
 
     return (
-        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[98px]`}>
+        <div
+            className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}
+            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+        >
             <PageHeader
                 title={monitoringBlocked ? 'Anchor Watch Blocked' : 'Anchor Deployed'}
                 subtitle={
