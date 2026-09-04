@@ -774,7 +774,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
            the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
            here does not just lose a dot, it shifts every dot after it onto the
            wrong instrument. */
-        const base = ['Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm', 'Clock'];
+        const base = ['Clock', 'Bells', 'Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm'];
         return isSereneSummer ? [...base, 'Sail Plan'] : base;
     }, [isSereneSummer]);
     const onPanelScroll = useCallback(() => {
@@ -1182,6 +1182,121 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         onScroll={onPanelScroll}
                         className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar"
                     >
+                        {/* ── SECTION: CLOCK ──
+                            FIRST in the panel, and the face has this page to
+                            itself (Shane 2026-09-04: "we need the watches, and
+                            bells underneath to be all on one page… i am
+                            thinking the former and make the clock so that it
+                            fits the entire width of the screen… then all of
+                            this needs to be first in the instrument panel").
+
+                            The bulkhead clock, and the only thing on this page
+                            that is not an instrument reading the boat. It reads
+                            the PHONE, which is the one clock aboard that is
+                            never wrong, and it says which zone it is keeping —
+                            a boat crosses them, and ship's time is a choice
+                            somebody made rather than a fact.
+
+                            Shane 2026-09-03: "build a beautiful chelsea ships
+                            bell clock… the whole works." */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                        >
+                            <SectionPlate title="Clock" />
+                            {/* Centred in whatever is left after the plate, so
+                                the face is as big as the screen allows and no
+                                bigger. Nothing else on this page competes. */}
+                            <div className="flex-1 min-h-0 flex items-center justify-center pb-2">
+                                <ShipsBellClock
+                                    hour={zoneClock.hour}
+                                    minute={zoneClock.minute}
+                                    second={zoneClock.second}
+                                    zoneLabel={zoneClock.label}
+                                />
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: BELLS ──
+                            One scroll down from the face: what the bells mean,
+                            which zone the clock keeps, and the watch alarms.
+                            These were crammed under the clock on a single page,
+                            which is what forced the face to be small. */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                        >
+                            <SectionPlate title="Bells" />
+                            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pb-2">
+                                {/* The printed watch table, live. Placed right
+                                    under the face so "what was that bell?" is
+                                    answered without leaving the clock. */}
+                                <ShipsBellReference hour={zoneClock.hour} minute={zoneClock.minute} />
+
+                                <label className="flex items-center gap-2 px-1">
+                                    <span className="text-xs font-black uppercase tracking-widest text-gray-400 shrink-0">
+                                        Zone
+                                    </span>
+                                    <select
+                                        value={clockZone}
+                                        onChange={(e) => setClockZone(e.target.value)}
+                                        aria-label="Clock time zone"
+                                        className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white"
+                                    >
+                                        {zoneOptions.map((z) => (
+                                            <option key={z} value={z} className="bg-slate-900">
+                                                {zoneDisplayName(z)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                {/* Watch alarms. The offered times are the ones a
+                                    skipper actually asks for — the next bell, and
+                                    the next two watch changes — because "wake me
+                                    for my watch" is the whole use. */}
+                                <div className="px-1">
+                                    <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
+                                        Wake me
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {alarmChoices.map((choice) => (
+                                            <button
+                                                key={choice.label}
+                                                onClick={() => void handleSetBellAlarm(choice)}
+                                                className="min-h-[44px] px-3 rounded-xl border border-amber-400/30 bg-amber-400/10 text-sm font-bold text-amber-200 active:scale-95 transition-all"
+                                            >
+                                                {choice.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {bellAlarms.length > 0 && (
+                                        <ul className="mt-3 space-y-1.5">
+                                            {bellAlarms.map((a) => (
+                                                <li
+                                                    key={a.id}
+                                                    className="flex items-center justify-between gap-2 rounded-xl bg-white/4 px-3 py-2"
+                                                >
+                                                    <span className="text-sm text-white truncate">
+                                                        {a.label} ·{' '}
+                                                        {new Date(a.at).toLocaleTimeString([], {
+                                                            hour: '2-digit',
+                                                            minute: '2-digit',
+                                                        })}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => void handleCancelBellAlarm(a.id)}
+                                                        aria-label={`Cancel the ${a.label} alarm`}
+                                                        className="min-h-[44px] px-3 text-sm font-bold text-rose-300 shrink-0"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            </div>
+                        </section>
+
                         {/* ── SECTION: WIND ── */}
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
@@ -1815,99 +1930,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 )}
-                            </div>
-                        </section>
-
-                        {/* ── SECTION: CLOCK ──
-                            The bulkhead clock, and the only thing on this page
-                            that is not an instrument reading the boat. It reads
-                            the PHONE, which is the one clock aboard that is
-                            never wrong, and it says which zone it is keeping —
-                            a boat crosses them, and ship's time is a choice
-                            somebody made rather than a fact.
-
-                            Shane 2026-09-03: "build a beautiful chelsea ships
-                            bell clock… the whole works." */}
-                        <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
-                        >
-                            <SectionPlate title="Clock" />
-                            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pb-2">
-                                <ShipsBellClock
-                                    hour={zoneClock.hour}
-                                    minute={zoneClock.minute}
-                                    second={zoneClock.second}
-                                    zoneLabel={zoneClock.label}
-                                />
-
-                                {/* The printed watch table, live. Placed right
-                                    under the face so "what was that bell?" is
-                                    answered without leaving the clock. */}
-                                <ShipsBellReference hour={zoneClock.hour} minute={zoneClock.minute} />
-
-                                <label className="flex items-center gap-2 px-1">
-                                    <span className="text-xs font-black uppercase tracking-widest text-gray-400 shrink-0">
-                                        Zone
-                                    </span>
-                                    <select
-                                        value={clockZone}
-                                        onChange={(e) => setClockZone(e.target.value)}
-                                        aria-label="Clock time zone"
-                                        className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white"
-                                    >
-                                        {zoneOptions.map((z) => (
-                                            <option key={z} value={z} className="bg-slate-900">
-                                                {zoneDisplayName(z)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-
-                                {/* Watch alarms. The offered times are the ones a
-                                    skipper actually asks for — the next bell, and
-                                    the next two watch changes — because "wake me
-                                    for my watch" is the whole use. */}
-                                <div className="px-1">
-                                    <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
-                                        Wake me
-                                    </p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {alarmChoices.map((choice) => (
-                                            <button
-                                                key={choice.label}
-                                                onClick={() => void handleSetBellAlarm(choice)}
-                                                className="min-h-[44px] px-3 rounded-xl border border-amber-400/30 bg-amber-400/10 text-sm font-bold text-amber-200 active:scale-95 transition-all"
-                                            >
-                                                {choice.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {bellAlarms.length > 0 && (
-                                        <ul className="mt-3 space-y-1.5">
-                                            {bellAlarms.map((a) => (
-                                                <li
-                                                    key={a.id}
-                                                    className="flex items-center justify-between gap-2 rounded-xl bg-white/4 px-3 py-2"
-                                                >
-                                                    <span className="text-sm text-white truncate">
-                                                        {a.label} ·{' '}
-                                                        {new Date(a.at).toLocaleTimeString([], {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                        })}
-                                                    </span>
-                                                    <button
-                                                        onClick={() => void handleCancelBellAlarm(a.id)}
-                                                        aria-label={`Cancel the ${a.label} alarm`}
-                                                        className="min-h-[44px] px-3 text-sm font-bold text-rose-300 shrink-0"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </div>
                             </div>
                         </section>
 

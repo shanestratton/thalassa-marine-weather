@@ -37,18 +37,25 @@ describe('the dot rail matches the sections it jumps to', () => {
         expect(sections.map((s) => s.toUpperCase())).toEqual(rail);
     });
 
-    it('opens on Wind, then Barometer, with Position close behind', () => {
-        // Position was second from 2026-08-30 (its own dedicated page, one
-        // swipe from Wind). Shane moved the Barometer into that slot on
-        // 2026-09-02 — "move the barometer from the bottom of the instrument
-        // panel to the next one after the wind claude. it is that banging" —
-        // so Position is third. The invariant worth keeping is not the exact
-        // index but that the three instruments a skipper reaches for in a
-        // hurry are all within a couple of swipes of the top.
+    it('opens on the Clock, then keeps Wind → Barometer → Position together near the top', () => {
+        // Position was second from 2026-08-30. Shane moved the Barometer into
+        // that slot on 2026-09-02 — "move the barometer from the bottom of the
+        // instrument panel to the next one after the wind claude. it is that
+        // banging" — and on 2026-09-04 asked for the ship's bell clock and its
+        // bells to lead the panel: "all of this needs to be first in the
+        // instrument panel".
+        //
+        // So the exact indices moved again, and pinning them was never the
+        // point. The invariant that survives all three changes is the one the
+        // earlier version of this test spelled out: the instruments a skipper
+        // reaches for in a hurry stay within a few swipes of the top, and the
+        // Barometer stays immediately behind Wind where he put it.
         const sections = renderedSections();
-        expect(sections[0]).toBe('WIND');
-        expect(sections[1]).toBe('BAROMETER');
-        expect(sections.slice(0, 3)).toContain('POSITION');
+        expect(sections[0]).toBe('CLOCK');
+        expect(sections[1]).toBe('BELLS');
+        const wind = sections.indexOf('WIND');
+        expect(sections[wind + 1]).toBe('BAROMETER');
+        expect(sections.slice(0, 5)).toContain('POSITION');
     });
 });
 
