@@ -203,17 +203,23 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         };
     }, []);
 
-    // Shore stale data timeout — if no vessel data arrives within 60s, auto-leave
+    // A TIMEOUT IS A REASON TO WARN, NOT TO DEMOLISH.
+    //
+    // This used to call leaveSession() after 60 silent seconds, which erases
+    // the saved session code AND deletes this device's row from
+    // anchor_alarm_tokens — its registration for drag pushes. For a transient
+    // gap. And it lost a race it was never going to win: the reconnect
+    // ladder's fifth attempt only BEGINS at about t+62s (2+4+8+16+32), so a
+    // cold start onto flaky marina LTE was torn down while still climbing.
+    //
+    // The session now survives; the sync service's own escalation handles the
+    // silence (rejoin, then re-probe the Pi, then say so), and the shore view
+    // already shows the vessel as lost after 35s. Getting out is the
+    // skipper's decision, and Stop Monitoring is right there.
     useEffect(() => {
         if (viewMode !== 'shore' || shoreData) return;
-        const timeout = setTimeout(async () => {
-            // Still no data after 60s — stale/orphaned session
-            if (!shoreData) {
-                await AnchorWatchSyncService.leaveSession();
-                setViewMode('setup');
-                setShoreData(null);
-                setShoreDataReceivedAt(null);
-            }
+        const timeout = setTimeout(() => {
+            log.warn('shore watch: 60s with no vessel data — keeping the session, recovery continues');
         }, 60_000);
         return () => clearTimeout(timeout);
     }, [viewMode, shoreData]);

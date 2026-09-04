@@ -129,9 +129,17 @@ class AnchorWatchSyncServiceClass {
     private operationEpoch = 0;
     /** Invalidates callbacks, promises, and timers belonging to an old channel. */
     private connectionEpoch = 0;
-    // One-shot guard so prolonged peer silence forces a single rejoin per
-    // disconnection episode (re-armed when the peer is heard again).
-    private rejoinedOnSilence = false;
+    // Silence escalation. This replaces a single boolean (`rejoinedOnSilence`)
+    // that was latched at 20s and re-armed ONLY by hearing the peer — and that
+    // joinChannel never re-armed. So a rejoin which reconnected the channel but
+    // did NOT restore data flow (lapsed Pi lease, rebooted Pi, auth refused on
+    // a token refreshed offline) spent the one shot and left the watchdog
+    // watching a dead link in silence for the rest of the night. That is the
+    // "occasionally it will not reconnect" Shane reported: not the first
+    // silence of the night, the second — or the first one a rejoin cannot fix.
+    private silenceRejoins = 0;
+    private silenceProbedPiAt = 0;
+    private silenceAlertedAt = 0;
 
     constructor() {
         // authStore advances this fence synchronously before exposing another
@@ -673,7 +681,9 @@ class AnchorWatchSyncServiceClass {
         this.heartbeatInterval = null;
         this.peerTimeoutInterval = null;
         this.reconnectAttempts = 0;
-        this.rejoinedOnSilence = false;
+        this.silenceRejoins = 0;
+        this.silenceProbedPiAt = 0;
+        this.silenceAlertedAt = 0;
 
         const oldChannel = this.channel;
         this.channel = null;
@@ -808,11 +818,28 @@ class AnchorWatchSyncServiceClass {
                 };
                 this.pendingJoinResolvers.add(finish);
                 channel.subscribe((nextStatus: string) => {
-                    finish(
-                        this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)
-                            ? nextStatus
-                            : 'STALE',
-                    );
+                    // Identity fence FIRST, on EVERY invocation. supabase-js
+                    // keeps calling this for the life of the channel, so this
+                    // is now a permanent health handler rather than a
+                    // join-only one — and the fence is therefore tighter than
+                    // before, not looser: a superseded channel used to be
+                    // discarded by luck (the `settled` guard), now it is
+                    // discarded by the identity check.
+                    if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) {
+                        finish('STALE');
+                        return;
+                    }
+                    if (!settled) {
+                        finish(nextStatus);
+                        return;
+                    }
+                    // POST-JOIN. Every CHANNEL_ERROR / CLOSED / TIMED_OUT used
+                    // to hit `if (settled) return` and vanish, leaving a dead
+                    // channel looking connected forever.
+                    if (nextStatus !== 'SUBSCRIBED') {
+                        this.reconnectAttempts = 0; // first death of an episode — recover fast
+                        this.handleConnectionLost(`channel_${nextStatus.toLowerCase()}`);
+                    }
                 });
             });
 
@@ -852,6 +879,18 @@ class AnchorWatchSyncServiceClass {
             }
 
             this.connected = true;
+            this.reconnectAttempts = 0;
+            // A fresh channel gets a fresh silence budget. And `=== null`
+            // deliberately: a rejoin must not reset a genuinely stale
+            // lastPeerUpdate, or the escalation above would be reset by its
+            // own recovery attempt and could never climb. Seeding it at all
+            // matters because joinSession/createSession never did — so
+            // `if (!this.lastPeerUpdate) return` disarmed the ONLY safety net
+            // for a watch armed before the boat starts reporting.
+            this.silenceRejoins = 0;
+            this.silenceProbedPiAt = 0;
+            this.silenceAlertedAt = 0;
+            if (this.lastPeerUpdate === null) this.lastPeerUpdate = Date.now();
             this.reconnectAttempts = 0; // Reset on successful connection
 
             // Start heartbeat (every 10s)
@@ -870,7 +909,7 @@ class AnchorWatchSyncServiceClass {
 
             // Monitor peer liveness. Heartbeats arrive every 10s, so silence
             // means trouble. Two thresholds:
-            //   • 20s → force ONE channel rejoin. Prolonged silence usually
+            //   • 20s, doubling to 5 min → force a rejoin. Prolonged silence usually
             //     means OUR socket died (a WiFi→cell handoff leaves it
             //     half-open: the peer's heartbeats stop arriving while
             //     `connected` stays stale-true, and neither `online` nor a
@@ -884,26 +923,57 @@ class AnchorWatchSyncServiceClass {
                 const silentMs = this.lastPeerUpdate ? Date.now() - this.lastPeerUpdate : 0;
                 if (!this.lastPeerUpdate) return;
 
-                // Peer actively heard → re-arm the one-shot rejoin.
+                // Hearing the peer is the ONLY thing that ends an episode.
                 if (silentMs < 20000) {
-                    this.rejoinedOnSilence = false;
+                    this.silenceRejoins = 0;
+                    this.silenceProbedPiAt = 0;
+                    this.silenceAlertedAt = 0;
+                    if (this.peerDisconnectedAt !== null) {
+                        this.peerDisconnectedAt = null;
+                        this.notifyState();
+                    }
+                    return;
                 }
 
-                // Suspected dead socket → force a single fresh rejoin.
-                if (silentMs > 20000 && !this.rejoinedOnSilence) {
-                    this.rejoinedOnSilence = true;
-                    log.info('Peer silent 20s — forcing channel rejoin (suspected dead socket)');
-                    this.connected = false;
-                    this.reconnectAttempts = 0;
-                    this.scheduleReconnect();
+                // ── 20s, then 40s, 80s… capped at 5 min: force a rejoin.
+                //    Never gives up and never hammers — the budget grows
+                //    faster than the attempts. The old code allowed exactly
+                //    ONE per episode and joinChannel never re-armed it, so a
+                //    rejoin that reconnected the channel without restoring
+                //    data flow spent the only shot there was.
+                const budgetMs = Math.min(20000 * Math.pow(2, this.silenceRejoins), 300000);
+                if (silentMs > budgetMs && !this.reconnectTimeout) {
+                    this.silenceRejoins++;
+                    this.handleConnectionLost(
+                        `peer_silent_${Math.round(silentMs / 1000)}s_rejoin_${this.silenceRejoins}`,
+                    );
                 }
 
-                // UI: peer disconnected.
-                if (silentMs > 30000 && this.peerConnected) {
+                // ── 30s: show the vessel as lost. The old gate was
+                //    `&& this.peerConnected`, which is DEAD CODE for a Pi-kept
+                //    watch: the Pi never joins Realtime, so presence never
+                //    sets peerConnected true and this could never fire for
+                //    exactly the setup Shane runs.
+                if (silentMs > 30000 && this.peerDisconnectedAt === null) {
                     this.peerConnected = false;
                     this.peerDisconnectedAt = Date.now();
-                    log.warn('Peer timed out (no heartbeat for 30s)');
+                    log.warn(`anchor sync peer silent ${Math.round(silentMs / 1000)}s — vessel not reporting`);
                     this.notifyState();
+                }
+
+                // ── 2 min: rejoining a channel nobody publishes to fixes
+                //    nothing. Re-probe the Pi — re-authorise its six-hour
+                //    lease and re-assign the watch. The only step that
+                //    repairs a lapsed lease or a rebooted Pi.
+                if (silentMs > 120000 && Date.now() - this.silenceProbedPiAt > 300000) {
+                    this.silenceProbedPiAt = Date.now();
+                    void this.reprobeVesselKeeper(Math.round(silentMs / 1000));
+                }
+
+                // ── 10 min: a shore watch blind this long is not a glitch.
+                if (silentMs > 600000 && this.silenceAlertedAt === 0) {
+                    this.silenceAlertedAt = Date.now();
+                    log.warn(`anchor sync SHORE WATCH BLIND for ${Math.round(silentMs / 60000)}m`);
                 }
             }, 5000);
 
@@ -920,6 +990,48 @@ class AnchorWatchSyncServiceClass {
      * Schedule automatic reconnection with exponential backoff.
      * Only reconnects if there's a persisted session to restore.
      */
+    /**
+     * The link is dead. Say so out loud, clear the flag that gates every
+     * recovery path, and start over.
+     *
+     * `connected` stale-true is what disabled foregrounding, the 'online'
+     * event, appStateChange, restoreSession and the backoff timer's own body
+     * all at once — five recovery routes, each independently vetoed by one
+     * boolean nothing was clearing. Nothing may clear it on a death but here.
+     */
+    private handleConnectionLost(reason: string): void {
+        if (!this.connected && this.reconnectTimeout) return; // already recovering
+        // log.warn, never log.info: createLogger compiles info() out of
+        // production iOS builds, and this is the line that diagnoses a bad
+        // night from the deck.
+        log.warn(`anchor sync link lost (reason=${reason}) — reconnecting`);
+        this.connected = false;
+        this.notifyState();
+        this.scheduleReconnect();
+    }
+
+    /**
+     * Ask the Pi to take the watch again.
+     *
+     * Rejoining a channel nobody is publishing to cannot fix a lapsed lease or
+     * a Pi that rebooted, and those are the silences a reconnect ladder cannot
+     * climb out of. Dynamically imported to avoid a module cycle: the keeper
+     * imports this service's types.
+     */
+    private async reprobeVesselKeeper(silentSeconds: number): Promise<void> {
+        try {
+            const { AnchorPiWatchKeeper } = await import('./anchorPiWatchKeeper');
+            if (!AnchorPiWatchKeeper.isKeeping()) {
+                log.warn(`anchor sync silent ${silentSeconds}s — no Pi watch to re-probe from this device`);
+                return;
+            }
+            const renewed = await AnchorPiWatchKeeper.renewNow();
+            log.warn(`anchor sync silent ${silentSeconds}s — Pi watch re-probe ${renewed ? 'renewed' : 'FAILED'}`);
+        } catch (e) {
+            log.warn('anchor sync Pi re-probe threw', e);
+        }
+    }
+
     private scheduleReconnect(): void {
         if (!this.sessionCode || !this.sessionScope) return;
         const scope = this.sessionScope;

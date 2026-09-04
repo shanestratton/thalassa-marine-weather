@@ -313,6 +313,19 @@ class AnchorPiWatchKeeperClass {
      * not persist its assignment, so one that rebooted since the last renew
      * comes back knowing nothing, and this is what puts it back to work.
      */
+    /**
+     * Re-authorise and re-assign, on demand.
+     *
+     * Public because the shore link's silence ladder calls it: a channel
+     * rejoin cannot repair a lapsed lease or a Pi that rebooted, and after two
+     * minutes of hearing nothing that is the likelier fault.
+     */
+    async renewNow(): Promise<boolean> {
+        if (!this.current) return false;
+        await this.renew();
+        return this.current !== null;
+    }
+
     private async renew(): Promise<void> {
         const held = this.current;
         if (!held) return;
