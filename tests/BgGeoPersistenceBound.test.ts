@@ -32,11 +32,17 @@ describe('background geolocation persistence', () => {
     });
 
     it('drains the queue after a verified stop, and cannot fail the stop', () => {
-        expect(code).toMatch(/BackgroundGeolocation\.destroyLocations\(\)\.catch\(/);
+        // Called through a capability check: housekeeping on an optional SDK
+        // surface must never be able to break a stop. A build without the
+        // method threw straight through the verified stop — the exact shape of
+        // the bug this change exists to fix.
+        expect(code).toMatch(/destroyLocations;/);
+        expect(code).toMatch(/if \(typeof drain === 'function'\)/);
+        expect(code).toMatch(/Promise\.resolve\(drain\.call\(BackgroundGeolocation\)\)\.catch\(/);
         // After the stop is verified — giving storage back must never be the
         // reason a skipper cannot end a voyage.
         const stop = code.indexOf('await BackgroundGeolocation.stop();');
-        const drain = code.indexOf('destroyLocations()');
+        const drain = code.indexOf('drain.call(BackgroundGeolocation)');
         expect(stop).toBeGreaterThan(-1);
         expect(drain).toBeGreaterThan(stop);
     });

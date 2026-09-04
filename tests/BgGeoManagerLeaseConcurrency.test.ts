@@ -16,6 +16,11 @@ const native = vi.hoisted(() => {
         stop: vi.fn(async () => {
             enabled = false;
         }),
+        // The manager drains the SDK's location table after a verified stop —
+        // it is never read by this app, so it is pure storage. Present here
+        // because a mock missing it would only prove the guard works, not that
+        // the drain runs.
+        destroyLocations: vi.fn(async () => undefined),
         changePace: vi.fn(async () => undefined),
         getState: vi.fn(async () => ({ enabled })),
         getProviderState: vi.fn(async () => ({ enabled: true, status: 4, gps: true })),

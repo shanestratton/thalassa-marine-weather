@@ -399,9 +399,18 @@ class BgGeoManagerClass {
                 // Deliberately AFTER the stop is verified, and deliberately
                 // unable to fail the stop: giving back storage must never be
                 // the reason a skipper cannot end a voyage.
-                void BackgroundGeolocation.destroyLocations().catch((error) => {
-                    log.warn('Could not clear the SDK location queue (harmless, it is never read)', error);
-                });
+                // Called through a capability check, not directly: this is
+                // housekeeping on an optional SDK surface, and a build where
+                // it is absent must still be able to END A VOYAGE. Without
+                // the guard a missing method throws straight through the
+                // verified stop — which is the exact shape of the bug this
+                // whole change is fixing.
+                const drain = (BackgroundGeolocation as { destroyLocations?: () => Promise<unknown> }).destroyLocations;
+                if (typeof drain === 'function') {
+                    void Promise.resolve(drain.call(BackgroundGeolocation)).catch((error) => {
+                        log.warn('Could not clear the SDK location queue (harmless, it is never read)', error);
+                    });
+                }
             } catch (e) {
                 // Keep the final owner. Claiming zero here would strand an
                 // enabled native engine with nobody able to release it.
