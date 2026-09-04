@@ -360,8 +360,17 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                 return;
             }
             const win = result.windows[index];
-            if (!win?.time || !Number.isFinite(Date.parse(win.time))) return;
-            const newDepartureIso = new Date(win.time).toISOString();
+            // The ABSOLUTE instant, never the offset-free local string.
+            //
+            // `win.time` comes from Open-Meteo with timezone:auto, so it reads
+            // in the destination's own hours and carries no offset —
+            // `new Date(win.time)` resolved it in whatever zone the phone
+            // happened to be in. Planning a Whitsundays passage from the UK
+            // moved the accepted departure by hours (audit 2026-09-04, item 5).
+            // timeUtc is that same instant, carried absolute from the service.
+            const departureSource = win?.timeUtc ?? win?.time;
+            if (!departureSource || !Number.isFinite(Date.parse(departureSource))) return;
+            const newDepartureIso = new Date(departureSource).toISOString();
             const record: WeatherWindowAcceptanceRecord = {
                 version: 1,
                 fingerprint: weatherWindowAcceptanceFingerprint({

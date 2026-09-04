@@ -97,6 +97,8 @@ function weatherResult(dataFingerprint = 'weather-data-a'): WeatherWindowResult 
         windows: [
             {
                 time,
+                // Same instant; the fixture's `time` is already absolute.
+                timeUtc: time,
                 label: 'Thu, 6 Aug · 06:00',
                 rating: 'go',
                 score: 92,
