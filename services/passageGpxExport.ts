@@ -1,3 +1,4 @@
+import { maxOf, minOf } from '../utils/extremes';
 /**
  * Passage GPX Export
  * Export a planned passage route as GPX 1.1 with route waypoints + full track.
@@ -81,10 +82,10 @@ export function exportPassageAsGPX(
     <author><name>Thalassa Marine Weather</name></author>
     <time>${new Date().toISOString()}</time>
     <keywords>passage,planned,sailing,navigation</keywords>
-    <bounds minlat="${Math.min(...lats).toFixed(6)}"
-            minlon="${Math.min(...lons).toFixed(6)}"
-            maxlat="${Math.max(...lats).toFixed(6)}"
-            maxlon="${Math.max(...lons).toFixed(6)}" />
+    <bounds minlat="${minOf(lats).toFixed(6)}"
+            minlon="${minOf(lons).toFixed(6)}"
+            maxlat="${maxOf(lats).toFixed(6)}"
+            maxlon="${maxOf(lons).toFixed(6)}" />
   </metadata>
   <rte>
     <name>${escapeXml(routeName)}</name>

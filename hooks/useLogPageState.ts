@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
+import { maxOf } from '../utils/extremes';
 
 const log = createLogger('useLogPageState');
 
@@ -1166,63 +1167,83 @@ export function useLogPageState() {
         // Clear the guard
         stoppingRef.current = false;
 
-        // Keep the dialog's promise. Its title is "End Voyage?" and its
-        // button says "End Voyage" — but this handler only ever stopped
-        // GPS, leaving the voyages row status='active' forever, which then
-        // ambushed the next Cast Off (Shane 2026-08-27: "i have to end
-        // voyage and archive. even though i stopped the route in the
-        // log???"). Archive the row now. Only cast-off voyages have a
-        // voyages row — casual Log-page starts mint a local "voyage_…" id
-        // with nothing to archive. Success-path only: a failed teardown
-        // returned above and must leave the row active.
-        if (stoppedVoyageId && !stoppedVoyageId.startsWith('voyage_')) {
-            try {
-                const { endVoyage } = await import('../services/VoyageService');
-                const ended = await endVoyage(stoppedVoyageId, 'completed');
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                if (!ended) {
-                    // false also means "row already archived elsewhere", so
-                    // the wording must not assert it is still active.
+        // EVERYTHING BELOW IS TIDY-UP, AND MUST NOT BE ABLE TO KILL THE PAGE.
+        //
+        // The GPS track is already stopped by this point — the safety-critical
+        // half is done. What follows archives the row and prunes an empty
+        // voyage, and it used to run unguarded: a throw here escaped into the
+        // LogPage error boundary, which unmounted the page and dropped the
+        // skipper back on The Glass, looking like the button had "not worked"
+        // when in fact the track HAD stopped (Shane 2026-09-04).
+        try {
+            // Keep the dialog's promise. Its title is "End Voyage?" and its
+            // button says "End Voyage" — but this handler only ever stopped
+            // GPS, leaving the voyages row status='active' forever, which then
+            // ambushed the next Cast Off (Shane 2026-08-27: "i have to end
+            // voyage and archive. even though i stopped the route in the
+            // log???"). Archive the row now. Only cast-off voyages have a
+            // voyages row — casual Log-page starts mint a local "voyage_…" id
+            // with nothing to archive. Success-path only: a failed teardown
+            // returned above and must leave the row active.
+            if (stoppedVoyageId && !stoppedVoyageId.startsWith('voyage_')) {
+                try {
+                    const { endVoyage } = await import('../services/VoyageService');
+                    const ended = await endVoyage(stoppedVoyageId, 'completed');
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (!ended) {
+                        // false also means "row already archived elsewhere", so
+                        // the wording must not assert it is still active.
+                        toast.error(
+                            'Track stopped. The passage could not be confirmed as ended — if it still shows active, End Voyage from the Vessel tab.',
+                        );
+                    }
+                } catch (e) {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    log.warn('archive-on-stop failed:', e);
                     toast.error(
                         'Track stopped. The passage could not be confirmed as ended — if it still shows active, End Voyage from the Vessel tab.',
                     );
                 }
-            } catch (e) {
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                log.warn('archive-on-stop failed:', e);
-                toast.error(
-                    'Track stopped. The passage could not be confirmed as ended — if it still shows active, End Voyage from the Vessel tab.',
-                );
             }
-        }
 
-        // Immediately bin an empty (0.0 NM) just-stopped voyage. The
-        // summary-level auto-prune holds recently-active voyages for 15 min
-        // (they might be live on ANOTHER device) — but this is OUR voyage
-        // and we just stopped it, so there's no cross-device ambiguity:
-        // delete it now rather than making the user wait out that window.
-        if (stoppedVoyageId) {
-            const ve = entriesRef.current.filter((e) => e.voyageId === stoppedVoyageId);
-            const dist = ve.length ? Math.max(0, ...ve.map((e) => e.cumulativeDistanceNM || 0)) : 0;
-            const hasManual = ve.some((e) => e.entryType === 'manual');
-            if (dist < 0.05 && !hasManual) {
-                // OPTIMISTIC (Shane 2026-08-12: the tidy-up "takes some time
-                // to come"). The wait was the awaited cloud delete — a network
-                // round trip standing between End Voyage and the announcement.
-                // The verdict (empty, ours, just stopped) is already local
-                // truth: remove the card and announce NOW, delete in the
-                // background. ShipLogService has usually already binned the
-                // queue copy pre-upload; if the cloud delete fails anyway, the
-                // sweep retries it on the next load via the device-stops
-                // bypass, so the card cannot silently resurrect for long.
-                dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
-                loadedVoyagesRef.current.delete(stoppedVoyageId);
-                void clearCachedVoyageTrack(stoppedVoyageId);
-                setEmptyPruneNotice(1);
-                void ShipLogService.deleteVoyage(stoppedVoyageId).catch((e) => {
-                    log.warn('empty-voyage prune on stop failed (sweep will retry)', e);
-                });
+            // Immediately bin an empty (0.0 NM) just-stopped voyage. The
+            // summary-level auto-prune holds recently-active voyages for 15 min
+            // (they might be live on ANOTHER device) — but this is OUR voyage
+            // and we just stopped it, so there's no cross-device ambiguity:
+            // delete it now rather than making the user wait out that window.
+            if (stoppedVoyageId) {
+                const ve = entriesRef.current.filter((e) => e.voyageId === stoppedVoyageId);
+                // maxOf, not Math.max(...): spreading every GPS entry of the
+                // voyage into arguments is what crashed the app on End Voyage —
+                // the longer the passage, the more certain the crash, on the one
+                // action that ends it. See utils/extremes.
+                const dist = maxOf(ve.map((e) => e.cumulativeDistanceNM || 0));
+                const hasManual = ve.some((e) => e.entryType === 'manual');
+                if (dist < 0.05 && !hasManual) {
+                    // OPTIMISTIC (Shane 2026-08-12: the tidy-up "takes some time
+                    // to come"). The wait was the awaited cloud delete — a network
+                    // round trip standing between End Voyage and the announcement.
+                    // The verdict (empty, ours, just stopped) is already local
+                    // truth: remove the card and announce NOW, delete in the
+                    // background. ShipLogService has usually already binned the
+                    // queue copy pre-upload; if the cloud delete fails anyway, the
+                    // sweep retries it on the next load via the device-stops
+                    // bypass, so the card cannot silently resurrect for long.
+                    dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
+                    loadedVoyagesRef.current.delete(stoppedVoyageId);
+                    void clearCachedVoyageTrack(stoppedVoyageId);
+                    setEmptyPruneNotice(1);
+                    void ShipLogService.deleteVoyage(stoppedVoyageId).catch((e) => {
+                        log.warn('empty-voyage prune on stop failed (sweep will retry)', e);
+                    });
+                }
             }
+        } catch (e) {
+            // Never rethrow: the track is stopped, which is what the button
+            // promised. Anything unfinished here is recoverable from the
+            // Vessel tab, and the sweep retries the prune on next load.
+            log.warn('post-stop tidy-up failed (track IS stopped)', e);
+            toast.error('Track stopped. Some tidy-up did not finish — check the passage on the Vessel tab.');
         }
 
         // Reload to pick up final state
@@ -1874,8 +1895,8 @@ export function useLogPageState() {
             if (aPlanned && !bPlanned) return -1;
             if (!aPlanned && bPlanned) return 1;
             // Then by most recent timestamp
-            const aTime = Math.max(...a.entries.map((e) => new Date(e.timestamp).getTime()));
-            const bTime = Math.max(...b.entries.map((e) => new Date(e.timestamp).getTime()));
+            const aTime = maxOf(a.entries.map((e) => new Date(e.timestamp).getTime()));
+            const bTime = maxOf(b.entries.map((e) => new Date(e.timestamp).getTime()));
             return bTime - aTime;
         });
     }, [state.entries]);

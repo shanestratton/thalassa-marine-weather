@@ -1,3 +1,4 @@
+import { maxOf, minOf } from '../utils/extremes';
 /**
  * isochroneEnhancer.ts — Wires the IsochroneRouter into the voyage planning
  * pipeline.
@@ -572,7 +573,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 vessel_type: vessel.type === 'observer' ? 'power' : vessel.type,
                 departure_time: departureTime,
             },
-            bounding_box: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+            bounding_box: [minOf(lons), minOf(lats), maxOf(lons), maxOf(lats)],
             track: trackPoints,
             mesh_stats: {
                 total_nodes: isoResult.isochrones.reduce((sum, iso) => sum + iso.nodes.length, 0),
