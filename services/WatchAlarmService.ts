@@ -33,7 +33,7 @@ import { supabase } from './supabase';
 import { WatchAssignmentService } from './WatchAssignmentService';
 import { createLogger } from '../utils/createLogger';
 // Shared with the crew's own watch page — see utils/watchTimes.
-import { firstWatchStart } from '../utils/watchTimes';
+import { watchStartAfter } from '../utils/watchTimes';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -51,15 +51,34 @@ let identityCleanupEpoch = 0;
  * plugin accepts. Using a simple hash of the voyageId prevents collisions
  * across voyages — the plugin requires globally-unique notification IDs.
  */
-function notificationIdFor(voyageId: string, watchIndex: number): number {
+/**
+ * A watch repeats every 24 hours, so an id needs three parts, not two.
+ *
+ * The old scheme packed (voyage, watchIndex) only — one id per watch for the
+ * whole passage — which is why a multi-day voyage could only ever have its
+ * FIRST night scheduled. Same 32-bit budget, re-divided: 22 bits of voyage
+ * hash, 6 bits of watch index (64 watches is far past any real watch bill) and
+ * 4 bits of occurrence (16 days ahead, well past the notification budget).
+ *
+ * Safe to change: cancellation matches on `extra.voyageId`, never on the id.
+ */
+function notificationIdFor(voyageId: string, watchIndex: number, occurrence: number): number {
     let hash = 0;
     for (let i = 0; i < voyageId.length; i++) {
         hash = ((hash << 5) - hash + voyageId.charCodeAt(i)) | 0;
     }
-    // Truncate hash to 22 bits (~4M voyages), shift left, OR with watch_index
-    // (up to 1023 watches). Result is a 32-bit positive int.
-    return (Math.abs(hash) & 0x3fffff) * 1024 + (watchIndex & 0x3ff);
+    return (Math.abs(hash) & 0x3fffff) * 1024 + (watchIndex & 0x3f) * 16 + (occurrence & 0xf);
 }
+
+/** Days of watches to schedule ahead. */
+const ROLLING_DAYS = 7;
+/**
+ * iOS holds 64 pending local notifications per app, and this service is not
+ * the only scheduler (the ship's bell clock and the anchor watch also queue).
+ * Take a third and no more.
+ */
+const MAX_WATCH_NOTIFICATIONS = 21;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function belongsToScope(notification: { extra?: unknown; title?: string }, scope: AuthIdentityScope): boolean {
     const extra = notification.extra as
@@ -205,15 +224,32 @@ export const WatchAlarmService = {
 
         // Build LocalNotifications payload
         const now = Date.now();
-        const notifications = mine
-            .map((a) => {
-                const start = firstWatchStart(a.watch_time_label, departureSnapshot);
-                if (!start) return null;
+        // ROLLING, not one-shot. This used to schedule each watch's FIRST
+        // occurrence after departure and nothing else — so on a multi-day
+        // passage the crew were woken for night one and never again, and
+        // reopening the screen simply filtered those first watches out as
+        // past. A watch bill repeats every 24 hours; the alarms must too.
+        const occurrences: Array<{ a: (typeof mine)[number]; at: Date; day: number }> = [];
+        for (const a of mine) {
+            // From NOW, not from departure — mid-passage the next occurrence
+            // is what matters, and watchStartAfter never returns one before
+            // the voyage began.
+            const first = watchStartAfter(a.watch_time_label, departureSnapshot, new Date(now));
+            if (!first) continue;
+            for (let day = 0; day < ROLLING_DAYS; day++) {
+                occurrences.push({ a, at: new Date(first.getTime() + day * DAY_MS), day });
+            }
+        }
+        occurrences.sort((x, y) => x.at.getTime() - y.at.getTime());
+
+        const notifications = occurrences
+            .slice(0, MAX_WATCH_NOTIFICATIONS)
+            .map(({ a, at: start, day }) => {
                 const fireAt = new Date(start.getTime() - leadMinutes * 60_000);
                 // Don't schedule alarms in the past
                 if (fireAt.getTime() <= now) return null;
                 return {
-                    id: notificationIdFor(voyageIdSnapshot, a.watch_index),
+                    id: notificationIdFor(voyageIdSnapshot, a.watch_index, day),
                     title: `⏰ Watch starts in ${leadMinutes} min`,
                     body: `${a.watch_label} — bridge in ${leadMinutes} min (${a.watch_time_label} UTC)`,
                     schedule: { at: fireAt },

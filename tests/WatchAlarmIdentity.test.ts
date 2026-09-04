@@ -124,16 +124,23 @@ describe('WatchAlarmService account boundary', () => {
         resolveSchedule();
 
         await expect(pending).resolves.toBe(0);
-        await waitFor(() =>
-            expect(h.cancel).toHaveBeenCalledWith({
-                notifications: [expect.objectContaining({ id: expect.any(Number) })],
-            }),
-        );
+        // EVERY notification laid down must be rolled back, not just the first.
+        // The rolling week schedules one per day per watch, so pinning the
+        // array at length 1 tested the old one-shot scheduler rather than the
+        // property that matters: nothing survives an identity change.
+        await waitFor(() => expect(h.cancel).toHaveBeenCalled());
+        const rolledBack = h.cancel.mock.calls.at(-1)?.[0].notifications as Array<{ id: number }>;
+        expect(rolledBack.length).toBeGreaterThan(0);
+        for (const n of rolledBack) expect(typeof n.id).toBe('number');
     });
 
     it('tags new notifications with their exact owner scope', async () => {
+        // Seven now, not one: a watch repeats every 24 hours and the scheduler
+        // lays down a rolling week (WatchAlarmService.ROLLING_DAYS). It used to
+        // schedule only each watch's FIRST occurrence, so a crew member on a
+        // multi-day passage was woken for night one and never again.
         await expect(WatchAlarmService.scheduleForVoyage(' voyage-a ', '2099-01-01T00:00:00.000Z', 15)).resolves.toBe(
-            1,
+            7,
         );
 
         const notification = h.schedule.mock.calls[0][0].notifications[0];

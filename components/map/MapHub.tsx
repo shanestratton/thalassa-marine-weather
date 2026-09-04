@@ -4816,8 +4816,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                         </Suspense>
                     )}
 
-                    {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
-                    {!pickerMode && !planningSurface && <AisGuardAlert />}
+                    {/* AIS guard alert moved to App.tsx — it is mounted
+                        app-wide now, because an alert raised while the skipper
+                        was on any other page reached nobody. */}
                 </Suspense>
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══

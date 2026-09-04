@@ -320,7 +320,37 @@ class DiaryServiceClass {
     // Cache mapping idb: references → short-lived blob URLs for <img> rendering.
     // Avoids re-reading IndexedDB on every render.
     private _idbRefToBlobUrl = new Map<string, string>();
+    /**
+     * Object URLs PIN their blob in memory until revoked, and a diary clip is
+     * ~31MB. This map never evicted, so scrolling past a few videos quietly
+     * held a hundred megabytes in the WKWebView content process — the one iOS
+     * kills first. Measured on Shane's phone 2026-09-04: 184MB of IndexedDB
+     * video blobs, six clips at 31MB each, on a device whose app was dying
+     * four seconds after boot.
+     *
+     * One clip is playable at a time, so hold a couple and revoke the rest.
+     */
     private _idbVideoRefToBlobUrl = new Map<string, string>();
+    private static readonly MAX_VIDEO_BLOB_URLS = 2;
+
+    private _rememberVideoBlobUrl(ref: string, url: string): void {
+        this._idbVideoRefToBlobUrl.set(ref, url);
+        while (this._idbVideoRefToBlobUrl.size > DiaryServiceClass.MAX_VIDEO_BLOB_URLS) {
+            const oldest = this._idbVideoRefToBlobUrl.keys().next().value as string | undefined;
+            if (oldest === undefined) break;
+            const stale = this._idbVideoRefToBlobUrl.get(oldest);
+            this._idbVideoRefToBlobUrl.delete(oldest);
+            // Revoking is what actually frees the blob — dropping the map
+            // entry alone leaves the 31MB pinned for the life of the document.
+            if (stale) {
+                try {
+                    URL.revokeObjectURL(stale);
+                } catch {
+                    /* already gone */
+                }
+            }
+        }
+    }
     // Same cache for voice memos stored in IndexedDB while an entry waits to sync.
     private _idbAudioRefToBlobUrl = new Map<string, string>();
     private _signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
@@ -3907,7 +3937,7 @@ class DiaryServiceClass {
             const blob = await idbLoadVideo(ref);
             if (!blob || !isAuthIdentityScopeCurrent(scope)) return null;
             const url = URL.createObjectURL(blob);
-            this._idbVideoRefToBlobUrl.set(ref, url);
+            this._rememberVideoBlobUrl(ref, url);
             return url;
         }
         const storagePath = this._extractStoragePath(ref, VIDEO_BUCKET);
