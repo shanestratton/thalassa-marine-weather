@@ -35,17 +35,11 @@ export const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, 
                     mounted ? 'opacity-100' : 'opacity-0'
                 }`}
             />
-            {/* Centered card. When the keyboard rises we shift the
-             *  whole card up by half the keyboard height (the card
-             *  itself is centred, so half the keyboard's height is
-             *  exactly enough to keep the inputs in view without
-             *  overshooting). */}
+            {/* Centre inside the uncovered viewport. A capped, scrollable
+             * card also handles landscape and large accessibility text. */}
             <div
-                className="absolute inset-0 flex items-center justify-center px-4 transition-transform duration-200 ease-out pointer-events-none"
-                style={{
-                    transform:
-                        keyboardHeight > 0 ? `translateY(-${Math.round(keyboardHeight / 2)}px)` : 'translateY(0)',
-                }}
+                className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none"
+                style={{ bottom: keyboardHeight }}
             >
                 <div
                     ref={focusTrapRef}
@@ -53,6 +47,7 @@ export const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, 
                     aria-modal="true"
                     aria-labelledby={titleId}
                     aria-describedby={descriptionId}
+                    style={{ maxHeight: `calc(100dvh - ${keyboardHeight}px - 2rem)`, overflowY: 'auto' }}
                     className={`relative w-full max-w-sm rounded-3xl border border-sky-300/15 bg-linear-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
@@ -78,11 +73,6 @@ export const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, 
                                 disabled={busy}
                                 maxLength={80}
                                 className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-sky-300/60 focus:bg-sky-400/[0.07] focus:outline-hidden"
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && canSubmit) {
-                                        onSubmit(name, description);
-                                    }
-                                }}
                             />
                         </label>
 

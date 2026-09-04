@@ -172,6 +172,11 @@ describe('MealCalendar', () => {
         const search = screen.getByRole('textbox', { name: 'Search recipes' });
         expect(screen.getByRole('dialog', { name: /Add Brekky recipe/ })).toContainElement(search);
         expect(search).toHaveFocus();
+        expect(search).toHaveAttribute('enterkeyhint', 'search');
+        expect(search).not.toHaveAttribute('data-no-keyboard-scroll');
+        expect(screen.getByRole('textbox', { name: 'Quick add meal name' })).not.toHaveAttribute(
+            'data-no-keyboard-scroll',
+        );
         fireEvent.keyDown(search, { key: 'Escape' });
         expect(screen.queryByRole('dialog', { name: /Add Brekky recipe/ })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();

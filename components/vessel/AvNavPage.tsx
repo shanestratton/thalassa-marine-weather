@@ -15,6 +15,7 @@ import { piCache } from '../../services/PiCacheService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
+import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { PageHeader } from '../ui/PageHeader';
 import { EncCellManager } from './EncCellManager';
 import { S63LicensingCard } from './S63LicensingCard';
@@ -178,11 +179,9 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
         [identityScope],
     );
 
-    /** Scroll focused input into view when iOS keyboard slides up */
+    /** The shared guard follows the current field, even after a quick tap on another. */
     const scrollInputIntoView = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-        const el = e.currentTarget;
-        // Delay lets iOS keyboard finish animating before we scroll
-        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 350);
+        scrollInputAboveKeyboard(e);
     }, []);
 
     // Derived state

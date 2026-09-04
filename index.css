@@ -201,13 +201,35 @@ html {
    to Safari/PWA visualViewport keyboards without each modal growing its own
    event subscription. */
 html[data-keyboard-open='true'] [data-modal-sheet-backdrop] {
-    align-items: flex-start;
+    align-items: center;
     padding-top: max(1rem, env(safe-area-inset-top));
     padding-bottom: calc(var(--thalassa-keyboard-height) + env(safe-area-inset-bottom) + 1rem);
 }
 
 html[data-keyboard-open='true'] [data-modal-sheet] {
     max-height: calc(100dvh - var(--thalassa-keyboard-height) - 2rem) !important;
+}
+
+/* The older centred portal forms (log entries, authentication, etc.) use
+   the same visible band as ModalSheet. Do not apply this to full-screen
+   column layouts or bottom sheets that already own their keyboard inset. */
+html[data-keyboard-open='true'] [data-overlay-layer][role='dialog'].items-center.justify-center {
+    padding-top: max(1rem, env(safe-area-inset-top)) !important;
+    padding-bottom: calc(var(--thalassa-keyboard-height) + 1rem) !important;
+}
+html[data-keyboard-open='true']
+    [data-overlay-layer][role='dialog'].items-center.justify-center
+    > :has(input, textarea, [contenteditable='true']) {
+    min-height: 0;
+    max-height: max(1px, calc(100dvh - var(--thalassa-keyboard-height) - 2rem));
+    overflow-y: auto;
+}
+
+/* Keep a long note's caret inside a scrollable editing box rather than
+   allowing an auto-growing textarea to extend through the keyboard. */
+html[data-keyboard-open='true'] textarea:not([readonly]):not([data-no-keyboard-scroll]) {
+    max-height: max(3rem, calc(100dvh - var(--thalassa-keyboard-height) - 8rem));
+    overflow-y: auto;
 }
 
 /* ── Accessibility: Focus-Visible Rings ──
@@ -3537,6 +3559,13 @@ body,
     transition:
         margin-bottom 180ms ease-out,
         max-height 180ms ease-out;
+}
+html[data-keyboard-open='true'] .thalassa-keyboard-safe-sheet {
+    /* Use the available band, not 68vh minus a landscape keyboard (which
+       can be negative and leave the fields with no usable panel at all). */
+    max-height: max(1px, calc(100dvh - var(--thalassa-keyboard-height, 0px) - 2rem));
+    /* In landscape the pinned footer alone can be taller than the band. */
+    overflow-y: auto;
 }
 @media (prefers-reduced-motion: reduce) {
     .thalassa-keyboard-safe-sheet {

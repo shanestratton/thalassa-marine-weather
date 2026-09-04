@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
+import { isAvailableForFocus, isTextEntry } from '../utils/focusableFields';
 
 const FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -14,6 +15,7 @@ const FOCUSABLE_SELECTOR = [
     'input:not([disabled])',
     'select:not([disabled])',
     'textarea:not([disabled])',
+    '[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]',
     '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
@@ -24,14 +26,16 @@ const FOCUSABLE_SELECTOR = [
 const activeTrapStack: HTMLElement[] = [];
 
 export interface FocusTrapOptions {
-    /** Preferred element to focus when the dialog opens. Defaults to the first focusable descendant. */
+    /** Preferred control. Otherwise start at the first editable field, then the first control. */
     initialFocusRef?: RefObject<HTMLElement | null>;
     /** Optional Escape-key action. */
     onEscape?: () => void;
 }
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
-    return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (element) => (element.tabIndex >= 0 || isTextEntry(element)) && isAvailableForFocus(element),
+    );
 }
 
 export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
@@ -53,10 +57,26 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
 
         const descendants = focusableElements(container);
         const preferred = optionsRef.current.initialFocusRef?.current;
-        const initialTarget = preferred && container.contains(preferred) ? preferred : descendants[0];
+        // React autoFocus or a tap on the second field may already have chosen
+        // the target before this effect runs. Never pull that focus back to field 1.
+        const active = document.activeElement;
+        const existingTarget =
+            active instanceof HTMLElement &&
+            active !== container &&
+            container.contains(active) &&
+            isAvailableForFocus(active)
+                ? active
+                : null;
+        const initialTarget =
+            existingTarget ??
+            (preferred && container.contains(preferred) && isAvailableForFocus(preferred)
+                ? preferred
+                : (descendants.find(isTextEntry) ?? descendants[0]));
+        const previousScope = container.getAttribute('data-keyboard-focus-scope');
+        container.setAttribute('data-keyboard-focus-scope', '');
         const addedTabIndex = !initialTarget && !container.hasAttribute('tabindex');
         if (addedTabIndex) container.setAttribute('tabindex', '-1');
-        (initialTarget ?? container).focus();
+        (initialTarget ?? container).focus({ preventScroll: true });
         activeTrapStack.push(container);
 
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -103,7 +123,9 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
             const stackIndex = activeTrapStack.lastIndexOf(container);
             if (stackIndex !== -1) activeTrapStack.splice(stackIndex, 1);
             if (addedTabIndex) container.removeAttribute('tabindex');
-            if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
+            if (previousScope === null) container.removeAttribute('data-keyboard-focus-scope');
+            else container.setAttribute('data-keyboard-focus-scope', previousScope);
+            if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus({ preventScroll: true });
             previousFocusRef.current = null;
         };
     }, [isActive]);
