@@ -255,7 +255,25 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             // neither could be tapped reliably.
             style={{ top: 'max(64px, calc(env(safe-area-inset-top) + 64px))' }}
         >
-            <div className="bg-slate-950/95 backdrop-blur-md border border-white/8 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+            {/* CAPPED, AND IT SCROLLS INSIDE ITSELF.
+                This card had `overflow-hidden` and no height limit, so it grew
+                downward over the chart without bound — a route with via
+                waypoints, weather rows and routing progress pushed it over the
+                chart it is supposed to annotate (Shane 2026-09-04: "can we
+                prevent the passage planning card from growing… it is buggering
+                up the screen").
+
+                The cap is the viewport minus this card's own top offset minus
+                room at the bottom, so the chart is always visible under it and
+                the card can never reach the tab bar. overflow-x stays hidden
+                because the fix for a too-tall card must not introduce sideways
+                scrolling. */}
+            <div
+                className="bg-slate-950/95 backdrop-blur-md border border-white/8 rounded-2xl shadow-2xl shadow-black/50 overflow-x-hidden overflow-y-auto overscroll-contain"
+                style={{
+                    maxHeight: 'calc(100dvh - max(64px, calc(env(safe-area-inset-top) + 64px)) - 104px)',
+                }}
+            >
                 {/* ── Top row: Route + Close ── */}
                 <div className="flex items-center gap-2 px-3.5 py-3">
                     {/* Route tags — bumped up from 11px to 13px and
