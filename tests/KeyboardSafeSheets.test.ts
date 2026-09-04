@@ -84,28 +84,33 @@ describe('keyboard-safe bottom sheets', () => {
         expect(block).toContain("data-keyboard-open='true'");
     });
 
-    it('Drop a Pin lifts itself; current location shrinks inside the resized chat', () => {
+    it('Drop a Pin and current location are CENTRED MODALS, not bottom sheets', () => {
+        // SUPERSEDES the earlier expectation that these two lift/shrink inside
+        // the chat column. Shane 2026-09-05: "endless problems with the
+        // keyboard for the send my location" — so both were portalled out of
+        // ChatPage's keyboard-resized flex column entirely, which is the
+        // standing rule for this app (centred, clear of the tab bar, scrolling
+        // internally). A sheet the keyboard cannot resize cannot be shrunk out
+        // from under its own text field.
+        //
+        // The keyboard-safe utility still governs every OTHER bottom sheet;
+        // the sweep below is unchanged apart from exempting dialogs.
         const sheets = read('components/chat/ChatAttachmentSheets.tsx');
 
-        const poi = sheets.slice(
-            sheets.indexOf('export const PoiPickerSheet'),
-            sheets.indexOf('PoiPickerSheet.displayName'),
-        );
-        expect(poi).toContain('thalassa-keyboard-safe-sheet');
-        // The hard-coded cap must be gone — the utility owns max-height now,
-        // and a leftover Tailwind max-h would win the cascade by specificity
-        // order and reinstate the bug.
-        expect(poi).not.toMatch(/max-h-\[\d+vh\]/);
+        for (const [name, end] of [
+            ['export const PoiPickerSheet', 'PoiPickerSheet.displayName'],
+            ['export const PinDropSheet', 'PinDropSheet.displayName'],
+        ] as const) {
+            const body = sheets.slice(sheets.indexOf(name), sheets.indexOf(end));
+            expect(body, name).toContain('<OverlayPortal');
+            expect(body, name).toContain('role="dialog"');
+            expect(body, name).toContain('data-keyboard-focus-scope');
+            // No longer bottom-sheet shaped, so the utility does not apply.
+            expect(body, name).not.toContain('thalassa-keyboard-safe-sheet');
+        }
 
-        const pin = sheets.slice(
-            sheets.indexOf('export const PinDropSheet'),
-            sheets.indexOf('PinDropSheet.displayName'),
-        );
-        expect(pin).toContain('min-h-0 shrink overflow-y-auto');
-        expect(pin).toContain('data-keyboard-focus-scope');
-        expect(pin).not.toContain('thalassa-keyboard-safe-sheet');
-        // The note/send row replaces the normal composer while sharing, so
-        // two pinned entry bars cannot consume the entire landscape viewport.
+        // The note/send row still replaces the normal composer while sharing,
+        // so two pinned entry bars cannot consume a landscape viewport.
         expect(read('components/ChatPage.tsx')).toContain("view === 'messages' && !showPinSheet && (");
     });
 
@@ -118,6 +123,12 @@ describe('keyboard-safe bottom sheets', () => {
             for (const line of src.split('\n')) {
                 if (!/overflow-y-auto/.test(line)) continue;
                 if (!/max-h-\[\d+vh\]/.test(line)) continue;
+                // A CENTRED DIALOG is not bottom-sheet shaped. It is portalled
+                // out of the keyboard-resized column, so the keyboard overlays
+                // it rather than shrinking it, and the utility does not apply.
+                // Without this the guard flags the very fix for the bug it
+                // exists to catch.
+                if (/rounded-3xl|max-w-(sm|md|lg)/.test(line)) continue;
                 expect
                     .soft(line, `${file}: internally-scrolling vh-capped sheet without the keyboard utility`)
                     .toContain('thalassa-keyboard-safe-sheet');
