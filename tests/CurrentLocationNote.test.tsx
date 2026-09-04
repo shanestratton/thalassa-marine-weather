@@ -29,9 +29,14 @@ function renderSheet(overrides: Partial<PinDropSheetProps> = {}) {
 describe('Scuttlebutt current-location note', () => {
     it('keeps the note in its own shrinkable scroll and return-key scope', () => {
         const props = renderSheet();
-        const sheet = screen.getByRole('region', { name: 'Share my current location' });
+        // A DIALOG now, not an inline region. Shane asked for these to be
+        // centred modals (2026-09-05) precisely because the keyboard fight was
+        // unwinnable while they lived inside ChatPage's resized flex column.
+        // What this test actually protects — the note's own scroll scope, the
+        // Return-key scope, and the change propagating — is unchanged.
+        const sheet = screen.getByRole('dialog', { name: 'Share my current location' });
         const note = screen.getByRole('textbox', { name: 'Location note' });
-        expect(sheet).toHaveClass('min-h-0', 'shrink', 'overflow-y-auto');
+        expect(sheet).toHaveClass('overflow-y-auto');
         expect(sheet).toHaveAttribute('data-keyboard-focus-scope');
         expect(note).toHaveAttribute('enterkeyhint', 'send');
         fireEvent.change(note, { target: { value: 'Anchored for the night' } });
