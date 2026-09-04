@@ -96,6 +96,13 @@ const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed
 const TCP_READ_TIMEOUT_S = 5; // Read timeout for TCP polling (seconds)
 const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
 /**
+ * Hard cap on the partial-line buffer. ~800 maximum-length NMEA sentences;
+ * past this no delimiter is coming and the stream is not line-delimited NMEA.
+ */
+const TCP_LINE_BUFFER_MAX = 64 * 1024;
+/** Kept after a discard, so a sentence straddling the cut can still complete. */
+const TCP_LINE_BUFFER_TAIL = 512;
+/**
  * How an iOS read actually reports "nothing" — and why it is ambiguous.
  *
  * capacitor-tcp-socket does NOT reject on a read timeout. TcpSocketPlugin.swift
@@ -298,6 +305,22 @@ class NmeaListenerServiceClass {
     private hasRpmData = false;
     /** Partial NMEA line buffer for TCP (data may arrive mid-sentence) */
     private tcpLineBuffer = '';
+    /** Bytes discarded because no line delimiter ever arrived. */
+    private tcpBufferDiscardedBytes = 0;
+
+    /**
+     * Report the buffer to the memory census.
+     *
+     * This is the counter whose absence made a 2GB leak invisible: every
+     * census before the fix read ENC 0, tiles 0, GL 0, DOM tiny — because the
+     * memory was in a plain JS string nothing was watching.
+     */
+    private registerCensusProbes(): void {
+        void import('./memoryCensus').then(({ registerCensusProbe }) => {
+            registerCensusProbe('nmeaBufferKB', () => Math.round(this.tcpLineBuffer.length / 1024));
+            registerCensusProbe('nmeaDiscardedKB', () => Math.round(this.tcpBufferDiscardedBytes / 1024));
+        });
+    }
     /** Last error message for UI display */
     private lastError: string | null = null;
     /** The 5-minute give-up parked us — retry once on next app foreground. */
@@ -322,6 +345,7 @@ class NmeaListenerServiceClass {
     private lastConnectionType = '';
 
     constructor() {
+        this.registerCensusProbes();
         // Un-park on app foreground. The webview fires visibilitychange on
         // Capacitor background/foreground transitions, and coming back to the
         // app is exactly when the boat Wi-Fi is likely reachable again.
@@ -631,6 +655,46 @@ class NmeaListenerServiceClass {
                         }
                         // Append to line buffer and process complete lines
                         this.tcpLineBuffer += result;
+
+                        // THE BUFFER MUST BE BOUNDED.
+                        //
+                        // `lines.pop()` hands the trailing PARTIAL line back to
+                        // the buffer, which is right — a sentence split across
+                        // two reads has to survive. But if the stream carries
+                        // no delimiter at all, `split` returns one element,
+                        // pop() returns the whole thing, and this string grows
+                        // for as long as the feed runs. Nothing reset it
+                        // between connect and disconnect.
+                        //
+                        // That is the unbounded allocation behind the app being
+                        // killed at iOS's 2GB per-process ceiling: a plain JS
+                        // string, invisible to every counter the memory census
+                        // owns (ENC 0, tiles 0, GL 0, DOM 2,590 — all tiny
+                        // while the webview walked into the wall).
+                        //
+                        // Shane's Web Inspector, 2026-09-05: a live NMEA feed
+                        // logging "dropped 2,251 malformed/checksum-invalid
+                        // sentence(s)" and climbing, over 25.7 MILLION
+                        // TcpSocket.read calls in one session. A stream that
+                        // fails the checksum is exactly the stream that may
+                        // carry no newline.
+                        //
+                        // 64KB is ~800 maximum-length NMEA sentences. Past
+                        // that, no delimiter is coming. Keep the tail so a
+                        // genuine sentence straddling the cut can still
+                        // complete, and say so out loud — silently discarding
+                        // vessel data is its own bug.
+                        if (this.tcpLineBuffer.length > TCP_LINE_BUFFER_MAX) {
+                            const discarded = this.tcpLineBuffer.length - TCP_LINE_BUFFER_TAIL;
+                            this.tcpBufferDiscardedBytes += discarded;
+                            this.tcpLineBuffer = this.tcpLineBuffer.slice(-TCP_LINE_BUFFER_TAIL);
+                            log.warn(
+                                `NMEA line buffer hit ${TCP_LINE_BUFFER_MAX} bytes with no delimiter — ` +
+                                    `discarded ${discarded} bytes (${this.tcpBufferDiscardedBytes} total). ` +
+                                    `The feed is sending something that is not line-delimited NMEA.`,
+                            );
+                        }
+
                         const lines = this.tcpLineBuffer.split(/\r?\n/);
                         // Last element may be a partial line — keep it in the buffer
                         this.tcpLineBuffer = lines.pop() || '';
