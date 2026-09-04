@@ -23,6 +23,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useDraggablePill } from '../../hooks/useDraggablePill';
 import {
     getNowPlaying,
     pauseMusic,
@@ -210,10 +211,25 @@ export const GlobalNowPlayingBar: React.FC = () => {
         }
     }, [currentView, dismissedTitle]);
 
+    // Draggable, because anchored bottom-right it covered the chart's own
+    // controls (Shane 2026-09-04: "it is always hiding buttons that i need to
+    // click"). touchAction 'none' on the pill stops iOS treating the drag as a
+    // page scroll.
+    const {
+        ref: pillRef,
+        position: pillPosition,
+        dragging,
+        consumedTap,
+        handlers: dragHandlers,
+    } = useDraggablePill('thalassa_music_pill_pos');
+
     const handleBarTap = useCallback(() => {
+        // A drag ends in a click. Swallow that one, or parking the pill would
+        // also throw the skipper into Apple Music.
+        if (consumedTap()) return;
         triggerHaptic('light');
         setPage('music');
-    }, [setPage]);
+    }, [setPage, consumedTap]);
 
     // Hide conditions:
     //  - No track in queue (empty title) → nothing to surface
@@ -233,16 +249,28 @@ export const GlobalNowPlayingBar: React.FC = () => {
 
     return (
         <div
+            ref={pillRef}
+            {...dragHandlers}
             role="group"
-            aria-label="Now playing controls"
+            aria-label="Now playing controls, drag to move"
             // Compact, right-anchored command pod. Keeping the playback
             // surface separate from the transport buttons avoids nested
             // buttons, which iOS VoiceOver treats inconsistently.
-            className="fixed right-2 z-850 flex max-w-[300px] items-center gap-1.5 rounded-2xl border border-sky-300/20 bg-slate-900/94 p-1.5 shadow-2xl backdrop-blur-xl"
-            style={{
-                // Slot above the bottom nav (h-16 = 64px + safe area inset)
-                bottom: 'calc(env(safe-area-inset-bottom) + 68px)',
-            }}
+            className={`fixed z-850 flex max-w-[300px] items-center gap-1.5 rounded-2xl border border-sky-300/20 bg-slate-900/94 p-1.5 shadow-2xl backdrop-blur-xl ${
+                pillPosition ? '' : 'right-2'
+            } ${dragging ? 'scale-[1.03] cursor-grabbing border-sky-300/50 shadow-sky-500/20' : 'transition-transform'}`}
+            style={
+                pillPosition
+                    ? // Dragged: absolute coordinates, clamped into the
+                      // viewport on drop and on rotation so it can never be
+                      // parked somewhere unreachable.
+                      { left: pillPosition.x, top: pillPosition.y, touchAction: 'none' }
+                    : {
+                          // Default: slot above the bottom nav (h-16 = 64px + inset).
+                          bottom: 'calc(env(safe-area-inset-bottom) + 68px)',
+                          touchAction: 'none',
+                      }
+            }
         >
             <button
                 type="button"

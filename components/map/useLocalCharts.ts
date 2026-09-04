@@ -44,8 +44,26 @@ export function useLocalCharts(
             const localFiles = await ChartLockerService.getLocalCharts();
             const renderableFiles = localFiles.filter((f) => isRenderable(f.name));
 
-            // Open any new .mbtiles files that aren't already loaded
-            const toOpen = renderableFiles.filter((f) => !MBTilesService.isOpen(f.name));
+            // ONLY WHAT IS ACTUALLY BEING DISPLAYED.
+            //
+            // This opened EVERY renderable .mbtiles in chart_downloads,
+            // selected or not, and MBTilesService.open reads each whole file
+            // into memory (services/MBTilesService.ts). A locker with several
+            // large charts therefore spent tens of MB on charts nobody had
+            // switched on — and the cost lands on the WKWebView content
+            // process, which iOS jetsams under pressure.
+            //
+            // Measured on Shane's phone 2026-09-04, from the flight recorder
+            // of the session that died: `enc:merge-start 9cells,25.3MB` with
+            // repeated `enc:merge-breathe` backing off, then the process was
+            // killed mid-action with no error-boundary marker — the app's own
+            // discriminator for "jetsam, not a render error".
+            const toOpen = renderableFiles.filter((f) => !MBTilesService.isOpen(f.name) && enabledChartIds.has(f.name));
+
+            // And give back what is no longer on screen.
+            for (const open of MBTilesService.getOpenCharts()) {
+                if (!enabledChartIds.has(open.fileName)) MBTilesService.close(open.fileName);
+            }
 
             if (toOpen.length > 0) {
                 setLoading(true);
@@ -63,7 +81,7 @@ export function useLocalCharts(
         } catch (err) {
             log.warn('Failed to scan local charts:', err);
         }
-    }, []);
+    }, [enabledChartIds]);
 
     // Subscribe to MBTilesService changes + initial scan
     useEffect(() => {

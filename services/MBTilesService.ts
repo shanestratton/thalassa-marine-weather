@@ -57,6 +57,40 @@ class MBTilesServiceImpl {
     private sqlLoading: Promise<SqlJsStatic> | null = null;
     private databases = new Map<string, Database>();
     private chartInfo = new Map<string, OpenChart>();
+    /** Most recently used last. */
+    private useOrder: string[] = [];
+
+    /** Total megabytes currently held across every open chart. */
+    getMemoryMB(): number {
+        let total = 0;
+        for (const c of this.chartInfo.values()) total += c.memoryMB;
+        return total;
+    }
+
+    /**
+     * Close least-recently-used charts until `incomingMB` fits under the cap.
+     *
+     * Never evicts `keep` (the chart being opened). If a single chart is
+     * bigger than the whole budget it is still opened — refusing to draw the
+     * chart a skipper explicitly asked for would be worse than the risk — but
+     * everything else is given back first.
+     */
+    private evictUntilRoomFor(incomingMB: number, keep: string): void {
+        const CAP_MB = 96;
+        while (this.getMemoryMB() + incomingMB > CAP_MB) {
+            const victim = this.useOrder.find((f) => f !== keep && this.chartInfo.has(f));
+            if (!victim) break;
+            log.warn(
+                `Chart memory ${this.getMemoryMB()}MB + ${incomingMB}MB over the ${CAP_MB}MB cap — closing ${victim}`,
+            );
+            this.close(victim);
+        }
+    }
+
+    private touch(fileName: string): void {
+        this.useOrder = this.useOrder.filter((f) => f !== fileName);
+        this.useOrder.push(fileName);
+    }
     private listeners = new Set<Listener>();
 
     // Blob URL pool — revoke old ones to prevent memory leaks
@@ -95,7 +129,10 @@ class MBTilesServiceImpl {
     async open(fileName: string): Promise<OpenChart> {
         // Already open?
         const existing = this.chartInfo.get(fileName);
-        if (existing) return existing;
+        if (existing) {
+            this.touch(fileName);
+            return existing;
+        }
 
         const SQL = await this.ensureSql();
 
@@ -116,6 +153,16 @@ class MBTilesServiceImpl {
         const bytes = new Uint8Array(buffer);
         const memoryMB = Math.round(bytes.length / 1024 / 1024);
 
+        // A BUDGET, because the whole file lives in memory.
+        //
+        // There is no streaming path here: sql.js needs the entire database as
+        // bytes. So the only defence against a locker full of large charts is
+        // to cap the total and evict the least recently used. The cost lands
+        // on the WKWebView content process, and iOS answers memory pressure by
+        // killing it outright — which the user sees as the app "crashing back
+        // to the Glass page" with no error anywhere.
+        this.evictUntilRoomFor(memoryMB, fileName);
+
         log.info(`Loaded ${memoryMB} MB into memory, creating database...`);
 
         const db = new SQL.Database(bytes);
@@ -131,6 +178,7 @@ class MBTilesServiceImpl {
         };
 
         this.chartInfo.set(fileName, chart);
+        this.touch(fileName);
         log.info(
             `Opened: ${chart.name} (${metadata.format}, zoom ${metadata.minzoom}-${metadata.maxzoom}, ${memoryMB} MB)`,
         );
@@ -146,6 +194,7 @@ class MBTilesServiceImpl {
             db.close();
             this.databases.delete(fileName);
             this.chartInfo.delete(fileName);
+            this.useOrder = this.useOrder.filter((f) => f !== fileName);
             // Evict tile cache entries for this chart
             for (const key of this.tileCache.keys()) {
                 if (key.startsWith(`${fileName}/`)) this.tileCache.delete(key);
@@ -163,6 +212,7 @@ class MBTilesServiceImpl {
         }
         this.databases.clear();
         this.chartInfo.clear();
+        this.useOrder = [];
         this.tileCache.clear();
         this.notify();
     }
