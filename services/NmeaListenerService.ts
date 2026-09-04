@@ -16,7 +16,13 @@ import { AisHubService } from './AisHubService';
 import { offer as offerToFleetShare, reportLink as reportFleetShareLink } from './AisShareService';
 import { NmeaRateTracker } from './NmeaRateTracker';
 import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
-import { parseNmeaDepth, parseNmeaNumber, validateNmeaSentence, type ParsedNmeaDepth } from './nmea/nmeaSentence';
+import {
+    classifyNmeaRejection,
+    parseNmeaDepth,
+    parseNmeaNumber,
+    validateNmeaSentence,
+    type ParsedNmeaDepth,
+} from './nmea/nmeaSentence';
 import { NMEA_SAMPLE_INTERVAL_MS } from './nmea/nmeaCadence';
 // Bearings cannot be averaged arithmetically: the mean of 359 and 001 is 180,
 // which points a north-facing boat due south. That trap sits exactly where
@@ -27,6 +33,8 @@ const log = createLogger('NMEA');
 // Count rejected framing/checksum boundaries — surfaced occasionally so a
 // corrupted NMEA link is diagnosable in the field without flooding logs.
 let _nmeaSentenceRejects = 0;
+/** Sentences this app simply has no parser for. Normal traffic, not a fault. */
+let _nmeaUnsupportedTypes = 0;
 /** XDR sentences dropped as a whole-attitude fault — surfaced sparingly. */
 let xdrFaultSentences = 0;
 
@@ -1193,9 +1201,26 @@ class NmeaListenerServiceClass {
         // for the deliberately narrow checksum-absent compatibility policy.
         const validated = validateNmeaSentence(sentence);
         if (!validated) {
+            // A sentence this app has no parser for is NOT a fault, and saying
+            // so was actively misleading: on Shane's healthy feed 126 of 275
+            // sentences were reported "malformed/checksum-invalid" while every
+            // checksum verified correct by hand. They were GSV, VTG, GLL, ZDA,
+            // ROT — types with no parser here. That false alarm was read as
+            // evidence of a corrupt gateway and cost a wrong diagnosis
+            // (2026-09-05).
+            const why = classifyNmeaRejection(sentence);
+            if (why === 'unsupported-type') {
+                _nmeaUnsupportedTypes++;
+                // Logged rarely and named honestly. A boat's bus carries
+                // plenty this app does not read; that is normal.
+                if (_nmeaUnsupportedTypes % 5000 === 1) {
+                    log.info(`ignored ${_nmeaUnsupportedTypes} NMEA sentence(s) of types this app does not parse`);
+                }
+                return;
+            }
             _nmeaSentenceRejects++;
             if (_nmeaSentenceRejects % 50 === 1) {
-                log.warn(`dropped ${_nmeaSentenceRejects} malformed/checksum-invalid NMEA sentence(s)`);
+                log.warn(`dropped ${_nmeaSentenceRejects} NMEA sentence(s) — ${why}`);
             }
             return;
         }

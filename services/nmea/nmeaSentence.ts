@@ -107,6 +107,42 @@ export function validateNmeaSentence(sentence: unknown): ValidatedNmeaSentence |
     return { raw, type, kind, hasChecksum: true };
 }
 
+/**
+ * Why a sentence was not accepted — for logging that does not cry wolf.
+ *
+ * validateNmeaSentence returns null for two completely different situations:
+ * a sentence this app does not USE, and a sentence that is actually corrupt.
+ * The caller counted both as "malformed/checksum-invalid", so a perfectly
+ * healthy gateway produced an alarming, climbing reject count.
+ *
+ * Measured against Shane's live feed 2026-09-05: 126 of 275 sentences
+ * "rejected" — every checksum verified by hand as CORRECT. They were GSV,
+ * VTG, GLL, ZDA, ROT, DTM and HTD: satellites, course over ground, position,
+ * time, rate of turn. Not faults. Just types this app has no parser for.
+ *
+ * That false signal cost a wrong diagnosis: it was read as evidence of a
+ * corrupt, possibly non-delimited stream.
+ */
+export type NmeaRejection = 'unsupported-type' | 'bad-checksum' | 'malformed';
+
+export function classifyNmeaRejection(sentence: string): NmeaRejection {
+    if (typeof sentence !== 'string' || (sentence[0] !== '$' && sentence[0] !== '!')) return 'malformed';
+    const firstStar = sentence.indexOf('*');
+    if (firstStar >= 0) {
+        if (firstStar !== sentence.lastIndexOf('*') || firstStar !== sentence.length - 3) return 'malformed';
+        const expected = sentence.slice(firstStar + 1);
+        if (!/^[0-9A-Fa-f]{2}$/.test(expected)) return 'malformed';
+        let checksum = 0;
+        for (let i = 1; i < firstStar; i++) checksum ^= sentence.charCodeAt(i);
+        if (checksum !== Number.parseInt(expected, 16)) return 'bad-checksum';
+    }
+    // Framing and checksum are sound, so the only reason left is that this
+    // app has no parser for the type.
+    return /^\$[A-Z0-9]{2}[A-Z0-9]{3}(?:,|$)/.test(sentence.slice(0, firstStar >= 0 ? firstStar : undefined))
+        ? 'unsupported-type'
+        : 'malformed';
+}
+
 /** Parse one complete DBT/DPT body without guessing or mixing its datum. */
 export function parseNmeaDepth(raw: string, type: 'DBT' | 'DPT'): ParsedNmeaDepth | null {
     const parts = raw.split(',');
