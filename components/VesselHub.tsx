@@ -78,6 +78,7 @@ import { BinderSubLabel, CollapsibleContent, ListDivider, OfficeRow } from './ve
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SectionHeader } from './vesselHub/SectionHeader';
 import { SwingArc } from './vesselHub/SwingArc';
+import { useTripRoute } from '../hooks/useTripRoute';
 import { type MetricChipData, type SkipperDeviceControlProps, type VesselHubProps } from './vesselHub/types';
 import { useGuardianTileState } from './vesselHub/useGuardianTileState';
 import { usePendingCrewInvites } from './vesselHub/usePendingCrewInvites';
@@ -1467,14 +1468,21 @@ function deriveVoyageState(
     voyage: Voyage | null,
     anchorStatus: 'armed' | 'disarmed' | 'alarm',
     tripLogActive: boolean,
+    /** The reassembled multi-leg route, when one could be resolved. */
+    tripRoute: string | null,
 ): { label: string; color: string; route?: string } {
     if (anchorStatus === 'alarm') return { label: 'Drag Alarm', color: '#ef4444' };
 
     if (anchorStatus === 'armed') {
+        // The WHOLE trip, not leg one — see hooks/useTripRoute. The voyage's
+        // own two fields describe leg one only, which is why a
+        // Newport → Coral Sea → Mackay → Whitsundays trip read as
+        // "Newport → Coral Sea".
         const route =
-            voyage && voyage.departure_port && voyage.destination_port
+            tripRoute ??
+            (voyage && voyage.departure_port && voyage.destination_port
                 ? `${voyage.departure_port} → ${voyage.destination_port}`
-                : undefined;
+                : undefined);
         return { label: 'At Anchor', color: '#22d3ee', route };
     }
 
@@ -1491,17 +1499,19 @@ function deriveVoyageState(
     const inActiveVoyageMode = !!voyage && voyage.status === 'active';
     if (tripLogActive || inActiveVoyageMode) {
         const route =
-            voyage && voyage.departure_port && voyage.destination_port
+            tripRoute ??
+            (voyage && voyage.departure_port && voyage.destination_port
                 ? `${voyage.departure_port} → ${voyage.destination_port}`
-                : voyage?.voyage_name || undefined;
+                : voyage?.voyage_name || undefined);
         return { label: 'Underway', color: '#10b981', route };
     }
 
     if (voyage && voyage.status === 'planning') {
         const route =
-            voyage.departure_port && voyage.destination_port
+            tripRoute ??
+            (voyage.departure_port && voyage.destination_port
                 ? `${voyage.departure_port} → ${voyage.destination_port}`
-                : voyage.voyage_name || 'Drafted';
+                : voyage.voyage_name || 'Drafted');
         return { label: 'Drafted', color: '#8b5cf6', route };
     }
 
@@ -1560,7 +1570,8 @@ const NavStationHero: React.FC<{
     routeNm,
     onNavigate,
 }) => {
-    const state = deriveVoyageState(voyage, anchorStatus, tripLogActive);
+    const tripRoute = useTripRoute(voyage);
+    const state = deriveVoyageState(voyage, anchorStatus, tripLogActive, tripRoute);
 
     // Underway = SOG > ~1 kt (0.51 m/s). Below that it's noise from
     // GPS jitter at anchor — don't print "SOG 0.3 kt" on a stationary boat.

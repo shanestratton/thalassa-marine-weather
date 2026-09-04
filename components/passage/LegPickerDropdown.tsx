@@ -37,6 +37,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { triggerHaptic } from '../../utils/system';
 import { getCachedActiveVoyage, getDraftVoyages, type Voyage } from '../../services/VoyageService';
 import { getLegsForVoyage } from '../../services/VoyageLegService';
+import { chainDraftsOntoActive } from '../../services/tripEndpoints';
 import type { PassageLeg } from '../../types/navigation';
 import { VoyageCleanupSheet } from './VoyageCleanupSheet';
 import { TripOverviewSheet } from './TripOverviewSheet';
@@ -204,34 +205,8 @@ function normPort(s: string | null | undefined): string {
  * Returns the consumed drafts (chained onto active) and the remaining
  * drafts (to be chained independently of the active trip).
  */
-function chainDraftsOntoActive(active: Voyage, drafts: Voyage[]): { consumed: Voyage[]; remaining: Voyage[] } {
-    const consumed: Voyage[] = [];
-    const remaining = [...drafts].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-    // Seed the walk with the active voyage's destination. If the active
-    // voyage has no destination_port yet (rare — it'd mean a malformed
-    // row), bail out and let everything stay as standalone drafts.
-    let endpoint = normPort(active.destination_port);
-    if (!endpoint) return { consumed: [], remaining };
-
-    // Walk forward: keep finding the draft whose departure_port matches
-    // the current endpoint, then advance the endpoint to that draft's
-    // destination. Same greedy first-match policy as chainDrafts().
-    let extended = true;
-    while (extended) {
-        extended = false;
-        const idx = remaining.findIndex((d) => normPort(d.departure_port) === endpoint);
-        if (idx < 0) break;
-        const next = remaining.splice(idx, 1)[0];
-        consumed.push(next);
-        endpoint = normPort(next.destination_port);
-        if (!endpoint) break;
-        extended = true;
-    }
-
-    return { consumed, remaining };
-}
-
+// chainDraftsOntoActive moved to services/tripEndpoints so route LABELS and
+// this picker reassemble a multi-leg trip the same way, by construction.
 /**
  * Group draft voyages into chains where each voyage's destination
  * matches the next voyage's departure (case-insensitive trim).
