@@ -2035,26 +2035,39 @@ class ShipLogServiceClass {
         // stops background geolocation and flushes the queue, and none of that
         // is JS the error boundary could catch.
         crumb('stop:native-in');
+        // FINE-GRAINED, because the death is one millisecond into this
+        // function and never reaches its end. Each of these is a synchronous
+        // localStorage write, so whichever statement is fatal, the crumb
+        // before it survives.
         const pending = this.pendingStop;
+        crumb('stop:n1', pending ? 'pending' : 'none');
         if (pending && this.sameScope(pending.scope, scope) && this.ownerIsCurrent(scope, pending.state)) {
             const retryAttempt = ++this.startAttempt;
             try {
+                crumb('stop:n2-release-in');
                 await this.completePendingNativeRelease(scope, pending.state);
+                crumb('stop:n2-release-out');
             } catch (error) {
+                crumb('stop:n2-threw');
                 throw new Error(
                     `Voyage remains paused because background GPS teardown is still pending. Retry End Voyage. ${error instanceof Error ? error.message : ''}`.trim(),
                 );
             }
+            crumb('stop:n3-finalize-in');
             await this.finalizeStoppedTracking(scope, pending.state, pending.voyageId, retryAttempt);
+            crumb('stop:n3-finalize-out');
             return;
         }
         const activeState = this.trackingState;
+        crumb('stop:n4-state', `buf=${this.trackBuffer.length}`);
         if (!this.ownerIsCurrent(scope, activeState)) return;
         const stopAttempt = ++this.startAttempt;
         const assertStopCurrent = (state: TrackingState) => this.assertStopCurrent(scope, state, stopAttempt);
         if (activeState.nativeTeardownPending) {
             try {
+                crumb('stop:n5-release-in');
                 await this.completePendingNativeRelease(scope, activeState);
+                crumb('stop:n5-release-out');
             } catch (error) {
                 throw new Error(
                     `Voyage remains paused because background GPS teardown is still pending. Retry End Voyage. ${error instanceof Error ? error.message : ''}`.trim(),
@@ -2107,7 +2120,9 @@ class ShipLogServiceClass {
         // was invalidated by the stop token, its suffix goes to the durable
         // owner-scoped handoff and is replayed here.
         try {
+            crumb('stop:n6-flush-in', `buf=${this.trackBuffer.length}`);
             await this.flushBufferedTrack(scope, activeState);
+            crumb('stop:n6-flush-out');
         } catch (e) {
             log.warn('[ShipLog] final buffer flush deferred to durable handoff:', e);
         }
