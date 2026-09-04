@@ -566,25 +566,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             }}
                         />
                         <ListDivider />
-                        {/* Galley — orphan-audit fix 2026-05-17. The
-                                GalleyPage docstring claimed it was
-                                "accessible directly from VesselHub Ship's
-                                Office grid" but the tile had silently been
-                                removed (paying Skipper-tier users couldn't
-                                reach a feature they'd paid for). Slot it
-                                here because galley = meal-planning ABOVE
-                                Ship's Stores (you plan meals FROM stores).
-                                PaywallGate is auto-applied by viewRegistry
-                                via gatedFeature: 'galley', so free users
-                                hit an upgrade prompt — not a broken page. */}
+                        {/* Checklists moved here from Reference (Shane
+                            2026-09-04). A checklist is something you WORK
+                            THROUGH against the boat and its stores — safety
+                            gear, passage prep — not something you look up, so
+                            it belongs beside Ship's Stores and Equipment
+                            rather than filed with the polars. */}
                         <OfficeRow
-                            icon={<GalleyIcon color="#cbd5e1" />}
-                            label="Galley"
-                            status="Meal Planning"
+                            icon={<ChecklistIcon color="#cbd5e1" />}
+                            label="Checklists"
+                            status="Safety & Passage"
                             statusColor="#94a3b8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                navigateFromBinder('galley');
+                                navigateFromBinder('checklists');
                             }}
                         />
                         <ListDivider />
@@ -635,14 +630,27 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     {/* — Reference subgroup — */}
                     <BinderSubLabel>Reference</BinderSubLabel>
                     <div style={GLASS.listContainer}>
+                        {/* Galley moved here from Inventory & Stores (Shane
+                            2026-09-04). It reads as recipes and meal planning —
+                            reference material you consult — while its LINK to
+                            stores is the provisioning flow inside it, not the
+                            menu it hangs off.
+
+                            Kept from the 2026-05-17 orphan audit, because it
+                            still matters: GalleyPage's docstring once claimed
+                            it was reachable from a grid whose tile had been
+                            silently removed, so paying users could not reach a
+                            feature they had bought. PaywallGate is auto-applied
+                            by viewRegistry via gatedFeature: 'galley', so free
+                            users get an upgrade prompt, not a broken page. */}
                         <OfficeRow
-                            icon={<ChecklistIcon color="#cbd5e1" />}
-                            label="Checklists"
-                            status="Safety & Passage"
+                            icon={<GalleyIcon color="#cbd5e1" />}
+                            label="Galley"
+                            status="Meal Planning"
                             statusColor="#94a3b8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                navigateFromBinder('checklists');
+                                navigateFromBinder('galley');
                             }}
                         />
                         {/* Weather Window row culled (Shane 2026-09-02, binder
