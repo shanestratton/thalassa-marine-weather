@@ -2336,12 +2336,19 @@ class ShipLogServiceClass {
         // untrusted and there cannot be a legitimate in-flight selected-point
         // flush yet.
         if (!this.trackGpsGateOpen && this.trackBuffer.length === 0) return Promise.resolve('complete');
+        crumb('stop:f1-enqueue', `gate=${this.trackGpsGateOpen ? 'open' : 'shut'}`);
         // The geographic sampler is the sole authority on persisted vertices.
         // CapturePipeline receives allowEmptyBufferFallback:false through the
         // context below, so an empty scheduler/heartbeat tick is a no-op—not
         // a raw-cache capture—while an in-flight durable flush can still be
         // joined by stopTracking.
-        return this.enqueueCaptureWrite(scope, state, (ctx) => _flushBufferedTrack(ctx));
+        return this.enqueueCaptureWrite(scope, state, (ctx) => {
+            crumb('stop:f2-inner-in');
+            return _flushBufferedTrack(ctx).then((r) => {
+                crumb('stop:f3-inner-out', String(r));
+                return r;
+            });
+        });
     }
 
     /**
