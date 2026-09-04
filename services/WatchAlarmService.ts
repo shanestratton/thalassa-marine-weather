@@ -32,6 +32,8 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase } from './supabase';
 import { WatchAssignmentService } from './WatchAssignmentService';
 import { createLogger } from '../utils/createLogger';
+// Shared with the crew's own watch page — see utils/watchTimes.
+import { firstWatchStart } from '../utils/watchTimes';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -57,38 +59,6 @@ function notificationIdFor(voyageId: string, watchIndex: number): number {
     // Truncate hash to 22 bits (~4M voyages), shift left, OR with watch_index
     // (up to 1023 watches). Result is a 32-bit positive int.
     return (Math.abs(hash) & 0x3fffff) * 1024 + (watchIndex & 0x3ff);
-}
-
-/**
- * Parse a watch's `time` string (e.g. "2000–0000", "1600–1800") and
- * the voyage departure_time into a concrete UTC start timestamp.
- *
- * The watch schedule cycles every 24 hours starting at the voyage's
- * departure date — so the first First Watch is on departure day at
- * 20:00 (or whatever the slot's start time is).
- *
- * Returns null if the time string can't be parsed.
- */
-function computeWatchStartUtc(timeRange: string, departureIso: string): Date | null {
-    // Match HHMM–HHMM format. The dash can be any of -, –, —.
-    const match = timeRange.match(/(\d{4})\s*[-–—]\s*(\d{4})/);
-    if (!match) return null;
-    const startHHMM = match[1];
-    const hour = parseInt(startHHMM.slice(0, 2), 10);
-    const minute = parseInt(startHHMM.slice(2, 4), 10);
-    if (isNaN(hour) || isNaN(minute)) return null;
-
-    const dep = new Date(departureIso);
-    if (isNaN(dep.getTime())) return null;
-
-    // The watch's UTC time-of-day is hour:minute. Place it on the
-    // departure date first, then advance by 24h until it's >= dep.
-    const watchStart = new Date(dep);
-    watchStart.setUTCHours(hour, minute, 0, 0);
-    while (watchStart.getTime() < dep.getTime()) {
-        watchStart.setUTCDate(watchStart.getUTCDate() + 1);
-    }
-    return watchStart;
 }
 
 function belongsToScope(notification: { extra?: unknown; title?: string }, scope: AuthIdentityScope): boolean {
@@ -237,7 +207,7 @@ export const WatchAlarmService = {
         const now = Date.now();
         const notifications = mine
             .map((a) => {
-                const start = computeWatchStartUtc(a.watch_time_label, departureSnapshot);
+                const start = firstWatchStart(a.watch_time_label, departureSnapshot);
                 if (!start) return null;
                 const fireAt = new Date(start.getTime() - leadMinutes * 60_000);
                 // Don't schedule alarms in the past

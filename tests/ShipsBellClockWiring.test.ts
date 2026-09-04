@@ -40,12 +40,18 @@ describe("the ship's bell clock in the instrument panel", () => {
         expect(page).toMatch(/localStorage\.getItem\('thalassa_clock_zone'\)/);
     });
 
-    it('computes alarms from the DEVICE clock, never the displayed zone', () => {
-        const choices = page.slice(page.indexOf('const alarmChoices'), page.indexOf('const handleSetBellAlarm'));
-        // nextBellFrom/Date arithmetic on clockNow — the device's own instant.
-        expect(choices).toMatch(/nextBellFrom\(clockNow\)/);
-        // The displayed-zone reading must not leak into the alarm time.
-        expect(choices).not.toMatch(/zoneClock/);
+    it('computes watch alarms from the watch\u2019s own UTC start, never the displayed zone', () => {
+        // The generic "next bell / next watch change" chips are gone: the Wake
+        // Me pills are now driven by THIS crew member's assigned watch
+        // (services/myWatches), so the alarm time comes from that watch's
+        // concrete UTC start minus a lead, not from anything the face shows.
+        // A displayed zone leaking in here would wake a skipper an hour out.
+        const at = page.indexOf('const handleWakeForWatch');
+        expect(at, 'the wake handler moved or was renamed').toBeGreaterThan(-1);
+        const handler = page.slice(at, at + 1200);
+        expect(handler.length).toBeGreaterThan(0);
+        expect(handler).toMatch(/watch\.startsAt\.getTime\(\) - lead\.minutes \* 60_000/);
+        expect(handler).not.toMatch(/zoneClock/);
     });
 
     it("its alarms cannot reach the crew's assigned watch alarms", () => {
