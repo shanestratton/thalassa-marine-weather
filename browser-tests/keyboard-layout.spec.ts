@@ -89,3 +89,47 @@ test('page fields clear the sticky header and the final field gets enough scroll
     await port.press('Enter');
     await visibleAboveKeyboard(page, notes, 344);
 });
+
+for (const size of [
+    { name: 'phone', width: 430, height: 932, keyboard: 406 },
+    { name: 'small phone', width: 375, height: 667, keyboard: 336 },
+    { name: 'landscape', width: 844, height: 390, keyboard: 200 },
+]) {
+    test(`current location note stays visible without blanking the chat in ${size.name}`, async ({ page }) => {
+        // The real attachment component renders a map, but this regression
+        // must not contact map providers, authentication or messaging APIs.
+        await page.route('**/*', (route) =>
+            new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+        );
+        await page.setViewportSize({ width: size.width, height: size.height });
+        await page.goto('/e2e/fixtures/keyboard.html?mode=current-location');
+        const note = page.getByRole('textbox', { name: 'Location note', exact: true });
+        await expect(page.getByRole('textbox', { name: 'Type a message', exact: true })).toHaveCount(0);
+        await note.click();
+        await keyboard(page, size.keyboard);
+        await expect(note).toBeFocused();
+        await visibleAboveKeyboard(page, note, size.keyboard);
+        await visibleAboveKeyboard(page, page.getByTestId('chat-header'), size.keyboard);
+        await expect
+            .poll(() =>
+                page.evaluate(() =>
+                    [document.documentElement, document.body, document.getElementById('root')!].every(
+                        (element) => element.scrollTop === 0,
+                    ),
+                ),
+            )
+            .toBe(true);
+        await note.fill('Anchored for the night');
+        await expect(note).toHaveValue('Anchored for the night');
+        await page.screenshot({ path: test.info().outputPath('location-note-keyboard.png') });
+        await note.press('Enter');
+        await expect(page.getByTestId('shared-note')).toHaveText('Anchored for the night');
+        await keyboard(page, 0);
+        await visibleAboveKeyboard(page, note, 0);
+        await visibleAboveKeyboard(page, page.getByTestId('chat-header'), 0);
+        await page.getByRole('button', { name: 'Close current location sheet' }).click();
+        await expect(page.getByRole('textbox', { name: 'Type a message', exact: true })).toHaveValue(
+            'Unsent channel draft',
+        );
+    });
+}

@@ -298,7 +298,15 @@ export function keepEditableAboveKeyboard(target: EventTarget | null, center = f
         // Nested panels may reach their own scroll limit. Let an outer panel
         // expose the field too, rather than abandoning it behind a fixed edge.
         let outer = findScrollParent(scrollParent);
-        while (outer) {
+        while (
+            outer &&
+            outer !== document.documentElement &&
+            outer !== document.body &&
+            outer !== document.getElementById('root')
+        ) {
+            // Once a field owns an inner scroller, never add blank scroll
+            // space to the app/document roots to rescue an undersized panel.
+            // That can scroll the entire chat (including its header) away.
             const current = element.getBoundingClientRect();
             const safe = fieldViewport(element);
             const delta =

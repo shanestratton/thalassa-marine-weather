@@ -116,6 +116,29 @@ describe('keyboardScroll', () => {
         expect(scrollBy).toHaveBeenCalled();
     });
 
+    it('never scrolls the whole app into blank space to rescue an undersized inner panel', () => {
+        setViewport({ height: 500 });
+        const appRoot = document.createElement('div');
+        appRoot.id = 'root';
+        appRoot.style.overflowY = 'auto';
+        const scrollRoot = vi.fn();
+        Object.assign(appRoot, { scrollBy: scrollRoot });
+        document.body.append(appRoot);
+        const { form, scrollBy } = scrollableForm();
+        appRoot.append(form);
+        const input = document.createElement('input');
+        form.append(input);
+        // An inner scroll cannot fix these mocked bounds. The old outer-loop
+        // fallback padded and scrolled #root until the entire chat vanished.
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 600, 200, 40));
+
+        keepEditableAboveKeyboard(input);
+
+        expect(scrollBy).toHaveBeenCalled();
+        expect(scrollRoot).not.toHaveBeenCalled();
+        expect(appRoot.style.paddingBottom).toBe('');
+    });
+
     it('does not jolt a form when its focused field already fits', () => {
         setViewport({ height: 500 });
         const { form, scrollBy } = scrollableForm();

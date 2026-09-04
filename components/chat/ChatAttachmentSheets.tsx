@@ -211,7 +211,11 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
             <section
                 role="region"
                 aria-label="Share my current location"
-                className="shrink-0 border-t border-emerald-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+                data-keyboard-focus-scope
+                // ChatPage already subtracts the keyboard from its height.
+                // Let this inline sheet shrink and scroll inside that space;
+                // a rigid sheet makes the guard scroll the whole app shell.
+                className="min-h-0 shrink overflow-y-auto overscroll-contain border-t border-emerald-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
             >
                 <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
@@ -327,7 +331,12 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                 type="text"
                                 value={pinCaption}
                                 onChange={(e) => setPinCaption(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && canShare && !sending && onSendPin()}
+                                onKeyDown={(e) => {
+                                    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return;
+                                    e.preventDefault();
+                                    if (canShare && !sending) onSendPin();
+                                }}
+                                enterKeyHint="send"
                                 placeholder="Add a note (optional)"
                                 aria-label="Location note"
                                 className="flex-1 min-w-0 bg-white/4 border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-emerald-400/40 transition-colors min-h-[46px]"
@@ -421,8 +430,8 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 // place of the hard-coded 68vh that used to sit here. This
                 // sheet scrolls internally, which is precisely the case the
                 // app-wide keyboard guard cannot rescue — see the class
-                // comment in index.css. Share my location (PinDropSheet,
-                // above) needs no such treatment: no internal scroll box.
+                // comment in index.css. Current location above instead shrinks
+                // within ChatPage's already keyboard-resized flex layout.
                 className="thalassa-keyboard-safe-sheet flex shrink-0 flex-col border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
             >
                 <div className="flex items-start justify-between gap-4 mb-3">
