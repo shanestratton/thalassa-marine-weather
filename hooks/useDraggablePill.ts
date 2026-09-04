@@ -52,6 +52,30 @@ export function useDraggablePill(storageKey: string) {
     const startRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
     const movedRef = useRef(false);
 
+    // ON MOUNT TOO, not just on resize.
+    //
+    // A stored position is only as good as the viewport it was stored in. If
+    // the element had not been measured when it was saved, or the phone has
+    // since rotated, or the value predates a layout change, it can come back
+    // pointing off-screen — and the pill is then invisible with no way to
+    // reach it, which reads as "the music pill is missing" (Shane
+    // 2026-09-04). Re-clamping on mount makes an unreachable position
+    // impossible to persist across launches.
+    useEffect(() => {
+        const el = ref.current;
+        setPosition((p) => {
+            if (!p) return p;
+            const fixed = clamp(p, el);
+            if (fixed.x === p.x && fixed.y === p.y) return p;
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(fixed));
+            } catch {
+                /* private mode */
+            }
+            return fixed;
+        });
+    }, [storageKey]);
+
     // A pill parked near an edge must not be stranded off-screen by a rotation.
     useEffect(() => {
         const onResize = () => setPosition((p) => (p ? clamp(p, ref.current) : null));

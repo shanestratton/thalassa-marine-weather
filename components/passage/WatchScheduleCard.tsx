@@ -487,23 +487,19 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         // assignments-as-map dep — rebuild alarms when slots change
     }, [identityScope, voyageId, departureTimeIso, alarmEnabled, alarmLeadMin, assignments, isSoloSystem]);
 
-    // Cancel alarms when component unmounts (e.g., user navigates away
-    // from Crew Management) — keeps stale alarms from firing if the
-    // voyage gets deleted later
-    useEffect(() => {
-        return () => {
-            if (!voyageId) return;
-            // Fire-and-forget cancel
-            (async () => {
-                try {
-                    const { WatchAlarmService } = await import('../../services/WatchAlarmService');
-                    await WatchAlarmService.cancelForVoyage(voyageId);
-                } catch {
-                    /* ignore */
-                }
-            })();
-        };
-    }, [voyageId]);
+    // NOTHING HERE CANCELS ON UNMOUNT.
+    //
+    // There used to be a cleanup that called cancelForVoyage when this card
+    // went away, to keep "stale alarms from firing if the voyage gets deleted
+    // later". A real worry, the wrong owner: it made the crew's pre-watch
+    // alarm depend on WHERE THEY NAVIGATED rather than on whether their watch
+    // was still scheduled. Open Crew Management, look at the bill, go back to
+    // the chart — and the alarms that were about to wake you at 0345 are gone,
+    // silently.
+    //
+    // Cancellation now follows the VOYAGE: endVoyage() cancels, and
+    // scheduleForVoyage already cancels this voyage's previous alarms before
+    // laying down new ones, so an edited bill cannot double-fire either.
 
     const handleAssign = useCallback(
         async (email: string | null, name: string | null, crewUserId: string | null) => {

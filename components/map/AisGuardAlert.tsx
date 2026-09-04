@@ -14,22 +14,17 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import type { GuardAlert } from '../../services/AisGuardZone';
+import { AisGuardAlertStore } from '../../services/aisGuardAlertStore';
 
 export const AisGuardAlert: React.FC = () => {
-    const [alerts, setAlerts] = useState<GuardAlert[]>([]);
+    // Read from the STORE, not the window event. Owning the list here meant an
+    // alert raised on another page was heard by nobody, and coming back to the
+    // chart replayed nothing — while AisGuardZone, being edge-triggered, would
+    // not raise it again for a vessel that never left the ring.
+    const [alerts, setAlerts] = useState<GuardAlert[]>(() => AisGuardAlertStore.get());
+    useEffect(() => AisGuardAlertStore.subscribe(setAlerts), []);
 
-    useEffect(() => {
-        const handler = (e: Event) => {
-            const newAlerts = (e as CustomEvent<GuardAlert[]>).detail;
-            setAlerts((prev) => [...newAlerts, ...prev].slice(0, 5));
-        };
-        window.addEventListener('ais-guard-alert', handler);
-        return () => window.removeEventListener('ais-guard-alert', handler);
-    }, []);
-
-    const dismiss = useCallback((mmsi: number) => {
-        setAlerts((prev) => prev.filter((a) => a.mmsi !== mmsi));
-    }, []);
+    const dismiss = useCallback((mmsi: number) => AisGuardAlertStore.dismiss(mmsi), []);
 
     if (alerts.length === 0) return null;
 

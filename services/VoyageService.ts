@@ -1011,6 +1011,19 @@ export async function castOff(
 
 /** End a passage — closes active leg and archives the voyage */
 export async function endVoyage(voyageId: string, status: 'completed' | 'aborted' = 'completed'): Promise<boolean> {
+    // The voyage is over, so its pre-watch alarms are too. This is the RIGHT
+    // owner for that: WatchScheduleCard used to cancel them when its screen
+    // unmounted, which made a crew member's 0345 alarm depend on where they
+    // last navigated. Fire-and-forget — a failed cancel must never stop a
+    // voyage being ended, and the alarms are bounded by the passage anyway.
+    void (async () => {
+        try {
+            const { WatchAlarmService } = await import('./WatchAlarmService');
+            await WatchAlarmService.cancelForVoyage(voyageId);
+        } catch {
+            /* non-critical */
+        }
+    })();
     const identity = getAuthIdentityScope();
     if (!identity.userId) return false;
     if (!supabase) return false;

@@ -11,6 +11,7 @@ import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
+import { AisGuardAlert } from './components/map/AisGuardAlert';
 import { LocationStarMenu } from './components/LocationStarMenu';
 import { SkeletonDashboard, SkeletonPage } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
@@ -1466,6 +1467,19 @@ const App: React.FC = () => {
                         </svg>
                     </button>
                 )}
+
+                {/* ═══ AIS GUARD ZONE ALERT — APP-WIDE ═══
+                    Detection runs everywhere (AisGuardWatch), but the alert
+                    used to be mounted only on the chart surface and held its
+                    list in local state. So a vessel entering the guard ring
+                    while the skipper was anywhere else was announced to
+                    nobody, and returning to the chart replayed nothing.
+
+                    AisGuardZone is EDGE-triggered — once per entry, not again
+                    while the vessel stays inside — so a lost alert was not
+                    "you will be told again shortly". It was gone for as long
+                    as that vessel remained in the ring. */}
+                <AisGuardAlert />
 
                 {(!isMobileLandscape || landscapeNavOpen) && !isStandalonePlan && (
                     <nav
