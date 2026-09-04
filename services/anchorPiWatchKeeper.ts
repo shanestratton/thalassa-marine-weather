@@ -27,6 +27,7 @@
  */
 import { clearWatchOnPi, handOffToPi, RENEW_INTERVAL_MS, type PiWatchAssignment } from './anchorPiHandoff';
 import { piCache } from './PiCacheService';
+import { authScopedStorageKey } from './authIdentityScope';
 import { pinnedPiRequest } from './PiPairingService';
 import { createLogger } from '../utils/createLogger';
 
@@ -207,9 +208,59 @@ export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatch
     return first.result;
 }
 
+/**
+ * Auth-scoped so account B can never inherit account A's Pi assignment.
+ *
+ * THE DURABLE HOLE this closes: `current` was memory only. After iOS killed
+ * the app — which it will, overnight, on a phone in a pocket — it came back
+ * null, so renew() returned at `if (!held) return` and the six-hour lease
+ * simply lapsed. And nothing re-offered: the offer loop is gated on
+ * viewMode === 'watching', which a shore-mode phone never is. So the Pi went
+ * quiet a few hours in, permanently, while the phone showed a session it
+ * believed was healthy.
+ */
+const KEEPER_STATE_KEY = 'thalassa_pi_watch_assignment';
+
 class AnchorPiWatchKeeperClass {
     private renewTimer: ReturnType<typeof setInterval> | null = null;
     private current: { assignment: PiWatchAssignment; target: PiWatchTarget } | null = null;
+
+    /** Write-through, so a kill between renewals cannot lose the watch. */
+    private persist(): void {
+        try {
+            const key = authScopedStorageKey(KEEPER_STATE_KEY);
+            if (this.current) localStorage.setItem(key, JSON.stringify(this.current));
+            else localStorage.removeItem(key);
+        } catch {
+            /* private mode / quota — the in-memory watch still runs */
+        }
+    }
+
+    /**
+     * Bring a watch back after the app was killed, and resume renewing it.
+     *
+     * Called once at launch. Safe to call when there is nothing to restore,
+     * and refuses to clobber a live in-memory watch.
+     */
+    restore(): boolean {
+        if (this.current) return true;
+        try {
+            const raw = localStorage.getItem(authScopedStorageKey(KEEPER_STATE_KEY));
+            if (!raw) return false;
+            const saved = JSON.parse(raw) as { assignment?: PiWatchAssignment; target?: PiWatchTarget };
+            if (!saved?.assignment?.sessionCode || !saved.target?.baseUrl || !saved.target.relayId) {
+                localStorage.removeItem(authScopedStorageKey(KEEPER_STATE_KEY));
+                return false;
+            }
+            this.current = { assignment: saved.assignment, target: saved.target };
+            log.warn(`Pi watch restored after relaunch (session ${saved.assignment.sessionCode}) — renewing`);
+            this.startRenewing();
+            void this.renew();
+            return true;
+        } catch {
+            return false;
+        }
+    }
 
     /** True once the PI is keeping the watch. False means the phone carries on
      *  alone, which is the behaviour that existed before this module. */
@@ -270,6 +321,7 @@ class AnchorPiWatchKeeperClass {
             return false;
         }
         this.current = { assignment, target };
+        this.persist();
         this.startRenewing();
         log.info(`Pi is keeping the shore watch for session ${assignment.sessionCode}`);
         return true;
@@ -286,6 +338,7 @@ class AnchorPiWatchKeeperClass {
         this.stopRenewing();
         const held = this.current;
         this.current = null;
+        this.persist();
         if (!held) return;
         await clearWatchOnPi(held.target.baseUrl);
         log.info('Shore watch handed back from the Pi');
@@ -297,9 +350,34 @@ class AnchorPiWatchKeeperClass {
         // hours and the app refreshes inside that, so a watch that runs
         // overnight does not quietly lapse at 3 a.m.
         this.renewTimer = setInterval(() => void this.renew(), RENEW_INTERVAL_MS);
+        // A timer in a backgrounded WKWebView is not a promise. Renew the
+        // moment the app is alive again too — handOffToPi is idempotent, so an
+        // extra renew costs one request and buys back a lease that may have
+        // been minutes from lapsing while the phone slept.
+        void (async () => {
+            try {
+                const { App } = await import('@capacitor/app');
+                const handle = await App.addListener('appStateChange', ({ isActive }) => {
+                    if (isActive && this.current) void this.renew();
+                });
+                this.foregroundHandle = handle;
+            } catch {
+                /* web build — the interval alone */
+            }
+        })();
     }
 
+    private foregroundHandle: { remove: () => void } | null = null;
+
     private stopRenewing(): void {
+        if (this.foregroundHandle) {
+            try {
+                this.foregroundHandle.remove();
+            } catch {
+                /* already gone */
+            }
+            this.foregroundHandle = null;
+        }
         if (this.renewTimer) {
             clearInterval(this.renewTimer);
             this.renewTimer = null;
@@ -331,15 +409,26 @@ class AnchorPiWatchKeeperClass {
         if (!held) return;
         // The Pi may have moved (remote access) or dropped off the tailnet.
         const target = resolvePiWatchTarget() ?? held.target;
-        const ok = await handOffToPi(held.assignment, target.relayId, target.baseUrl);
-        if (ok) {
-            this.current = { assignment: held.assignment, target };
-            return;
+        // The SAME ladder begin() and the capability probe use. Without it a
+        // renewal from ashore posted only to the boat-LAN address and failed,
+        // so the lease lapsed for exactly the phone that had left the boat.
+        const addresses = [target.baseUrl];
+        const remote = piCache.getRemoteBaseUrl();
+        if (remote && remote !== target.baseUrl) addresses.push(remote);
+        for (const baseUrl of addresses) {
+            if (await handOffToPi(held.assignment, target.relayId, baseUrl)) {
+                // Remember which address answered so teardown uses it too.
+                this.current = { assignment: held.assignment, target: { ...target, baseUrl } };
+                this.persist();
+                return;
+            }
         }
         // Do NOT tear down: the phone is still broadcasting, and the next
         // renew may well succeed once the Pi is reachable again. Forgetting
         // the watch here would mean never trying it again this session.
-        log.warn('Pi watch renewal failed; will try again at the next interval');
+        log.warn(
+            `Pi watch renewal failed at every known address (${addresses.join(', ')}); will try again at the next interval`,
+        );
     }
 }
 

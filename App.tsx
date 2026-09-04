@@ -481,6 +481,14 @@ const App: React.FC = () => {
             try {
                 const { AnchorWatchSyncService } = await import('./services/AnchorWatchSyncService');
                 await AnchorWatchSyncService.restoreSession();
+                // And the Pi's side of it. The keeper's assignment used to be
+                // memory only, so after iOS killed the app nothing renewed the
+                // six-hour lease and nothing re-offered — the offer loop is
+                // gated on viewMode === 'watching', which a shore-mode phone
+                // never is. The Pi went quiet a few hours in, permanently,
+                // while this phone showed a session it believed was healthy.
+                const { AnchorPiWatchKeeper } = await import('./services/anchorPiWatchKeeper');
+                AnchorPiWatchKeeper.restore();
             } catch {
                 /* non-critical — the Anchor Watch page restores on mount too */
             }
