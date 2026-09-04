@@ -105,12 +105,6 @@ export const ShipsBellReference: React.FC<Props> = ({ hour, minute }) => {
                     </tbody>
                 </table>
             </div>
-
-            <p className="mt-2 text-[11px] leading-4 text-slate-500">
-                A watch is four hours and a bell is struck every half hour, one more each time, so eight bells ends it.
-                The dog watches split 1600–2000 in two so no one stands the same watch daily — the first stops at four
-                bells, and the last strikes <span className="text-slate-300">eight at 2000</span> to close the day.
-            </p>
         </div>
     );
 };

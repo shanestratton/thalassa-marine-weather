@@ -61,7 +61,12 @@ describe("the ship's bell clock in the instrument panel", () => {
     });
 
     it('the zone select and the alarm controls meet the touch floor', () => {
-        const section = page.slice(page.indexOf('── SECTION: CLOCK ──'), page.indexOf('── SECTION: SAIL PLAN'));
+        // Scoped to BELLS, where the controls live since the clock was split
+        // onto its own page (2026-09-04). The old slice ran from CLOCK to SAIL
+        // PLAN, which after the split swallowed Wind, Barometer, Position and
+        // every other section between them.
+        const section = page.slice(page.indexOf('── SECTION: BELLS ──'), page.indexOf('── SECTION: WIND ──'));
+        expect(section.length).toBeGreaterThan(0);
         // Every interactive control in the section carries the 44px floor.
         // Matched by WINDOW rather than by tag: a non-greedy tag pattern stops
         // at the '>' inside an arrow function, and silently passed by reading
