@@ -26,6 +26,7 @@ import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
 import { EnvironmentService } from './EnvironmentService';
 import { createLogger } from '../utils/createLogger';
+import { crumb } from '../utils/flightRecorder';
 import { calculateDistance } from '../utils/navigationCalculations';
 
 // --- Extracted modules ---
@@ -2030,6 +2031,10 @@ class ShipLogServiceClass {
     }
 
     private async performStopTracking(scope: AuthIdentityScope): Promise<void> {
+        // The native teardown is the prime suspect for a process death: it
+        // stops background geolocation and flushes the queue, and none of that
+        // is JS the error boundary could catch.
+        crumb('stop:native-in');
         const pending = this.pendingStop;
         if (pending && this.sameScope(pending.scope, scope) && this.ownerIsCurrent(scope, pending.state)) {
             const retryAttempt = ++this.startAttempt;

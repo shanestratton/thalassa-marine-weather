@@ -1147,12 +1147,23 @@ export function useLogPageState() {
         // Instant UI response — dispatch first, guard prevents polls from overwriting
         stoppingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+        // BREADCRUMBS THROUGH THE WHOLE STOP.
+        //
+        // Stopping a route kills the app on Shane's phone and the trail ends
+        // at SET_TRACKING with no error-boundary marker — a dead process, not
+        // a caught error, so nothing in JS gets to report it. These crumbs are
+        // written synchronously at each phase boundary, so whichever step is
+        // fatal, the NEXT boot can name it instead of us guessing again.
+        crumb('stop:begin', stoppedVoyageId ?? 'no-id');
         try {
+            crumb('stop:service-in');
             // Exact-voyage teardown: every other caller passes the id it
             // means to stop; the captured id IS the current one, so this is
             // pure lease verification, never a mismatch.
             await ShipLogService.stopTracking(stoppedVoyageId);
+            crumb('stop:service-out');
         } catch (e) {
+            crumb('stop:service-threw', String((e as Error)?.message ?? e).slice(0, 60));
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('stopTracking failed:', e);
             stoppingRef.current = false;
@@ -1212,6 +1223,7 @@ export function useLogPageState() {
             // and we just stopped it, so there's no cross-device ambiguity:
             // delete it now rather than making the user wait out that window.
             if (stoppedVoyageId) {
+                crumb('stop:prune-in', `${entriesRef.current.length}entries`);
                 const ve = entriesRef.current.filter((e) => e.voyageId === stoppedVoyageId);
                 // maxOf, not Math.max(...): spreading every GPS entry of the
                 // voyage into arguments is what crashed the app on End Voyage —
@@ -1247,7 +1259,9 @@ export function useLogPageState() {
         }
 
         // Reload to pick up final state
+        crumb('stop:reload-in');
         await loadData();
+        crumb('stop:reload-out');
     }, [dispatch, identityScope, loadData, toast]);
 
     // ── Entry CRUD ──────────────────────────────────────────────────────────
