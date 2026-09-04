@@ -729,7 +729,7 @@ const SlotPicker: React.FC<{
     const customInputRef = useRef<HTMLInputElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const keyboardOpen = useKeyboardOffset() > 0;
+    const keyboardHeight = useKeyboardOffset();
     const [showRecipeForm, setShowRecipeForm] = useState(false);
     const [showCaptainsTable, setShowCaptainsTable] = useState(false);
     const [brokenImageIds, setBrokenImageIds] = useState<Set<string | number>>(new Set());
@@ -815,17 +815,11 @@ const SlotPicker: React.FC<{
         void handleScheduleNamedMeal(customName);
     };
 
-    // Auto-scroll custom meal input into view when focused
-    const handleCustomFocus = () => {
-        setTimeout(() => {
-            customInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 450); // Wait for keyboard animation
-    };
-
     return (
         <>
             <OverlayPortal
-                className={`flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200`}
+                className="flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+                style={{ paddingBottom: keyboardHeight + 16 }}
                 onClick={onClose}
                 role="presentation"
             >
@@ -834,7 +828,8 @@ const SlotPicker: React.FC<{
                     role="dialog"
                     aria-modal="true"
                     aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
-                    className={`w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/10 rounded-3xl ${keyboardOpen ? 'max-h-[50vh]' : 'max-h-[80vh]'} flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 transition-all`}
+                    className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl flex flex-col overflow-y-auto shadow-2xl animate-in zoom-in-95 duration-200"
+                    style={{ maxHeight: keyboardHeight ? `calc(100dvh - ${keyboardHeight}px - 2rem)` : '80vh' }}
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Header */}
@@ -861,7 +856,7 @@ const SlotPicker: React.FC<{
                             value={searchQuery}
                             onChange={(e) => handleSearch(e.target.value)}
                             placeholder="Search recipes…"
-                            data-no-keyboard-scroll
+                            enterKeyHint="search"
                             className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                             aria-label="Search recipes"
                         />
@@ -1009,10 +1004,14 @@ const SlotPicker: React.FC<{
                                     ref={customInputRef}
                                     value={customName}
                                     onChange={(e) => setCustomName(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleCustomMeal()}
-                                    onFocus={handleCustomFocus}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                            e.preventDefault();
+                                            handleCustomMeal();
+                                        }
+                                    }}
                                     placeholder="Quick add meal name…"
-                                    data-no-keyboard-scroll
+                                    enterKeyHint="done"
                                     className="flex-1 min-h-[44px] bg-white/4 border border-white/8 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                                     aria-label="Quick add meal name"
                                 />

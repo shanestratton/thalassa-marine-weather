@@ -220,4 +220,196 @@ describe('return-key navigation (2026-09-02)', () => {
         expect(document.activeElement).toBe(notes);
         stop();
     });
+
+    it('keeps Next inside a short dialog even when it has no overflow', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { form, a, b, notes } = buildForm();
+        form.style.overflowY = 'visible';
+        form.setAttribute('role', 'dialog');
+        notes.remove();
+        const background = document.createElement('input');
+        document.body.append(background);
+        vi.spyOn(background, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+        a.focus();
+        a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(b).toHaveFocus();
+        b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(background).not.toHaveFocus();
+        expect(b).not.toHaveFocus();
+        stop();
+    });
+
+    it('skips readonly, disabled-fieldset, inert, hidden and picker controls', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { a, b } = buildForm();
+        const readonly = document.createElement('input');
+        readonly.readOnly = true;
+        const fieldset = document.createElement('fieldset');
+        fieldset.disabled = true;
+        fieldset.append(document.createElement('input'));
+        const hidden = document.createElement('input');
+        hidden.style.visibility = 'hidden';
+        const inert = document.createElement('div');
+        inert.setAttribute('inert', '');
+        inert.append(document.createElement('input'));
+        const date = document.createElement('input');
+        date.type = 'date';
+        a.after(readonly, fieldset, hidden, inert, date);
+        for (const el of [readonly, fieldset.firstElementChild!, hidden, inert.firstElementChild!, date]) {
+            vi.spyOn(el, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+        }
+        a.focus();
+        a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(b).toHaveFocus();
+        stop();
+    });
+
+    it.each(['search', 'send', 'go', 'enter'])('respects an authored %s action', (hint) => {
+        const stop = initGlobalKeyboardScroll();
+        const { a } = buildForm();
+        a.enterKeyHint = hint;
+        a.focus();
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        a.dispatchEvent(event);
+        expect(a).toHaveFocus();
+        expect(event.defaultPrevented).toBe(false);
+        stop();
+    });
+
+    it('does not change fields while accepting an IME composition', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { a } = buildForm();
+        a.focus();
+        const event = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            isComposing: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        a.dispatchEvent(event);
+        expect(a).toHaveFocus();
+        expect(event.defaultPrevented).toBe(false);
+        stop();
+    });
+
+    it('honours an explicit Done and a Search hint changed by the component after focus', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { a, b } = buildForm();
+        a.enterKeyHint = 'done';
+        a.focus();
+        a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(a).not.toHaveFocus();
+        expect(b).not.toHaveFocus();
+        b.focus();
+        b.enterKeyHint = 'search';
+        const search = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        b.dispatchEvent(search);
+        expect(search.defaultPrevented).toBe(false);
+        expect(b).toHaveFocus();
+        stop();
+    });
+
+    it('leaves the final field of a real form free to submit normally', () => {
+        const stop = initGlobalKeyboardScroll();
+        const form = document.createElement('form');
+        const input = document.createElement('input');
+        form.append(input);
+        document.body.append(form);
+        vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+        input.focus();
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        input.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+        stop();
+    });
+});
+
+describe('keyboard positioning regressions', () => {
+    const rect = (top: number, height = 40, width = 200): DOMRect => ({
+        x: 0,
+        y: top,
+        top,
+        bottom: top + height,
+        left: 0,
+        right: width,
+        height,
+        width,
+        toJSON: () => ({}),
+    });
+
+    it('centres a newly focused field even when it only just fits above the keyboard', () => {
+        setViewport({ height: 500 });
+        const { form, scrollBy } = scrollableForm();
+        const input = document.createElement('input');
+        form.append(input);
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(430));
+        keepEditableAboveKeyboard(input, true);
+        expect(scrollBy).toHaveBeenCalledWith({ top: 174, behavior: 'auto' });
+    });
+
+    it('centres below the real sticky header, not behind it', () => {
+        setViewport({ height: 500 });
+        const { form, scrollBy } = scrollableForm();
+        vi.spyOn(form, 'getBoundingClientRect').mockReturnValue(rect(100, 700));
+        const header = document.createElement('header');
+        header.style.position = 'sticky';
+        header.style.top = '0px';
+        vi.spyOn(header, 'getBoundingClientRect').mockReturnValue(rect(100, 140));
+        const input = document.createElement('input');
+        form.append(header, input);
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(600));
+        keepEditableAboveKeyboard(input, true);
+        // The real band is [252, 480], so the field's top belongs at 346.
+        expect(scrollBy).toHaveBeenCalledWith({ top: 254, behavior: 'auto' });
+    });
+
+    it('adds only missing scroll travel to a short form and restores its padding when the keyboard closes', () => {
+        setViewport({ height: 500 });
+        const viewport = new EventTarget();
+        Object.assign(viewport, { height: 500, offsetTop: 0, scale: 1 });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+        const stop = initGlobalKeyboardScroll();
+        const { form, scrollBy } = scrollableForm();
+        Object.defineProperty(form, 'scrollHeight', { configurable: true, value: 480 });
+        form.style.paddingBottom = '16px';
+        const input = document.createElement('input');
+        form.append(input);
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(600));
+        keepEditableAboveKeyboard(input, true);
+        expect(form.style.paddingBottom).toBe('360px');
+        expect(scrollBy).toHaveBeenCalledWith({ top: 344, behavior: 'auto' });
+        Object.assign(viewport, { height: 844 });
+        viewport.dispatchEvent(new Event('resize'));
+        expect(form.style.paddingBottom).toBe('16px');
+        stop();
+    });
+
+    it('settles on the second field after a rapid tap, never on the first one', () => {
+        vi.useFakeTimers();
+        setViewport({ height: 500 });
+        const stop = initGlobalKeyboardScroll();
+        const { form, scrollBy } = scrollableForm();
+        const first = document.createElement('input');
+        const second = document.createElement('input');
+        form.append(first, second);
+        vi.spyOn(first, 'getBoundingClientRect').mockReturnValue(rect(550));
+        let secondTop = 600;
+        vi.spyOn(second, 'getBoundingClientRect').mockImplementation(() => rect(secondTop));
+        scrollBy.mockImplementation(({ top }: { top: number }) => {
+            secondTop -= top;
+        });
+        first.focus();
+        second.focus();
+        vi.runAllTimers();
+        expect(second).toHaveFocus();
+        expect(secondTop).toBe(256);
+        expect(scrollBy).toHaveBeenCalledTimes(1);
+        stop();
+    });
+
+    it('does not classify pinch zoom as keyboard height', () => {
+        setViewport({ height: 400 });
+        Object.assign(window.visualViewport!, { scale: 2 });
+        expect(getKeyboardViewport().keyboardHeight).toBe(0);
+    });
 });

@@ -6,8 +6,7 @@
  * contexts cannot affect the fixed positioning.
  *
  * Keyboard-aware: consumes the shared native/web keyboard measurement and
- * shrinks the panel + shifts it to the top of the screen so fields stay
- * visible above the keyboard.
+ * shrinks the panel and centres it in the visible area above the keyboard.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -44,16 +43,13 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
     const kbOpen = keyboardHeight > 0;
 
-    // When keyboard is open: shrink panel and align to top.
+    // When keyboard is open: shrink the panel to the available height.
     // When closed: center vertically with generous clearance.
-    const panelMaxHeight = kbOpen ? `calc(100dvh - ${keyboardHeight}px - 6rem)` : 'calc(100dvh - 12rem)';
+    const panelMaxHeight = kbOpen ? `calc(100dvh - ${keyboardHeight}px - 2rem)` : 'calc(100dvh - 12rem)';
 
-    // When keyboard is open, switch to items-start with top padding
-    // so the panel sits above the keyboard. When closed, center it —
-    // always. The old align-top escape hatch pinned three modals to the
-    // top of the screen and was retired 2026-09-01 under the standing
-    // rule that every modal centres on the punter's screen.
-    const alignment = kbOpen ? 'items-start pt-12' : 'items-center';
+    // Keyboard padding removes the covered region from the flex layout, so
+    // short forms centre in the visible screen rather than hugging its top.
+    const alignment = 'items-center';
 
     const modalId = title ? `modal-title-${title.replace(/\s+/g, '-').toLowerCase()}` : undefined;
 

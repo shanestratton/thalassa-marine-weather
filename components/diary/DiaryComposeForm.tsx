@@ -353,13 +353,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
                             value={body}
                             onChange={(e) => onSetBody(e.target.value)}
-                            onFocus={(e) => {
-                                scrollInputAboveKeyboard(e);
-                                const scroller = e.currentTarget.closest('.overflow-auto');
-                                requestAnimationFrame(() => {
-                                    if (scroller) scroller.scrollTop = scroller.scrollHeight;
-                                });
-                            }}
+                            onFocus={scrollInputAboveKeyboard}
                             disabled={polishing}
                             className="w-full h-full min-h-40 bg-slate-900 border border-white/8 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-hidden focus:border-sky-500/30 transition-colors disabled:opacity-60"
                         />

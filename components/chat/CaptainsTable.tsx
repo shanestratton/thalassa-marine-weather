@@ -723,7 +723,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
     };
 
     const handleBilgeKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault();
             handleAddBilgeIngredient();
         }
@@ -790,7 +790,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="Search recipes…"
                                     className="w-full h-full min-h-[44px] bg-white/4 border border-white/8 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
-                                    data-no-keyboard-scroll
+                                    enterKeyHint="search"
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">
                                     🔍
@@ -805,7 +805,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     onKeyDown={handleBilgeKeyDown}
                                     placeholder="Type ingredient, press Enter… (prefix - to exclude)"
                                     className="w-full h-full min-h-[44px] bg-white/4 border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-sky-500/40"
-                                    data-no-keyboard-scroll
+                                    enterKeyHint="enter"
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sky-400 text-xs">
                                     🧭

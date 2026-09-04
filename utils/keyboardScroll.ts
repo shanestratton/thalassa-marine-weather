@@ -17,6 +17,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { EDITABLE_SELECTOR, FORM_FOCUS_SCOPE, isAvailableForFocus, isTextEntry } from './focusableFields';
 
 const KEYBOARD_THRESHOLD_PX = 80;
 const TOP_BREATHING_ROOM_PX = 72;
@@ -38,6 +39,71 @@ let globalConsumerCount = 0;
 let scheduledFocusTimers: ReturnType<typeof setTimeout>[] = [];
 let publishedKeyboardHeight = 0;
 const keyboardHeightSubscribers = new Set<(height: number) => void>();
+const scrollReservations = new Map<HTMLElement, { value: string; priority: string; base: number; extra: number }>();
+const editorSizes = new Map<HTMLElement, { max: string; min: string; maxPriority: string; minPriority: string }>();
+
+function restoreEditorSize(editor: HTMLElement, saved: NonNullable<ReturnType<typeof editorSizes.get>>): void {
+    for (const [property, value, priority] of [
+        ['max-height', saved.max, saved.maxPriority],
+        ['min-height', saved.min, saved.minPriority],
+    ]) {
+        if (value) editor.style.setProperty(property, value, priority);
+        else editor.style.removeProperty(property);
+    }
+}
+
+function fitTextArea(element: HTMLElement, height: number): void {
+    if (!(element instanceof HTMLTextAreaElement) || effectiveKeyboardHeight() === 0) return;
+    const saved = editorSizes.get(element) ?? {
+        max: element.style.getPropertyValue('max-height'),
+        min: element.style.getPropertyValue('min-height'),
+        maxPriority: element.style.getPropertyPriority('max-height'),
+        minPriority: element.style.getPropertyPriority('min-height'),
+    };
+    editorSizes.set(element, saved);
+    restoreEditorSize(element, saved);
+    const style = window.getComputedStyle(element);
+    const limit = Math.max(1, height);
+    element.style.setProperty(
+        'max-height',
+        `${Math.min(parseFloat(style.maxHeight) || Infinity, limit)}px`,
+        'important',
+    );
+    element.style.setProperty('min-height', `${Math.min(parseFloat(style.minHeight) || 0, limit)}px`, 'important');
+}
+
+function releaseScrollSpace(exceptFor?: HTMLElement): void {
+    for (const [editor, saved] of editorSizes) {
+        if (editor === exceptFor) continue;
+        restoreEditorSize(editor, saved);
+        editorSizes.delete(editor);
+    }
+    for (const [panel, saved] of scrollReservations) {
+        if (exceptFor && panel.contains(exceptFor)) continue;
+        if (saved.value) panel.style.setProperty('padding-bottom', saved.value, saved.priority);
+        else panel.style.removeProperty('padding-bottom');
+        scrollReservations.delete(panel);
+    }
+}
+
+/** Only reserve the missing scroll travel, on the active panel, while a keyboard is open. */
+function reserveScrollSpace(panel: HTMLElement, delta: number): void {
+    if (effectiveKeyboardHeight() === 0 || delta <= 0) return;
+    const saved = scrollReservations.get(panel) ?? {
+        value: panel.style.getPropertyValue('padding-bottom'),
+        priority: panel.style.getPropertyPriority('padding-bottom'),
+        base: parseFloat(window.getComputedStyle(panel).paddingBottom) || 0,
+        extra: 0,
+    };
+    const remaining = Math.max(0, panel.scrollHeight - panel.clientHeight - panel.scrollTop);
+    const missing = Math.max(0, delta - remaining);
+    if (missing < 1) return;
+    // A single viewport is sufficient to expose even the final field. The cap
+    // also prevents repeated layout/animation events growing an unbounded gap.
+    saved.extra = Math.min(window.innerHeight, saved.extra + missing);
+    scrollReservations.set(panel, saved);
+    panel.style.setProperty('padding-bottom', `${saved.base + saved.extra}px`, 'important');
+}
 
 function setKeyboardCssState(height: number): void {
     if (typeof document === 'undefined') return;
@@ -57,6 +123,7 @@ function publishKeyboardHeight(height: number): void {
 function visualViewportKeyboardHeight(): number {
     if (typeof window === 'undefined' || !window.visualViewport) return 0;
     const viewport = window.visualViewport;
+    if (viewport.scale > 1.05) return 0; // Pinch zoom is not an on-screen keyboard.
     // `offsetTop` matters on Safari when browser chrome is moving.  A small
     // difference is normal chrome movement, not a keyboard, so do not jitter
     // a layout for it.
@@ -83,7 +150,7 @@ export function getKeyboardViewport(): KeyboardViewport {
     // on native.  The native event supplies the missing keyboard edge.
     const keyboardTop = keyboardHeight > 0 ? layoutHeight - keyboardHeight : visualBottom;
     const rawBottom = Math.min(visualBottom, keyboardTop) - BOTTOM_BREATHING_ROOM_PX;
-    const rawTop = viewportTop + TOP_BREATHING_ROOM_PX;
+    const rawTop = viewportTop + Math.min(TOP_BREATHING_ROOM_PX, Math.max(0, (rawBottom - viewportTop) / 4));
     // Very small landscape viewports still need a non-negative usable region.
     const bottom = Math.max(rawTop + 1, rawBottom);
 
@@ -104,10 +171,11 @@ function editableTarget(target: EventTarget | null): HTMLElement | null {
     const editable = target.isContentEditable
         ? (target.closest<HTMLElement>('[contenteditable]:not([contenteditable="false"])') ?? target)
         : target.closest<HTMLElement>('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-    if (!editable || editable.hasAttribute('disabled')) return null;
-    // A few deliberately compact recipe pickers keep their own measured
-    // scroll position. Preserve that explicit contract rather than fighting
-    // it from the app-wide guard.
+    if (!editable || !isAvailableForFocus(editable)) return null;
+    if ((editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) && editable.readOnly)
+        return null;
+    // Preserve the explicit escape hatch for specialised editors that own
+    // their keyboard positioning rather than fighting their measurements.
     if (editable.dataset.noKeyboardScroll !== undefined) return null;
 
     if (editable instanceof HTMLInputElement) {
@@ -131,18 +199,15 @@ function editableTarget(target: EventTarget | null): HTMLElement | null {
     return editable;
 }
 
-function isScrollable(element: HTMLElement): boolean {
+function isScrollContainer(element: HTMLElement): boolean {
     const styles = window.getComputedStyle(element);
-    return (
-        (styles.overflowY === 'auto' || styles.overflowY === 'scroll' || styles.overflowY === 'overlay') &&
-        element.scrollHeight > element.clientHeight + 1
-    );
+    return styles.overflowY === 'auto' || styles.overflowY === 'scroll' || styles.overflowY === 'overlay';
 }
 
 function findScrollParent(element: HTMLElement): HTMLElement | null {
     let parent = element.parentElement;
     while (parent) {
-        if (isScrollable(parent)) return parent;
+        if (isScrollContainer(parent)) return parent;
         parent = parent.parentElement;
     }
     return null;
@@ -156,54 +221,110 @@ function scrollBy(element: HTMLElement, top: number): void {
     // delta, the wrong delta launches another smooth scroll, and a
     // multi-field form oscillates. Instant scrolls make every settle pass
     // see the SETTLED truth, so corrections converge and re-runs no-op.
+    const originalBehavior = element.style.scrollBehavior;
+    element.style.scrollBehavior = 'auto';
     if (typeof element.scrollBy === 'function') {
         element.scrollBy({ top, behavior: 'auto' });
     } else {
         element.scrollTop += top;
     }
+    element.style.scrollBehavior = originalBehavior;
+}
+
+function fieldViewport(element: HTMLElement): KeyboardViewport {
+    const viewport = getKeyboardViewport();
+    const field = element.getBoundingClientRect();
+    let top = viewport.top;
+    let bottom = viewport.bottom;
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const style = window.getComputedStyle(ancestor);
+        const rect = ancestor.getBoundingClientRect();
+        if (rect.height > 0 && /^(auto|scroll|overlay|hidden|clip)$/.test(style.overflowY)) {
+            // A clipped label wrapper is not a viewport; only constrain the
+            // usable band when the ancestor can actually contain a whole field.
+            if (isScrollContainer(ancestor) || rect.height > field.height + 24) {
+                top = Math.max(top, rect.top + 12);
+                bottom = Math.min(bottom, rect.bottom - 12);
+            }
+        }
+        for (const child of Array.from(ancestor.children)) {
+            if (!(child instanceof HTMLElement) || child.contains(element)) continue;
+            const childStyle = window.getComputedStyle(child);
+            if (!['sticky', 'fixed'].includes(childStyle.position) || childStyle.top === 'auto') continue;
+            const header = child.getBoundingClientRect();
+            if (
+                header.height > 0 &&
+                header.top <= top &&
+                header.bottom > top &&
+                header.left < field.right &&
+                header.right > field.left
+            )
+                top = header.bottom + 12;
+        }
+    }
+    if (bottom <= top) return viewport;
+    return { ...viewport, top, bottom, height: bottom - top };
 }
 
 /**
  * Keeps one editable field in the safe viewport.  Unlike the old
  * `scrollIntoView({ block: 'center' })` approach, this uses the *real*
- * keyboard edge and only scrolls when the field is genuinely obscured.
+ * keyboard edge and its scroll panel/sticky headers. Focus events request
+ * centring; direct visibility checks leave an already-visible field alone.
  */
-export function keepEditableAboveKeyboard(target: EventTarget | null): void {
+export function keepEditableAboveKeyboard(target: EventTarget | null, center = false): void {
     const element = editableTarget(target);
     if (!element || typeof window === 'undefined') return;
 
+    releaseScrollSpace(element);
+    const viewport = fieldViewport(element);
+    fitTextArea(element, viewport.height);
     const field = element.getBoundingClientRect();
-    const viewport = getKeyboardViewport();
     const fieldIsAbove = field.top < viewport.top;
     const fieldIsBelow = field.bottom > viewport.bottom;
-    if (!fieldIsAbove && !fieldIsBelow) return;
+    if (!fieldIsAbove && !fieldIsBelow && !(center && viewport.keyboardHeight > 0)) return;
 
-    // CENTRE the focused field in the usable band (Shane 2026-09-02: "the
-    // box that you highlight needs to be IN FOCUS … in the middle of the
-    // screen"). The old placement parked fields ~112px from the top — which
-    // on most Thalassa pages is BEHIND the 180-250px sticky header, so the
-    // guard was actively hiding the very field it protected. Centring clears
-    // any header by construction; a textarea taller than the band pins to
-    // the band's top instead so its first lines stay readable.
+    // Centre in the measured usable band, including the panel's actual
+    // sticky header. Large textareas are capped above so their caret can
+    // scroll within the editor instead of disappearing behind the keyboard.
     const preferredTop =
         field.height >= viewport.height ? viewport.top : viewport.top + (viewport.height - field.height) / 2;
     const desiredDelta = field.top - preferredTop;
     const scrollParent = findScrollParent(element);
 
     if (scrollParent) {
+        reserveScrollSpace(scrollParent, desiredDelta);
         scrollBy(scrollParent, desiredDelta);
+        // Nested panels may reach their own scroll limit. Let an outer panel
+        // expose the field too, rather than abandoning it behind a fixed edge.
+        let outer = findScrollParent(scrollParent);
+        while (outer) {
+            const current = element.getBoundingClientRect();
+            const safe = fieldViewport(element);
+            const delta =
+                current.bottom > safe.bottom
+                    ? current.bottom - safe.bottom
+                    : current.top < safe.top
+                      ? current.top - safe.top
+                      : 0;
+            if (Math.abs(delta) < 1) break;
+            reserveScrollSpace(outer, delta);
+            scrollBy(outer, delta);
+            outer = findScrollParent(outer);
+        }
         return;
     }
 
     // Most Thalassa forms live inside an overflow-y-auto panel.  This fallback
     // covers standalone web forms and native modals whose parent becomes
     // scrollable only after a browser layout pass.
-    element.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+    element.scrollIntoView?.({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
 
     // `scrollIntoView` is allowed to be a no-op in a fixed Capacitor shell.
     // A page-level nudge is still useful for normal web documents.
     if (typeof window.scrollBy === 'function') {
-        window.scrollBy({ top: desiredDelta, behavior: 'auto' });
+        const remaining = element.getBoundingClientRect().top - preferredTop;
+        if (Math.abs(remaining) >= 1) window.scrollBy({ top: remaining, behavior: 'auto' });
     }
 }
 
@@ -211,22 +332,21 @@ export function keepEditableAboveKeyboard(target: EventTarget | null): void {
  * keyboard disappears or the next box becomes focused in the middle of the
  * screen") ──
  *
- * The cluster is the nearest scrolling panel — the same boundary the
- * avoidance guard scrolls — so Return walks the fields a punter can see as
- * one form, in DOM order. On the last field, Return puts the keyboard away.
+ * Use the nearest form/dialog boundary, falling back to the scroll panel.
+ * Return walks writable fields in DOM order, never into a background dialog.
+ * The last field dismisses the keyboard, or preserves a real form's submit.
  * Runs in the BUBBLE phase and respects defaultPrevented, so the handful of
  * components with their own Enter behaviour (search boxes, send buttons)
  * always win. Textareas and contenteditables keep Enter for newlines.
  */
 function clusterEditables(from: HTMLElement): HTMLElement[] {
-    const cluster = findScrollParent(from) ?? document.body;
-    const candidates = Array.from(
-        cluster.querySelectorAll<HTMLElement>(
-            'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
-        ),
-    );
+    const scope = from.closest<HTMLElement>(FORM_FOCUS_SCOPE);
+    const cluster = scope ?? findScrollParent(from) ?? document.body;
+    const candidates = Array.from(cluster.querySelectorAll<HTMLElement>(EDITABLE_SELECTOR));
     return candidates.filter((el) => {
         if (editableTarget(el) !== el) return false;
+        if (!isTextEntry(el)) return false;
+        if (el.closest(FORM_FOCUS_SCOPE) !== scope) return false;
         if (el.getClientRects().length === 0) return false; // display:none / detached
         return true;
     });
@@ -245,19 +365,28 @@ function isSingleLineTextInput(el: HTMLElement | null): el is HTMLInputElement {
 
 function labelReturnKey(target: EventTarget | null): void {
     const element = editableTarget(target);
-    if (!isSingleLineTextInput(element)) return;
+    if (!isSingleLineTextInput(element) || !isTextEntry(element)) return;
+    if (element.type === 'search' || element.getAttribute('role') === 'combobox') return;
     // Respect an author-set hint; only manage the ones we labelled.
-    if (element.enterKeyHint && element.dataset.thalassaEnterHint === undefined) return;
-    element.dataset.thalassaEnterHint = '1';
-    element.enterKeyHint = nextEditableInCluster(element) ? 'next' : 'done';
+    if (element.enterKeyHint && element.enterKeyHint !== element.dataset.thalassaEnterHint) return;
+    const hint = nextEditableInCluster(element) ? 'next' : 'done';
+    element.dataset.thalassaEnterHint = hint;
+    element.enterKeyHint = hint;
 }
 
 function onReturnKey(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.defaultPrevented) return;
+    if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
     if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     const element = editableTarget(event.target);
     if (!isSingleLineTextInput(element)) return;
-    const next = nextEditableInCluster(element);
+    if (!isTextEntry(element)) return;
+    if (element.type === 'search' || element.getAttribute('role') === 'combobox') return;
+    const authoredHint = element.enterKeyHint !== element.dataset.thalassaEnterHint ? element.enterKeyHint : '';
+    if (['search', 'send', 'go', 'enter'].includes(authoredHint)) return;
+    const next = authoredHint === 'done' ? null : nextEditableInCluster(element);
+    // A real form owns submission from its final field; do not swallow its
+    // submit event. Explicit Done remains a keyboard-dismiss action.
+    if (!next && element.form && authoredHint !== 'done') return;
     event.preventDefault();
     if (next) {
         next.focus({ preventScroll: true });
@@ -285,7 +414,7 @@ export function scheduleKeyboardAvoidance(target: EventTarget | null): void {
     scheduledFocusTimers = FOCUS_SETTLE_DELAYS_MS.map((delay) =>
         setTimeout(() => {
             if (document.activeElement === element || element.contains(document.activeElement)) {
-                keepEditableAboveKeyboard(element);
+                keepEditableAboveKeyboard(element, true);
             }
         }, delay),
     );
@@ -316,6 +445,7 @@ function startGlobalKeyboardAvoidance(): () => void {
         const keyboardHeight = effectiveKeyboardHeight();
         publishKeyboardHeight(keyboardHeight);
         if (keyboardHeight > 0) scheduleFocusedElement();
+        else releaseScrollSpace();
     };
 
     const onFocusIn = (event: FocusEvent) => {
@@ -328,6 +458,7 @@ function startGlobalKeyboardAvoidance(): () => void {
     document.addEventListener('keydown', onReturnKey, false);
     viewport?.addEventListener('resize', updateViewportKeyboard);
     viewport?.addEventListener('scroll', updateViewportKeyboard);
+    window.addEventListener('resize', updateViewportKeyboard);
     updateViewportKeyboard();
 
     if (Capacitor.isNativePlatform()) {
@@ -370,9 +501,11 @@ function startGlobalKeyboardAvoidance(): () => void {
         document.removeEventListener('keydown', onReturnKey, false);
         viewport?.removeEventListener('resize', updateViewportKeyboard);
         viewport?.removeEventListener('scroll', updateViewportKeyboard);
+        window.removeEventListener('resize', updateViewportKeyboard);
         keyboardHandles.forEach((handle) => void handle.remove());
         keyboardHandles = [];
         nativeKeyboardHeight = 0;
+        releaseScrollSpace();
         publishKeyboardHeight(0);
     };
 }

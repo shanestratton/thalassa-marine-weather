@@ -73,6 +73,29 @@ function NestedFocusTrapHarness({
 }
 
 describe('useFocusTrap', () => {
+    function EntryDialog({ secondAutoFocus = false }: { secondAutoFocus?: boolean }) {
+        const ref = useFocusTrap<HTMLDivElement>(true);
+        return (
+            <div ref={ref}>
+                <button>Close entry form</button>
+                <input aria-label="Readonly" readOnly />
+                <input aria-label="Hidden" style={{ display: 'none' }} />
+                <input aria-label="First entry" />
+                <input aria-label="Second entry" autoFocus={secondAutoFocus} />
+            </div>
+        );
+    }
+
+    it('starts an editing dialog in the first writable field, not its close button', () => {
+        render(<EntryDialog />);
+        expect(screen.getByRole('textbox', { name: 'First entry' })).toHaveFocus();
+    });
+
+    it('preserves a field already selected before the opening effect runs', () => {
+        render(<EntryDialog secondAutoFocus />);
+        expect(screen.getByRole('textbox', { name: 'Second entry' })).toHaveFocus();
+    });
+
     it('focuses the preferred control, contains Tab, handles Escape, and restores the opener', () => {
         const onEscape = vi.fn();
         const { rerender } = render(
