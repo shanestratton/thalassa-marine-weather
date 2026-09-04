@@ -39,8 +39,25 @@ export interface WeatherWindowScoringComfort {
 const log = createLogger('WeatherWindow');
 
 export interface DepartureWindow {
-    /** ISO timestamp of departure start */
+    /**
+     * The provider's LOCAL-TO-THE-LOCATION time, offset-free (`timezone: auto`).
+     * Correct for display beside the destination; NEVER parse it with
+     * `new Date()`, which resolves it in the DEVICE's zone.
+     */
     time: string;
+    /**
+     * The same instant, absolute.
+     *
+     * Open-Meteo is asked for `timezone: auto` so the labels read in the
+     * destination's own hours — but that means `time` carries no offset, and
+     * `new Date(time)` silently means something different depending on where
+     * the skipper is standing. Planning a Whitsundays passage from the UK
+     * moved the accepted departure by hours (audit 2026-09-04, item 5).
+     *
+     * Carried as UTC and localised only for display, which is the rule the
+     * rest of this app already follows for watch times.
+     */
+    timeUtc: string;
     /** Human label, e.g. "Thu 06:00" */
     label: string;
     /** Rating: 'go' | 'marginal' | 'wait' */
@@ -362,6 +379,9 @@ export const WeatherWindowService = {
                     WEATHER_WINDOW_TIMEOUT_MS,
                 ),
                 fetchOpenMeteoProxy<{
+                    // Requested with timezone:auto, so `time` is local to the
+                    // LOCATION and this offset is the only way back to UTC.
+                    utc_offset_seconds?: number;
                     hourly: {
                         time: string[];
                         wind_speed_10m: number[];
@@ -383,6 +403,15 @@ export const WeatherWindowService = {
             ]);
 
             const times: string[] = wind.hourly.time;
+            // Absent offset means the provider answered in UTC already; 0 is
+            // then the truthful conversion rather than a guess.
+            const utcOffsetSeconds = Number.isFinite(wind.utc_offset_seconds) ? (wind.utc_offset_seconds as number) : 0;
+            /** Location-local, offset-free → the absolute instant it names. */
+            const toUtcIso = (local: string): string => {
+                const asIfUtc = Date.parse(local.endsWith('Z') ? local : `${local}Z`);
+                if (!Number.isFinite(asIfUtc)) return new Date(local).toISOString();
+                return new Date(asIfUtc - utcOffsetSeconds * 1000).toISOString();
+            };
             const windSpeed: number[] = wind.hourly.wind_speed_10m;
             const windDir: number[] = wind.hourly.wind_direction_10m;
             const waveHeight: number[] = marine.hourly.wave_height;
@@ -468,6 +497,7 @@ export const WeatherWindowService = {
 
                 windows.push({
                     time: times[i],
+                    timeUtc: toUtcIso(times[i]),
                     label: timeLabel(times[i]),
                     rating: adjustedRating,
                     score: Math.max(0, Math.min(100, adjustedScore)),

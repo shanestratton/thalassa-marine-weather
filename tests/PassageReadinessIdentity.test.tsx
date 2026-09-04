@@ -98,6 +98,7 @@ function weatherResult(label: string): WeatherWindowResult {
         windows: [
             {
                 time: '2026-08-01T00:00:00.000Z',
+                timeUtc: '2026-08-01T00:00:00.000Z',
                 label,
                 rating: 'go',
                 score: 95,
