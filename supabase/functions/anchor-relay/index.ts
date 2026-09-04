@@ -213,6 +213,49 @@ Deno.serve(async (req: Request) => {
         return json({ error: 'broadcast_failed' }, 502);
     }
 
+    // ── A PI-DETECTED DRAG MUST BE ABLE TO WAKE A LOCKED PHONE ──
+    //
+    // Until now the ONLY route from a dragging boat to the skipper was the
+    // realtime broadcast above, landing in a foregrounded WKWebView with the
+    // anchor page mounted. Asleep, pocketed, or on any other screen: nothing.
+    // anchor_alarm_events had exactly one writer in the whole codebase, gated
+    // on role === 'vessel' — a phone aboard. The Pi could never reach it, so
+    // the one setup designed to let the skipper LEAVE THE BOAT was the one
+    // with no push path.
+    //
+    // Inserting here closes it: the row fires the on_anchor_alarm_insert
+    // trigger, which calls send-anchor-alarm, which pushes via APNs — and
+    // retry_pending_anchor_alarms sweeps anything that failed.
+    const p = payload as Record<string, unknown>;
+    if (p.isAlarm === true) {
+        // RISING EDGE ONLY. The Pi POSTs every 10s, so a level-triggered
+        // insert would queue 360 alerts an hour. The Pi already confirms a
+        // drag over three consecutive fixes before it ever sets this, so an
+        // edge here is a confirmed drag, not a GPS spike.
+        const { data: recent } = await admin
+            .from('anchor_alarm_events')
+            .select('id')
+            .eq('session_code', sessionCode)
+            .gt('created_at', new Date(Date.now() - 10 * 60_000).toISOString())
+            .limit(1);
+        if (!recent || recent.length === 0) {
+            const vessel = (p.vessel ?? {}) as Record<string, unknown>;
+            // user_id comes from the VERIFIED relay owner, never the request
+            // body — the binding checks above already matched owner, session
+            // code and a live expiry before we got here.
+            const { error: alarmError } = await admin.from('anchor_alarm_events').insert({
+                session_code: sessionCode,
+                user_id: relay.owner_id,
+                distance_m: typeof p.distance === 'number' ? p.distance : 0,
+                swing_radius_m: typeof p.swingRadius === 'number' ? p.swingRadius : 0,
+                vessel_lat: typeof vessel.latitude === 'number' ? vessel.latitude : null,
+                vessel_lon: typeof vessel.longitude === 'number' ? vessel.longitude : null,
+            });
+            if (alarmError) console.error('[anchor-relay] alarm insert failed:', alarmError.message);
+            else console.log(`[anchor-relay] drag alarm raised for ${sessionCode}`);
+        }
+    }
+
     void admin.from('pi_diary_relays').update({ last_seen_at: new Date().toISOString() }).eq('relay_id', relayId);
     return json({ delivered: true });
 });
