@@ -65,6 +65,22 @@ export interface MemoryCensus {
     indexes: number;
     /** A blunt proxy for DOM/renderer growth. */
     domNodes: number;
+
+    /**
+     * Whatever else is worth counting, reported by the code that owns it.
+     *
+     * Added 2026-09-04 after the census exonerated everything it measured. The
+     * last reading before a 2GB per-process kill was: ENC 0, merges 0, tiles 0,
+     * GL contexts 0, DOM 2,590 — on the Log page, 80 seconds in. Everything
+     * this instrument watched was tiny while the web layer walked into iOS's
+     * hard ceiling, which means the memory was somewhere it could not see.
+     *
+     * Rather than bolt on one counter per suspect and repeat that, probes
+     * register themselves. A service that holds anything big says so, and the
+     * census carries it without importing that service (no cycles, no cost
+     * when nothing is registered).
+     */
+    probes: Record<string, number>;
     /** True while the route tracer is drawing. */
     plotting: boolean;
 
@@ -242,6 +258,7 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         contours: 0,
         indexes: 0,
         domNodes: 0,
+        probes: {},
         plotting,
         sinceBootMs: now - bootAt,
         peakEncTextMB: 0,
@@ -345,7 +362,34 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
     census.peakDomNodes = peaks.domNodes;
     census.peakCanvases = peaks.canvases;
 
+    // Registered probes last: they are owned by other services, so a throw
+    // here must not cost us the rest of the census — which is the only
+    // evidence a killed process ever leaves behind.
+    for (const [name, read] of probes) {
+        try {
+            const value = read();
+            if (Number.isFinite(value)) census.probes[name] = Math.round(value);
+        } catch {
+            /* a probe that cannot answer is not worth losing the census for */
+        }
+    }
+
     return census;
+}
+
+/**
+ * Report a number worth seeing in the moments before a kill.
+ *
+ * Keep them cheap — a Map.size or an array length, not a walk. Returning the
+ * same name again replaces the previous probe.
+ */
+const probes = new Map<string, () => number>();
+
+export function registerCensusProbe(name: string, read: () => number): () => void {
+    probes.set(name, read);
+    return () => {
+        if (probes.get(name) === read) probes.delete(name);
+    };
 }
 
 /**
@@ -557,7 +601,16 @@ export function describeCensus(c: MemoryCensus): string {
         // "0 created" with a map on screen used to mean the probe lost a race
         // with Mapbox, not that there were no contexts. Say which.
         `${c.glProbeArmed === false ? ' [GL PROBE NOT ARMED]' : ''}` +
-        `${c.glRefused ? ` [${c.glRefused} CONTEXT REFUSALS]` : ''}`
+        `${c.glRefused ? ` [${c.glRefused} CONTEXT REFUSALS]` : ''}` +
+        // Registered probes, so a reading that exonerates every built-in
+        // counter still says what the rest of the app was holding.
+        `${
+            c.probes && Object.keys(c.probes).length
+                ? ` | ${Object.entries(c.probes)
+                      .map(([k, v]) => `${k} ${v}`)
+                      .join(', ')}`
+                : ''
+        }`
     );
 }
 

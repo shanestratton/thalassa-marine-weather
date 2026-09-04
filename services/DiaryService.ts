@@ -333,6 +333,24 @@ class DiaryServiceClass {
     private _idbVideoRefToBlobUrl = new Map<string, string>();
     private static readonly MAX_VIDEO_BLOB_URLS = 2;
 
+    /**
+     * Object URLs pin their blob, and the census could not see them.
+     *
+     * On 2026-09-04 the web layer was killed at iOS's 2GB per-process ceiling
+     * while every counter the census owned read tiny. These are the caches
+     * that hold whole media files in memory — a diary clip is ~31MB — so they
+     * are exactly the kind of thing that can be invisible and enormous at the
+     * same time. Registered once, at construction, cheap to read.
+     */
+    private _registerCensusProbes(): void {
+        void import('./memoryCensus').then(({ registerCensusProbe }) => {
+            registerCensusProbe('diaryVideoUrls', () => this._idbVideoRefToBlobUrl.size);
+            registerCensusProbe('diaryPhotoUrls', () => this._idbRefToBlobUrl.size);
+            registerCensusProbe('diaryAudioUrls', () => this._idbAudioRefToBlobUrl.size);
+            registerCensusProbe('diarySignedUrls', () => this._signedUrlCache.size);
+        });
+    }
+
     private _rememberVideoBlobUrl(ref: string, url: string): void {
         this._idbVideoRefToBlobUrl.set(ref, url);
         while (this._idbVideoRefToBlobUrl.size > DiaryServiceClass.MAX_VIDEO_BLOB_URLS) {
@@ -357,6 +375,7 @@ class DiaryServiceClass {
     private _backgroundRetryConfigured = false;
 
     constructor() {
+        this._registerCensusProbes();
         subscribeAuthIdentityScope((next) => {
             // New calls are allowed to start immediately in the new namespace;
             // old promises retain their captured scope and fail generation checks.
