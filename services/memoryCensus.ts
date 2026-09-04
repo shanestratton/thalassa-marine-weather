@@ -368,13 +368,40 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
     for (const [name, read] of probes) {
         try {
             const value = read();
-            if (Number.isFinite(value)) census.probes[name] = Math.round(value);
+            // -1 for a probe that answered with nonsense, so "registered but
+            // useless" is distinguishable from "never registered".
+            census.probes[name] = Number.isFinite(value) ? Math.round(value) : -1;
         } catch {
-            /* a probe that cannot answer is not worth losing the census for */
+            // -2 for a probe that THREW. Silently skipping it produced exactly
+            // the failure this whole instrument exists to prevent: a reading
+            // of `probes: {}` that looked like nothing had registered, when in
+            // fact something had registered and was broken. A census that
+            // hides its own blind spots is worse than no census.
+            census.probes[name] = -2;
         }
     }
 
     return census;
+}
+
+/**
+ * Total backing-store bytes across every canvas on the page.
+ *
+ * The census counts canvasES but not their SIZE, and those are different
+ * questions by three orders of magnitude: one full-screen retina canvas on a
+ * 15 Pro Max is 1290 x 2796 x 4 = ~14MB. A reading of 16 canvases — which is
+ * what Shane's phone showed on the LOG page, with no map and no GL — is
+ * therefore somewhere between trivial and a quarter of a gigabyte, and the
+ * count alone cannot tell you which.
+ */
+function canvasBytes(): number {
+    if (typeof document === 'undefined') return 0;
+    let total = 0;
+    for (const c of Array.from(document.querySelectorAll('canvas'))) {
+        const el = c as HTMLCanvasElement;
+        total += (el.width || 0) * (el.height || 0) * 4;
+    }
+    return total;
 }
 
 /**
@@ -384,6 +411,10 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
  * same name again replaces the previous probe.
  */
 const probes = new Map<string, () => number>();
+
+// Registered here rather than by a feature, because it is a property of the
+// document and has no natural owner.
+probes.set('canvasMB', () => Math.round(canvasBytes() / 1048576));
 
 export function registerCensusProbe(name: string, read: () => number): () => void {
     probes.set(name, read);
