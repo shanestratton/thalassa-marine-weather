@@ -1761,10 +1761,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     // go?") and is the reason for the plotting keel floor.
     //
     // The old rationale (toggle it off to compare against raster charts
-    // underneath) does not survive losing the toggle. Restore
-    // usePersistedState('thalassa_map_enc_visible', true) only alongside a
-    // real control, and give it a writer in the same commit.
-    const encVisible = true;
+    // underneath) does not survive losing the toggle — so this restores the
+    // state WITH a real control and a writer, in the same commit, exactly as
+    // the note above demanded.
+    //
+    // The reason it is back is not comparison. On 2026-09-04 a jetsam report
+    // showed com.apple.WebKit.WebContent killed at exactly 2048.0 MB with
+    // reason "per-process-limit" — the webview walking into iOS's hard 2GB
+    // per-process ceiling, twice over, while the native app process sat at
+    // 93 MB. The flight recorder for that session is dominated by
+    // enc:merge-start (9 cells, 25.3 MB a merge) and enc:merge-breathe backing
+    // off under pressure. A chart layer that can allocate at that scale must
+    // have an off switch — both so a skipper can save their own session, and
+    // so the layer can be ruled in or out without a rebuild.
+    const [encVisible, setEncVisible] = usePersistedState('thalassa_map_enc_visible', true);
     // Chart-detail toggle. Default ON — the draft-aware depth shading IS the
     // product (flipped 2026-06-13; the 2026-05-17 "clean chart" preference
     // predates day-palette banding). When OFF: land + markers + hazards only.
@@ -4497,6 +4507,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onNightDimChange={setNightDim}
                     onToggleChartKey={() => setChartKeyOpen((open) => !open)}
                     onOpenEncLibrary={() => setPage('encLibrary')}
+                    onToggleEncVisible={() => setEncVisible((on) => !on)}
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel
