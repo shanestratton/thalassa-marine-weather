@@ -127,35 +127,25 @@ const GatewayRouteNote: React.FC<{ host: string }> = ({ host }) => {
 
     if (!state || !state.known) return null;
 
-    const [tone, words] = state.onLan
-        ? state.vpn
-            ? ([
-                  'warn',
-                  state.warning ??
-                      "You are on the gateway's own network with a VPN up — turn it off aboard so traffic goes direct.",
-              ] as const)
-            : (['ok', "You are on the gateway's own network — connecting directly."] as const)
-        : state.vpn
-          ? ([
-                'info',
-                `You are not on ${host}'s network. A VPN is up, so this works if that VPN carries the boat's network.`,
-            ] as const)
-          : ([
-                'warn',
-                `You are not on ${host}'s network, and no VPN is running. Join the boat's Wi-Fi, or turn on the VPN that carries it.`,
-            ] as const);
+    // SILENT WHEN THERE IS NOTHING TO DO.
+    //
+    // This used to narrate all four states, including the two where everything
+    // was working: "connecting directly", and "a VPN is up, so this works if
+    // that VPN carries the boat's network". The second is the one Shane asked
+    // to lose — it appears precisely when the setup is fine, and it is written
+    // for someone who knows what a tunnel carries. "VPN's are for advanced
+    // users only, so they will not [need] this. also it is buggering up my
+    // screen" (2026-09-04). The hairpin nag went with it for the same reason.
+    //
+    // What is KEPT is the one state the skipper must act on: no route to the
+    // gateway at all. Dropping that too would make a real failure silent,
+    // which is the fault this whole page exists to prevent.
+    if (state.onLan || state.vpn) return null;
 
+    // Only one tone survives, because only one state still speaks.
     return (
-        <div
-            className={`mb-3 rounded-xl border px-3 py-2 text-sm leading-snug ${
-                tone === 'ok'
-                    ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
-                    : tone === 'warn'
-                      ? 'border-amber-400/25 bg-amber-500/10 text-amber-200'
-                      : 'border-white/10 bg-white/3 text-gray-300'
-            }`}
-        >
-            {words}
+        <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sm leading-snug text-amber-200">
+            You are not on {host}&apos;s network. Join the boat&apos;s Wi-Fi to reach the gateway.
         </div>
     );
 };

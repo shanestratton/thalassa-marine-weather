@@ -74,20 +74,35 @@ describe('what the gateway card says instead', () => {
         expect(nmea).toContain('known: interfaces.length > 0');
     });
 
-    it('does not claim a VPN carries the boat when it cannot see its routes', () => {
-        // iOS exposes that a tunnel is up, never which subnets it carries.
-        expect(nmea).toContain('this works if that VPN carries');
+    it('says NOTHING when a VPN is up, rather than explaining a non-problem', () => {
+        // It used to say "a VPN is up, so this works if that VPN carries the
+        // boat's network" — true, unverifiable, and shown at the exact moment
+        // the setup was fine. iOS exposes that a tunnel is up, never which
+        // subnets it carries, so the honest move is silence, not a hedge.
+        // Shane 2026-09-04: "VPN's are for advanced users only, so they will
+        // not [need] this. also it is buggering up my screen."
+        expect(nmea).toContain('if (state.onLan || state.vpn) return null;');
+        expect(nmea).not.toMatch(/this works if that VPN carries/);
         expect(nmea).not.toMatch(/connected via the VPN|reachable over the VPN/);
     });
 
-    it('tells a skipper on the boat LAN with a VPN up to turn it off', () => {
-        // The hairpin: LAN traffic round-tripping to the internet and back,
-        // which gets rediagnosed as broken hardware.
-        expect(nmea).toContain('turn it off aboard so traffic goes direct');
+    it('does not nag about the hairpin, or narrate a working connection', () => {
+        // Scoped to what RENDERS. A whole-file match read the comment above
+        // the guard — which quotes the removed wording to explain why it went
+        // — and failed on the explanation rather than on the behaviour.
+        const render = nmea.slice(
+            nmea.indexOf('if (state.onLan || state.vpn) return null;'),
+            nmea.indexOf('export const NmeaPage'),
+        );
+        expect(render.length).toBeGreaterThan(0);
+        expect(render).not.toContain('turn it off aboard so traffic goes direct');
+        expect(render).not.toContain('connecting directly');
     });
 
-    it('names the direct case as direct', () => {
-        expect(nmea).toContain("You are on the gateway's own network — connecting directly.");
+    it('STILL speaks the one time the skipper must act', () => {
+        // No LAN and no tunnel is a real dead end. Removing this one too would
+        // make a genuine failure silent — the fault this page exists to catch.
+        expect(nmea).toMatch(/Join the boat&apos;s Wi-Fi to reach the gateway/);
     });
 
     it('notices the skipper joining Wi-Fi or toggling the VPN', () => {
