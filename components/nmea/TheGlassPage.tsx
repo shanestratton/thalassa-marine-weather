@@ -20,6 +20,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
 import { ShipsBellReference } from './gauges/ShipsBellReference';
+import { ShipsBellChime } from '../../services/ShipsBellChime';
 import { ShipsBellAlarmService, type BellAlarm } from '../../services/ShipsBellAlarmService';
 import { clockInZone, deviceTimeZone, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
 import { bellsAt, bellsSpoken, nextBellFrom, watchAt } from '../../utils/shipsBells';
@@ -863,6 +864,53 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     }, [clockZone]);
     const zoneOptions = useMemo(() => listTimeZones(), []);
     const zoneClock = clockInZone(clockNow, clockZone);
+
+    // ── The clock's voice ──
+    //
+    // Off by default, and remembered. A bulkhead clock that starts striking at
+    // 0230 on the night someone installs it is a clock that gets turned off
+    // for good, so this is opt-in.
+    const [bellsOn, setBellsOn] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('thalassa_clock_bells') === 'on';
+        } catch {
+            return false;
+        }
+    });
+    useEffect(() => {
+        try {
+            localStorage.setItem('thalassa_clock_bells', bellsOn ? 'on' : 'off');
+        } catch {
+            /* private mode — the toggle still works for this session */
+        }
+    }, [bellsOn]);
+
+    // It strikes what the FACE shows, not what the device clock says. The two
+    // agree on the half hour in almost every zone, but not in the 30- and
+    // 45-minute-offset ones (India, Nepal, Chatham) — and a bell clock that
+    // rings at a time its own hands do not show is simply wrong.
+    // Lifted out of the JSX: inline, its body pushed the button's own touch
+    // target out of readable reach in the markup (and out of the window the
+    // touch-floor test reads).
+    const handleTestBell = useCallback(async () => {
+        await ShipsBellChime.unlock();
+        if (!ShipsBellChime.strike(bellsAt(zoneClock.hour, zoneClock.minute))) {
+            toast.error('The bell stayed quiet — an alarm is sounding, or this device has no audio.');
+        }
+    }, [zoneClock.hour, zoneClock.minute]);
+
+    const lastStruckRef = useRef<string | null>(null);
+    useEffect(() => {
+        const slot = `${zoneClock.hour}:${zoneClock.minute < 30 ? '00' : '30'}`;
+        const onTheHalfHour = zoneClock.minute % 30 === 0;
+        if (!onTheHalfHour) return;
+        if (lastStruckRef.current === slot) return;
+        // Claimed even when silent, so turning the bells on mid-half-hour does
+        // not immediately strike the one that has already passed.
+        lastStruckRef.current = slot;
+        if (!bellsOn) return;
+        ShipsBellChime.strike(bellsAt(zoneClock.hour, zoneClock.minute));
+    }, [zoneClock.hour, zoneClock.minute, bellsOn]);
     const [bellAlarms, setBellAlarms] = useState<BellAlarm[]>([]);
     useEffect(() => {
         void ShipsBellAlarmService.list().then(setBellAlarms);
@@ -1230,6 +1278,39 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     under the face so "what was that bell?" is
                                     answered without leaving the clock. */}
                                 <ShipsBellReference hour={zoneClock.hour} minute={zoneClock.minute} />
+
+                                {/* ── Strike ──
+                                    The toggle and a Test beside it. Test does
+                                    not depend on the toggle: hearing the bell
+                                    is how a skipper decides whether to leave it
+                                    on, so making them try it by waiting for the
+                                    half hour would be backwards. It also does
+                                    the iOS unlock — a Web Audio context starts
+                                    suspended and only a real tap may resume it,
+                                    so the first strike has to be one. */}
+                                <div className="flex items-center gap-2 px-1">
+                                    <button
+                                        onClick={() => {
+                                            void ShipsBellChime.unlock();
+                                            setBellsOn((on) => !on);
+                                        }}
+                                        aria-pressed={bellsOn}
+                                        className={`min-h-[44px] flex-1 rounded-xl border px-3 text-sm font-black tracking-wide transition-all active:scale-[0.98] ${
+                                            bellsOn
+                                                ? 'border-amber-400/40 bg-amber-400/15 text-amber-200'
+                                                : 'border-white/10 bg-white/5 text-gray-400'
+                                        }`}
+                                    >
+                                        {bellsOn ? 'Bells on' : 'Bells off'}
+                                    </button>
+                                    <button
+                                        onClick={() => void handleTestBell()}
+                                        aria-label={`Test the bell — ${bellsSpoken(bellsAt(zoneClock.hour, zoneClock.minute))}`}
+                                        className="min-h-[44px] shrink-0 rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-black tracking-wide text-white transition-all active:scale-[0.98]"
+                                    >
+                                        Test
+                                    </button>
+                                </div>
 
                                 <label className="flex items-center gap-2 px-1">
                                     <span className="text-xs font-black uppercase tracking-widest text-gray-400 shrink-0">
