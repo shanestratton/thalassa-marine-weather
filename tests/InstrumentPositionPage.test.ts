@@ -23,8 +23,17 @@ function railNames(): string[] {
     const line = source.match(/const base = \[([^\]]+)\]/);
     expect(line, 'dot rail name list not found').not.toBeNull();
     const base = [...(line as RegExpMatchArray)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    // Serene Summer alone gets the sail plan, appended last.
-    return [...base, 'Sail Plan'];
+    // TWO sections are conditional, and the rail must model both or its dots
+    // point at the wrong instrument:
+    //   - 'Watch' exists only for a crew member who has one on the passage
+    //     planner's watch bill, and is spliced in after Bells;
+    //   - 'Sail Plan' is Serene Summer's alone, appended last.
+    // This builds the MAXIMAL rail — every section present — which is the
+    // order the source file's markers are in.
+    expect(source, 'the Watch splice moved').toMatch(
+        /hasMyWatch \? \['Clock', 'Bells', 'Watch', \.\.\.base\.slice\(2\)\] : base/,
+    );
+    return ['Clock', 'Bells', 'Watch', ...base.slice(2), 'Sail Plan'];
 }
 
 describe('the dot rail matches the sections it jumps to', () => {
@@ -55,7 +64,9 @@ describe('the dot rail matches the sections it jumps to', () => {
         expect(sections[1]).toBe('BELLS');
         const wind = sections.indexOf('WIND');
         expect(sections[wind + 1]).toBe('BAROMETER');
-        expect(sections.slice(0, 5)).toContain('POSITION');
+        // Six now, not five: the crew member's own Watch page sits after
+        // Bells when they have one, which pushes the trio down by one.
+        expect(sections.slice(0, 6)).toContain('POSITION');
     });
 });
 

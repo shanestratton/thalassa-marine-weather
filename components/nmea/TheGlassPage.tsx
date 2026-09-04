@@ -21,6 +21,8 @@ import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
 import { ShipsBellReference } from './gauges/ShipsBellReference';
 import { ShipsBellChime } from '../../services/ShipsBellChime';
+import { myWatches, type MyWatch } from '../../services/myWatches';
+import { MyWatchCard, type WatchLeadOption } from './gauges/MyWatchCard';
 import { ShipsBellAlarmService, type BellAlarm } from '../../services/ShipsBellAlarmService';
 import { clockInZone, deviceTimeZone, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
 import { bellsAt, bellsSpoken, nextBellFrom, watchAt } from '../../utils/shipsBells';
@@ -770,14 +772,39 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // Snap-section registry for the dot rail.
     const scrollerRef = useRef<HTMLDivElement | null>(null);
     const [activeSection, setActiveSection] = useState(0);
+    // ── This device's own watches, or none ──
+    //
+    // Empty for anyone not on the bill, and the section below is then not
+    // mounted at all: "if there is no watch for this user, then nothing shows
+    // and that page does not exist" (Shane 2026-09-04). Refreshed on a slow
+    // timer because the skipper can reassign the bill mid-passage.
+    const [myWatchList, setMyWatchList] = useState<MyWatch[]>([]);
+    useEffect(() => {
+        let alive = true;
+        const load = async () => {
+            const found = await myWatches();
+            if (alive) setMyWatchList(found);
+        };
+        void load();
+        const id = setInterval(() => void load(), 120_000);
+        return () => {
+            alive = false;
+            clearInterval(id);
+        };
+    }, []);
+    const hasMyWatch = myWatchList.length > 0;
+
     const sectionNames = useMemo(() => {
         /* MUST match the order the <section> elements are rendered in below —
            the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
            here does not just lose a dot, it shifts every dot after it onto the
            wrong instrument. */
         const base = ['Clock', 'Bells', 'Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm'];
-        return isSereneSummer ? [...base, 'Sail Plan'] : base;
-    }, [isSereneSummer]);
+        // 'Watch' exists only for a crew member who has one. The rail and the
+        // sections must agree, or the dots point at pages that are not there.
+        const withWatch = hasMyWatch ? ['Clock', 'Bells', 'Watch', ...base.slice(2)] : base;
+        return isSereneSummer ? [...withWatch, 'Sail Plan'] : withWatch;
+    }, [isSereneSummer, hasMyWatch]);
     const onPanelScroll = useCallback(() => {
         const el = scrollerRef.current;
         if (!el) return;
@@ -912,6 +939,28 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         ShipsBellChime.strike(bellsAt(zoneClock.hour, zoneClock.minute));
     }, [zoneClock.hour, zoneClock.minute, bellsOn]);
     const [bellAlarms, setBellAlarms] = useState<BellAlarm[]>([]);
+
+    const armedLeads = useMemo(
+        () => new Set(bellAlarms.filter((a) => a.label.startsWith('Watch:')).map((a) => Number(a.label.split('·')[1]))),
+        [bellAlarms],
+    );
+    const handleWakeForWatch = useCallback(async (lead: WatchLeadOption, watch: MyWatch) => {
+        const at = new Date(watch.startsAt.getTime() - lead.minutes * 60_000);
+        if (at.getTime() <= Date.now()) {
+            toast.error('That moment has already passed — try a shorter lead time.');
+            return;
+        }
+        const set = await ShipsBellAlarmService.schedule(at, `Watch: ${watch.label} ·${lead.minutes}`);
+        if (!set) {
+            toast.error('Could not set that alarm — check notifications are allowed.');
+            return;
+        }
+        setBellAlarms(await ShipsBellAlarmService.list());
+        toast.success(
+            `${watch.label} — you will be woken ${lead.minutes === 0 ? 'on watch' : `${lead.minutes} min before`}.`,
+        );
+    }, []);
+
     useEffect(() => {
         void ShipsBellAlarmService.list().then(setBellAlarms);
     }, []);
@@ -923,41 +972,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
      * an hour out because the face was showing UTC would be the worst bug this
      * page could have.
      */
-    const alarmChoices = useMemo(() => {
-        const out: Array<{ label: string; at: Date }> = [];
-        const bellAt = nextBellFrom(clockNow);
-        out.push({
-            label: `Next bell · ${bellsSpoken(bellsAt(bellAt.getHours(), bellAt.getMinutes()))}`,
-            at: bellAt,
-        });
-        const cursor = new Date(clockNow.getTime());
-        cursor.setMinutes(0, 0, 0);
-        for (let i = 0; i < 24 && out.length < 3; i++) {
-            cursor.setHours(cursor.getHours() + 1);
-            const w = watchAt(cursor.getHours(), 0);
-            if (w.startHour === cursor.getHours()) {
-                out.push({
-                    label: `${w.name} · ${String(cursor.getHours()).padStart(2, '0')}00`,
-                    at: new Date(cursor),
-                });
-            }
-        }
-        return out;
-        // Recomputed each minute, not each second: the choices only change on
-        // the half hour, and re-rendering three buttons every tick is waste.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [Math.floor(clockNow.getTime() / 60_000)]);
-
-    const handleSetBellAlarm = useCallback(async (choice: { label: string; at: Date }) => {
-        const alarm = await ShipsBellAlarmService.schedule(choice.at, choice.label);
-        if (!alarm) {
-            toast.error('Could not set that alarm — check notification permission.');
-            return;
-        }
-        setBellAlarms(await ShipsBellAlarmService.list());
-        triggerHaptic('light');
-    }, []);
-
     const handleCancelBellAlarm = useCallback(async (id: number) => {
         await ShipsBellAlarmService.cancel(id);
         setBellAlarms(await ShipsBellAlarmService.list());
@@ -1329,26 +1343,34 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         ))}
                                     </select>
                                 </label>
+                            </div>
+                        </section>
 
-                                {/* Watch alarms. The offered times are the ones a
-                                    skipper actually asks for — the next bell, and
-                                    the next two watch changes — because "wake me
-                                    for my watch" is the whole use. */}
-                                <div className="px-1">
-                                    <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
-                                        Wake me
-                                    </p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {alarmChoices.map((choice) => (
-                                            <button
-                                                key={choice.label}
-                                                onClick={() => void handleSetBellAlarm(choice)}
-                                                className="min-h-[44px] px-3 rounded-xl border border-amber-400/30 bg-amber-400/10 text-sm font-bold text-amber-200 active:scale-95 transition-all"
-                                            >
-                                                {choice.label}
-                                            </button>
-                                        ))}
-                                    </div>
+                        {/* ── SECTION: WATCH ──
+                            EXISTS ONLY IF THE PUNTER HAS A WATCH. Not an empty
+                            state, not a "no watches assigned" card — the
+                            section is not mounted, and the dot rail does not
+                            offer it (Shane 2026-09-04: "if there is no watch
+                            for this user, then nothing shows and that page does
+                            not exist").
+
+                            The watch itself comes from the passage planner's
+                            watch bill — the same watch_assignments rows the
+                            skipper filled in and the same email match
+                            WatchAlarmService uses, so the page and the alarm
+                            can never disagree about whose watch it is. */}
+                        {hasMyWatch && (
+                            <section
+                                className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            >
+                                <SectionPlate title="Watch" />
+                                <div className="flex-1 min-h-0 overflow-y-auto pb-2">
+                                    <MyWatchCard
+                                        watches={myWatchList}
+                                        now={clockNow}
+                                        armedLeads={armedLeads}
+                                        onWake={(lead, watch) => void handleWakeForWatch(lead, watch)}
+                                    />
                                     {bellAlarms.length > 0 && (
                                         <ul className="mt-3 space-y-1.5">
                                             {bellAlarms.map((a) => (
@@ -1356,8 +1378,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     key={a.id}
                                                     className="flex items-center justify-between gap-2 rounded-xl bg-white/4 px-3 py-2"
                                                 >
-                                                    <span className="text-sm text-white truncate">
-                                                        {a.label} ·{' '}
+                                                    <span className="truncate text-sm text-white">
+                                                        {a.label.split(' ·')[0]} ·{' '}
                                                         {new Date(a.at).toLocaleTimeString([], {
                                                             hour: '2-digit',
                                                             minute: '2-digit',
@@ -1366,7 +1388,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     <button
                                                         onClick={() => void handleCancelBellAlarm(a.id)}
                                                         aria-label={`Cancel the ${a.label} alarm`}
-                                                        className="min-h-[44px] px-3 text-sm font-bold text-rose-300 shrink-0"
+                                                        className="min-h-[44px] shrink-0 px-3 text-sm font-bold text-rose-300"
                                                     >
                                                         Cancel
                                                     </button>
@@ -1375,8 +1397,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </ul>
                                     )}
                                 </div>
-                            </div>
-                        </section>
+                            </section>
+                        )}
 
                         {/* ── SECTION: WIND ── */}
                         <section
