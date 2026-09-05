@@ -20,7 +20,7 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 
 - [ ] Xcode 26.6 selected. On 2026-09-06 `xcode-select -p` still pointed at
       `/Applications/Xcode-beta.app` (Xcode 27.0) — switch before archiving:
-      `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, then
+      `sudo xcode-select -s /Applications/Xcode-26.6.app/Contents/Developer`, then
       `xcodebuild -version` must say 26.6.
 - [ ] Bump the build number: `CURRENT_PROJECT_VERSION` is **101** in
       `ios/App/App.xcodeproj/project.pbxproj` (both configs). App Store Connect
