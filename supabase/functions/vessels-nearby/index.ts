@@ -164,14 +164,22 @@ Deno.serve(async (req: Request) => {
         // Convert nautical miles to meters (1 NM = 1852 m)
         const radiusMeters = radiusNm * 1852;
 
+        // The RPC runs as the SERVICE ROLE, not as the caller. Until 2026-09-05
+        // this forwarded the user's JWT, which meant vessels_nearby had to keep
+        // an `authenticated` EXECUTE grant — and any signed-in client could
+        // call the RPC directly, skipping the 720/hour quota enforced above
+        // (audit item 4). The caller is already verified and metered by
+        // requireAuthenticatedQuota; the database call needs no user identity
+        // (vessels_nearby is SECURITY INVOKER over a table with no per-user
+        // rows), so it runs with the service key and the grant is revoked in
+        // 20260905110000_vessels_nearby_service_role_only.sql. Deploy THIS
+        // before pushing THAT, or the app's AIS layer breaks in between.
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
-        const publicKey = Deno.env.get('SUPABASE_ANON_KEY');
-        const authorization = req.headers.get('authorization');
-        if (!supabaseUrl || !publicKey || !authorization) {
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceKey) {
             return respond({ error: 'Server database is not configured' }, 500);
         }
-        const supabase = createClient(supabaseUrl, publicKey, {
-            global: { headers: { Authorization: authorization } },
+        const supabase = createClient(supabaseUrl, serviceKey, {
             auth: { persistSession: false, autoRefreshToken: false },
         });
 
