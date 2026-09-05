@@ -3334,6 +3334,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     visible={!planningSurface && !embedded && !pickerMode && !isPinView}
                     value={mapBase}
                     onChange={setMapBase}
+                    encCellCount={encCellCount}
+                    encVisible={encVisible}
+                    onToggleEnc={() => setEncVisible((on) => !on)}
                 />
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
@@ -4507,7 +4510,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onNightDimChange={setNightDim}
                     onToggleChartKey={() => setChartKeyOpen((open) => !open)}
                     onOpenEncLibrary={() => setPage('encLibrary')}
-                    onToggleEncVisible={() => setEncVisible((on) => !on)}
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel

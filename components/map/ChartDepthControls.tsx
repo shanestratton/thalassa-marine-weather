@@ -30,8 +30,6 @@ export interface ChartDepthControlsProps {
     onToggleChartKey: () => void;
     /** Opens the Pi-independent ENC Library when this viewport has no coverage. */
     onOpenEncLibrary: () => void;
-    /** The ENC master switch. See MapHub for why this exists again. */
-    onToggleEncVisible: () => void;
 }
 
 /**
@@ -57,7 +55,6 @@ export function ChartDepthControls({
     onNightDimChange,
     onToggleChartKey,
     onOpenEncLibrary,
-    onToggleEncVisible,
 }: ChartDepthControlsProps) {
     return (
         <>
@@ -131,30 +128,6 @@ export function ChartDepthControls({
                         </div>
                     )}
                 </>
-            )}
-
-            {/* ── ENC MASTER SWITCH ──
-                Offered whenever there are charts to switch off, and — crucially
-                — ALSO when they are already off, or it would be a one-way door.
-                Sits with the other chart controls rather than in Settings: it
-                is a thing you reach for while looking at the chart. */}
-            {encCellCount > 0 && surfaceVisible && (
-                <button
-                    type="button"
-                    onClick={() => {
-                        triggerHaptic('light');
-                        onToggleEncVisible();
-                    }}
-                    aria-pressed={encVisible}
-                    aria-label={encVisible ? 'Turn ENC charts off' : 'Turn ENC charts on'}
-                    className={`absolute right-3 top-[8.5rem] z-9980 min-h-[44px] rounded-xl border px-3 text-[10px] font-black uppercase tracking-wider shadow-lg backdrop-blur-xs transition-colors active:scale-95 ${
-                        encVisible
-                            ? 'border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
-                            : 'border-white/15 bg-slate-900/85 text-gray-400'
-                    }`}
-                >
-                    ENC {encVisible ? 'ON' : 'OFF'}
-                </button>
             )}
 
             {encCellCount > 0 && encVisible && chartKeyVisible && (

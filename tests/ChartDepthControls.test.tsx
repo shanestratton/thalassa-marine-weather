@@ -39,7 +39,6 @@ function props(overrides: Partial<ChartDepthControlsProps> = {}): ChartDepthCont
         onNightDimChange: vi.fn(),
         onToggleChartKey: vi.fn(),
         onOpenEncLibrary: vi.fn(),
-        onToggleEncVisible: vi.fn(),
         ...overrides,
     };
 }
