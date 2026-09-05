@@ -14,6 +14,12 @@ const sb = vi.hoisted(() => ({
 }));
 vi.mock('../services/supabase', () => ({
     supabase: {
+        // Since 2026-09-05 (audit item 15) announce goes through the RPC, not a
+        // table upsert; the RPC validates, stamps the time and caps the table.
+        rpc: (fn: string, args: unknown) => {
+            sb.upserts.push({ table: fn, row: args });
+            return Promise.resolve({ data: true, error: null });
+        },
         from: (table: string) => ({
             upsert: (row: unknown) => {
                 sb.upserts.push({ table, row });

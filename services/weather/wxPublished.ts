@@ -43,12 +43,15 @@ export function announceCell(lat: number, lon: number): void {
         } | null;
         if (prev && prev.cell === cell && Date.now() - prev.at < ANNOUNCE_REFRESH_MS) return;
         localStorage.setItem(ANNOUNCE_KEY, JSON.stringify({ cell, at: Date.now() }));
-        void supabase
-            .from('wx_subscriptions')
-            .upsert({ cell_id: cell, last_seen_at: new Date().toISOString() }, { onConflict: 'cell_id' })
-            .then(({ error }) => {
-                if (error) log.warn('cell announce failed:', error.message);
-            });
+        // Through the RPC, not the table: the server validates the cell,
+        // stamps the time itself and caps how many cells exist. Direct table
+        // writes were revoked on 2026-09-05 (audit item 15). `false` means the
+        // server declined (bad cell or at the cap) — the live API path still
+        // answers, so there is nothing for the boat to do about it.
+        void supabase.rpc('announce_wx_cell', { p_cell: cell }).then(({ data, error }) => {
+            if (error) log.warn('cell announce failed:', error.message);
+            else if (data === false) log.warn('cell announce declined by server:', cell);
+        });
     } catch {
         /* storage or serialisation trouble — the next fetch retries */
     }
