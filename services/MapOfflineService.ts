@@ -27,6 +27,7 @@
  */
 
 import { piCache } from './PiCacheService';
+import { satelliteModeBlocks } from './networkPolicy';
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance } from '../utils/navigationCalculations';
 import { Capacitor } from '@capacitor/core';
@@ -296,6 +297,19 @@ export async function downloadArea(
             failed: 0,
             route,
             message: BULK_OFFLINE_PREFETCH_CAPABILITY.reason,
+        };
+        onProgress(blocked);
+        return blocked;
+    }
+    if (satelliteModeBlocks('offline-download')) {
+        const route: 'pi' | 'direct' = piCache.canReachPinned() ? 'pi' : 'direct';
+        const blocked: OfflineDownloadProgress = {
+            phase: 'error',
+            current: 0,
+            total: 0,
+            failed: 0,
+            route,
+            message: 'Satellite Mode is on — offline chart downloads are paused until normal network resumes.',
         };
         onProgress(blocked);
         log.warn(`Bulk tile prefetch blocked for ${BULK_OFFLINE_PREFETCH_CAPABILITY.providerId}`);

@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { satelliteModeBlocks } from '../../services/networkPolicy';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { cloudOverlayBeforeId, imageryTopIndex } from './imageryOrder';
@@ -331,6 +332,13 @@ async function loadSquallTiles(
     const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
     if (!supabaseUrl) {
         log.warn('Supabase URL missing — cannot fetch Rainbow snapshot');
+        return;
+    }
+
+    // Radar is raster tiles by the dozen — nothing about it belongs on a
+    // satellite link. No snapshot means mountSquallLayer is never reached.
+    if (satelliteModeBlocks('raster')) {
+        log.info('Satellite Mode — squall radar not fetched');
         return;
     }
 

@@ -13,6 +13,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { satelliteModeBlocks } from './networkPolicy';
 import { boundedLocalQuarantine } from '../utils/localPrivacyRetention';
 import { Capacitor } from '@capacitor/core';
 import { BackgroundFetch } from '@transistorsoft/capacitor-background-fetch';
@@ -1452,6 +1453,11 @@ class DiaryServiceClass {
     private async _uploadBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
             return null;
+        // Satellite Mode: a photo is the second-heaviest thing this app sends.
+        // null here is the "keep the idb ref so we retry" path the caller
+        // already has — nothing is lost, it goes on the next normal-network
+        // drain (audit item 12: the toggle now says uploads pause, so they do).
+        if (satelliteModeBlocks('media-upload')) return null;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
@@ -4007,6 +4013,11 @@ class DiaryServiceClass {
         scope: AuthIdentityScope,
         budgetMs: number | null = null,
     ): Promise<string | null> {
+        // Satellite Mode: ~200 MB/min of video has no place on an Iridium
+        // link. null lets the caller's existing fallback run — Pi park if a
+        // Pi is standing by (the Pi has the boat's own connection), else the
+        // clip waits in IDB for the next drain.
+        if (satelliteModeBlocks('media-upload')) return null;
         const abandoned = { value: false };
         const attempt = this._directVideoUpload(blob, scope, abandoned);
         if (budgetMs == null) return attempt;

@@ -20,6 +20,7 @@
  */
 
 import { CapacitorHttp } from '@capacitor/core';
+import { satelliteModeBlocks } from '../../../services/networkPolicy';
 import { piCache } from '../../../services/PiCacheService';
 import { getAuthenticatedFunctionHeaders } from '../../../services/supabaseAuth';
 import { buildRainViewerTileUrl } from '../../../services/weather/api/rainviewerTiles';
@@ -188,6 +189,7 @@ export async function fetchRainbowSnapshot(): Promise<number | null> {
     snapshotInflight = (async (): Promise<number | null> => {
         const supabaseUrl = getSupabaseUrl();
         if (!supabaseUrl) return null;
+        if (satelliteModeBlocks('raster')) return null; // no snapshot → no radar tiles drawn
         const url = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`;
         try {
             let data: { snapshot?: unknown } | null = null;

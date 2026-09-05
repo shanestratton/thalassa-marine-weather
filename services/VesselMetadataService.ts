@@ -12,6 +12,7 @@
  */
 
 import { supabase, supabaseUrl } from './supabase';
+import { satelliteModeBlocks } from './networkPolicy';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { decodeMmsi, getMmsiFlag, type MmsiDecodedResult } from '../utils/MmsiDecoder';
 import { createLogger } from '../utils/createLogger';
@@ -202,6 +203,7 @@ class VesselMetadataServiceClass {
         if (cached !== undefined && cached !== null) return cached;
 
         if (!supabase) return null;
+        if (satelliteModeBlocks('ais-internet')) return null; // cache only on a metered link
 
         this.pendingOnDemand.add(mmsi);
         try {

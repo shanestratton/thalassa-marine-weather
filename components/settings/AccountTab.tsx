@@ -3,6 +3,7 @@
  * Extracted from SettingsModal to reduce component size.
  */
 import React, { useState, useEffect } from 'react';
+import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { CloudIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
@@ -291,7 +292,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                     className={`text-xs mt-0.5 transition-colors ${settings.satelliteMode ? 'text-amber-300/70' : 'text-gray-400'}`}
                                 >
                                     {settings.satelliteMode
-                                        ? '~200 KB/day • Weather only'
+                                        ? 'Forecast only • grids, radar, AIS & uploads paused'
                                         : 'For Iridium GO! & metered connections'}
                                 </p>
                             </div>
@@ -300,12 +301,25 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     </div>
                     {settings.satelliteMode && (
                         <div className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                            {/* The forecast still runs every source it normally
+                                does — five small JSON calls every three hours.
+                                "StormGlass only" was never true; the cadence is
+                                the saving, and the cadence is what is promised. */}
                             <div className="flex items-center gap-2 text-[11px]">
                                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
-                                <span className="text-amber-200/70">
-                                    Weather updates every 3 hours (StormGlass only)
-                                </span>
+                                <span className="text-amber-200/70">Weather updates every 3 hours</span>
                             </div>
+                            {/* Rendered FROM the policy module, so what this list
+                                says and what the fetchers enforce are one thing.
+                                Until 2026-09-05 the toggle promised "~200 KB/day •
+                                Weather only" while GRIBs, radar, AIS and video
+                                uploads ran exactly as on WiFi. */}
+                            {SATELLITE_MODE_ENFORCED.map((entry) => (
+                                <div key={entry.kind} className="flex items-center gap-2 text-[11px]">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                                    <span className="text-amber-200/70">{entry.label}</span>
+                                </div>
+                            ))}
                             <div className="flex items-center gap-2 text-[11px]">
                                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
                                 <span className="text-amber-200/70">

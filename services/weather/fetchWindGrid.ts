@@ -24,6 +24,7 @@
  * which decodes into a bad forecast rather than an error.
  */
 import { createLogger } from '../../utils/createLogger';
+import { assertNetworkAllowed, NetworkPolicyBlockedError } from '../networkPolicy';
 
 const log = createLogger('windGrid');
 
@@ -63,6 +64,9 @@ export async function fetchWindGridBuffer(
     bounds: WindGridBounds,
     opts: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<WindGridResponse> {
+    // A GRIB is hundreds of KB to megabytes — the single biggest thing this app
+    // downloads, and the first thing Satellite Mode exists to stop.
+    assertNetworkAllowed('grib', 'wind grid');
     const timeoutMs = opts.timeoutMs ?? 20_000;
     const supabaseUrl =
         (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
@@ -124,6 +128,10 @@ export async function fetchWindGridOrNull(
         }
         return buf;
     } catch (e) {
+        if (e instanceof NetworkPolicyBlockedError) {
+            log.info(e.message);
+            return null;
+        }
         log.warn('wind grid fetch threw:', e);
         return null;
     }

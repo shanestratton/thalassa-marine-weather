@@ -23,7 +23,7 @@
 import { useSettingsStore } from '../stores/settingsStore';
 
 /** The discretionary network channels Satellite Mode governs. */
-export type NetworkKind = 'grib' | 'raster' | 'ais-internet' | 'offline-download';
+export type NetworkKind = 'grib' | 'raster' | 'ais-internet' | 'offline-download' | 'media-upload';
 
 /**
  * True when Satellite Mode is on. Reads the live setting so a toggle takes
@@ -79,4 +79,8 @@ export const SATELLITE_MODE_ENFORCED: ReadonlyArray<{ kind: NetworkKind; label: 
     { kind: 'raster', label: 'Rain radar and precip imagery pause' },
     { kind: 'ais-internet', label: 'Internet AIS pauses — your own VHF AIS still shows' },
     { kind: 'offline-download', label: 'Bulk offline chart downloads are blocked' },
+    // Photos and ≤60 s clips are the heaviest thing a phone sends (~200 MB/min
+    // of video). They stay in the on-device queue and go when the link is
+    // normal again; the diary TEXT still syncs — it is a few KB.
+    { kind: 'media-upload', label: 'Diary photo & video uploads wait on the phone until normal network' },
 ];
