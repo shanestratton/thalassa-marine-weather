@@ -77,6 +77,35 @@ interface AtomicTransactionJournal {
     tables: Record<string, Record<string, unknown>>;
 }
 
+// ── Where the database lives ───────────────────────────────────
+/**
+ * Directory.Data, NOT Directory.Documents.
+ *
+ * Info.plist turns on UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace
+ * so the S-63 chart fingerprint is findable in the Files app — a deliberate
+ * export. That setting makes the WHOLE Documents folder browsable, and this
+ * database was writing inventory, maintenance history, ship documents, crew
+ * profiles and the sync queue there as plaintext JSON: "On My iPhone >
+ * Thalassa" listed a skipper's private vessel records beside the one file
+ * meant to be there (external audit, 2026-09-05, item 10).
+ *
+ * Directory.Data is the app's Library — backed up, persistent, and not shown
+ * in Files. Everything this module reads or writes goes there. Existing files
+ * are moved once by migrateVesselFilesOutOfDocuments() on the first
+ * initialisation after this change; Documents is then left to the exports.
+ */
+const DB_DIRECTORY = Directory.Data;
+/** Every file this module owns starts with this — see scopedFilename(). */
+const DB_FILE_PREFIX = 'vessel_';
+/**
+ * Set once every vessel_* file has left Documents. Until it is set, every
+ * initialisation lists Documents and moves what it finds; after it, none do —
+ * Documents holds the skipper's own exports and can be large, and a listing
+ * on every init to confirm an empty result is a cost with no return. A run
+ * that could not move something does NOT set it, so the next launch retries.
+ */
+export const LOCALDB_MOVED_TO_DATA_MARKER = 'thalassa_localdb_moved_to_data';
+
 // ── File paths ─────────────────────────────────────────────────
 
 const TABLE_FILES: Record<string, string> = {
@@ -181,17 +210,87 @@ function transactionFilename(identity = activeIdentity): string {
     return scopedFilename(LOCAL_TRANSACTION_FILE, identity);
 }
 
-async function listDocumentFiles(): Promise<Set<string>> {
+async function listDbFiles(): Promise<Set<string>> {
     const result = await Filesystem.readdir({
         path: '',
-        directory: Directory.Documents,
+        directory: DB_DIRECTORY,
     });
     return new Set(result.files.map((file) => (typeof file === 'string' ? file : file.name)));
 }
 
+/**
+ * Move every vessel_* file out of Documents, once.
+ *
+ * Idempotent and crash-safe by construction: copy first, delete second, and a
+ * file already present in Data is not copied over — so a run interrupted
+ * between the two steps simply deletes the stale Documents copy next time,
+ * and a run interrupted before the copy starts again from scratch. A file
+ * that will not move is logged and left; nothing here may throw, because the
+ * database must still open on a device where Documents is unreadable.
+ *
+ * .tmp and .bak recovery copies move too — they share the prefix, and
+ * readJsonFile() knows how to finish an interrupted swap from them.
+ */
+function movedToDataAlready(): boolean {
+    try {
+        return localStorage.getItem(LOCALDB_MOVED_TO_DATA_MARKER) === '1';
+    } catch {
+        return false; // No storage — behave as a first launch and look.
+    }
+}
+
+function rememberMovedToData(): void {
+    try {
+        localStorage.setItem(LOCALDB_MOVED_TO_DATA_MARKER, '1');
+    } catch {
+        /* Cannot remember — the next launch lists Documents again, which is safe. */
+    }
+}
+
+async function migrateVesselFilesOutOfDocuments(): Promise<void> {
+    if (movedToDataAlready()) return;
+
+    let names: string[];
+    try {
+        const listing = await Filesystem.readdir({ path: '', directory: Directory.Documents });
+        names = listing.files
+            .map((file) => (typeof file === 'string' ? file : file.name))
+            .filter((name) => name.startsWith(DB_FILE_PREFIX));
+    } catch {
+        return; // No Documents listing — leave the marker unset and look again next launch.
+    }
+    if (names.length === 0) {
+        rememberMovedToData();
+        return;
+    }
+
+    const already = await listDbFiles().catch(() => new Set<string>());
+    let moved = 0;
+    let failed = 0;
+    for (const name of names) {
+        try {
+            if (!already.has(name)) {
+                await Filesystem.copy({
+                    from: name,
+                    directory: Directory.Documents,
+                    to: name,
+                    toDirectory: DB_DIRECTORY,
+                });
+            }
+            await Filesystem.deleteFile({ path: name, directory: Directory.Documents });
+            moved += 1;
+        } catch (error) {
+            failed += 1;
+            log.warn(`[LocalDB] Could not move ${name} out of Documents; will retry next launch:`, error);
+        }
+    }
+    if (moved > 0) log.info(`[LocalDB] Moved ${moved} vessel file(s) out of the Files-visible Documents folder`);
+    if (failed === 0) rememberMovedToData();
+}
+
 async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
     try {
-        const files = await listDocumentFiles();
+        const files = await listDbFiles();
         const candidates = [filename, `${filename}.tmp`, `${filename}.bak`].filter((candidate) => files.has(candidate));
         if (candidates.length === 0) return fallback;
 
@@ -200,7 +299,7 @@ async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
             try {
                 const contents = await Filesystem.readFile({
                     path: candidate,
-                    directory: Directory.Documents,
+                    directory: DB_DIRECTORY,
                     encoding: Encoding.UTF8,
                 });
                 const parsed = JSON.parse(contents.data as string) as T;
@@ -212,8 +311,8 @@ async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
                     await Filesystem.rename({
                         from: candidate,
                         to: filename,
-                        directory: Directory.Documents,
-                        toDirectory: Directory.Documents,
+                        directory: DB_DIRECTORY,
+                        toDirectory: DB_DIRECTORY,
                     }).catch((error) => log.warn(`[LocalDB] Could not promote recovered ${candidate}:`, error));
                 }
                 return parsed;
@@ -237,19 +336,19 @@ async function writeJsonFile(filename: string, data: unknown): Promise<void> {
         await Filesystem.writeFile({
             path: temporary,
             data: JSON.stringify(data),
-            directory: Directory.Documents,
+            directory: DB_DIRECTORY,
             encoding: Encoding.UTF8,
         });
 
-        const files = await listDocumentFiles();
+        const files = await listDbFiles();
         const hadCurrent = files.has(filename);
         if (hadCurrent) {
             await deleteFileIfPresent(backup);
             await Filesystem.rename({
                 from: filename,
                 to: backup,
-                directory: Directory.Documents,
-                toDirectory: Directory.Documents,
+                directory: DB_DIRECTORY,
+                toDirectory: DB_DIRECTORY,
             });
         }
 
@@ -257,18 +356,18 @@ async function writeJsonFile(filename: string, data: unknown): Promise<void> {
             await Filesystem.rename({
                 from: temporary,
                 to: filename,
-                directory: Directory.Documents,
-                toDirectory: Directory.Documents,
+                directory: DB_DIRECTORY,
+                toDirectory: DB_DIRECTORY,
             });
         } catch (error) {
             if (hadCurrent) {
-                const recoveryFiles = await listDocumentFiles().catch(() => new Set<string>());
+                const recoveryFiles = await listDbFiles().catch(() => new Set<string>());
                 if (!recoveryFiles.has(filename) && recoveryFiles.has(backup)) {
                     await Filesystem.rename({
                         from: backup,
                         to: filename,
-                        directory: Directory.Documents,
-                        toDirectory: Directory.Documents,
+                        directory: DB_DIRECTORY,
+                        toDirectory: DB_DIRECTORY,
                     }).catch(() => {});
                 }
             }
@@ -287,11 +386,11 @@ async function writeJsonFile(filename: string, data: unknown): Promise<void> {
 }
 
 async function deleteFileIfPresent(filename: string): Promise<void> {
-    const files = await listDocumentFiles();
+    const files = await listDbFiles();
     if (!files.has(filename)) return;
     await Filesystem.deleteFile({
         path: filename,
-        directory: Directory.Documents,
+        directory: DB_DIRECTORY,
     });
 }
 
@@ -310,7 +409,7 @@ async function deleteJsonFile(filename: string): Promise<void> {
 }
 
 async function legacyQuarantineBytes(): Promise<number> {
-    const files = await listDocumentFiles();
+    const files = await listDbFiles();
     let bytes = 0;
     for (const filename of LEGACY_SCOPE_FILES) {
         for (const candidate of [filename, `${filename}.tmp`, `${filename}.bak`]) {
@@ -318,7 +417,7 @@ async function legacyQuarantineBytes(): Promise<number> {
             try {
                 const contents = await Filesystem.readFile({
                     path: candidate,
-                    directory: Directory.Documents,
+                    directory: DB_DIRECTORY,
                     encoding: Encoding.UTF8,
                 });
                 bytes += new TextEncoder().encode(String(contents.data)).byteLength;
@@ -400,6 +499,12 @@ export function initLocalDatabase(userId: string | null = null): Promise<void> {
         clearInMemoryState();
         activeIdentity = targetIdentity;
         identityGeneration += 1;
+
+        // FIRST, before any read: bring files written by older builds into
+        // Directory.Data. Every helper below reads DB_DIRECTORY only, so a file
+        // still sitting in Documents would read as "no data" — and a fresh empty
+        // table would then be written over the top of a real one.
+        await migrateVesselFilesOutOfDocuments();
 
         // Complete the commit record before any migration or cache load can
         // observe a mixture of pre- and post-transaction files. A signed-in
@@ -539,14 +644,14 @@ function collectLocalMediaReferences(value: string, references: Set<string>): vo
 }
 
 async function collectReferencesFromFiles(filenames: readonly string[], references: Set<string>): Promise<void> {
-    const files = await listDocumentFiles();
+    const files = await listDbFiles();
     for (const filename of filenames) {
         for (const candidate of [filename, `${filename}.tmp`, `${filename}.bak`]) {
             if (!files.has(candidate)) continue;
             try {
                 const contents = await Filesystem.readFile({
                     path: candidate,
-                    directory: Directory.Documents,
+                    directory: DB_DIRECTORY,
                     encoding: Encoding.UTF8,
                 });
                 collectLocalMediaReferences(String(contents.data), references);
@@ -734,7 +839,7 @@ async function migrateLegacyScopeIfSafe(identity: string | null): Promise<void> 
     }
     if (!identity) return;
 
-    const files = await listDocumentFiles();
+    const files = await listDbFiles();
     if (marker?.state === 'claimed' && marker.ownerUserId !== identity) {
         return;
     }
