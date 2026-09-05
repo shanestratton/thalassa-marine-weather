@@ -102,7 +102,7 @@ describe('the Vessel hero card at anchor', () => {
         const gaps = 6 * 2; // gap-1.5 between icon, heading and status
         const icon = 32; // h-8
         const heading = 11; // text-[11px] leading-none
-        const status = 11 * 2; // text-[10px] leading-[1.1], TWO lines — see below
+        const status = 11 * 2; // text-[9.5px] leading-[1.1] ≈ 10.45/line, TWO lines — 11 keeps the ceiling
         const content = py + gaps + icon + heading + status;
 
         expect(pinned, `must fit ${content}px of content`).toBeGreaterThanOrEqual(content);
@@ -136,7 +136,7 @@ describe('the Vessel hero card at anchor', () => {
         // sized for two lines.
         const deck = safetyDeck(hub);
         expect(deck, 'no status line on the safety deck may truncate').not.toContain('truncate');
-        expect((deck.match(/text-\[10px\] font-bold uppercase leading-\[1\.1\]/g) ?? []).length).toBe(4);
+        expect((deck.match(/text-\[9\.5px\] font-bold uppercase leading-\[1\.1\]/g) ?? []).length).toBe(4);
         // And the word itself is still there to be seen. Written "Overboard"
         // in the source and uppercased by CSS, which is why this matches the
         // source spelling rather than what the screen shows.
@@ -145,10 +145,14 @@ describe('the Vessel hero card at anchor', () => {
     });
 
     it('sizes the status line to the longest word it has to hold', () => {
-        // "OVERBOARD" is the longest, in the narrowest tile. It was 9px and
-        // truncating; the truncate stays as a backstop but should not fire.
+        // "OVERBOARD" is the longest, in the narrowest tile. At 9px it
+        // truncated; at 10px, on the phone, the mid-word fallback split it
+        // "OVERBOAR / D" (Shane, 2026-09-06). 9.5px keeps the word whole at
+        // the widths that clipped it, and all four tiles move together so the
+        // deck reads as one. Neither old size may come back.
         const deck = safetyDeck(hub);
         expect(deck).not.toContain('text-[9px]');
-        expect((deck.match(/max-w-full text-\[10px\]/g) ?? []).length).toBe(4);
+        expect(deck).not.toContain('max-w-full text-[10px]');
+        expect((deck.match(/max-w-full text-\[9\.5px\]/g) ?? []).length).toBe(4);
     });
 });
