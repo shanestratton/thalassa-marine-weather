@@ -10,9 +10,22 @@ project_id = "pcisdplnodrphauixcau"
 # show it. Declared here instead, so the setting is reviewable and a deploy
 # cannot quietly change it.
 #
-# Anything NOT listed defaults to verify_jwt = true. Note that Supabase's anon
-# key IS a JWT, so verification still permits anonymous callers — it only
-# rejects requests carrying no credential at all.
+# Anything NOT listed defaults to verify_jwt = true. Verification still permits
+# anonymous callers — it only rejects requests carrying no credential at all.
+# Measured on production 2026-09-05: proxy-ukho-msi and proxy-linz-msi run with
+# verify_jwt = true and answered HTTP 200 to a request whose only credential was
+# the sb_publishable_ key. So the ONLY callers a `true` breaks are those that
+# send nothing — bare fetch(url), map tile URLs, WebSockets, Apple/Pi/cron POSTs.
+#
+# RECONCILIATION (2026-09-05, audit item 17). 22 functions ran verify_jwt=false
+# on production against a `true` here — the flag lived in shell history. Every
+# one now has a decision below. `true` entries whose remote is still false are
+# flipped with the dashboard toggle (Edge Functions → function → "Enforce JWT
+# verification"), NOT by redeploying: a deploy ships whatever local source is
+# on disk, and at least one function (musickit-token) has a fail-closed local
+# source that would take a live feature down. `false` entries are the callers
+# that cannot present a credential, plus four whose Pi-side headers cannot be
+# verified from ashore (marked PI-PENDING; re-check aboard, then flip).
 
 [functions.delete-account]
 # Irreversible authenticated mutation. Keep gateway verification explicit in
@@ -85,20 +98,30 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.fetch-wind-grid]
-# App and Pi-cache callers supply a user or anon JWT before quota selection.
-verify_jwt = true
+# App and Pi-cache callers.
+# PI-PENDING. The phone sends a user or publishable-key JWT, but the boat Pi
+# also calls this upstream for its cache and its headers could not be read
+# from ashore on 2026-09-05. Stays false until `grep functions/v1` on the Pi
+# shows an Authorization header; then flip to true here AND in the dashboard.
+verify_jwt = false
 
 [functions.fetch-wind-velocity]
-# Credentialed app callers supply a user or anon JWT before quota selection.
+# No client caller remains (MapboxVelocityOverlayArchitecture forbids it). Remote
+# still false on 2026-09-05; flipping true can break nothing. Candidate to retire.
 verify_jwt = true
 
 [functions.gebco-depth]
-# App callers supply a user or anon JWT before the bathymetry quota check.
+# Phone-only callers (BathymetryCache, GebcoDepthService): user JWT, falling back
+# to the publishable key when signed out — always a credential. No Pi caller.
 verify_jwt = true
 
 [functions.get-weather]
-# App and Pi-cache callers supply a user or anon JWT before weather quota selection.
-verify_jwt = true
+# App and Pi-cache callers; the function selects its own weather quota.
+# PI-PENDING. The phone sends a user or publishable-key JWT, but the boat Pi
+# also calls this upstream for its cache and its headers could not be read
+# from ashore on 2026-09-05. Stays false until `grep functions/v1` on the Pi
+# shows an Authorization header; then flip to true here AND in the dashboard.
+verify_jwt = false
 
 [functions.lookup-vessel]
 # Signed-in vessel client; the function also enforces an authenticated quota.
@@ -117,11 +140,13 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.maritime-intel]
-# Public-news client supplies the anon JWT; the function enforces its public quota.
+# MaritimeIntelService sends the publishable key as Bearer. The function's own
+# per-client quota is the real limit on this public news feed (audit item 16).
 verify_jwt = true
 
 [functions.proxy-amsa-msi]
-# Web notice client supplies a user or anon JWT before public-data quota selection.
+# NoticeToMarinersService sends the publishable key as Bearer — the same caller
+# that reaches proxy-ukho-msi/proxy-linz-msi through verify_jwt = true today.
 verify_jwt = true
 
 [functions.proxy-gemini]
@@ -129,12 +154,17 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.proxy-nga-msi]
-# Web notice client supplies a user or anon JWT before public-data quota selection.
+# NoticeToMarinersService sends the publishable key as Bearer — the same caller
+# that reaches proxy-ukho-msi/proxy-linz-msi through verify_jwt = true today.
 verify_jwt = true
 
 [functions.proxy-openmeteo]
-# App and Pi-cache callers supply a user or anon JWT before weather quota selection.
-verify_jwt = true
+# App and Pi-cache callers; the function selects its own weather quota.
+# PI-PENDING. The phone sends a user or publishable-key JWT, but the boat Pi
+# also calls this upstream for its cache and its headers could not be read
+# from ashore on 2026-09-05. Stays false until `grep functions/v1` on the Pi
+# shows an Authorization header; then flip to true here AND in the dashboard.
+verify_jwt = false
 
 [functions.proxy-spoonacular]
 # Held beta client uses credentialed functions.invoke; provider access remains disabled.
@@ -145,15 +175,21 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.proxy-tides]
-# App and Pi-cache callers supply a user or anon JWT before tides quota selection.
-verify_jwt = true
+# App and Pi-cache callers; the function selects its own tides quota.
+# PI-PENDING. The phone sends a user or publishable-key JWT, but the boat Pi
+# also calls this upstream for its cache and its headers could not be read
+# from ashore on 2026-09-05. Stays false until `grep functions/v1` on the Pi
+# shows an Authorization header; then flip to true here AND in the dashboard.
+verify_jwt = false
 
 [functions.route-bathymetric]
-# Credentialed route caller supplies a user or anon JWT before route quota selection.
+# bathymetricRouter builds its request from the app URL and publishable key;
+# the function also enforces its route quota. Verify in the dashboard logs after the flip.
 verify_jwt = true
 
 [functions.route-weather]
-# Credentialed route caller supplies a user or anon JWT before route quota selection.
+# weatherRouter always sends Authorization (session token, else the publishable
+# key) plus apikey; the function also enforces its route quota.
 verify_jwt = true
 
 [functions.founding-skipper-application]
@@ -178,3 +214,34 @@ verify_jwt = false
 # JWT or cron's legacy service-role JWT; function code then requires the exact
 # bounded internal secret or the verified service_role claim.
 verify_jwt = true
+
+[functions.check-weather-alerts]
+# Cron entry point. pg_cron/pg_net POSTs with the service key and the function
+# requires an exact service-role POST before any work; no user JWT exists.
+verify_jwt = false
+
+[functions.deepgram-ws-proxy]
+# Browser WebSocket upgrade: no Authorization header is possible. The function
+# consumes a 60-second one-use ticket minted by deepgram-token (which IS
+# JWT-verified) — the ticket is the credential.
+verify_jwt = false
+
+[functions.fetch-gfs-tracker]
+# CycloneTrackingService calls this with a bare fetch(url) and the function
+# enforces a per-client public quota. Public cyclone positions, not sensitive.
+verify_jwt = false
+
+[functions.satellite-tile]
+# Mapbox raster source URL: the map engine fetches tiles itself and cannot
+# attach Authorization. Per-client public quota inside the function.
+verify_jwt = false
+
+[functions.send-anchor-alarm]
+# Invoked by a database trigger over pg_net with the service key; the function
+# requires an exact service-role POST before delivering an alarm.
+verify_jwt = false
+
+[functions.send-push]
+# Invoked by a database trigger / retry sweep over pg_net with the service key;
+# the function requires an exact service-role POST before delivering.
+verify_jwt = false
