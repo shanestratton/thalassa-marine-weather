@@ -28,9 +28,14 @@ const EMERGENCY_CONTACTS_DB: Record<string, EmergencyContact[]> = {
         },
         { service: 'Marine Rescue NSW', frequency: '156.8 MHz (VHF-16)', phone: '1800 622 468', region: 'NSW' },
         {
-            service: 'Volunteer Marine Rescue QLD',
+            // VMR Queensland and the Australian Volunteer Coast Guard MERGED
+            // into Marine Rescue Queensland; 131 677 is the single hotline
+            // (mrq.qld.gov.au). The old 07 3635 3600 stood here until Shane
+            // caught it on 2026-09-05 — an emergency list is exactly where a
+            // superseded number does the most harm.
+            service: 'Marine Rescue Queensland (131 MRQ)',
             frequency: '156.8 MHz (VHF-16)',
-            phone: '07 3635 3600',
+            phone: '131 677',
             region: 'QLD',
         },
         { service: 'Water Police', frequency: '156.8 MHz (VHF-16)', phone: '000', region: 'Australia' },
