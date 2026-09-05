@@ -1388,8 +1388,29 @@ class PiCacheServiceImpl {
      * @param ttlMs — Cache TTL in milliseconds (default: 15 min)
      * @param source — Label for debugging (e.g., 'open-meteo')
      */
+    /**
+     * A passthrough hop needs a pinned key, and knowing that here is free.
+     *
+     * PiTlsPlugin.swift opens exactly ONE path without a pin — the pairing
+     * card — and rejects everything else with PIN_REQUIRED. That guard is in
+     * the right place, but the app was walking into it: a Pi that is reachable
+     * but not yet paired satisfied isAvailable(), so every passthrough built a
+     * URL, crossed the bridge, and came back refused. The caller then went
+     * direct, which is correct, so nothing broke — it just cost a round trip
+     * per call and wrote an alarming line each time.
+     *
+     * Shane's Web Inspector, 2026-09-05: eight of these in one burst, all
+     * mapbox-geocode, all guaranteed to fail before they were sent.
+     *
+     * Returning null here is the SAME answer the caller already handles for an
+     * absent Pi, so no call site changes. It just arrives without the trip.
+     */
+    canPassThrough(): boolean {
+        return this.isAvailable() && !!getPairing()?.publicKeySpki;
+    }
+
     passthroughUrl(originalUrl: string, ttlMs = 900_000, source = 'passthrough'): string | null {
-        if (!this.isAvailable()) return null;
+        if (!this.canPassThrough()) return null;
         const params = new URLSearchParams({
             url: originalUrl,
             ttl: String(ttlMs),
@@ -1402,7 +1423,7 @@ class PiCacheServiceImpl {
      * Route a tile URL through the Pi Cache's tile passthrough.
      */
     passthroughTileUrl(originalUrl: string, ttlMs = 1_800_000): string | null {
-        if (!this.isAvailable()) return null;
+        if (!this.canPassThrough()) return null;
         const params = new URLSearchParams({
             url: originalUrl,
             ttl: String(ttlMs),

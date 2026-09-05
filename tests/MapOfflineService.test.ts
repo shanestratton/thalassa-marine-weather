@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const piCache = vi.hoisted(() => ({
     isAvailable: vi.fn(),
+    canPassThrough: vi.fn(),
     passthroughTileUrl: vi.fn(),
     passthroughTileResponse: vi.fn(),
     getStatus: vi.fn(),
@@ -61,6 +62,9 @@ beforeEach(() => {
     vi.clearAllMocks();
     nativeRuntime.enabled = false;
     piCache.isAvailable.mockReturnValue(false);
+    // The lane tests below are about transport, not pairing, so by default a
+    // reachable Pi is also a usable one. The test that separates them says so.
+    piCache.canPassThrough.mockImplementation(() => piCache.isAvailable());
     piTls.isPinnedTransportAvailable.mockReturnValue(false);
     piTls.piRequest.mockReset();
     // Default: no usable Pi lane, so callers go direct.
@@ -260,6 +264,37 @@ describe('offline tile download lanes', () => {
 
         expect(piCache.passthroughTileResponse).not.toHaveBeenCalled();
         expect(filesystem.writeFile).toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
+    it('skips the Pi lane when the Pi is reachable but not yet paired', async () => {
+        // isAvailable() answers "I can see a Pi". The passthrough needs more
+        // than that: PiTlsPlugin refuses every path but the pairing card
+        // without a pinned key, so an unpaired hop is a bridge round trip that
+        // is guaranteed to come back refused. Shane's Web Inspector caught
+        // eight in one burst (2026-09-05), all mapbox-geocode, all doomed
+        // before they were sent. The tile still arrives — the fall-through to
+        // direct is unchanged — so the only thing lost is the wasted trip.
+        enableCapability();
+        nativeRuntime.enabled = true;
+        piCache.isAvailable.mockReturnValue(true);
+        piCache.canPassThrough.mockReturnValue(false);
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+        );
+
+        const onProgress = vi.fn();
+        const result = await downloadArea(
+            { bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 },
+            onProgress,
+        );
+
+        expect(piCache.passthroughTileResponse).not.toHaveBeenCalled();
+        expect(result.failed).toBe(0);
+        expect(filesystem.writeFile).toHaveBeenCalled();
+        // And it must not claim a lane it never used.
+        for (const [update] of onProgress.mock.calls) expect(update.route).toBe('direct');
         vi.unstubAllGlobals();
     });
 });
