@@ -208,21 +208,50 @@ const _fetchWeatherByStrategyImpl = async (
     announceCell(lat, lon);
 
     const SOURCE_BUDGET_MS = 8_000;
+    /**
+     * How long a SUPPLEMENTARY source may keep the report waiting after
+     * everything the report actually needs has already landed.
+     *
+     * Promise.allSettled waits for the slowest member, so one slow provider
+     * set the wall clock for the whole report even when every other source
+     * was in. Shane's device, 2026-09-05: "wx sources 6513ms total:
+     * weatherkit=569 unified=570 tides=2318 openmeteo=2477 marine=2862
+     * stormglass=6509" — 6.5 s of which 3.6 s was spent waiting on one
+     * source, with the finished report sitting in memory the whole time.
+     *
+     * Cutting a source here does NOT throw its work away. withTimeout cannot
+     * cancel anything (utils/deadline.ts — the CapacitorHttp patch ignores
+     * AbortSignal), so the fetch runs on and writes its own cache; StormGlass
+     * caches to localStorage on the 6-hourly model cycle, so the answer is
+     * waiting, already paid for, on the next fetch. The in-flight dedupe in
+     * fetchStormGlassWeather means a re-fetch during the window JOINS that
+     * request rather than buying a second one.
+     */
+    const SUPPLEMENTARY_GRACE_MS = 1_500;
     const t0 = Date.now();
     const timings: string[] = [];
-    const bounded = <T>(label: string, p: Promise<T>): Promise<T | null> => {
+    /** Marks a source the grace window cut while it was still running. */
+    const CUT = Symbol('cut');
+    const bounded = <T>(label: string, p: Promise<T>, cutWhen?: Promise<unknown>): Promise<T | null> => {
         const started = Date.now();
-        return withTimeout<T | null>(
+        const budgeted = withTimeout<T | null>(
             p.catch((e) => {
                 log.warn(`${label} failed:`, (e as Error)?.message || e);
                 return null;
             }),
             null,
             SOURCE_BUDGET_MS,
-        ).then((v) => {
+        );
+        const raced: Promise<T | null | typeof CUT> = cutWhen
+            ? Promise.race<T | null | typeof CUT>([budgeted, cutWhen.then((): typeof CUT => CUT)])
+            : budgeted;
+        return raced.then((settled) => {
             const ms = Date.now() - started;
-            timings.push(`${label}=${ms}${v === null ? '!' : ''}`);
-            return v;
+            const cut = settled === CUT;
+            const value = cut ? null : (settled as T | null);
+            // "!" gave up, "~" still running and will fill its own cache.
+            timings.push(`${label}=${ms}${cut ? '~' : value === null ? '!' : ''}`);
+            return value;
         });
     };
 
@@ -237,23 +266,52 @@ const _fetchWeatherByStrategyImpl = async (
         ? bounded('weatherkit', fetchWeatherKitFull(lat, lon))
         : null;
 
+    // 1. Unified get-weather: single endpoint, subscription-routed
+    const unifiedPromise = bounded('unified', fetchUnifiedWeather(lat, lon, name, userId));
+
+    // 3. WorldTides: Direct tide fetch (24h cached — always fires)
+    const tidePromise = bounded('tides', fetchRealTides(lat, lon));
+
+    // 4. OpenMeteo: atmospheric + CAPE. Always fetched so offshore
+    //    users get convective-energy readings even when Unified
+    //    serves the primary data. Carries the Glass model selection —
+    //    when a model is pinned this becomes the atmospheric base.
+    const omPromise = bounded('openmeteo', fetchOpenMeteo(lat, lon, name, false, glassModel));
+
+    /**
+     * The tier the report cannot be built without. The grace clock for the
+     * supplementary tier starts when THIS settles, not at a fixed wall time —
+     * so a uniformly slow network still gets every source, and it is only a
+     * source slow RELATIVE to the others that gets cut.
+     */
+    const essentials = Promise.all([
+        unifiedPromise,
+        tidePromise,
+        omPromise,
+        weatherKitParallel ?? Promise.resolve(null),
+    ]);
+    const graceGate = essentials.then(() => new Promise((resolve) => setTimeout(resolve, SUPPLEMENTARY_GRACE_MS)));
+
+    /**
+     * OFFSHORE IS NOT SUPPLEMENTARY. Away from the coast StormGlass is asked
+     * for the full atmospheric suite as well as the marine one, because
+     * WeatherKit has no ocean station data out there (see stormglass.ts). Cut
+     * it offshore and the report loses wind, pressure and air temperature —
+     * not just waves. Inshore and coastal it carries marine data only, which
+     * the report already renders without.
+     */
+    const sgCutWhen = isOffshore ? undefined : graceGate;
+
     const [unifiedResult, sgResult, tideResult, omResult, marineResult] = await Promise.allSettled([
-        // 1. Unified get-weather: single endpoint, subscription-routed
-        bounded('unified', fetchUnifiedWeather(lat, lon, name, userId)),
+        unifiedPromise,
 
         // 2. StormGlass: Marine data (waves, swell, water temp, currents)
         needsStormGlass
-            ? bounded('stormglass', fetchStormGlassWeather(lat, lon, name, locationType))
+            ? bounded('stormglass', fetchStormGlassWeather(lat, lon, name, locationType), sgCutWhen)
             : Promise.resolve(null),
 
-        // 3. WorldTides: Direct tide fetch (24h cached — always fires)
-        bounded('tides', fetchRealTides(lat, lon)),
-
-        // 4. OpenMeteo: atmospheric + CAPE. Always fetched so offshore
-        //    users get convective-energy readings even when Unified
-        //    serves the primary data. Carries the Glass model selection —
-        //    when a model is pinned this becomes the atmospheric base.
-        bounded('openmeteo', fetchOpenMeteo(lat, lon, name, false, glassModel)),
+        tidePromise,
+        omPromise,
 
         // 5. Marine from OUR OWN infra — Pi first, then Supabase. Running
         //    ALONGSIDE StormGlass on purpose: this is the parity stage of
@@ -261,11 +319,14 @@ const _fetchWeatherByStrategyImpl = async (
         //    only logs how the two compare, so the numbers can be checked at
         //    sea before anything depends on them. Removing a marine source
         //    on a boat app because the code looked right is not good enough.
-        bounded('marine', fetchMarine(lat, lon)),
+        //    Nothing reading it means nothing can be waiting on it either, so
+        //    it takes the grace window at every location.
+        bounded('marine', fetchMarine(lat, lon), graceGate),
     ]);
 
     // warn, not info — info is silenced in prod, and this line is the whole
-    // point of the exercise. A trailing "!" marks a source that timed out.
+    // point of the exercise. A trailing "!" marks a source that gave up; "~"
+    // one the grace window cut while it was still running.
     log.warn(`[perf] wx sources ${Date.now() - t0}ms total: ${timings.join(' ')}`);
 
     // ── MARINE PARITY (temporary, until StormGlass is cut) ──
