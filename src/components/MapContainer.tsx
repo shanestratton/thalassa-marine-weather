@@ -226,6 +226,28 @@ function MapContainer({
         };
     }, [passageLine]);
 
+    /**
+     * THE LINE IS THE SOURCE OF TRUTH FOR WHERE A VOYAGE STARTS.
+     *
+     * "Voyage Start" is a SHIP-LOG waypoint, dropped where tracking was
+     * switched on — the mooring, usually, and on a passage that has not sailed
+     * yet that is nowhere near where the boat will actually depart from. Drawn
+     * beside a planned route it contradicts the plan's own green origin dot,
+     * two claims about the same thing a few hundred metres apart (Shane
+     * 2026-09-05: "that is not where the voyage will start from. the voyage
+     * should always be the line claude. the source of truth").
+     *
+     * So when there IS a plan line, the plan owns the start and this marker
+     * stands down. Without one the log marker is the only start there is, and
+     * it stays. "Voyage End" is untouched either way: where a passage actually
+     * finished is a fact about the voyage, not a competing claim about the plan.
+     */
+    const hasPlanLine = !!passageLine && passageLine.length >= 2;
+    const shownWaypoints = useMemo(
+        () => (hasPlanLine ? waypoints.filter((w) => w.name !== 'Voyage Start') : waypoints),
+        [waypoints, hasPlanLine],
+    );
+
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
 
     // Major course changes along the SAILED track (owner ask 2026-08-03):
@@ -729,10 +751,21 @@ function MapContainer({
                         </Marker>
                     ))}
 
+                {/* ...and the plan's origin gets the words, so the answer to
+                    "where does this voyage start?" is on the line rather than
+                    beside it. Emerald to match the start dot it sits on. */}
+                {hasPlanLine && passageLine && (
+                    <Marker longitude={passageLine[0][0]} latitude={passageLine[0][1]} anchor="top">
+                        <div className="pointer-events-none mt-1 select-none whitespace-nowrap rounded-sm bg-slate-900/80 px-1 text-[9px] font-bold leading-tight text-emerald-200">
+                            Voyage Start
+                        </div>
+                    </Marker>
+                )}
+
                 {/* Named waypoints — the marks the skipper dropped under way.
                     A small diamond with the name label; the auto breadcrumb
                     dots are intentionally gone (owner ask 2026-07-04). */}
-                {waypoints.map((w, i) => (
+                {shownWaypoints.map((w, i) => (
                     <Marker key={`wp-${i}`} longitude={w.lon} latitude={w.lat} anchor="center">
                         <div className="flex flex-col items-center pointer-events-none select-none">
                             <span className="w-2.5 h-2.5 rotate-45 bg-amber-300 border border-amber-100 shadow-[0_0_6px_rgba(251,191,36,0.7)]" />
