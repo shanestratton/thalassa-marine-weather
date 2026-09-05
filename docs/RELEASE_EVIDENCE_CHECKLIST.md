@@ -24,7 +24,7 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] Archived 2026-09-06 08:58 in Xcode 26.6: 1.2.0 (102), `com.thalassa.weather`, product `Thalassa Marine Weather.app` (icon label stays Thalassa), bundle main-DhSzDRmW.js, 0 source maps, dSYMs present. Archive signature is Apple Development as normal; the Distribution re-sign happens at export.
 - [x] Organizer → Validate App passed 2026-09-06 ≈09:15 — "Thalassa Marine Weather 1.2.0 (102) validated. Your app successfully passed all validation checks." First attempt hit Xcode's stale app-record cache (it created the App Store record itself, then could not see it); a relaunch fixed it. App Store record: `com.thalassa.weather`, SKU `com.thalassa.weather`, primary language English (Australia), created by Xcode at 09:04.
 - [x] Archive verified: no Watch folder, no PlugIns; background modes = audio, location, fetch (2026-09-06).
-- [ ] Upload to TestFlight; record build number + date here.
+- [x] Uploaded 2026-09-06 ≈09:20 — "Thalassa Marine Weather 1.2.0 (102) uploaded". ITSAppUsesNonExemptEncryption=false, so no export-compliance prompt. App Store Connect now holds two records: **Thalassa Marine Weather** (`com.thalassa.weather`, this one) and the older **Thalassa** (`com.thalassa.weather-2025`, never had a build — it is what made the name "Thalassa" look taken).
 
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
 
