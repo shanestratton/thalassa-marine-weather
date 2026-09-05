@@ -8,6 +8,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import { suggestMarineRescue } from '../../services/marineRescueDirectory';
 import { Capacitor } from '@capacitor/core';
 import {
     createFloatPlanSharePayload,
@@ -230,6 +231,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         : DEFAULT_OVERDUE_BUFFER_H * HOUR_MS;
     const [overdueMs, setOverdueMs] = useState<number>(() => (etaMs ?? departureMs) + overdueBufferMs);
     const [whoToCall, setWhoToCall] = useState('');
+    const [rescueSuggestionUsed, setRescueSuggestionUsed] = useState(false);
     const [contactAboard, setContactAboard] = useState(() => vessel?.contactPhone?.trim() || '');
     // Souls seed from the VESSEL PROFILE, not the voyage row (Shane
     // 2026-08-26: 'only showing one punter, not getting it from the vessel
@@ -267,6 +269,25 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         if (preset?.route.waypoints) return preset.route.waypoints;
         return savedTrace?.points.map((point) => ({ lat: point.lat, lon: point.lon }));
     }, [preset, savedTrace]);
+
+    /**
+     * The rescue number to SUGGEST, from the departure waypoint.
+     *
+     * Departure, not destination and not the boat's live position: the plan is
+     * written before leaving, and the coordinating authority a shore contact
+     * should ring is the one for the water being left from. A passage that
+     * crosses into another region gets that number by the skipper editing it,
+     * which is the same decision they make about everything else on this page.
+     *
+     * Null when nothing covers the position — mid-ocean has no local number,
+     * and inventing one would be worse than the blank field that makes someone
+     * look it up.
+     */
+    const rescueSuggestion = useMemo(() => {
+        const start = savedWaypoints?.[0];
+        if (!start) return null;
+        return suggestMarineRescue(start.lat, start.lon);
+    }, [savedWaypoints]);
 
     // The trace knows its punter-named destination even when the voyage row
     // holds only a generated label — the last honest source for To.
@@ -546,12 +567,53 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     id="float-who"
                     type="text"
                     value={whoToCall}
-                    onChange={(event) => setWhoToCall(event.target.value)}
+                    onChange={(event) => {
+                        setWhoToCall(event.target.value);
+                        setRescueSuggestionUsed(false);
+                    }}
                     placeholder="Marine Rescue Bundaberg · 07 4159 4600"
                     aria-describedby="float-who-help"
                     required
                     className="min-h-11 w-full rounded-xl border border-amber-300/20 bg-black/30 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-amber-300"
                 />
+                {/* SUGGESTED, NEVER IMPOSED. This field is dialled by
+                    someone who is worried, so it is filled by a deliberate tap
+                    and not by a useEffect that runs while the skipper is
+                    typing. Editing the field clears the "suggested" note, so
+                    the page never claims authorship of a number a person
+                    changed. */}
+                {rescueSuggestion && whoToCall.trim() !== rescueSuggestion.text && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setWhoToCall(rescueSuggestion.text);
+                            setRescueSuggestionUsed(true);
+                        }}
+                        className="mt-2 flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-left transition-colors active:scale-[0.99]"
+                    >
+                        <span className="min-w-0">
+                            <span className="block text-[11px] font-black uppercase tracking-wider text-amber-200">
+                                {whoToCall.trim() ? 'Use this instead' : 'Use the coordinating authority here'}
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm font-bold text-white">
+                                {rescueSuggestion.text}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-amber-100/70">
+                                {rescueSuggestion.service.coverage}
+                                {rescueSuggestion.service.vhf ? ` · ${rescueSuggestion.service.vhf}` : ''}
+                            </span>
+                        </span>
+                        <span aria-hidden="true" className="shrink-0 text-lg text-amber-200">
+                            +
+                        </span>
+                    </button>
+                )}
+                {rescueSuggestionUsed && whoToCall.trim() === rescueSuggestion?.text && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-amber-100/70">
+                        Suggested from your departure position. Check it against the operator&rsquo;s own published
+                        number before you rely on it — and if a local squadron covers where you are going, use theirs.
+                    </p>
+                )}
                 <p id="float-who-help" className="mt-1.5 text-[11px] leading-relaxed text-amber-100/70">
                     Enter the exact local number to call, for example “Marine Rescue Bundaberg · 07 4159 4600” or “Call
                     000 and ask for Water Police”. This is required before sharing.
