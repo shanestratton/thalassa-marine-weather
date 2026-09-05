@@ -194,9 +194,12 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
     const host = useProduction ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
 
     // Build APNs payload
+    // No 'content-available': the app has no background completion handler
+    // (AppDelegate implements no didReceiveRemoteNotification:fetchCompletionHandler:),
+    // so a silent-wake hint did nothing but declare a background mode the app
+    // never used (audit item 20). An alert push is delivered without it.
     const aps: Record<string, unknown> = {
         alert: { title: payload.title, body: payload.body },
-        'content-available': 1,
         'thread-id': payload.threadId,
     };
 

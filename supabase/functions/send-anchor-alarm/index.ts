@@ -91,7 +91,8 @@ async function sendApnsPush(
                 alert: { title, body },
                 sound: alertSound,
                 'interruption-level': criticalAlertsEntitled ? 'critical' : 'time-sensitive',
-                'content-available': 1,
+                // No 'content-available' — see send-push: there is no background
+                // handler to wake, and the alarm is an alert, delivered as one.
                 badge: 1,
             },
             ...data,
