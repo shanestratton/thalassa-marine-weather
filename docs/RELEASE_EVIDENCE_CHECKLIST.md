@@ -22,7 +22,7 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] Build number bumped 101 → 102 on all four configurations, commit 0606365b (2026-09-06).
 - [x] `npm run ship:beta` green under Node 24 (Homebrew node@24): 132 release + 140 artifact contracts; bundle 13.15/18 MB, JS 9.71/9.90 MB — 98% of the JS budget, watch it (2026-09-06).
 - [x] Archived 2026-09-06 08:58 in Xcode 26.6: 1.2.0 (102), `com.thalassa.weather`, product `Thalassa Marine Weather.app` (icon label stays Thalassa), bundle main-DhSzDRmW.js, 0 source maps, dSYMs present. Archive signature is Apple Development as normal; the Distribution re-sign happens at export.
-- [ ] Organizer → Validate App passes (this is the step no prior evidence covers).
+- [x] Organizer → Validate App passed 2026-09-06 ≈09:15 — "Thalassa Marine Weather 1.2.0 (102) validated. Your app successfully passed all validation checks." First attempt hit Xcode's stale app-record cache (it created the App Store record itself, then could not see it); a relaunch fixed it. App Store record: `com.thalassa.weather`, SKU `com.thalassa.weather`, primary language English (Australia), created by Xcode at 09:04.
 - [x] Archive verified: no Watch folder, no PlugIns; background modes = audio, location, fetch (2026-09-06).
 - [ ] Upload to TestFlight; record build number + date here.
 
