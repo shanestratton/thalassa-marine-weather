@@ -15,8 +15,14 @@ export interface PointWeatherData {
     lon: number;
     /** Device time when both point requests settled. Used to make age explicit. */
     fetchedAt: number;
-    /** Distinguishes dry land from a failed marine source. */
-    marineStatus: 'available' | 'land' | 'unavailable';
+    /**
+     * Distinguishes dry land from a failed marine source — and now from one
+     * that simply has not landed yet. 'pending' exists because the popup
+     * paints as soon as the ATMOSPHERIC half arrives; without it the marine
+     * block would have to claim 'unavailable' during the second or two before
+     * its own request settles, which is a lie the punter can see.
+     */
+    marineStatus: 'available' | 'land' | 'unavailable' | 'pending';
     // Atmospheric
     windSpeedKmh: number;
     windDirectionDeg: number;
@@ -35,29 +41,124 @@ export interface PointWeatherData {
 }
 
 /**
- * Fetch current weather conditions at a single point.
- * Both API calls fire in parallel for speed.
+ * Cache and in-flight map, keyed by a rounded coordinate.
+ *
+ * TAPPING THE SAME PATCH OF WATER TWICE USED TO COST TWO ROUND TRIPS. There
+ * was no cache and no dedupe here at all, so every inspect tap paid full
+ * network latency — including a double tap, a tap-close-tap, and comparing two
+ * spots by going back and forth between them (Shane 2026-09-05: "i would like
+ * it to be quicker").
+ *
+ * 0.01° is about 1.1 km, which is finer than the model grid the answer comes
+ * off — two taps inside one cell are asking the same question. Ten minutes is
+ * short enough that "current conditions" stays current and long enough to
+ * cover the back-and-forth a punter actually does while reading a chart.
  */
-export async function fetchPointWeather(lat: number, lon: number): Promise<PointWeatherData | null> {
+const POINT_CACHE_TTL_MS = 10 * 60 * 1000;
+const pointCache = new Map<string, { at: number; data: PointWeatherData }>();
+const inflight = new Map<string, Promise<PointWeatherData | null>>();
+/** Bounded so a long session panning a coast cannot grow this without limit. */
+const POINT_CACHE_MAX = 120;
+
+const cacheKey = (lat: number, lon: number): string => `${lat.toFixed(2)},${lon.toFixed(2)}`;
+
+/** Drop the whole point cache — for tests, and for a hard refresh. */
+export function clearPointWeatherCache(): void {
+    pointCache.clear();
+    inflight.clear();
+}
+
+/**
+ * Fetch current weather conditions at a single point.
+ *
+ * @param onPartial — called with the ATMOSPHERIC half the moment it lands,
+ *   marineStatus 'pending'. The popup paints from it immediately instead of
+ *   holding a complete answer behind the slower of two requests; the marine
+ *   block fills in underneath when it arrives. Not called on a cache hit,
+ *   where there is nothing to wait for.
+ */
+export async function fetchPointWeather(
+    lat: number,
+    lon: number,
+    onPartial?: (partial: PointWeatherData) => void,
+): Promise<PointWeatherData | null> {
+    const key = cacheKey(lat, lon);
+    const hit = pointCache.get(key);
+    if (hit && Date.now() - hit.at < POINT_CACHE_TTL_MS) return hit.data;
+
+    // A second tap while the first is in the air JOINS it rather than opening
+    // another socket. Two taps on one spot is the commonest way to get here.
+    const existing = inflight.get(key);
+    if (existing) return existing;
+
+    const task = (async (): Promise<PointWeatherData | null> => {
+        try {
+            return await loadPointWeather(lat, lon, onPartial);
+        } finally {
+            inflight.delete(key);
+        }
+    })();
+    inflight.set(key, task);
+    return task;
+}
+
+async function loadPointWeather(
+    lat: number,
+    lon: number,
+    onPartial?: (partial: PointWeatherData) => void,
+): Promise<PointWeatherData | null> {
     const latStr = lat.toFixed(4);
     const lonStr = lon.toFixed(4);
 
-    // Fire both requests in parallel
-    const [forecast, marine] = await Promise.allSettled([
-        fetchForecastPoint(latStr, lonStr),
-        fetchMarinePoint(latStr, lonStr),
-    ]);
+    // Both fire together; the atmospheric one is simply allowed to report
+    // first rather than being held behind the marine one.
+    const forecastPromise = fetchForecastPoint(latStr, lonStr);
+    const marinePromise = fetchMarinePoint(latStr, lonStr);
+    // Nothing awaits the marine promise until below; without this an early
+    // rejection would surface as an unhandled one.
+    const marineSettled = marinePromise.then(
+        (value) => ({ ok: true as const, value }),
+        () => ({ ok: false as const, value: null }),
+    );
 
-    const wx = forecast.status === 'fulfilled' ? forecast.value : null;
+    let wx: AtmoData | null = null;
+    try {
+        wx = await forecastPromise;
+    } catch {
+        wx = null;
+    }
     if (!wx) return null; // Must have at least atmospheric data
 
-    const sea = marine.status === 'fulfilled' ? marine.value : null;
+    if (onPartial) {
+        onPartial({
+            ...shape(lat, lon, wx, null),
+            marineStatus: 'pending',
+        });
+    }
 
+    const marine = await marineSettled;
+    const sea = marine.value;
+
+    const data: PointWeatherData = {
+        ...shape(lat, lon, wx, sea),
+        marineStatus: !marine.ok ? 'unavailable' : sea ? 'available' : 'land',
+    };
+
+    pointCache.set(cacheKey(lat, lon), { at: Date.now(), data });
+    if (pointCache.size > POINT_CACHE_MAX) {
+        // Oldest insertion first — Map preserves insertion order.
+        const oldest = pointCache.keys().next().value;
+        if (oldest !== undefined) pointCache.delete(oldest);
+    }
+    return data;
+}
+
+function shape(lat: number, lon: number, wx: AtmoData, sea: MarineData | null): PointWeatherData {
     return {
         lat,
         lon,
         fetchedAt: Date.now(),
-        marineStatus: marine.status === 'rejected' ? 'unavailable' : sea ? 'available' : 'land',
+        marineStatus: sea ? 'available' : 'land',
         windSpeedKmh: wx.windSpeedKmh,
         windDirectionDeg: wx.windDirectionDeg,
         windGustsKmh: wx.windGustsKmh,

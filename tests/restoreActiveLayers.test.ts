@@ -18,9 +18,12 @@ import type { WeatherLayer } from '../components/map/mapConstants';
 import { DEFAULT_LAYERS, enforceCmemsMarineExclusivity, restoreActiveLayers } from '../components/map/useWeatherLayers';
 
 describe('restoreActiveLayers', () => {
-    it('opens on wind when nothing is stored (first run)', () => {
-        expect([...restoreActiveLayers(null)]).toEqual(['wind']);
-        expect(DEFAULT_LAYERS).toContain('wind');
+    it('opens on the default when nothing is stored (first run)', () => {
+        // The default became EMPTY on 2026-09-05 — the chart opens as a chart
+        // in Inspect mode rather than under a wind field nobody asked for.
+        // Asserted against DEFAULT_LAYERS, not a literal, so the NEXT change of
+        // mind moves one constant instead of chasing hardcoded strings.
+        expect([...restoreActiveLayers(null)]).toEqual([...DEFAULT_LAYERS]);
     });
 
     it('HONOURS a deliberate all-off — "[]" must not bounce back to wind', () => {
@@ -64,8 +67,18 @@ describe('restoreActiveLayers', () => {
     });
 
     it('falls back to the default on junk rather than throwing', () => {
-        expect([...restoreActiveLayers('not json')]).toEqual(['wind']);
-        expect([...restoreActiveLayers('{"nope":true}')]).toEqual(['wind']);
-        expect([...restoreActiveLayers('null')]).toEqual(['wind']);
+        expect([...restoreActiveLayers('not json')]).toEqual([...DEFAULT_LAYERS]);
+        expect([...restoreActiveLayers('{"nope":true}')]).toEqual([...DEFAULT_LAYERS]);
+        expect([...restoreActiveLayers('null')]).toEqual([...DEFAULT_LAYERS]);
+    });
+
+    it('still tells an ABSENT preference from a deliberate all-off', () => {
+        // Both answer [] while the default is empty, so the distinction is
+        // invisible in the result — but it is the code path that matters, and
+        // it has to survive the default changing back one day.
+        expect([...restoreActiveLayers(null)]).toEqual([...DEFAULT_LAYERS]);
+        expect([...restoreActiveLayers('[]')]).toEqual([]);
+        // A stored selection is still honoured over the default either way.
+        expect([...restoreActiveLayers('["rain"]')]).toEqual(['rain']);
     });
 });
