@@ -58,7 +58,12 @@ describe('foreground location privacy boundary', () => {
             'components/AddEntryModal.tsx',
             'components/map/useVesselTracker.ts',
             'components/map/MapHub.tsx',
-            'components/map/usePinViewMode.ts',
+            // components/map/usePinViewMode.ts came off this list on
+            // 2026-09-05. Its only foreground fix belonged to the pin-view
+            // "Get Directions" CTA, removed that day — driving directions from
+            // the phone to a position usually on the water. It now requests no
+            // location at all, so requiring the call here would fail the
+            // boundary on a file that has nothing to guard.
             'components/OnboardingWizard.tsx',
         ]) {
             const source = read(path);

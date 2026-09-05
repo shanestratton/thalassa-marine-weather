@@ -134,7 +134,6 @@ describe('map hook dependency safety', () => {
                     setCycloneVisible: vi.fn(),
                     squallVisible: false,
                     setSquallVisible: vi.fn(),
-                    saveVoyagePlan: vi.fn(),
                 }),
             { initialProps },
         );

@@ -317,6 +317,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         setShowPinSheet,
         showPoiSheet,
         setShowPoiSheet,
+        pinRungLabel,
         pinLat,
         pinLng,
         pinCaption,
@@ -943,6 +944,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     pinSource={pinSource}
                     pinAccuracy={pinAccuracy}
                     pinTimestamp={pinTimestamp}
+                    pinRungLabel={pinRungLabel}
                     locationError={locationError}
                     saveToMyPlaces={saveToMyPlaces}
                     setSaveToMyPlaces={setSaveToMyPlaces}

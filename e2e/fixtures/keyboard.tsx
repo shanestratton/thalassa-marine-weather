@@ -125,6 +125,7 @@ function CurrentLocationHarness() {
                         pinSource="current"
                         pinAccuracy={5}
                         pinTimestamp={Date.now()}
+                        pinRungLabel="Boat GPS"
                         locationError={null}
                         saveToMyPlaces={false}
                         setSaveToMyPlaces={() => {}}

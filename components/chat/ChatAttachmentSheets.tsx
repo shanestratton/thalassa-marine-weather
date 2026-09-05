@@ -177,6 +177,8 @@ export interface PinDropSheetProps {
     pinSource: PinSelectionSource;
     pinAccuracy: number | null;
     pinTimestamp: number | null;
+    /** Which receiver answered — "Boat GPS", "USB GPS (Pi)", "Phone GPS". */
+    pinRungLabel: string | null;
     locationError: string | null;
     saveToMyPlaces: boolean;
     setSaveToMyPlaces: (value: boolean) => void;
@@ -197,6 +199,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
         pinSource,
         pinAccuracy,
         pinTimestamp,
+        pinRungLabel,
         locationError,
         saveToMyPlaces,
         setSaveToMyPlaces,
@@ -294,7 +297,16 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                         ●
                                     </span>
                                     <div className="min-w-0">
-                                        <p className="text-xs font-bold text-emerald-100">Current GPS fix</p>
+                                        {/* WHICH receiver, not just "GPS". The
+                                            boat's Garmin, the Pi's USB stick
+                                            and the phone in your pocket can be
+                                            kilometres apart, and a shared
+                                            position that does not say which one
+                                            answered is a position you cannot
+                                            check. */}
+                                        <p className="truncate text-xs font-bold text-emerald-100">
+                                            {pinRungLabel ?? 'Current GPS fix'}
+                                        </p>
                                         <p className="text-[10px] text-emerald-100/80 mt-0.5">
                                             {formatFixAge(pinTimestamp)}
                                         </p>
@@ -313,26 +325,16 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                     className="w-full h-full object-cover"
                                     loading="eager"
                                 />
-                                {/* Pin marker overlay — centered on the map */}
-                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <div className="relative -mt-5">
-                                        <svg
-                                            width="24"
-                                            height="32"
-                                            viewBox="0 0 24 32"
-                                            fill="none"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                        >
-                                            <path
-                                                d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20c0-6.627-5.373-12-12-12z"
-                                                fill="#ef4444"
-                                            />
-                                            <circle cx="12" cy="12" r="5" fill="white" />
-                                        </svg>
-                                        {/* Drop shadow beneath pin */}
-                                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-1 rounded-full bg-black/40 blur-[2px]" />
-                                    </div>
-                                </div>
+                                {/* NO OVERLAY PIN HERE.
+                                    getStaticMapUrl already bakes a marker into
+                                    the image — `pin-l+ff4466(lng,lat)` on the
+                                    Mapbox URL, `markers=…,ol-marker` on the OSM
+                                    fallback. Drawing a second one centred on
+                                    the same coordinate put two pins one on top
+                                    of the other (Shane 2026-09-05). The map's
+                                    own marker wins: it is positioned by the
+                                    tile server at the exact coordinate rather
+                                    than by CSS against a cropped image. */}
                             </div>
                             <p className="text-[11px] text-white/45 mb-3 text-center tabular-nums">
                                 📍 {formatCoordinates(pinLat, pinLng)}

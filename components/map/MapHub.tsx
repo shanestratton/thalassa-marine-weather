@@ -170,7 +170,6 @@ import {
 import { evaluateTraceRelease, traceGeometryKey, traceRegistryScope } from '../../services/traceVerification';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel } from './encDetailScrubber';
-import { PinDirectionsCta } from './PinDirectionsCta';
 import { ChartDepthControls, LiveTideAckModal } from './ChartDepthControls';
 import { useTideDepthMode } from './useTideDepthMode';
 import { useWeatherInspectPopup } from './useWeatherInspectPopup';
@@ -3242,7 +3241,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Pin marker, weather-layer snapshot/restore, identity sync, and the
     // Get Directions handler. isPinView/ownedPinViewRef stay declared above
     // (the tracer region reads them); this hook only consumes them.
-    const { pinDirectionsBusy, pinDirectionsError, handlePinDirections } = usePinViewMode({
+    usePinViewMode({
         mapRef,
         mapReady,
         isPinView,
@@ -3254,7 +3253,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         setCycloneVisible,
         squallVisible,
         setSquallVisible,
-        saveVoyagePlan,
     });
 
     // Picker hosts still need a fully interactive map, so they cannot use the
@@ -3298,27 +3296,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     middle-left back chevron in the global chrome, no
                     need for a second one in the top-left slot fighting
                     the zoom pill. Exit paths now: tap the existing
-                    middle-left chevron, tap Get Directions (which
-                    auto-exits on success), or use the bottom nav to
-                    leave Charts. Shane: "there is already a chevron
-                    middle left claude." */}
+                    middle-left chevron, or use the bottom nav to leave
+                    Charts. Shane: "there is already a chevron middle left
+                    claude." (Get Directions was a third exit path until
+                    2026-09-05 — driving directions to a position on the
+                    water, which is why it went.) */}
 
-                {/* ═══ PIN VIEW · GET DIRECTIONS CTA ═══
-                    Bottom-anchored emerald button so the punter can
-                    immediately ask "how do I get there?" after a pin
-                    tap from Scuttlebutt. Sits above the bottom nav
-                    (88px reserve) with safe-area padding so it never
-                    lands behind the tab bar — the earlier complaint
-                    that drove the PinMapViewer portal fix (since
-                    discovered to be dead code). z-700 matches the
-                    back-button stacking, well above the map but below
-                    full-screen modals. */}
-                <PinDirectionsCta
-                    visible={isPinView}
-                    busy={pinDirectionsBusy}
-                    error={pinDirectionsError}
-                    onRequest={() => void handlePinDirections()}
-                />
                 {/* ═══ ZOOM-LEVEL FAB ═══
                     Top-left pill showing current map zoom — self-
                     subscribed so per-frame zoom events re-render the

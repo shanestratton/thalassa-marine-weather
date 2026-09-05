@@ -12,6 +12,7 @@ function renderSheet(overrides: Partial<PinDropSheetProps> = {}) {
         pinSource: 'current',
         pinAccuracy: 5,
         pinTimestamp: Date.now(),
+        pinRungLabel: null,
         locationError: null,
         saveToMyPlaces: false,
         setSaveToMyPlaces: vi.fn(),
