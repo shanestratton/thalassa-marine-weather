@@ -60,12 +60,10 @@ Pi / NMEA (aboard):
 
 - [ ] Pair over the pinned HTTPS lane; diary relay; chart sync; AvNav.
 - [ ] Wind overlay + passage planner fetch wind through the Pi (GRIB cache).
-- [ ] **JWT reconciliation, Pi half**: on the Pi, `grep -rn "functions/v1"` the
-      relay/cache code and record the headers it sends to `fetch-wind-grid`,
-      `get-weather`, `proxy-openmeteo`, `proxy-tides`. If it sends the
-      publishable key as `Authorization: Bearer …`, those four can flip to
-      `verify_jwt = true` (see `supabase/config.toml`). If it sends nothing,
-      they stay `false`.
+- [x] ~~JWT reconciliation, Pi half~~ — no longer needed (2026-09-06). The
+      dashboard's own toggle text recommends verify_jwt **OFF** with auth in
+      the function; all four Pi-called functions guard themselves and stay
+      off. Nothing to check aboard.
 
 Offline / reconnect:
 
@@ -109,9 +107,8 @@ alert push does not need `content-available` to be delivered).
 - [ ] After the code change ships: a real anchor alarm push still arrives on a
       locked phone as a Time Sensitive alert and routes to the Anchor screen on
       tap.
-- [ ] Both Functions redeployed (`send-push`, `send-anchor-alarm`) — their
-      `verify_jwt` is pinned `false` in `supabase/config.toml`, so the deploy
-      cannot flip it.
+- [x] Both Functions redeployed (`send-push`, `send-anchor-alarm`) on
+      2026-09-06 — `verify_jwt` pinned `false` in `supabase/config.toml`.
 
 ---
 
