@@ -723,7 +723,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 this deck in normal flex layout also means its dynamic anchor
                 and voyage states never overlap the first scrollable card.
             */}
-            <section className="z-20 shrink-0 px-4 pt-4 pb-3" aria-label="Vessel status and safety controls">
+            <section className="z-20 shrink-0 px-4 pt-4 pb-1" aria-label="Vessel status and safety controls">
                 {/* ═══════════════════════════════════════════ */}
                 {/* HERO BAND — situational awareness           */}
                 {/* Vessel · voyage state · last fix            */}
@@ -1010,9 +1010,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 the problem; on the scroll container it adds a run-off the
                 content can travel into. Same expression the Boat Binder branch
                 above and AnchorWatchPage already use: the tab bar is 4rem plus
-                the home-indicator inset, and 8px of air on top of it. */}
+                the home-indicator inset, and 8px of air on top of it.
+
+                FIT, not just scroll (Shane 2026-09-06): the outer surface
+                already ends above the tab bar, so at its natural position the
+                port CLIPS whatever falls below its bottom edge — which sat on
+                the Settings & Connect header, right where the tab bar begins,
+                and read as "blocked by the menu" with nothing hinting it
+                scrolls. The vertical rhythm here (pt-2, pb-1 on the deck,
+                mb-3 rows, mb-4 headers) is sized so the whole page fits an
+                844pt phone without scrolling; smaller phones still scroll. */}
             <div
-                className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in"
+                className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 stagger-in"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
                 {/* Diary + Scuttlebutt lead the scrolling area (Shane
@@ -1022,7 +1031,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     up" — Skipper Device, Passage Planning, Boat Binder — and
                     before the menu headers below them. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
-                <div className="mb-4">
+                <div className="mb-3">
                     <div className="grid grid-cols-2 gap-3">
                         {/* Diary — personal journal (left tile) */}
                         <button
@@ -1113,7 +1122,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     to be inside Boat Binder, which made an operational voyage
                     workflow look like stored paperwork. Import GPX remains in
                     the Binder; planning the voyage belongs on the live hub. */}
-                <div className="mb-4" style={PASSAGE_PLANNING_GROUP}>
+                <div className="mb-3" style={PASSAGE_PLANNING_GROUP}>
                     <OfficeRow
                         icon={<CrewIcon color="#c4b5fd" />}
                         label="Passage Planning"
@@ -1158,7 +1167,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         setBinderOpen(true);
                     }}
                     style={GLASS.card}
-                    className="mb-4 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/3 active:scale-[0.99] card-lift"
+                    className="mb-3 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/3 active:scale-[0.99] card-lift"
                 >
                     <div
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
@@ -1198,7 +1207,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     route were never deleted, only this entry; the mic and the
                     now-playing bar remained the only ways in, and neither helps
                     if you want to go and choose something. */}
-                <div className="mb-6">
+                <div className="mb-4">
                     <SectionHeader
                         color="#f0abfc"
                         label="Atmosphere"
@@ -1230,7 +1239,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* the punter visits rarely, so they don't     */}
                 {/* deserve two separate cognitive buckets.     */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-6">
+                <div className="mb-4">
                     <SectionHeader
                         color="#67E8F9"
                         label="Settings & Connect"

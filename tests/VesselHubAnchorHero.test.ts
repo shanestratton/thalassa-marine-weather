@@ -118,7 +118,7 @@ describe('the Vessel hero card at anchor', () => {
         //
         // The padding must be on the SCROLL CONTAINER. On a wrapper around it,
         // it only shrinks the port and moves the problem down a level.
-        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in');
+        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 stagger-in');
         expect(at, 'the vessel scroll area must be findable').toBeGreaterThan(-1);
         const el = hub.slice(at, at + 400);
         expect(el).toContain("paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)'");
