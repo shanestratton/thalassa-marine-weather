@@ -155,9 +155,8 @@ Reconcile against what the app actually collects. Ground truth per data type:
 | Advertising / tracking          | No                                            | —                                         | No                | none                              |
 | Apple Music library             | Processed on device; **not** sent to Thalassa | —                                         | No                | `AppleMusicPlugin.swift`          |
 
-- [ ] Every "Yes" above has the matching purpose ticked (App Functionality,
-      not Analytics/Advertising) and "Used to track you" is **No** throughout.
-- [ ] Privacy Policy URL points at the hosted Terms (v2.9 or later).
+- [x] App Privacy questionnaire completed in App Store Connect from the table above (2026-09-06).
+- [x] Privacy Policy URL set to https://www.thalassawx.app/terms (v2.9) on the App Privacy page (2026-09-06).
 
 ### UGC moderation and support procedures (Guideline 1.2)
 
