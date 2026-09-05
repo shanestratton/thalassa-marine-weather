@@ -409,6 +409,27 @@ function MapContainer({
     const focusTargetRef = useRef({ allCoords, telemetryFix });
     focusTargetRef.current = { allCoords, telemetryFix };
     const lastFocusKey = useRef<string | undefined>(undefined);
+    /**
+     * A FRAME COMPUTED BEFORE THE ROUTE ARRIVES IS NOT A FRAME.
+     *
+     * focusKey resolves from the trip selector, which lands well before the
+     * passage line does — they are separate fetches. This effect used to mark
+     * the key done regardless, so the run that found `coords` empty fell to the
+     * telemetry fallback (flyTo the boat at z12) and then NEVER RAN AGAIN when
+     * the route turned up. The result was a passage framed on its first
+     * hundred metres, with the plan line running off the top of the screen.
+     *
+     * Shane 2026-09-05, on a Newport → Lady Musgrave passage: "we are going to
+     * lady musgrave, but it does not show up on the current map on the public
+     * page. is this possible. or is it going to cost too much moula????" It
+     * costs nothing — the imagery was already there and already paid for. The
+     * camera was pointed at the wrong place.
+     *
+     * So the fallback is PROVISIONAL: it moves the camera but does not claim
+     * the key, and `framable` in the deps brings the effect back the moment
+     * there is real geometry to fit.
+     */
+    const framable = allCoords.length > 1;
     useEffect(() => {
         if (!MAPBOX_TOKEN || focusKey === undefined || lastFocusKey.current === focusKey) return;
 
@@ -427,8 +448,8 @@ function MapContainer({
                 }
                 return;
             }
-            lastFocusKey.current = focusKey;
             const { allCoords: coords, telemetryFix: fallback } = focusTargetRef.current;
+            if (coords.length >= 1) lastFocusKey.current = focusKey;
             if (coords.length === 1) {
                 map.flyTo({ center: coords[0], zoom: 10, duration: 700, essential: true });
                 return;
@@ -451,6 +472,8 @@ function MapContainer({
                 map.fitBounds(bounds, { padding: 72, duration: 700, maxZoom: 12, essential: true });
                 return;
             }
+            // Provisional only — the key stays unclaimed above, so this is
+            // replaced by a real fit as soon as the route or track lands.
             if (fallback) map.flyTo({ center: fallback, zoom: 12, duration: 700, essential: true });
         };
 
@@ -460,7 +483,7 @@ function MapContainer({
             cancelAnimationFrame(frame);
             if (retryTimer !== undefined) clearTimeout(retryTimer);
         };
-    }, [focusKey]);
+    }, [focusKey, framable]);
 
     // Selecting an entry deliberately does NOT move the camera — the whole
     // track is already framed, and viewers want to keep the overview.
