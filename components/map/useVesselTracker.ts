@@ -26,6 +26,8 @@ import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../../services/shiplog/Po
 import { formatAge } from '../../services/GpsReceiverStatusService';
 import { createLogger } from '../../utils/createLogger';
 import { calculateDistance } from '../../utils/navigationCalculations';
+import { convexHull, hullRing, type LonLat } from '../../utils/convexHull';
+import { AnchorWatchService } from '../../services/AnchorWatchService';
 
 const log = createLogger('VesselTracker');
 
@@ -37,6 +39,37 @@ const MIN_TRAIL_DISTANCE_M = 5; // Don't add points closer than 5m (noise filter
 const TRAIL_SOURCE = 'vessel-trail';
 const TRAIL_LAYER = 'vessel-trail-line';
 const TRAIL_GLOW_LAYER = 'vessel-trail-glow';
+const SWING_SOURCE = 'vessel-swing';
+const SWING_FILL_LAYER = 'vessel-swing-fill';
+const SWING_EDGE_LAYER = 'vessel-swing-edge';
+const SWING_DOTS_SOURCE = 'vessel-swing-dots';
+const SWING_DOTS_LAYER = 'vessel-swing-dots-circle';
+
+/**
+ * AT ANCHOR THE CONNECTED LINE IS THE WRONG PRIMITIVE.
+ *
+ * A stationary GNSS receiver wanders 5–15 m, and worse alongside a marina
+ * where the fix bounces off the rigging and the neighbouring hulls. The trail
+ * filter only skipped fixes closer than 5 m, so that wander sailed straight
+ * through and was drawn as a path — a zigzag that reads like the boat
+ * sprinting back and forth (Shane 2026-09-05, at z20.2 with a 0.003 nm scale
+ * bar: "this happens a lot claude. i take it it GPS jump").
+ *
+ * It is a GPS jump, and it is not fixable at source — that part is physics and
+ * receiver design. What we DRAW is our choice, so while the anchor watch is
+ * armed the trail becomes a swing envelope: the hull of where the boat has
+ * actually been, with every raw fix still drawn as a faint dot underneath.
+ *
+ * Smoothing was the other option and is worse here. It draws a prettier
+ * wander, and it DELAYS the moment genuine movement becomes visible — the
+ * wrong trade on the surface a skipper checks at 0300. The envelope hides
+ * nothing: a real drag stretches it toward the alarm ring immediately.
+ *
+ * THE ALARM NEVER SEES ANY OF THIS. Drag detection stays on raw fixes with
+ * anchorGpsWatchdog's 3-strike hysteresis. Smooth the drawing, never the alarm.
+ */
+const SWING_STATES: ReadonlySet<string> = new Set(['setting', 'watching', 'paused', 'alarm']);
+const MAX_SWING_POINTS = 600;
 
 /**
  * Build the vessel marker DOM element.
@@ -212,6 +245,86 @@ function ensureTrailLayers(map: mapboxgl.Map) {
     });
 }
 
+function ensureSwingLayers(map: mapboxgl.Map) {
+    if (map.getSource(SWING_SOURCE)) return;
+
+    map.addSource(SWING_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource(SWING_DOTS_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+    map.addLayer({
+        id: SWING_FILL_LAYER,
+        type: 'fill',
+        source: SWING_SOURCE,
+        paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.12 },
+    });
+    map.addLayer({
+        id: SWING_EDGE_LAYER,
+        type: 'line',
+        source: SWING_SOURCE,
+        layout: { 'line-join': 'round' },
+        paint: { 'line-color': '#38bdf8', 'line-width': 1.5, 'line-opacity': 0.7 },
+    });
+    // The raw fixes stay visible. An envelope that replaced them would be a
+    // claim about where the boat has been with the evidence painted out.
+    map.addLayer({
+        id: SWING_DOTS_LAYER,
+        type: 'circle',
+        source: SWING_DOTS_SOURCE,
+        paint: {
+            'circle-radius': 2,
+            'circle-color': '#7dd3fc',
+            'circle-opacity': 0.55,
+        },
+    });
+}
+
+function removeSwingLayers(map: mapboxgl.Map) {
+    try {
+        for (const id of [SWING_DOTS_LAYER, SWING_EDGE_LAYER, SWING_FILL_LAYER]) {
+            if (map.getLayer(id)) map.removeLayer(id);
+        }
+        for (const id of [SWING_DOTS_SOURCE, SWING_SOURCE]) {
+            if (map.getSource(id)) map.removeSource(id);
+        }
+    } catch {
+        // The owning map may already have removed its style during teardown.
+    }
+}
+
+function updateSwingData(map: mapboxgl.Map, points: LonLat[]) {
+    const dots = map.getSource(SWING_DOTS_SOURCE) as mapboxgl.GeoJSONSource | undefined;
+    if (dots) {
+        dots.setData({
+            type: 'FeatureCollection',
+            features: points.map((p) => ({
+                type: 'Feature',
+                properties: {},
+                geometry: { type: 'Point', coordinates: p },
+            })),
+        });
+    }
+
+    const src = map.getSource(SWING_SOURCE) as mapboxgl.GeoJSONSource | undefined;
+    if (!src) return;
+    const ring = hullRing(points);
+    // Fewer than three distinct fixes has no area to shade — the dots above
+    // are the whole truth at that point, and drawing nothing is honest.
+    src.setData(
+        ring
+            ? {
+                  type: 'FeatureCollection',
+                  features: [
+                      {
+                          type: 'Feature',
+                          properties: { vertices: convexHull(points).length },
+                          geometry: { type: 'Polygon', coordinates: [ring] },
+                      },
+                  ],
+              }
+            : { type: 'FeatureCollection', features: [] },
+    );
+}
+
 function removeTrailLayers(map: mapboxgl.Map) {
     try {
         if (map.getLayer(TRAIL_LAYER)) map.removeLayer(TRAIL_LAYER);
@@ -248,6 +361,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     const elementRef = useRef<HTMLDivElement | null>(null);
     const lastHeadingRef = useRef<number>(0);
     const trailCoordsRef = useRef<[number, number][]>([]);
+    const swingPointsRef = useRef<LonLat[]>([]);
     // receivedAt of the newest fix — read by the staleness ticker. A ref,
     // not state: a frozen GPS means the watch callback stops firing
     // entirely, so staleness MUST come from an interval, not callbacks.
@@ -305,9 +419,32 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 badgeEl.style.color = sogKts < 0.3 ? '#94a3b8' : '#38bdf8';
             }
 
-            // ── Trail ──
+            // ── Trail, or swing envelope at anchor ──
+            const newPt: LonLat = [longitude, latitude];
+            const anchored = SWING_STATES.has(AnchorWatchService.getSnapshot().state);
+
+            if (anchored) {
+                // See SWING_STATES above. No distance filter here on purpose:
+                // the envelope is BUILT from the wander, so throwing away the
+                // close fixes would shrink the very shape being measured.
+                const swing = swingPointsRef.current;
+                swing.push(newPt);
+                if (swing.length > MAX_SWING_POINTS) swing.splice(0, swing.length - MAX_SWING_POINTS);
+                ensureSwingLayers(map);
+                updateSwingData(map, swing);
+
+                // The under-way trail must not grow a chord across the swing
+                // while she lies to her anchor, so it is frozen, not extended.
+                return;
+            }
+
+            // Under way. The envelope belongs to the anchorage just left.
+            if (swingPointsRef.current.length > 0) {
+                swingPointsRef.current = [];
+                removeSwingLayers(map);
+            }
+
             const trail = trailCoordsRef.current;
-            const newPt: [number, number] = [longitude, latitude];
 
             // Noise filter: skip if too close to last point
             if (trail.length > 0) {
@@ -339,7 +476,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 elementRef.current = null;
             }
             const map = mapRef.current;
-            if (map) removeTrailLayers(map);
+            if (map) {
+                removeTrailLayers(map);
+                removeSwingLayers(map);
+            }
             // Keep trail coords in memory so they reappear on re-toggle
             return;
         }
@@ -422,7 +562,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 markerRef.current = null;
                 elementRef.current = null;
             }
-            if (map) removeTrailLayers(map);
+            if (map) {
+                removeTrailLayers(map);
+                removeSwingLayers(map);
+            }
         };
     }, [mapReady, visible, updateMarker, mapRef]);
 
@@ -469,10 +612,12 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     // Clear the trail history
     const clearTrail = useCallback(() => {
         trailCoordsRef.current = [];
+        swingPointsRef.current = [];
         const map = mapRef.current;
         if (map) {
             const src = map.getSource(TRAIL_SOURCE) as mapboxgl.GeoJSONSource;
             if (src) src.setData({ type: 'FeatureCollection', features: [] });
+            removeSwingLayers(map);
         }
     }, [mapRef]);
 
