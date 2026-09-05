@@ -60,7 +60,29 @@ export interface SailPlanDiagramProps {
 
 const W = 340;
 const H = 404;
-const CX = W / 2;
+/**
+ * How far the boat sits off the frame's centre, AWAY from the labels.
+ *
+ * Every label in this drawing goes to leeward, because that is where the sails
+ * are and the windward side has the wind arrow and the pole on it. With the
+ * boat centred, those labels ran off the right-hand edge — Shane's screenshot,
+ * 2026-09-05, shows "STAYSAIL (" and nothing after it. His fix, and it is the
+ * right one: "can we move it left or right depending on where the words are".
+ *
+ * So the hull slides to windward by this much and the words get the room. The
+ * DRAWING is unchanged — every angle, position and fraction is still measured
+ * from the boat's own centreline — it is only the frame that recentres, which
+ * is why this cannot distort anything it says.
+ *
+ * 20, NOT MORE, and the constraint is on the other side. The labels go to
+ * leeward; the WIND ARROW goes to windward, which is the direction the hull is
+ * sliding into. Shift far enough to clear the words and the arrow runs off the
+ * opposite edge — a 32 unit shift put its tip at x = -12. 20 leaves the arrow
+ * 10 units of margin at full extension and still buys the labels 40 units of
+ * room across a tack. Both edges are asserted, because this is the kind of
+ * number that gets nudged.
+ */
+const CENTRE_SHIFT = 20;
 
 /* Boom angle off the centreline for each point of sail. These are the angles
    the boat actually sails at, not a smooth ramp — the whole reason the bands
@@ -150,6 +172,10 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
     /* Magnitude only — the side is carried by `lee`. Folding the sign into
        the angle and then taking a cosine loses it (cos is even), which drew
        the boom to starboard on both tacks. */
+    /* Bow-up still, but not frame-centre: pushed away from whichever side the
+       labels are on. With no wind angle there is no leeward side yet, so it
+       sits centred. */
+    const CX = W / 2 - (hasWind ? lee * CENTRE_SHIFT : 0);
     const boomDeg = BOOM_ANGLE[band] ?? 45;
     const travel = (TRAVELLER_POS[band] ?? 0) * lee;
 
@@ -237,29 +263,29 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                         it is scaled and cased, not redesigned. */}
                     <line
                         x1={CX}
-                        y1={MAST_Y - 150}
+                        y1={MAST_Y - 140}
                         x2={CX}
-                        y2={MAST_Y - 106}
+                        y2={MAST_Y - 96}
                         stroke={CASING}
                         strokeWidth={13}
                         strokeLinecap="round"
                     />
                     <path
-                        d={`M ${CX} ${MAST_Y - 92} l 15 -24 l -30 0 Z`}
+                        d={`M ${CX} ${MAST_Y - 82} l 15 -24 l -30 0 Z`}
                         fill={CASING}
                         stroke={CASING}
                         strokeWidth={6}
                     />
                     <line
                         x1={CX}
-                        y1={MAST_Y - 150}
+                        y1={MAST_Y - 140}
                         x2={CX}
-                        y2={MAST_Y - 106}
+                        y2={MAST_Y - 96}
                         stroke={windOnPort ? PORT : STBD}
                         strokeWidth={7}
                         strokeLinecap="round"
                     />
-                    <path d={`M ${CX} ${MAST_Y - 96} l 13 -22 l -26 0 Z`} fill={windOnPort ? PORT : STBD} />
+                    <path d={`M ${CX} ${MAST_Y - 86} l 13 -22 l -26 0 Z`} fill={windOnPort ? PORT : STBD} />
                 </g>
             )}
 
@@ -313,7 +339,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 frame on both tacks. Stacking them here empties the windward
                 side for the two marks that must live there. */}
             <text
-                x={CX + lee * 74}
+                x={CX + lee * 76}
                 y={112}
                 textAnchor={lee > 0 ? 'start' : 'end'}
                 fill={yankeeSet ? INK_2 : MUTED}
@@ -324,7 +350,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 YANKEE
             </text>
             <text
-                x={CX + lee * 74}
+                x={CX + lee * 76}
                 y={134}
                 textAnchor={lee > 0 ? 'start' : 'end'}
                 fill={staySet ? INK_2 : MUTED}
@@ -332,8 +358,24 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 fontWeight={800}
                 style={LABEL}
             >
-                {staySet ? (stayStorm ? 'STORM JIB' : 'STAYSAIL') : 'STAYSAIL (STOWED)'}
+                {staySet ? (stayStorm ? 'STORM JIB' : 'STAYSAIL') : 'STAYSAIL'}
             </text>
+            {/* "(STOWED)" on its own line. As a suffix it made the longest
+                string in the drawing, and the longest string is the one that
+                runs off the frame — which is exactly what it did. */}
+            {!staySet && (
+                <text
+                    x={CX + lee * 76}
+                    y={152}
+                    textAnchor={lee > 0 ? 'start' : 'end'}
+                    fill={MUTED}
+                    fontSize={14}
+                    fontWeight={700}
+                    style={LABEL}
+                >
+                    (STOWED)
+                </text>
+            )}
 
             {/* ── main + boom ── */}
             {!mainDown && (
@@ -378,7 +420,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                     opacity={0.85}
                 />
             )}
-            <circle cx={CX} cy={MAST_Y} r={7} fill={INK} stroke={CASING} strokeWidth={2} />
+            <circle data-mark="mast" cx={CX} cy={MAST_Y} r={7} fill={INK} stroke={CASING} strokeWidth={2} />
 
             {/* ── traveller: track, then the car on it ── */}
             <line
@@ -522,10 +564,14 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                             </text>
                         </>
                     )}
+                    {/* Anchored outboard, not centred on the track. Centred,
+                        a 10-character label reaches back across the hull and
+                        lands on TRAVELLER — which is what the screenshot
+                        shows. */}
                     <text
-                        x={ytX.toFixed(1)}
+                        x={(ytX + lee * 14).toFixed(1)}
                         y={(YT_AFT + 22).toFixed(1)}
-                        textAnchor="middle"
+                        textAnchor={lee > 0 ? 'start' : 'end'}
                         fill={MUTED}
                         fontSize={15}
                         fontWeight={800}

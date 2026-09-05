@@ -67,9 +67,35 @@ describe('the Vessel hero card at anchor', () => {
         expect(showSwing).toBeGreaterThan(-1);
     });
 
-    it('pins the row height, so no future tile can stretch the deck again', () => {
-        // Removing today's extra content is not the fix — the next addition
-        // would do it again. A fixed row is.
-        expect(hub).toMatch(/grid-cols-3'\} auto-rows-\[76px\] gap-2/);
+    it('pins the row height — tall enough for the content, and no taller', () => {
+        // BOTH directions are bugs. Too loose and the Anchor tile stretches
+        // the whole deck when the anchor goes down; too tight and every tile
+        // loses its second line, which is what 76px did — "OVERBOA",
+        // "POSITION", "OFF" (Shane 2026-09-05, an hour after asking for the
+        // first fix). So this asserts the ARITHMETIC, not a number someone
+        // liked the look of.
+        const row = hub.match(/auto-rows-\[(\d+)px\]/);
+        expect(row, 'the safety deck must pin its row height').not.toBeNull();
+        const pinned = Number(row![1]);
+
+        const py = 10 * 2; // py-2.5, both edges
+        const gaps = 6 * 2; // gap-1.5 between icon, heading and status
+        const icon = 32; // h-8
+        const heading = 11; // text-[11px] leading-none
+        const status = 10; // text-[10px] leading-none
+        const content = py + gaps + icon + heading + status;
+
+        expect(pinned, `must fit ${content}px of content`).toBeGreaterThanOrEqual(content);
+        // Slack for font metrics, not room for a fifth line to creep in.
+        expect(pinned).toBeLessThanOrEqual(content + 12);
+    });
+
+    it('sizes the status line to the longest word it has to hold', () => {
+        // "OVERBOARD" is the longest, in the narrowest tile. It was 9px and
+        // truncating; the truncate stays as a backstop but should not fire.
+        const controls = hub.slice(hub.indexOf('data-testid="vessel-safety-controls"'));
+        const deck = controls.slice(0, controls.indexOf('Weather Window'));
+        expect(deck).not.toContain('text-[9px]');
+        expect((deck.match(/max-w-full truncate text-\[10px\]/g) ?? []).length).toBe(4);
     });
 });

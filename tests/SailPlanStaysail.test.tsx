@@ -20,7 +20,13 @@ describe('the staysail', () => {
 
     it('is still drawn when stowed, and says so', () => {
         const c = draw({ stay: false });
-        expect(c.textContent).toContain('STAYSAIL (STOWED)');
+        // Two <text> elements now, not one string: "(STOWED)" as a suffix
+        // made the longest label in the drawing, and the longest label is the
+        // one that ran off the frame edge (Shane's screenshot 2026-09-05
+        // showed "STAYSAIL (" and nothing after). It still SAYS stowed, which
+        // is what this test is about.
+        expect(c.textContent).toContain('STAYSAIL');
+        expect(c.textContent).toContain('(STOWED)');
         // Ghosted, not deleted — the stowed outline is dashed. Selected by
         // data-mark rather than by its dash pattern: the dash is styling and
         // changed with the 2026-09-05 rescale (3 4 → 4 5), while what this

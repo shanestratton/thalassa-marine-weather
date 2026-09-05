@@ -39,7 +39,15 @@ const STBD = '#25b167';
 
 const draw = (over = {}) => render(<SailPlanDiagram {...base} windAngle={45} {...over} />).container;
 const mark = (c: HTMLElement, name: string) => c.querySelector(`[data-mark="${name}"]`) as SVGElement;
-const cx = (c: HTMLElement) => Number(c.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[2]) / 2;
+/**
+ * The BOAT's centreline, read off the mast — not the frame's centre.
+ *
+ * These are different numbers now: the hull slides away from whichever side
+ * the labels are on, so half the viewBox is the middle of the PICTURE and the
+ * mast is the middle of the SHIP. Every "is this mark to port or starboard"
+ * question in this file is about the ship.
+ */
+const cx = (c: HTMLElement) => Number((c.querySelector('[data-mark="mast"]') as SVGElement).getAttribute('cx'));
 
 describe('hue means exactly one thing: which side the wind is on', () => {
     it('never paints hardware port or starboard', () => {
@@ -129,6 +137,86 @@ describe('the marks that answer the question are drawn, not implied', () => {
         expect(src).toMatch(/const TRACK_HALF = 50;/);
         // Half-beam at the widest station in the hull path.
         expect(src).toContain('CX + 58} 236');
+    });
+});
+
+describe('nothing runs off the frame', () => {
+    /**
+     * Shane's screenshot, 2026-09-05, showed "STAYSAIL (" and nothing after
+     * it. Every label goes to LEEWARD, because that is where the sails are and
+     * the windward side carries the wind arrow and the pole — so with the boat
+     * centred, the longest label always ran off one edge.
+     *
+     * His fix, and it is the right one: "can we move it left or right
+     * depending on where the words are." The hull slides to windward and the
+     * words get the room. Nothing the drawing SAYS changes, because every
+     * angle and position is still measured from the boat's own centreline.
+     *
+     * The catch is that the hull slides INTO the wind arrow, so this checks
+     * both edges. jsdom has no text metrics, so widths are estimated at
+     * 0.7em per character for 800-weight caps with tracking — deliberately
+     * generous, so a pass here means real room.
+     */
+    const W = 340;
+    const estWidth = (text: string, size: number) => text.length * size * 0.7;
+
+    const extents = (c: HTMLElement) => {
+        const out: Array<{ text: string; left: number; right: number }> = [];
+        for (const t of [...c.querySelectorAll('text')]) {
+            const text = t.textContent ?? '';
+            if (!text.trim()) continue;
+            const x = Number(t.getAttribute('x'));
+            const size = Number(t.getAttribute('font-size') ?? 15);
+            const w = estWidth(text, size);
+            const anchor = t.getAttribute('text-anchor');
+            const left = anchor === 'end' ? x - w : anchor === 'middle' ? x - w / 2 : x;
+            out.push({ text, left, right: left + w });
+        }
+        return out;
+    };
+
+    it('keeps every label inside the viewBox, on both tacks and every band', () => {
+        for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach', 'Running']) {
+            for (const windAngle of [45, 315]) {
+                for (const stay of [true, false, 'storm'] as const) {
+                    for (const label of extents(draw({ band, windAngle, stay }))) {
+                        expect(label.left, `${label.text} ${band} @${windAngle}`).toBeGreaterThanOrEqual(0);
+                        expect(label.right, `${label.text} ${band} @${windAngle}`).toBeLessThanOrEqual(W);
+                    }
+                }
+            }
+        }
+    });
+
+    it('keeps the wind arrow inside it too — the side the hull slides INTO', () => {
+        for (const windAngle of [0, 45, 90, 135, 180, 225, 270, 315]) {
+            const c = draw({ windAngle });
+            const centre = cx(c);
+            // Full extension of the arrow's tail from the mast.
+            const reach = 140;
+            expect(centre - reach, `@${windAngle}`).toBeGreaterThanOrEqual(0);
+            expect(centre + reach, `@${windAngle}`).toBeLessThanOrEqual(W);
+        }
+    });
+
+    it('keeps the hull and the traveller track inside it', () => {
+        for (const windAngle of [45, 315]) {
+            const c = draw({ windAngle });
+            const centre = cx(c);
+            expect(centre - 58).toBeGreaterThanOrEqual(0);
+            expect(centre + 58).toBeLessThanOrEqual(W);
+        }
+    });
+
+    it('sits centred when there is no tack to lean away from', () => {
+        expect(cx(draw({ windAngle: null }))).toBe(W / 2);
+    });
+
+    it('leans AWAY from the labels, not toward them', () => {
+        // Wind on the starboard bow puts the sails and their labels to port,
+        // so the hull must move to starboard — right — to make room.
+        expect(cx(draw({ windAngle: 45 }))).toBeGreaterThan(W / 2);
+        expect(cx(draw({ windAngle: 315 }))).toBeLessThan(W / 2);
     });
 });
 
