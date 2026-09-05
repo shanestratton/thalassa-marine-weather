@@ -118,6 +118,40 @@ async function readBoundedPng(response: Response, signal: AbortSignal): Promise<
     return bytes;
 }
 
+/**
+ * Where this proxy may be embedded. A missing Origin/Referer is ALLOWED — a
+ * same-origin tile fetch sends neither, and the map engine is the caller — but
+ * a present header naming another site is refused. That is the difference
+ * between our own map drawing tiles and someone else's page burning our OWM
+ * quota by pointing their raster source at this URL (audit item 16).
+ */
+export const OWM_TILE_ALLOWED_ORIGINS = new Set([
+    'https://www.thalassawx.app',
+    'https://thalassawx.app',
+    'capacitor://localhost',
+    'ionic://localhost',
+    'http://localhost',
+]);
+
+export function originAllowed(request: Request): boolean {
+    const candidate = request.headers.get('origin') ?? request.headers.get('referer');
+    if (!candidate) return true;
+    try {
+        const parsed = new URL(candidate);
+        // capacitor:// and ionic:// are non-special schemes: the URL spec gives
+        // them an opaque origin ('null'), so rebuild scheme//host for those.
+        const origin = parsed.origin !== 'null' ? parsed.origin : `${parsed.protocol}//${parsed.host}`;
+        if (OWM_TILE_ALLOWED_ORIGINS.has(origin)) return true;
+        // Vercel preview deployments and local dev servers on any port.
+        return (
+            /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin) ||
+            /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+        );
+    } catch {
+        return false;
+    }
+}
+
 export default async function handler(request: Request): Promise<Response> {
     if (request.method === 'OPTIONS') {
         return new Response(null, {
@@ -126,6 +160,7 @@ export default async function handler(request: Request): Promise<Response> {
         });
     }
     if (request.method !== 'GET' && request.method !== 'HEAD') return errorResponse(405, true);
+    if (!originAllowed(request)) return errorResponse(403);
 
     const tile = validTileRequest(new URL(request.url));
     if (tile === null) return errorResponse(400);
