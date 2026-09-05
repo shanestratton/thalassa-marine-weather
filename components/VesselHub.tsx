@@ -998,7 +998,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 essential in this flex column: it constrains the scroll port
                 above the persistent bottom safe-area padding instead of
                 letting content push the fixed operational deck away. */}
-            <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
+            {/* PADDING INSIDE THE SCROLL PORT, not on a wrapper around it.
+                This had px-4 pt-4 and no bottom padding at all, so the last
+                row — Settings & Connect — sat flush against the bottom of the
+                port, which is underneath the tab bar. It could not be scrolled
+                clear because there was nothing below it to scroll (Shane
+                2026-09-05: "the settings and connect button is not half
+                hidden").
+
+                On the OUTER element this would only shrink the port and move
+                the problem; on the scroll container it adds a run-off the
+                content can travel into. Same expression the Boat Binder branch
+                above and AnchorWatchPage already use: the tab bar is 4rem plus
+                the home-indicator inset, and 8px of air on top of it. */}
+            <div
+                className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
                 {/* Diary + Scuttlebutt lead the scrolling area (Shane
                     2026-08-30). They are the two things opened most often and
                     the only ones here that are read rather than configured, so
