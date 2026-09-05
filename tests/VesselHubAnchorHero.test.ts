@@ -28,6 +28,26 @@ import { describe, expect, it } from 'vitest';
 
 const hub = readFileSync('components/VesselHub.tsx', 'utf8');
 
+/**
+ * The four safety tiles, comments removed.
+ *
+ * Bounded STRUCTURALLY — from the group's testid to the end of the last tile
+ * (Anchor) — not by a nearby comment. The first version of this sliced to the
+ * string "Weather Window", which lives in a comment; strip the comments and
+ * the anchor vanished, the slice ran to the end of the file, and the test
+ * failed on a `truncate` belonging to a vessel-name label two hundred lines
+ * away.
+ */
+function safetyDeck(hub: string): string {
+    const bare = hub.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+    const start = bare.indexOf('data-testid="vessel-safety-controls"');
+    expect(start, 'the safety deck must be findable').toBeGreaterThan(-1);
+    const lastTile = bare.indexOf('aria-label="Anchor Watch"', start);
+    expect(lastTile, 'the Anchor tile closes the deck').toBeGreaterThan(start);
+    const end = bare.indexOf('</button>', lastTile);
+    return bare.slice(start, end);
+}
+
 describe('the Vessel hero card at anchor', () => {
     it('stands down when armed, and ONLY when armed', () => {
         expect(hub).toMatch(/if \(anchorStatus === 'armed'\) return null;/);
@@ -82,20 +102,39 @@ describe('the Vessel hero card at anchor', () => {
         const gaps = 6 * 2; // gap-1.5 between icon, heading and status
         const icon = 32; // h-8
         const heading = 11; // text-[11px] leading-none
-        const status = 10; // text-[10px] leading-none
+        const status = 11 * 2; // text-[10px] leading-[1.1], TWO lines — see below
         const content = py + gaps + icon + heading + status;
 
         expect(pinned, `must fit ${content}px of content`).toBeGreaterThanOrEqual(content);
-        // Slack for font metrics, not room for a fifth line to creep in.
+        // Slack for font metrics, not room for a third status line to creep in.
         expect(pinned).toBeLessThanOrEqual(content + 12);
+    });
+
+    it('never truncates a safety status — least of all OVERBOARD', () => {
+        // "OVERBOARD" is the longest word in the narrowest tile and it was
+        // being cut to "OVERBOA", on the button a skipper reaches for when
+        // someone is in the water. Shane, 2026-09-05: "we really need to be
+        // able to see the entire word claude, so i dont get sued, because a
+        // punter went over the side and they didnt know which button to press."
+        //
+        // A word that does not fit must WRAP, not lose its ending. That is the
+        // only acceptable failure mode here, and it is why the row above is
+        // sized for two lines.
+        const deck = safetyDeck(hub);
+        expect(deck, 'no status line on the safety deck may truncate').not.toContain('truncate');
+        expect((deck.match(/text-\[10px\] font-bold uppercase leading-\[1\.1\]/g) ?? []).length).toBe(4);
+        // And the word itself is still there to be seen. Written "Overboard"
+        // in the source and uppercased by CSS, which is why this matches the
+        // source spelling rather than what the screen shows.
+        expect(deck).toContain('Overboard');
+        expect(deck).toContain('uppercase');
     });
 
     it('sizes the status line to the longest word it has to hold', () => {
         // "OVERBOARD" is the longest, in the narrowest tile. It was 9px and
         // truncating; the truncate stays as a backstop but should not fire.
-        const controls = hub.slice(hub.indexOf('data-testid="vessel-safety-controls"'));
-        const deck = controls.slice(0, controls.indexOf('Weather Window'));
+        const deck = safetyDeck(hub);
         expect(deck).not.toContain('text-[9px]');
-        expect((deck.match(/max-w-full truncate text-\[10px\]/g) ?? []).length).toBe(4);
+        expect((deck.match(/max-w-full text-\[10px\]/g) ?? []).length).toBe(4);
     });
 });

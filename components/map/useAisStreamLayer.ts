@@ -25,13 +25,39 @@ import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { canAccess } from '../../services/SubscriptionService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { publishInternetAisFeatures } from '../../services/AisGuardWatch';
-import { destinationPoint } from '../../utils/navigationCalculations';
+import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
 
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('useAisStreamLayer');
 
 const FETCH_DEBOUNCE_MS = 1500;
+/**
+ * A SECOND FETCH, PINNED TO THE BOAT.
+ *
+ * The viewport fetch centres on map.getCenter(), which is the right centre for
+ * "show me what is over there" and the wrong one for "what is around me". Pan
+ * ahead to look at something and leave the chart there, and the boat's own
+ * neighbourhood stops being fetched — then ages out of AisStore's 10-minute
+ * window, so the water around you goes quiet on screen while it is not quiet
+ * (Shane 2026-09-05, having asked the right question: "so do the ais targets
+ * move as you do?").
+ *
+ * The guard ring and the boat's own VHF receiver both already watch ownship
+ * regardless of the map, so this was a display gap rather than a safety one.
+ * Closing it is still worth doing: a screen that looks emptier than the sea is
+ * its own kind of wrong.
+ *
+ * Deliberately LOW rate and SMALL radius. This is a floor under the display,
+ * not a second copy of the viewport fetch — 12 nm covers the neighbourhood
+ * that matters and 90 s is far inside the 10-minute expiry it is defending
+ * against. It also stands down entirely when the map is already looking at the
+ * boat, which is the common case, so most of the time it costs nothing.
+ */
+const OWNSHIP_FETCH_INTERVAL_MS = 90_000;
+const OWNSHIP_FETCH_RADIUS_NM = 12;
+/** Skip the extra fetch when the viewport already covers the boat this well. */
+const OWNSHIP_COVERED_FRACTION = 0.5;
 const AIS_SOURCE_ID = 'ais-targets';
 const PREDICTED_TRACKS_SOURCE_ID = 'ais-predicted-tracks';
 const TRACK_INTERVALS_MIN = [5, 10, 15]; // Projected positions at 5, 10, 15 minutes
@@ -767,6 +793,8 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
     const requestGeneration = useRef(0);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
     const cachedServerFeatures = useRef<GeoJSON.Feature[]>([]);
+    /** Kept separate from the viewport cache so neither overwrites the other. */
+    const cachedOwnshipFeatures = useRef<GeoJSON.Feature[]>([]);
 
     const mergeAndWrite = useCallback(() => {
         if (!map || !enabled) return;
@@ -776,11 +804,20 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
         const now = Date.now();
 
-        const internetFeatures = cachedServerFeatures.current.flatMap((feature) => {
-            const normalised = normaliseInternetAisFeature(feature, now);
-            if (!normalised || localMmsis.has(normalised.properties?.mmsi)) return [];
-            return [normalised];
-        });
+        // Viewport first, then the ownship floor. Both are deduped against the
+        // receiver AND against each other — the two windows overlap whenever
+        // the chart is anywhere near the boat, and the viewport copy is the
+        // fresher of the two because it polls far more often.
+        const seenInternet = new Set<unknown>();
+        const internetFeatures = [...cachedServerFeatures.current, ...cachedOwnshipFeatures.current].flatMap(
+            (feature) => {
+                const normalised = normaliseInternetAisFeature(feature, now);
+                const mmsi = normalised?.properties?.mmsi;
+                if (!normalised || localMmsis.has(mmsi) || seenInternet.has(mmsi)) return [];
+                seenInternet.add(mmsi);
+                return [normalised];
+            },
+        );
 
         const merged: GeoJSON.FeatureCollection = {
             type: 'FeatureCollection',
@@ -977,6 +1014,66 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
         };
     }, [map, enabled, fetchAndMerge]);
+
+    /**
+     * THE OWNSHIP FLOOR. See OWNSHIP_FETCH_INTERVAL_MS above for why.
+     *
+     * Its own effect rather than a branch inside fetchAndMerge, because it
+     * answers a different question on a different clock and must not be
+     * throttled by the viewport fetch's own 5-second gate — the two centres
+     * are usually far enough apart that the gate would not fire anyway, but
+     * relying on that would be relying on an accident.
+     */
+    useEffect(() => {
+        if (!map || !enabled || !supabase) return;
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout>;
+
+        const tick = async () => {
+            try {
+                const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+                if (!own) {
+                    // No fix, nothing to pin to. The viewport fetch is still
+                    // running; this is a floor, not a replacement.
+                    cachedOwnshipFeatures.current = [];
+                } else {
+                    const centre = map.getCenter();
+                    const zoom = map.getZoom();
+                    const guard = AisGuardZone.getState();
+                    const viewportRadiusNm = pondRequestRadiusNm(zoom, guard.enabled ? guard.radiusNm : null);
+                    const offCentreNm =
+                        calculateDistance(own.lat, own.lon, centre.lat, centre.lng) + OWNSHIP_FETCH_RADIUS_NM;
+
+                    if (offCentreNm <= viewportRadiusNm * OWNSHIP_COVERED_FRACTION) {
+                        // The chart is already looking at the boat, and its
+                        // window fully contains this one. Paying twice for the
+                        // same water would be the whole cost of this feature
+                        // for none of its benefit.
+                        cachedOwnshipFeatures.current = [];
+                    } else {
+                        const geojson = await AisStreamService.fetchNearby({
+                            lat: own.lat,
+                            lon: own.lon,
+                            radiusNm: OWNSHIP_FETCH_RADIUS_NM,
+                        });
+                        if (cancelled) return;
+                        cachedOwnshipFeatures.current = Array.isArray(geojson?.features) ? geojson.features : [];
+                    }
+                }
+                if (!cancelled) mergeAndWrite();
+            } catch (e) {
+                log.warn('[useAisStreamLayer] Ownship floor fetch failed:', e);
+            }
+            if (!cancelled) timer = setTimeout(tick, OWNSHIP_FETCH_INTERVAL_MS);
+        };
+
+        void tick();
+        return () => {
+            cancelled = true;
+            cachedOwnshipFeatures.current = [];
+            clearTimeout(timer);
+        };
+    }, [map, enabled, mergeAndWrite]);
 
     // ── Adaptive polling — 10s on fast WiFi, 60s on cellular/slow ──
     useEffect(() => {

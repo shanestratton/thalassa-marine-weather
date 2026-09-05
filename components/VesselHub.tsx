@@ -825,17 +825,29 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                content would leave the next addition free to do
                                it again.
 
-                               92, and the number is arithmetic rather than
+                               104, and the number is arithmetic rather than
                                taste: py-2.5 (20) + two gap-1.5 (12) + the h-8
-                               icon (32) + an 11px heading + a 10px status = 85,
-                               plus slack for font metrics. My first attempt
-                               pinned it at 76 and clipped the second line off
-                               every tile — "OVERBOA", "POSITION", "OFF"
-                               (Shane, same day: "their words are being cut
-                               off"). A row too short is a worse bug than a row
-                               that grows, so the test beside this asserts the
-                               sum rather than the magic number. */
-                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} auto-rows-[92px] gap-2 rounded-[20px] p-1`}
+                               icon (32) + an 11px heading + TWO 11px status
+                               lines (22) = 97, plus slack for font metrics.
+
+                               Two lines, because the status must never be
+                               truncated. "OVERBOARD" is the longest word in
+                               the narrowest tile and it was being cut to
+                               "OVERBOA" — on the button a skipper reaches for
+                               when someone is in the water. Shane, 2026-09-05:
+                               "we really need to be able to see the entire
+                               word claude, so i dont get sued, because a
+                               punter went over the side and they didnt know
+                               which button to press."
+
+                               So `truncate` is gone from all four and the row
+                               is tall enough for a wrap. A word that does not
+                               fit now wraps and stays readable instead of
+                               silently losing its ending — which is the only
+                               acceptable failure mode for this control. Both
+                               bounds are asserted next door: too short clips,
+                               too tall lets a third line creep in. */
+                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} auto-rows-[104px] gap-2 rounded-[20px] p-1`}
                         >
                             {/* Order is deliberate (Shane 2026-08-04): MOB
                                 first — the one you reach for in a genuine
@@ -857,7 +869,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <MobIcon color="#ef4444" />
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h4>
-                                <p className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide text-red-400">
+                                <p className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance text-red-400">
                                     Overboard
                                 </p>
                             </button>
@@ -878,7 +890,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <SignalIcon color="#67E8F9" />
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h4>
-                                <p className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide text-slate-400">
+                                <p className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance text-slate-400">
                                     Position
                                 </p>
                             </button>
@@ -903,7 +915,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         Guardian
                                     </h4>
                                     <p
-                                        className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide"
+                                        className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance"
                                         style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
                                     >
                                         {/* The "· N nearby" suffix does not fit here; the
@@ -959,7 +971,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
                                 <p
-                                    className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide"
+                                    className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance"
                                     style={{ color: anchorColor }}
                                 >
                                     {anchorLabelShort}
