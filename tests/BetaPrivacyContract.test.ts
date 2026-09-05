@@ -34,15 +34,18 @@ describe('public-beta privacy contract', () => {
         const signIn = read('components/SignInScreen.tsx');
         const account = read('components/settings/AccountTab.tsx');
 
-        expect(terms).toContain('Version 2.8 · Public Beta');
+        expect(terms).toContain('Version 2.9 · Public Beta');
         expect(terms).toContain('supported account data syncs');
         expect(terms).toContain('may also be sent to');
         expect(terms).toContain('pseudonymous Thalassa account ID');
-        expect(terms).toContain('destructive in-app deletion flow is');
-        expect(normalizedTerms).toContain('temporarily unavailable during this beta');
+        expect(terms).toContain('You can permanently delete your account from within the App');
+        // The pre-2.9 'temporarily unavailable' claim must not come back: the flag is
+        // on and the backend smoke passed 2026-09-02 — the hosted Terms said otherwise.
+        expect(normalizedTerms).not.toContain('temporarily unavailable during this beta');
+        expect(normalizedTerms).not.toContain('remains paused');
         expect(terms).toContain('mailto:privacy@thalassawx.com');
         expect(terms).not.toContain('privacy@thalassa.app');
-        expect(normalizedTerms).toContain('must be verified before account-creating App Store beta distribution');
+        expect(normalizedTerms).toContain('Once you confirm, deletion cannot be undone');
         expect(terms).toContain('www.thalassawx.app');
         expect(terms).not.toContain('This data cannot be used to identify individual users.');
         expect(signIn).not.toContain('Your data never leaves your boat');

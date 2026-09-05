@@ -229,7 +229,7 @@
                 <img src="/thalassa-icon.png" alt="Thalassa" />
                 <h1>Terms & Privacy</h1>
                 <p class="subtitle">Thalassa Marine Weather</p>
-                <p class="effective">Effective Date: 28 August 2026 &nbsp;·&nbsp; Version 2.8 · Public Beta</p>
+                <p class="effective">Effective Date: 5 September 2026 &nbsp;·&nbsp; Version 2.9 · Public Beta</p>
             </div>
 
             <!-- Tabs -->
@@ -292,11 +292,11 @@
                 <p>
                     Certain features require a Thalassa account. You may authenticate by email or an available platform
                     sign-in provider. You are responsible for maintaining the confidentiality of your credentials and
-                    for all activities under your account. The destructive in-app deletion flow is temporarily
-                    unavailable during this beta while its deletion safety controls are completed and verified. To
-                    request deletion now, email
-                    <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a>. A working in-app deletion path
-                    must be verified before account-creating App Store beta distribution.
+                    for all activities under your account. You can permanently delete your account from within the App
+                    at any time: Settings &rarr; Account &rarr; Delete account, available while you are signed in. Once
+                    you confirm, deletion cannot be undone. If you cannot sign in, or would rather we handle it, email
+                    <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a> and we will delete the account
+                    for you.
                 </p>
 
                 <h2>4. Public Beta Access</h2>
@@ -371,8 +371,12 @@
                         <strong>Apple Push Notification service</strong> — requested safety and account notifications
                     </li>
                     <li>
-                        <strong>Google/Gmail and Apple Music</strong> — integration code exists, but both connections
-                        are disabled in this public-beta candidate
+                        <strong>Google/Gmail</strong> — integration code exists, but the connection is disabled in this
+                        public-beta candidate
+                    </li>
+                    <li>
+                        <strong>Apple Music</strong> — optional; if you connect it, the App plays your library and
+                        playlists from the helm and the Bosun voice console can change the tune hands-free
                     </li>
                     <li><strong>Spoonacular</strong> — optional recipe search</li>
                     <li>
@@ -624,12 +628,14 @@
                     When you invoke AI or voice features, your prompt, audio or transcribed text, and the selected
                     weather, vessel, passage, location, or app context are sent to the configured AI, speech-to-text, or
                     text-to-speech provider. Separately, asking to publish a Crew List profile sends its member-visible
-                    fields and photographs to Google Gemini for the limited safety check described above. Gmail and
-                    Apple Music connections are disabled in this public-beta candidate. If a future release enables one
-                    and you explicitly connect it, Thalassa will process the account tokens and content needed for the
-                    actions you request. You can disconnect an enabled integration in Settings and should also revoke
-                    its grant in the provider's account settings if you want the provider authorisation itself
-                    withdrawn.
+                    fields and photographs to Google Gemini for the limited safety check described above. Gmail
+                    connections are disabled in this public-beta candidate. Apple Music is available: if you explicitly
+                    connect it, Thalassa's server issues an Apple-signed developer token so the App can talk to Apple
+                    Music, Apple asks for your permission on the device, and your library, playlist and playback data
+                    are processed on the device to carry out the actions you request. Thalassa's server does not receive
+                    or store your Apple Music user token or listening history. You can disconnect an enabled integration
+                    in Settings and should also revoke its grant in the provider's account settings if you want the
+                    provider authorisation itself withdrawn.
                 </p>
 
                 <h3>Diagnostics</h3>
@@ -722,9 +728,9 @@
                     <li><strong>Access</strong> — Request a copy of your personal data</li>
                     <li><strong>Correction</strong> — Update or correct inaccurate data</li>
                     <li>
-                        <strong>Deletion</strong> — Request deletion during this beta at
-                        <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a>; the destructive in-app
-                        control remains paused pending safety verification
+                        <strong>Deletion</strong> — Delete your account in the App (Settings &rarr; Account &rarr;
+                        Delete account), or ask us at
+                        <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a>
                     </li>
                     <li>
                         <strong>Portability</strong> — Use available voyage, diary, float-plan, and document exports;
@@ -753,18 +759,21 @@
 
                 <h3>Account Deletion & Retention</h3>
                 <p>
-                    During this beta, email <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a> to
-                    request deletion. The destructive in-app flow remains paused until durable write fencing, survivor
-                    scrubs, exact backend deployment, storage verification, and live failure-path testing are complete.
-                    Once verified and enabled, that flow is designed to remove your Thalassa sign-in, private synced
-                    records, phone-verification last four digits and verification-record fingerprint, uploaded media,
-                    account-linked community content, and account-scoped device caches. Opaque, non-dialable number- and
-                    network-derived keyed abuse-prevention tokens may remain for up to 25 hours after account deletion
-                    solely to stop repeated SMS abuse and are then deleted. Other limited security or legal audit
-                    records may be retained only after direct identifiers and free-form details are removed. Content in
-                    a shared conversation may be anonymised where deleting the entire conversation would remove other
-                    people's records. Backup copies age out under infrastructure backup schedules. If device cleanup
-                    reports a failure, uninstalling Thalassa removes the remaining app sandbox.
+                    You can delete your account at any time from Settings &rarr; Account &rarr; Delete account while
+                    signed in, or by emailing <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a>.
+                    Deleting your account removes your Thalassa sign-in, private synced records, phone-verification last
+                    four digits and verification-record fingerprint, uploaded media (photos, audio and video clips),
+                    account-linked community content, and account-scoped device caches. Your sign-in is removed last, so
+                    an interrupted deletion resumes rather than stopping part-way, and the account is locked while it
+                    completes. If you signed in with Apple and the App reports that the Apple authorisation could not be
+                    removed automatically, you can remove it in iOS Settings &rarr; your name &rarr; Sign in with Apple.
+                    Opaque, non-dialable number- and network-derived keyed abuse-prevention tokens may remain for up to
+                    25 hours after account deletion solely to stop repeated SMS abuse and are then deleted. Other
+                    limited security or legal audit records may be retained only after direct identifiers and free-form
+                    details are removed. Content in a shared conversation may be anonymised where deleting the entire
+                    conversation would remove other people's records. Backup copies age out under infrastructure backup
+                    schedules. If device cleanup reports a failure, uninstalling Thalassa removes the remaining app
+                    sandbox.
                 </p>
                 <p>
                     Founding Skipper applications are deleted automatically after 180 days unless the applicant joins
