@@ -235,88 +235,117 @@ export const useAppController = () => {
             // No local flag. Are we authed AND do we have a cloud
             // boat row? If yes, this is a re-install of an existing
             // user — back-fill flag, skip onboarding.
+            // Classify this signed-in account: does it already own a boat in
+            // the cloud? THREE outcomes, and the distinction is the whole point
+            // of the fix — only a CONCLUSIVE "no boat" may launch onboarding.
+            // An error or a dropped connection is 'unknown', never 'new':
+            // showing the wizard to a returning user whose check merely FAILED
+            // makes them create a SECOND vessel (audit item 14). A cold boot's
+            // first query often races the network coming up, so retry a couple
+            // of times before giving up to 'unknown'.
+            type BoatCheck = 'has-boat' | 'no-boat' | 'unknown';
+            let boatCheck: BoatCheck = 'unknown';
             if (authedUser?.id === actionScope.userId && supabase) {
-                try {
-                    const { data: boat, error } = await supabase
-                        .from('boats')
-                        .select('id')
-                        .eq('owner_id', actionScope.userId)
-                        .limit(1)
-                        .maybeSingle();
-                    if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
-                    if (error) {
-                        // Don't swallow this silently — RLS, network,
-                        // or a typo in a policy will all surface here
-                        // and we want to know about it in Xcode logs.
-                        log.warn('boats cloud-check error:', error.message);
-                    }
-                    if (boat?.id) {
-                        // Backfill every "first-time user" flag we know
-                        // about. They all gate the various tutorial /
-                        // intro overlays via localStorage, which is
-                        // wiped per-install. Returning users have seen
-                        // these already; suppress them all so the
-                        // reinstall feels like a clean resume.
-                        // (Race caveat: useState initializers in these
-                        // overlays read the flags during the same React
-                        // render this effect mounts. The flags may not
-                        // be set before the overlay's initial render,
-                        // so they can flash briefly on first sign-in.
-                        // Worst case the user dismisses them once.)
-                        setScopedFlag(ONBOARDED_KEY, actionScope);
-                        setScopedFlag(TUTORIAL_COMPLETED_KEY, actionScope);
-                        setScopedFlag(INTRO_COMPLETED_KEY, actionScope);
-                        setScopedFlag(GLASS_TUTORIAL_SEEN_KEY, actionScope);
-                        // CRITICAL: explicitly hide the wizard. Without
-                        // this, a previous render that set showOnboarding
-                        // true (before auth resolved) leaves the wizard
-                        // on screen even though we now know they have a
-                        // boat. This was the "Apple sign-in but wizard
-                        // ran anyway" bug.
-                        if (!cancelled) setShowOnboardingForScope(actionScope, false);
-                        // Do not ask for Location merely because a returning
-                        // account was restored. The Glass empty state exposes
-                        // an explicit "Use my location" action, and features
-                        // that need continuous/background fixes request their
-                        // own permissions at point of use. Boot may consume an
-                        // already-granted one-shot fix below, but it must never
-                        // manufacture a permission prompt.
-                        // Drop the !loading guard. On first launch after
-                        // a fresh install + sign-in, the orchestrator's
-                        // init has already run and set loading=false
-                        // (no defaultLocation yet at that point). By the
-                        // time this effect re-fires with the cloud-
-                        // restored defaultLocation, loading might be
-                        // true or false depending on the race — and the
-                        // !loading guard occasionally blocked the
-                        // refetch. The orchestrator's internal
-                        // isFetching guard prevents duplicate concurrent
-                        // calls, so dropping !loading here is safe.
-                        if (!weatherData && settings.defaultLocation) {
-                            // Same rule as the fast path — and this branch is
-                            // the more dangerous of the two, because it
-                            // deliberately dropped the !loading guard, so it
-                            // fires while a fetch is still in flight.
-                            if (currentViewRef.current === 'dashboard') setPage('dashboard');
-                            fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const { data: boat, error } = await supabase
+                            .from('boats')
+                            .select('id')
+                            .eq('owner_id', actionScope.userId)
+                            .limit(1)
+                            .maybeSingle();
+                        if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
+                        if (error) throw new Error(error.message);
+                        boatCheck = boat?.id ? 'has-boat' : 'no-boat';
+                        break;
+                    } catch (err) {
+                        // RLS, network, a policy typo — all land here. Retry
+                        // with backoff, then leave it 'unknown'. Never guess
+                        // 'new' from a failure.
+                        log.warn(`boats cloud-check attempt ${attempt + 1} failed:`, err);
+                        if (attempt < 2) {
+                            await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+                            if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
                         }
-                        return;
                     }
-                } catch (err) {
-                    log.warn('boats cloud-check failed; falling through to onboarding:', err);
                 }
             }
 
-            // Genuinely new account (or offline + no flag). Show
-            // onboarding ONLY if signed in. Un-authed users have no
-            // cloud account to attach a vessel to yet, so the wizard
-            // would dead-end at the "save your boat" step. Browsing
-            // without an account is supported — onboarding waits until
-            // the user signs in at a save point and we land back here
-            // with authedUser populated. (Deferred-sign-in flow,
-            // 2026-05-17.)
+            if (boatCheck === 'has-boat') {
+                // Backfill every "first-time user" flag we know
+                // about. They all gate the various tutorial /
+                // intro overlays via localStorage, which is
+                // wiped per-install. Returning users have seen
+                // these already; suppress them all so the
+                // reinstall feels like a clean resume.
+                // (Race caveat: useState initializers in these
+                // overlays read the flags during the same React
+                // render this effect mounts. The flags may not
+                // be set before the overlay's initial render,
+                // so they can flash briefly on first sign-in.
+                // Worst case the user dismisses them once.)
+                setScopedFlag(ONBOARDED_KEY, actionScope);
+                setScopedFlag(TUTORIAL_COMPLETED_KEY, actionScope);
+                setScopedFlag(INTRO_COMPLETED_KEY, actionScope);
+                setScopedFlag(GLASS_TUTORIAL_SEEN_KEY, actionScope);
+                // CRITICAL: explicitly hide the wizard. Without
+                // this, a previous render that set showOnboarding
+                // true (before auth resolved) leaves the wizard
+                // on screen even though we now know they have a
+                // boat. This was the "Apple sign-in but wizard
+                // ran anyway" bug.
+                if (!cancelled) setShowOnboardingForScope(actionScope, false);
+                // Do not ask for Location merely because a returning
+                // account was restored. The Glass empty state exposes
+                // an explicit "Use my location" action, and features
+                // that need continuous/background fixes request their
+                // own permissions at point of use. Boot may consume an
+                // already-granted one-shot fix below, but it must never
+                // manufacture a permission prompt.
+                // Drop the !loading guard. On first launch after
+                // a fresh install + sign-in, the orchestrator's
+                // init has already run and set loading=false
+                // (no defaultLocation yet at that point). By the
+                // time this effect re-fires with the cloud-
+                // restored defaultLocation, loading might be
+                // true or false depending on the race — and the
+                // !loading guard occasionally blocked the
+                // refetch. The orchestrator's internal
+                // isFetching guard prevents duplicate concurrent
+                // calls, so dropping !loading here is safe.
+                if (!weatherData && settings.defaultLocation) {
+                    // Same rule as the fast path — and this branch is
+                    // the more dangerous of the two, because it
+                    // deliberately dropped the !loading guard, so it
+                    // fires while a fetch is still in flight.
+                    if (currentViewRef.current === 'dashboard') setPage('dashboard');
+                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                }
+                return;
+                return;
+            }
+
+            if (boatCheck === 'unknown' && authedUser?.id === actionScope.userId) {
+                // Could not tell. A returning user must NEVER be trapped into
+                // re-creating their vessel by a transient error, so onboarding
+                // stays hidden and the next launch (or identity change) retries.
+                // They still get their weather if a saved location survived.
+                log.warn('boats cloud-check inconclusive after retries; leaving onboarding hidden');
+                if (!weatherData && settings.defaultLocation) {
+                    if (currentViewRef.current === 'dashboard') setPage('dashboard');
+                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                }
+                return;
+            }
+
+            // CONCLUSIVE new account: the cloud answered, and there is no boat.
+            // Show onboarding ONLY here, and only signed in — an un-authed user
+            // has no cloud account to attach a vessel to yet, so the wizard
+            // would dead-end at "save your boat". Browsing without an account is
+            // supported; onboarding waits until they sign in at a save point.
             if (
                 !cancelled &&
+                boatCheck === 'no-boat' &&
                 authedUser?.id === actionScope.userId &&
                 actionScope.userId &&
                 isAuthIdentityScopeCurrent(actionScope)
