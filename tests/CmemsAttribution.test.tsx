@@ -75,7 +75,10 @@ describe('CmemsAttribution', () => {
             expect(mapHub).toContain(visibilityGate);
             expect(mapHub).toContain(attributionLayer);
         }
-        expect(mapHub).toContain('<CmemsAttribution layers={cmemsAttributionLayers} embedded={embedded} />');
+        // Mounted with the credits-strip stacking offset since 2026-09-06.
+        expect(mapHub).toContain('<CmemsAttribution');
+        expect(mapHub).toContain('layers={cmemsAttributionLayers}');
+        expect(mapHub).toContain('stackOffsetPx={rainCreditShown ? CREDITS_SLOT_PX : 0}');
         expect(mapHub).not.toContain('visible={!pickerMode && currentsVisible}');
         expect(mapHub).not.toContain(
             "currentsVisible && isCmemsCurrentsEnabled() && cmemsAttributionLayers.push('currents')",

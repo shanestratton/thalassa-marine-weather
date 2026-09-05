@@ -17,6 +17,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { CREDITS_SLOT_PX } from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -3270,6 +3271,12 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // Determine if tablet split-screen is active
     const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded && !pickerMode;
+    // Mirrors MapWeatherControls.showRainViewerAttribution: while the RainViewer
+    // pill occupies the credits strip's first slot, other credits stack below it.
+    const rainCreditShown =
+        weather.activeLayers.has('rain') &&
+        weather.rainReady &&
+        weather.unifiedFramesRef?.current?.[weather.rainFrameIndex]?.type === 'radar';
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
 
     return (
@@ -4742,7 +4749,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     )}
                     {cmemsAttributionLayers.length > 0 && (
                         <React.Suspense fallback={null}>
-                            <CmemsAttribution layers={cmemsAttributionLayers} embedded={embedded} />
+                            <CmemsAttribution
+                                layers={cmemsAttributionLayers}
+                                embedded={embedded}
+                                stackOffsetPx={rainCreditShown ? CREDITS_SLOT_PX : 0}
+                            />
                         </React.Suspense>
                     )}
 

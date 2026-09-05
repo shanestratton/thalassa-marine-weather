@@ -303,11 +303,12 @@ describe('MapWeatherControls', () => {
         );
     });
 
-    it('the hide button shares the scrubber row with the button that opened it', () => {
-        // One thumb spot: the "Weather controls" pill sits at bottom 80px +
-        // inset; pressing it must put the minimise button on the SAME row
-        // (right of the scrubber), not 60px higher up the right edge
-        // (Shane, 2026-08-21).
+    it("the minimise button is a square IN the scrubber row, at the pill's height", () => {
+        // Shane 2026-09-06: "right beside the scrubber… a square button the
+        // same height as the scrubber". It used to float at a hardcoded left
+        // offset that drifted to the right edge, next to the Locate fab.
+        // Now it is the row's trailing child: the row is items-stretch, so
+        // the square takes whatever height the pill has.
         render(
             <MapWeatherControls
                 weather={weather({ activeLayers: new Set(['wind']) })}
@@ -318,8 +319,17 @@ describe('MapWeatherControls', () => {
             />,
         );
         const hide = screen.getByRole('button', { name: 'Hide weather controls' });
-        expect(hide.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
-
+        expect(hide.className).toContain('aspect-square');
+        expect(hide.className).toContain('self-stretch');
+        expect(hide.className).toContain('rounded-2xl');
+        // Not self-positioned any more — the row positions it.
+        expect(hide.style.bottom).toBe('');
+        const row = hide.parentElement as HTMLElement;
+        expect(row.className).toContain('items-stretch');
+        expect(row.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
+        expect(row.style.left).toBe('12px');
+        // And it sits AFTER the pill.
+        expect(row.lastElementChild).toBe(hide);
         cleanup();
         render(
             <MapWeatherControls
@@ -332,5 +342,30 @@ describe('MapWeatherControls', () => {
         );
         const show = screen.getByRole('button', { name: 'Show weather controls' });
         expect(show.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
+    });
+
+    it('the RainViewer credit sits centred under the basemap dropdown, shown or hidden', () => {
+        // Shane 2026-09-06: out of the main viewing area, directly under the
+        // dropdown at the top. MapBaseSelector: top = inset + 8px, h-12.
+        for (const controlsHidden of [false, true]) {
+            render(
+                <MapWeatherControls
+                    weather={weather({ activeLayers: new Set(['rain']), rainReady: true })}
+                    visible
+                    embedded={false}
+                    controlsHidden={controlsHidden}
+                    onControlsHiddenChange={vi.fn()}
+                />,
+            );
+            const label = screen.queryByText('Radar by RainViewer');
+            if (label) {
+                const pill = label.parentElement as HTMLElement;
+                expect(pill.className).toContain('left-1/2');
+                expect(pill.className).toContain('-translate-x-1/2');
+                expect(pill.style.top).toBe('calc(env(safe-area-inset-top) + 62px)');
+                expect(pill.style.bottom).toBe('');
+            }
+            cleanup();
+        }
     });
 });

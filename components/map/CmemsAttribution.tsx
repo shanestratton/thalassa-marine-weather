@@ -3,12 +3,15 @@
  * Product metadata is sourced from the official Copernicus Marine catalogue.
  */
 import React from 'react';
+import { CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
 
 export type CmemsLayerId = 'currents' | 'waves' | 'sst' | 'chl' | 'seaice' | 'mld';
 
 interface CmemsAttributionProps {
     layers: readonly CmemsLayerId[];
     embedded?: boolean;
+    /** Pixels below the strip's first slot — CREDITS_SLOT_PX when the RainViewer pill is showing above. */
+    stackOffsetPx?: number;
 }
 
 const LAYER_LABELS: Record<CmemsLayerId, string> = {
@@ -46,7 +49,7 @@ export const CMEMS_PRODUCT_ATTRIBUTIONS = [
     },
 ] as const;
 
-export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embedded = false }) => {
+export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embedded = false, stackOffsetPx = 0 }) => {
     const requestedLayers = new Set(layers);
     const activeLayers = LAYER_ORDER.filter((layer) => requestedLayers.has(layer));
     if (activeLayers.length === 0) return null;
@@ -58,10 +61,17 @@ export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embe
 
     return (
         <aside
-            className="absolute left-2 z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto"
-            style={{
-                bottom: embedded ? '84px' : 'calc(156px + env(safe-area-inset-bottom))',
-            }}
+            // On the chart this credit lives in the top-centre credits strip
+            // with the others (Shane 2026-09-06), one slot below the RainViewer
+            // pill when that is showing. The embedded public map keeps its
+            // bottom-left placement. The words are the licence's minimum and
+            // are not touched here.
+            className={
+                embedded
+                    ? 'absolute left-2 z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto'
+                    : `${CREDITS_STRIP_POSITION_CLASS} z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto`
+            }
+            style={embedded ? { bottom: '84px' } : { top: creditsStripTop(stackOffsetPx) }}
             aria-label={`Copernicus Marine data attribution for ${activeLayerLabel}`}
         >
             <div className="rounded-lg border border-cyan-400/30 bg-black/70 px-2 py-1 text-[10px] leading-tight text-cyan-50/85 shadow-lg backdrop-blur-xs">

@@ -6,6 +6,7 @@
  * without entangling it with Mapbox lifecycle and route-planning state.
  */
 import type React from 'react';
+import { CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
 import type { useWeatherLayers } from './useWeatherLayers';
 import type { WeatherLayer } from './mapConstants';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
@@ -78,6 +79,25 @@ export function MapWeatherControls({
             : weather.activeLayers.has(key as WeatherLayer),
     );
     const showTimeline = !controlsHidden;
+    // The minimise button lives IN the scrubber's row as its trailing square —
+    // same height as the pill, same glass — rather than at a hardcoded left
+    // offset that drifted to the right edge whenever the pill's width changed
+    // (Shane 2026-09-06: "right beside the scrubber… a square button the same
+    // height as the scrubber"). When no scrubber is showing, a same-sized
+    // square stands where the pill would start, so the row stays the one place
+    // to look for it.
+    let helixShown = false;
+    const hideControlsButton = (
+        <button
+            type="button"
+            onClick={() => onControlsHiddenChange(true)}
+            className="flex aspect-square h-auto shrink-0 items-center justify-center self-stretch rounded-2xl border border-white/8 bg-slate-900/80 text-slate-300 shadow-lg backdrop-blur-md transition-transform active:scale-95"
+            aria-label="Hide weather controls"
+            title="Hide controls"
+        >
+            <span className="text-[14px] leading-none">▾</span>
+        </button>
+    );
     const hasWindLayer = activeWeatherLayers.includes('wind');
     // Keep the wind controls available when Wind is paired with Rain. The
     // timeline intentionally changes to Rain in that combination, but the
@@ -136,9 +156,10 @@ export function MapWeatherControls({
         // A requested CMEMS layer is not necessarily on the map yet. Keep its
         // legend out of the stacked dock until that exact step and generation
         // have passed verification and rendering.
+        helixShown = true;
         content = (
             <>
-                <LegendDock layers={legendWeatherLayers} embedded={embedded} />
+                <LegendDock layers={legendWeatherLayers} embedded={embedded} trailing={hideControlsButton} />
                 {stackedCmemsStatuses.length > 0 && (
                     <div
                         className="absolute z-501 min-w-44 rounded-xl border border-white/10 bg-slate-950/85 px-3 py-2 text-white shadow-lg backdrop-blur-xl"
@@ -161,8 +182,10 @@ export function MapWeatherControls({
             const rainNow = weather.rainNowIdxRef.current;
             const currentFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
             const isForecast = currentFrame?.type === 'forecast';
+            helixShown = true;
             content = (
                 <ThalassaHelixControl
+                    trailing={hideControlsButton}
                     activeLayer="wind"
                     frameIndex={weather.rainFrameIndex}
                     totalFrames={weather.rainFrameCount}
@@ -489,6 +512,10 @@ export function MapWeatherControls({
                 }
             }
 
+            // The scrubber pill renders only on the last arm of this ternary; the
+            // minimise square rides inside it, so the same-row fallback below
+            // must stand down exactly then.
+            helixShown = !showRainRetry && !showInlineLoading && !isLoading;
             content = showRainRetry ? (
                 <button
                     type="button"
@@ -533,6 +560,7 @@ export function MapWeatherControls({
                 </div>
             ) : !isLoading ? (
                 <ThalassaHelixControl
+                    trailing={hideControlsButton}
                     activeLayer={activeLayer}
                     frameIndex={frameIndex}
                     totalFrames={totalFrames}
@@ -567,16 +595,18 @@ export function MapWeatherControls({
 
                 Now: openExternalUrl presents a dismissible sheet over the app
                 (Done returns with chart state intact), the label is plain
-                non-interactive text, and only the small ⓘ is a tap target —
-                moved to the far corner, away from the scrubber thumb path. */}
+                non-interactive text, and only the small ⓘ is a tap target.
+                Since 2026-09-06 the credit sits top-centre under the basemap
+                dropdown, clear of the chart's working area altogether. */}
             {showRainViewerAttribution && (
                 <div
-                    className="absolute right-2 z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs"
-                    style={{
-                        bottom: controlsHidden
-                            ? 'calc(84px + env(safe-area-inset-bottom))'
-                            : 'calc(196px + env(safe-area-inset-bottom))',
-                    }}
+                    // Centred directly under the basemap dropdown (MapBaseSelector:
+                    // top = inset + 8px, trigger h-12) — out of the main viewing
+                    // area and nowhere near the scrubber's thumb path (Shane
+                    // 2026-09-06). The same spot whether the controls are shown
+                    // or hidden, so it never jumps.
+                    className={`${CREDITS_STRIP_POSITION_CLASS} z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
+                    style={{ top: creditsStripTop(0) }}
                 >
                     <span className="text-[10px] font-semibold text-slate-300/80">Radar by RainViewer</span>
                     {/* A REAL anchor with a real href, so this is still a link
@@ -606,24 +636,15 @@ export function MapWeatherControls({
                 >
                     <span className="text-sky-300 leading-none">▴</span> Weather controls
                 </button>
-            ) : (
+            ) : helixShown ? null : (
+                // No scrubber pill to sit beside (nothing scrubbable, or the
+                // rain snapshot is still loading): the same square stands where
+                // the pill would start, on the same row.
                 <button
                     type="button"
                     onClick={() => onControlsHiddenChange(true)}
-                    // Same ROW as the scrubber (bottom 80px + inset), in the
-                    // JMA column: the model row above is left-anchored at
-                    // 12px and its five chips end at ~302px, so left-304
-                    // parks this button directly under the last model chip,
-                    // snug against the scrubber's right side (Shane
-                    // 2026-08-21: "right up against the right hand side of
-                    // the scrubber... or better still inline with the models
-                    // directly above it (JMA)"). The min() keeps it on-screen
-                    // if a narrow viewport ever compresses the rows.
-                    className="absolute z-510 flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
-                    style={{
-                        left: 'min(304px, calc(100vw - 64px))',
-                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
-                    }}
+                    className="absolute z-510 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/8 bg-slate-900/80 text-slate-300 shadow-lg backdrop-blur-md transition-transform active:scale-95"
+                    style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
                     aria-label="Hide weather controls"
                     title="Hide controls"
                 >

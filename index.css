@@ -3559,6 +3559,18 @@ body,
     bottom: calc(4rem + 1px + env(safe-area-inset-bottom));
 }
 
+/* The bottom-RIGHT container (compact ⓘ attribution + scale) shared its
+   corner with the Locate fab (MapActionFabs: right 16px, bottom 80px + inset,
+   48px tall) and the ⓘ sat under it — the licence-required control, occluded
+   (Shane 2026-09-06: "the i button for the map is hidden under the location
+   fab"). Lift the whole container above the fab row: 4rem + 73px puts its
+   bottom 9px above the fab's top. EncAttributionChip moves above this stack
+   in turn. Still a positional container only; the attribution and logo
+   elements themselves are never named here. */
+.thalassa-chart-map .mapboxgl-ctrl-bottom-right {
+    bottom: calc(4rem + 73px + env(safe-area-inset-bottom));
+}
+
 /* ── Bottom sheets and the on-screen keyboard ──────────────────────
    USE THIS on any bottom-anchored panel that contains a text field and
    scrolls internally. Add the class, delete the hard-coded max-h.
