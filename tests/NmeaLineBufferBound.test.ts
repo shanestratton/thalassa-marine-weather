@@ -1,24 +1,29 @@
 /**
- * THE 2GB LEAK. An NMEA feed with no line delimiter grew a JS string forever.
+ * A GUARDRAIL, not the diagnosis. Read the correction below before trusting it.
+ *
+ * An NMEA feed with no line delimiter would grow a JS string forever:
  *
  *     this.tcpLineBuffer += result;
  *     const lines = this.tcpLineBuffer.split(/\r?\n/);
  *     this.tcpLineBuffer = lines.pop() || '';
  *
  * Handing the trailing PARTIAL line back is correct — a sentence split across
- * two reads must survive. But if the stream carries no newline at all, split
- * returns one element, pop() returns the whole thing, and the buffer grows for
- * as long as the feed runs. Nothing reset it between connect and disconnect.
+ * two reads must survive. But with no newline at all, split returns one
+ * element, pop() returns the whole thing, and the buffer grows for as long as
+ * the feed runs. Nothing reset it between connect and disconnect. Bounding it
+ * is right regardless, and this file holds that bound.
  *
- * That is a plain JavaScript string, which is why it was invisible: every
- * memory census before this read ENC 0, tiles 0, GL 0, DOM 2,590 — all tiny —
- * while com.apple.WebKit.WebContent was killed at exactly 2048.0 MB with
- * reason "per-process-limit".
+ * WHAT THIS FILE ONCE CLAIMED, AND WHY IT WAS WRONG (corrected 2026-09-05):
+ * it was labelled "THE 2GB LEAK", on the reasoning that a stream failing its
+ * checksums is a stream that may carry no newline. The premise was false.
+ * Those sentences were measured by hand — 126 of 275 — and every checksum was
+ * CORRECT. They were GSV, VTG, GLL, ZDA, ROT, DTM and HTD: types this app has
+ * no parser for, logged as "malformed/checksum-invalid" by a caller that could
+ * not tell the two apart. A well-formed sentence proves a delimiter exists, so
+ * the buffer never grew, and the census agreed: nmeaBufferKB 0, discarded 0.
  *
- * Shane's Web Inspector settled it (2026-09-05): a live feed logging "dropped
- * 2,251 malformed/checksum-invalid sentence(s)" and climbing, across 25.7
- * MILLION TcpSocket.read calls in one session. A stream failing its checksums
- * is exactly the stream that may carry no newline.
+ * The bound stands. The verdict did not. See NmeaReadPacing.test.ts for the
+ * allocation RATE that a retained-size probe cannot see.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
