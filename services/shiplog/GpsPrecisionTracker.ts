@@ -205,6 +205,14 @@ class GpsPrecisionTrackerClass {
             /** Minimum movement for course change detection (meters) */
             courseChangeMinMovementM: q === 'precision' ? 5 : q === 'standard' ? 10 : 20,
 
+            /**
+             * Movement from the distance anchor before a fix may ACCRUE voyage
+             * distance (meters) — see services/shiplog/distanceAccrual.ts.
+             * Wider than the course gate: jitter that is harmless to a bearing
+             * sample still adds up to tenths of a mile overnight.
+             */
+            distanceAccrualMinMovementM: q === 'precision' ? 8 : q === 'standard' ? 15 : 30,
+
             /** RDP epsilon multiplier — applied to speed-adaptive epsilon */
             trackThinningMultiplier: q === 'precision' ? 0.5 : q === 'standard' ? 1.0 : 1.5,
 

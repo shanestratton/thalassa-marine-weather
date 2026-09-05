@@ -56,6 +56,15 @@ import { calculateBearing, calculateDistanceNM, formatPositionDMS, getWeatherSna
 import { getLastPosition, saveLastPosition, type TrackingState } from './TrackingStateStore';
 import { type GpsTrackBuffer } from './GpsTrackBuffer';
 import { getBestPosition } from './PositionResolver';
+import { GpsPrecision } from './GpsPrecisionTracker';
+import {
+    accrualFields,
+    accrueDistance,
+    carryAccrual,
+    distanceAccrualGateM,
+    freshAccrual,
+    type AccrualResult,
+} from './distanceAccrual';
 import { checkIsOnWater } from './waterDetection';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 
@@ -259,6 +268,8 @@ export async function captureImmediate(
         }
     }
 
+    // Hoisted: the durable-position save below sits outside this block.
+    let accrual: AccrualResult | null = null;
     if (bestPos) {
         entry.latitude = bestPos.latitude;
         entry.longitude = bestPos.longitude;
@@ -284,13 +295,16 @@ export async function captureImmediate(
             !!lastPos &&
             (lastPos.voyageId === effectiveVoyageId ||
                 (lastPos.voyageId === undefined && waypointLabel !== 'Voyage Start'));
-        let cumulativeDistanceNM = 0;
+        // The running total accrues from the distance ANCHOR, not from the
+        // last fix — see distanceAccrual.ts. The leg shown on the entry is
+        // still the raw leg.
+        accrual = freshAccrual(bestPos);
         if (lastPos && sameVoyage) {
             const legNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, bestPos.latitude, bestPos.longitude);
-            cumulativeDistanceNM = lastPos.cumulativeDistanceNM + legNM;
+            accrual = accrueDistance(lastPos, bestPos, distanceAccrualGateM(GpsPrecision.getAdaptedThresholds()));
             entry.distanceNM = Math.round(legNM * 100) / 100;
         }
-        entry.cumulativeDistanceNM = Math.round(cumulativeDistanceNM * 100) / 100;
+        entry.cumulativeDistanceNM = Math.round(accrual.cumulativeDistanceNM * 100) / 100;
 
         // On-water check (fail-open: assume water if check throws,
         // since a false positive on land is less bad than a false negative
@@ -333,6 +347,7 @@ export async function captureImmediate(
                 longitude: bestPos.longitude,
                 timestamp,
                 cumulativeDistanceNM: entry.cumulativeDistanceNM ?? 0,
+                ...(accrual ? accrualFields(accrual) : {}),
                 voyageId: effectiveVoyageId,
             },
             ctx.identityScope,
@@ -485,12 +500,15 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
         let distanceNM = 0;
         let speedKts = 0;
         let cumulativeDistanceNM = 0;
+        // Accrual state to persist with this position (distanceAccrual.ts).
+        let accrual = freshAccrual({ latitude, longitude });
 
         if (lastPos && isPinOverride) {
             // Turn pins mark a PAST position. They carry the running
             // total but contribute no distance — measuring lastPos →
             // midpoint-behind-the-boat → next fix would double-count
             // the backtrack and inflate the voyage total.
+            accrual = carryAccrual(lastPos);
             cumulativeDistanceNM = lastPos.cumulativeDistanceNM;
         } else if (lastPos) {
             distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
@@ -532,7 +550,16 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
                 }
             }
 
-            cumulativeDistanceNM = lastPos.cumulativeDistanceNM + distanceNM;
+            // The raw leg above still drives speed, the spike filters and the
+            // dedup. The TOTAL only grows once movement past the gate is
+            // confirmed — a stationary boat's jitter adds nothing, however
+            // long the night (Shane, 2026-09-06: 0.1 NM on the hard).
+            accrual = accrueDistance(
+                lastPos,
+                { latitude, longitude },
+                distanceAccrualGateM(GpsPrecision.getAdaptedThresholds()),
+            );
+            cumulativeDistanceNM = accrual.cumulativeDistanceNM;
 
             if (distanceNM >= STATIONARY_THRESHOLD_NM) {
                 ctx.trackingState.lastMovementTime = timestamp;
@@ -617,6 +644,7 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
                     timestamp,
                     cumulativeDistanceNM,
                     speedKts,
+                    ...accrualFields(accrual),
                     voyageId: entryVoyageId,
                 },
                 ctx.identityScope,
@@ -702,6 +730,7 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
         waypointName,
     };
 
+    let manualAccrual: ReturnType<typeof freshAccrual> | null = null;
     try {
         const bestPos = await getBestPosition(ctx.getCachedFix(), ctx.isNative);
         if (!contextIsCurrent(ctx)) return null;
@@ -722,7 +751,14 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
             if (lastPos && (lastPos.voyageId === undefined || lastPos.voyageId === effectiveVoyageId)) {
                 const distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
                 entry.distanceNM = Math.round(distanceNM * 100) / 100;
-                entry.cumulativeDistanceNM = Math.round((lastPos.cumulativeDistanceNM + distanceNM) * 100) / 100;
+                manualAccrual = accrueDistance(
+                    lastPos,
+                    { latitude, longitude },
+                    distanceAccrualGateM(GpsPrecision.getAdaptedThresholds()),
+                );
+                entry.cumulativeDistanceNM = Math.round(manualAccrual.cumulativeDistanceNM * 100) / 100;
+            } else {
+                manualAccrual = freshAccrual({ latitude, longitude });
             }
         }
     } catch (gpsError) {
@@ -742,6 +778,7 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
                 longitude: entry.longitude ?? 0,
                 timestamp,
                 cumulativeDistanceNM: entry.cumulativeDistanceNM ?? 0,
+                ...(manualAccrual ? accrualFields(manualAccrual) : {}),
                 voyageId: effectiveVoyageId,
             },
             ctx.identityScope,

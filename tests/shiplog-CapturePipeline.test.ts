@@ -288,6 +288,51 @@ describe('captureLog — DEDUP threshold (~5m / 0.005nm)', () => {
     });
 });
 
+describe('captureLog — distance accrues only from confirmed movement', () => {
+    // The buffered-track flush bypasses the dedup on purpose (skipDedup), so
+    // until 2026-09-06 every stationary jitter point added its wobble to the
+    // voyage total — 0.1 NM a night on the hard. The total now accrues from a
+    // persisted anchor and only after movement past the gate is confirmed.
+    it('a jitter point saved via skipDedup keeps the cumulative and the anchor', async () => {
+        // Stored position is 3 m north of the fix; anchor is the stored position.
+        lastPosition.mockResolvedValueOnce({
+            latitude: -27.5 + 3 / 111_320,
+            longitude: 153.0,
+            timestamp: '2026-05-02T05:59:00Z',
+            cumulativeDistanceNM: 10,
+            accrualAnchor: { latitude: -27.5 + 3 / 111_320, longitude: 153.0 },
+            moving: false,
+        });
+        const ctx = makeCtx();
+        const result = await captureLog(ctx, { entryType: 'auto', skipDedup: true });
+        expect(result).not.toBeNull();
+        expect(result?.cumulativeDistanceNM).toBe(10);
+        const saved = saveLastPos.mock.calls.at(-1)?.[0];
+        expect(saved.cumulativeDistanceNM).toBe(10);
+        expect(saved.accrualAnchor).toEqual({ latitude: -27.5 + 3 / 111_320, longitude: 153.0 });
+        expect(saved.moving).toBe(false);
+    });
+
+    it('a fix beyond the gate while under way accrues from the anchor and moves it', async () => {
+        // Anchor 1 NM north of the fix, boat already moving.
+        lastPosition.mockResolvedValueOnce({
+            latitude: -27.5 + 1 / 60,
+            longitude: 153.0,
+            timestamp: '2026-05-02T05:49:00Z',
+            cumulativeDistanceNM: 10,
+            speedKts: 6,
+            accrualAnchor: { latitude: -27.5 + 1 / 60, longitude: 153.0 },
+            moving: true,
+        });
+        const ctx = makeCtx();
+        const result = await captureLog(ctx, { entryType: 'auto', skipDedup: true });
+        expect(result?.cumulativeDistanceNM).toBeCloseTo(11, 1);
+        const saved = saveLastPos.mock.calls.at(-1)?.[0];
+        expect(saved.accrualAnchor).toEqual({ latitude: -27.5, longitude: 153.0 });
+        expect(saved.moving).toBe(true);
+    });
+});
+
 describe('capture session fence', () => {
     it('drops a delayed fix after the same account replaces the voyage session', async () => {
         let sessionCurrent = true;
