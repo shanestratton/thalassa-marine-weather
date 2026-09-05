@@ -41,7 +41,7 @@ describe('VesselHub passage-planning placement', () => {
         const binderRow = source.indexOf('BOAT BINDER — imports / inventory / reference');
         const passageRow = source.slice(passagePlanning, binderRow);
         const binderStart = source.indexOf('if (binderOpen)');
-        const hubScroll = source.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in');
+        const hubScroll = source.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 stagger-in');
         const binderBlock = source.slice(binderStart, hubScroll);
 
         expect(binderRow).toBeGreaterThan(passagePlanning);
