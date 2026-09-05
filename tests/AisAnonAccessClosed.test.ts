@@ -9,10 +9,12 @@
  *
  * Nothing anonymous needs either. The public Voyage Explorer gets its ships
  * from supabase/functions/voyage-log, which runs vessels_nearby as the service
- * role. The vessels-nearby Edge Function forwards the USER's JWT to the RPC —
- * which is why vessels_nearby must KEEP its authenticated grant: revoking it
- * would break the app's own AIS layer. The quota that function enforces belongs
- * in the function, not in the grant.
+ * role. Since 2026-09-05 the vessels-nearby Edge Function ALSO runs it as the
+ * service role (its caller is verified and metered first), so the RPC's
+ * authenticated grant is revoked in 20260905110000 — a separate migration, to
+ * be applied only AFTER that Function is deployed, or the app's own AIS layer
+ * breaks in between. The quota the function enforces belongs in the function,
+ * and a grant that let clients skip it is gone.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -41,13 +43,35 @@ describe('anonymous AIS access is closed', () => {
         expect(code).not.toMatch(/search_vessels[^;]*FROM authenticated/);
     });
 
-    it('does NOT revoke vessels_nearby from authenticated — the Edge Function runs as the user', () => {
-        // supabase/functions/vessels-nearby/index.ts builds its client from
-        // SUPABASE_ANON_KEY plus the caller's Authorization header.
+    it('102000 leaves vessels_nearby alone — the grant moves in its own migration, after the deploy', () => {
+        // Two-step on purpose: the Edge Function must run as the service role
+        // BEFORE the authenticated grant goes, or AIS breaks in between.
         expect(code).not.toContain('vessels_nearby');
+    });
+
+    it('vessels-nearby runs the RPC as the service role and never forwards the caller JWT', () => {
+        // Audit item 4, second half. Forwarding the user's JWT forced an
+        // `authenticated` grant on the RPC, which let any signed-in client
+        // call rpc/vessels_nearby directly and skip the 720/hour quota.
         const edge = readFileSync('supabase/functions/vessels-nearby/index.ts', 'utf8');
-        expect(edge).toContain("Deno.env.get('SUPABASE_ANON_KEY')");
-        expect(edge).toMatch(/global: \{ headers: \{ Authorization: authorization \} \}/);
+        expect(edge).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
+        expect(edge).not.toContain("Deno.env.get('SUPABASE_ANON_KEY')");
+        expect(edge).not.toMatch(/Authorization: authorization/);
+        // The caller is still verified and metered — the quota is the point.
+        const body = edge.slice(edge.indexOf('Deno.serve'));
+        const quotaAt = body.indexOf("requireAuthenticatedQuota(req, 'vessels_nearby'");
+        const rpcAt = body.indexOf(".rpc('vessels_nearby'");
+        expect(quotaAt).toBeGreaterThan(0);
+        expect(rpcAt).toBeGreaterThan(quotaAt);
+    });
+
+    it('110000 revokes the authenticated grant and keeps the service role', () => {
+        const mig = readFileSync('supabase/migrations/20260905110000_vessels_nearby_service_role_only.sql', 'utf8');
+        expect(mig).toMatch(/REVOKE EXECUTE ON FUNCTION public\.vessels_nearby\([^)]*\)\s+FROM authenticated;/);
+        expect(mig).toMatch(/GRANT EXECUTE ON FUNCTION public\.vessels_nearby\([^)]*\)\s+TO service_role;/);
+        // The order warning is part of the contract — it is what stops a
+        // db push from running ahead of the Function deploy.
+        expect(mig).toContain('deploy the vessels-nearby Function BEFORE applying this');
     });
 
     it('the public page never reads the table from the browser', () => {
