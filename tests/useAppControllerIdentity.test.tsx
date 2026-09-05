@@ -138,6 +138,56 @@ describe('useAppController account boundary', () => {
         setAuthIdentityScope('controller-a');
     });
 
+    // ── Item 14: onboarding must not fail open ──
+    //
+    // The boats cloud-check used to fall through to showing the wizard on ANY
+    // non-boat result — including an error or a thrown query. A returning user
+    // hit by a transient RLS/network failure was then walked through onboarding
+    // and created a SECOND vessel. Classification is now has-boat | no-boat |
+    // unknown, and only a CONCLUSIVE no-boat shows onboarding; a failed check
+    // is 'unknown' and leaves the wizard hidden, after a bounded retry.
+
+    it('a cloud-check ERROR leaves onboarding hidden — never traps a returning user', async () => {
+        h.getBoat.mockResolvedValue({ data: null, error: { message: 'network down' } });
+
+        const { result } = renderHook(() => useAppController());
+
+        // Retried three times, then gave up to unknown.
+        await waitFor(() => expect(h.getBoat).toHaveBeenCalledTimes(3), { timeout: 8000 });
+        expect(result.current.showOnboarding).toBe(false);
+    });
+
+    it('a THROWN cloud-check also leaves onboarding hidden', async () => {
+        h.getBoat.mockRejectedValue(new Error('offline'));
+
+        const { result } = renderHook(() => useAppController());
+
+        await waitFor(() => expect(h.getBoat).toHaveBeenCalledTimes(3), { timeout: 8000 });
+        expect(result.current.showOnboarding).toBe(false);
+    });
+
+    it('a transient failure that then succeeds is classified, not treated as new', async () => {
+        // One error, then the boat is found — this is a returning user on a
+        // flaky link, not a new one. Two calls, no wizard.
+        h.getBoat
+            .mockResolvedValueOnce({ data: null, error: { message: 'blip' } })
+            .mockResolvedValue({ data: { id: 'boat-a' }, error: null });
+
+        const { result } = renderHook(() => useAppController());
+
+        await waitFor(() => expect(h.getBoat).toHaveBeenCalledTimes(2), { timeout: 8000 });
+        expect(result.current.showOnboarding).toBe(false);
+    });
+
+    it('a CONCLUSIVE no-boat still shows onboarding — the genuinely-new path is intact', async () => {
+        h.getBoat.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppController());
+
+        await waitFor(() => expect(result.current.showOnboarding).toBe(true));
+        expect(h.getBoat).toHaveBeenCalledTimes(1);
+    });
+
     it('ignores a device-global legacy completion flag for a different account', async () => {
         localStorage.setItem('thalassa_v3_onboarded', 'true');
 
