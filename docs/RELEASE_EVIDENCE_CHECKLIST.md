@@ -18,19 +18,12 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 
 ### Archive
 
-- [ ] Xcode 26.6 selected. On 2026-09-06 `xcode-select -p` still pointed at
-      `/Applications/Xcode-beta.app` (Xcode 27.0) — switch before archiving:
-      `sudo xcode-select -s /Applications/Xcode-26.6.app/Contents/Developer`, then
-      `xcodebuild -version` must say 26.6.
-- [ ] Bump the build number: `CURRENT_PROJECT_VERSION` is **101** in
-      `ios/App/App.xcodeproj/project.pbxproj` (both configs). App Store Connect
-      needs a fresh, unique value — 102 or higher.
-- [ ] `npm run ship:beta` green locally (needs `.env.production.local`; Node 24).
-- [ ] Product → Archive with the **Distribution** signing identity.
+- [x] Xcode 26.6 selected (2026-09-06; `xcode-select` had been on the 27.0 beta).
+- [x] Build number bumped 101 → 102 on all four configurations, commit 0606365b (2026-09-06).
+- [x] `npm run ship:beta` green under Node 24 (Homebrew node@24): 132 release + 140 artifact contracts; bundle 13.15/18 MB, JS 9.71/9.90 MB — 98% of the JS budget, watch it (2026-09-06).
+- [x] Archived 2026-09-06 08:58 in Xcode 26.6: 1.2.0 (102), `com.thalassa.weather`, product `Thalassa Marine Weather.app` (icon label stays Thalassa), bundle main-DhSzDRmW.js, 0 source maps, dSYMs present. Archive signature is Apple Development as normal; the Distribution re-sign happens at export.
 - [ ] Organizer → Validate App passes (this is the step no prior evidence covers).
-- [ ] Confirm the archive contains **no** `com.thalassa.weather.watchkitapp`
-      binary (Watch cut). If it does, the Watch target is still embedded — fix
-      the project, re-archive.
+- [x] Archive verified: no Watch folder, no PlugIns; background modes = audio, location, fetch (2026-09-06).
 - [ ] Upload to TestFlight; record build number + date here.
 
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
