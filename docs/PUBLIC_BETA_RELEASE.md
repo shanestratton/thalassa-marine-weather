@@ -5,7 +5,7 @@
 - Candidate: **1.2.0 (101)**
 - Intended channel: **TestFlight external testing**
 - Minimum OS: **iOS 17 / watchOS 10**
-- Enabled sign-in: **email one-time code only**
+- Enabled sign-in: **email one-time code, Sign in with Apple (native and web), Google** — per `config/public-beta-features.json` (`VITE_APPLE_SIGN_IN_ENABLED`, `VITE_APPLE_WEB_SIGN_IN_ENABLED`, `VITE_GOOGLE_SIGN_IN_ENABLED` all `true`). This line said "email one-time code only" until 2026-09-05 while line 45 below already recorded native Apple sign-in as enabled in the committed profile; the profile is the build's truth and this dossier follows it.
 - Commercial state: **free public beta; no purchase is required or offered**
 - Candidate privacy-policy URL: **https://www.thalassawx.app/terms.html**
 - Candidate feedback address: **privacy@thalassawx.com**

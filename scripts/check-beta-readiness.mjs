@@ -2111,9 +2111,13 @@ check(
         includesAll(mobUi, ['const displayedDistance = ownPositionFresh', 'GPS stale', 'last known']),
 );
 check(
+    // 35 s, not 15 s, since 153c04f1: a Pi keeping the watch has no Supabase
+    // presence to lose and broadcasts every ~10 s, so a 15 s stale mark called a
+    // healthy Pi "offline" between beats. The gate pins the DELIBERATE value; a
+    // drift back to 15_000 should fail here just as loudly as this did.
     'Shore Watch marks disconnected or missed position broadcasts as last-known',
     includesAll(anchorUi, [
-        'SHORE_DATA_STALE_MS = 15_000',
+        'SHORE_DATA_STALE_MS = 35_000',
         'shoreDataFresh',
         'Vessel data is stale · showing last-known update',
         'Mute this device only',
