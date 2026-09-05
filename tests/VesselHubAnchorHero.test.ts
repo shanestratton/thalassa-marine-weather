@@ -110,6 +110,20 @@ describe('the Vessel hero card at anchor', () => {
         expect(pinned).toBeLessThanOrEqual(content + 12);
     });
 
+    it('lets the last row scroll clear of the tab bar', () => {
+        // The scrolling area had px-4 pt-4 and no bottom padding, so Settings &
+        // Connect sat flush against the bottom of the port — underneath the tab
+        // bar, with nothing below it to scroll into (Shane 2026-09-05: "the
+        // settings and connect button is not half hidden").
+        //
+        // The padding must be on the SCROLL CONTAINER. On a wrapper around it,
+        // it only shrinks the port and moves the problem down a level.
+        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in');
+        expect(at, 'the vessel scroll area must be findable').toBeGreaterThan(-1);
+        const el = hub.slice(at, at + 400);
+        expect(el).toContain("paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)'");
+    });
+
     it('never truncates a safety status — least of all OVERBOARD', () => {
         // "OVERBOARD" is the longest word in the narrowest tile and it was
         // being cut to "OVERBOA", on the button a skipper reaches for when
