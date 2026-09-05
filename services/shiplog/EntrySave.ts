@@ -17,7 +17,7 @@ import { BgGeoManager, CachedPosition } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { satelliteModeActive } from '../networkPolicy';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 
 const log = createLogger('EntrySave');
@@ -61,11 +61,9 @@ async function boundedRequest<T>(
  * Conserves bandwidth for Iridium GO! / metered satellite connections.
  */
 export function isSatelliteMode(): boolean {
-    try {
-        return !!useSettingsStore.getState().settings.satelliteMode;
-    } catch {
-        return false;
-    }
+    // One source of truth — see services/networkPolicy.ts. Kept as a named
+    // re-export so this module's callers read the same word they always did.
+    return satelliteModeActive();
 }
 
 /**

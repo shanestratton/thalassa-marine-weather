@@ -24,6 +24,7 @@ import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { canAccess } from '../../services/SubscriptionService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { satelliteModeBlocks } from '../../services/networkPolicy';
 import { publishInternetAisFeatures } from '../../services/AisGuardWatch';
 import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
 
@@ -948,6 +949,19 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 return;
             }
 
+            // SATELLITE MODE: no internet AIS. This poll runs every 10–60 s and
+            // fetches OTHER boats' positions — not weather, and the largest
+            // continuous data user on the chart. The promise on the Account
+            // screen is "~200 KB/day, weather only", so it must stop (audit
+            // item 12/13). The boat's own VHF receiver keeps feeding the local
+            // store for free, so mergeAndWrite() still draws what the aerial
+            // hears — the display just stops reaching for the aggregate.
+            if (satelliteModeBlocks('ais-internet')) {
+                cachedServerFeatures.current = [];
+                mergeAndWrite();
+                return;
+            }
+
             const center = map.getCenter();
             const zoom = map.getZoom();
             // An armed guard ring sets the floor — see pondRequestRadiusNm.
@@ -1031,6 +1045,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
         const tick = async () => {
             try {
+                // Satellite mode gates this floor for the same reason as the
+                // viewport fetch above — it is still an internet AIS request.
+                if (satelliteModeBlocks('ais-internet')) {
+                    cachedOwnshipFeatures.current = [];
+                    mergeAndWrite();
+                    return;
+                }
                 const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
                 if (!own) {
                     // No fix, nothing to pin to. The viewport fetch is still
