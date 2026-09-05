@@ -21,16 +21,43 @@ import { describe, expect, it } from 'vitest';
 import { MARINE_RESCUE_SERVICES, suggestMarineRescue } from '../services/marineRescueDirectory';
 
 describe('suggestMarineRescue', () => {
-    it('gives Shane the Queensland number at Newport, Moreton Bay', () => {
+    it('gives Shane the Queensland hotline at Newport, Moreton Bay', () => {
         const s = suggestMarineRescue(-27.2, 153.1);
-        expect(s?.service.service).toBe('Volunteer Marine Rescue QLD');
-        expect(s?.text).toBe('Volunteer Marine Rescue QLD · 07 3635 3600');
+        expect(s?.service.service).toBe('Marine Rescue Queensland');
+        expect(s?.text).toBe('Marine Rescue Queensland · 131 677');
+    });
+
+    it('does not still carry the superseded VMR QLD number anywhere', () => {
+        // VMR Queensland and the Australian Volunteer Coast Guard merged into
+        // Marine Rescue Queensland (131 MRQ). Shane caught 07 3635 3600 still
+        // sitting in the app on 2026-09-05. A stale number in an emergency
+        // list is the worst place for one, so this hunts it across both homes.
+        //
+        // Comments stripped first: BOTH files record the correction in prose,
+        // naming the old number so the next reader knows it was retired rather
+        // than lost. A note about a dead number is not a dead number, and a
+        // guard that cannot tell them apart would delete the explanation.
+        const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        const emergency = readFileSync('components/passage/EmergencyPlan.tsx', 'utf8');
+        for (const [file, src] of [
+            ['marineRescueDirectory', readFileSync('services/marineRescueDirectory.ts', 'utf8')],
+            ['EmergencyPlan', emergency],
+        ] as const) {
+            expect(strip(src), file).not.toContain('07 3635 3600');
+        }
+        expect(strip(emergency)).toContain('131 677');
+    });
+
+    it('covers the other states Shane sourced', () => {
+        // Adelaide, and Fremantle.
+        expect(suggestMarineRescue(-34.9, 138.5)?.service.service).toBe('SA SES Marine Rescue');
+        expect(suggestMarineRescue(-32.05, 115.7)?.service.service).toBe('DFES Western Australia');
     });
 
     it('switches to NSW below the border, not at the country level', () => {
         expect(suggestMarineRescue(-33.85, 151.2)?.service.service).toBe('Marine Rescue NSW');
         // Lady Musgrave, on his Coral Sea leg — still Queensland.
-        expect(suggestMarineRescue(-23.9, 152.4)?.service.service).toBe('Volunteer Marine Rescue QLD');
+        expect(suggestMarineRescue(-23.9, 152.4)?.service.service).toBe('Marine Rescue Queensland');
     });
 
     it('falls to the national coordinator offshore, where no state box reaches', () => {
@@ -72,13 +99,16 @@ describe('suggestMarineRescue', () => {
         }
     });
 
-    it('every number it can suggest already existed in the app', () => {
-        // The guard against a number arriving from nowhere. If an entry is
-        // added, its source belongs in EmergencyPlan too — or this test should
-        // be replaced by one that names where it was verified.
-        const known = readFileSync('components/passage/EmergencyPlan.tsx', 'utf8');
+    it('every number says where it was verified', () => {
+        // The guard against a number arriving from nowhere. It used to require
+        // that every entry already appeared in EmergencyPlan.tsx, which was
+        // the best available check while nothing had been sourced fresh — and
+        // it would have BLESSED the stale VMR QLD number, because that number
+        // was in EmergencyPlan. "It is already in the app" is not provenance.
+        // Naming the source is.
         for (const s of MARINE_RESCUE_SERVICES) {
-            expect(known, `${s.service} — ${s.phone} is not in EmergencyPlan`).toContain(s.phone);
+            expect(s.source?.trim(), `${s.service} has no source`).toBeTruthy();
+            expect(s.source.length, `${s.service}'s source is not a real citation`).toBeGreaterThan(12);
         }
     });
 });
