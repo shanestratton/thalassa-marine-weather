@@ -1,8 +1,7 @@
 /**
  * usePinViewMode — pin-view (chat pin tap) behaviour: the visual pin marker,
- * the temporary weather-layer snapshot/clear/restore, the auth-identity sync
- * that exits pin view when the account changes, and the Get Directions
- * handler that builds a Mapbox driving route to the pin.
+ * the temporary weather-layer snapshot/clear/restore, and the auth-identity
+ * sync that exits pin view when the account changes.
  *
  * Extracted verbatim from MapHub.tsx as part of the MapHub decomposition.
  * Closure captures became the `deps` parameter; no logic changes. The
@@ -12,7 +11,7 @@
  * `PinViewHandoff` type moved here from MapHub module scope (now exported;
  * MapHub still uses both).
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import mapboxgl from 'mapbox-gl';
 import {
@@ -22,7 +21,6 @@ import {
 } from '../../services/authIdentityScope';
 import type { WeatherLayer } from './mapConstants';
 import type { useWeatherLayers } from './useWeatherLayers';
-import type { useWeather } from '../../context/WeatherContext';
 
 export type PinViewHandoff = {
     lat: number;
@@ -56,7 +54,6 @@ export interface PinViewModeDeps {
     setCycloneVisible: Dispatch<SetStateAction<boolean>>;
     squallVisible: boolean;
     setSquallVisible: Dispatch<SetStateAction<boolean>>;
-    saveVoyagePlan: ReturnType<typeof useWeather>['saveVoyagePlan'];
 }
 
 export function usePinViewMode({
@@ -71,7 +68,6 @@ export function usePinViewMode({
     setCycloneVisible,
     squallVisible,
     setSquallVisible,
-    saveVoyagePlan,
 }: PinViewModeDeps) {
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -146,21 +142,19 @@ export function usePinViewMode({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPinView]);
 
-    // ── Pin View: Get Directions handler ──
-    // Builds a Mapbox driving route from current GPS to the pin and
-    // saves it as a VoyagePlan. Exits pin view on success so the
-    // user's normal layers come back along with the route, ready to
-    // navigate.
-    const [pinDirectionsBusy, setPinDirectionsBusy] = useState(false);
-    const [pinDirectionsError, setPinDirectionsError] = useState<string | null>(null);
-
+    // GET DIRECTIONS REMOVED (Shane 2026-09-05: "that is totally not
+    // necessary and it does not work anyway").
+    //
+    // It built a Mapbox DRIVING route from the phone's GPS to a pin someone
+    // shared in Scuttlebutt — road directions to a position that is usually on
+    // the water, from a receiver that is usually not on the boat. The exit
+    // paths it was listed among remain: the middle-left chevron, and the
+    // bottom nav.
     useEffect(() => {
         const syncIdentity = () => {
             const pinView = readCurrentPinView();
             ownedPinViewRef.current = pinView;
             setIsPinView(!!pinView);
-            setPinDirectionsBusy(false);
-            setPinDirectionsError(null);
         };
         const unsubscribeIdentity = subscribeAuthIdentityScope(syncIdentity);
         return () => {
@@ -172,52 +166,4 @@ export function usePinViewMode({
             ownedPinViewRef.current = null;
         };
     }, [ownedPinViewRef, setIsPinView]);
-
-    const handlePinDirections = useCallback(async () => {
-        const pv = readCurrentPinView();
-        if (!pv || pinDirectionsBusy) return;
-        ownedPinViewRef.current = pv;
-        const actionScope = pv.identity;
-        const destination = Object.freeze({ lat: pv.lat, lng: pv.lng });
-        setPinDirectionsBusy(true);
-        setPinDirectionsError(null);
-        try {
-            const { GpsService } = await import('../../services/GpsService');
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const pos = await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            if (!pos) {
-                setPinDirectionsError('Could not get your GPS position.');
-                return;
-            }
-            const { buildDirectionsVoyagePlan } = await import('../../services/MapboxDirectionsService');
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const plan = await buildDirectionsVoyagePlan(
-                { lat: pos.latitude, lon: pos.longitude, name: 'My Location' },
-                { lat: destination.lat, lon: destination.lng, name: 'Pin' },
-                'driving',
-            );
-            if (!isAuthIdentityScopeCurrent(actionScope) || window.__thalassaPinView !== pv) return;
-            if (!plan) {
-                setPinDirectionsError('No driving route found.');
-                return;
-            }
-            saveVoyagePlan(plan);
-            // Exit pin view so layers/route are visible normally.
-            delete window.__thalassaPinView;
-            ownedPinViewRef.current = null;
-            setIsPinView(false);
-        } catch (e) {
-            if (isAuthIdentityScopeCurrent(actionScope)) {
-                setPinDirectionsError(e instanceof Error ? e.message : 'Directions failed.');
-            }
-        } finally {
-            if (isAuthIdentityScopeCurrent(actionScope)) {
-                setPinDirectionsBusy(false);
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pinDirectionsBusy]);
-
-    return { pinDirectionsBusy, pinDirectionsError, handlePinDirections };
 }

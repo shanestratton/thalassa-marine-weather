@@ -4,11 +4,25 @@
  * Current-location and place sharing deliberately use the same transport,
  * but they have different promises to the skipper: a current location is a
  * fresh GPS snapshot, while a place is deliberately chosen on the chart.
+ *
+ * "My location" ON A BOAT IS THE BOAT'S. Shane 2026-09-05: "it is using the
+ * phones gps, and not the boat gps... a: the garmin gps, b: the 2ndary gps
+ * (the blox one hanging off the pi), and lastly the punters phone gps. reason
+ * being, is this is how the other gps services go."
+ *
+ * That order already existed as services/boatPositionChain.ts and had NO
+ * callers — built 2026-09-03 and never wired to a surface. This is the first.
+ * The phone stays as the last rung, never the first: it is below decks in a
+ * pocket, it is the receiver that leaves the boat, and it is the only one that
+ * can be somewhere the vessel is not.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatService, ChatMessage } from '../../services/ChatService';
 import { PinService, type SavedPin } from '../../services/PinService';
 import { GpsService } from '../../services/GpsService';
+import { boatFix, describeRung } from '../../services/boatPositionChain';
+import { NmeaStore } from '../../services/NmeaStore';
+import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { createLogger } from '../../utils/createLogger';
 import { PIN_PREFIX, reconcileOptimisticMessage } from '../../components/chat/chatUtils';
 import {
@@ -63,6 +77,13 @@ export function usePinDrop(options: UsePinDropOptions) {
     const [showAttachMenu, setShowAttachMenu] = useState(false);
     const [showPinSheet, setShowPinSheet] = useState(false);
     const [showPoiSheet, setShowPoiSheet] = useState(false);
+    /**
+     * Which receiver answered, in a skipper's words — "Boat GPS", "USB GPS
+     * (Pi)", "Phone GPS". Stored as the LABEL rather than the rung because
+     * describeRung also reads the Signal K source id to tell the Garmin from
+     * the u-blox, and that id is gone by the time the sheet renders.
+     */
+    const [pinRungLabel, setPinRungLabel] = useState<string | null>(null);
     const [pinLat, setPinLat] = useState(0);
     const [pinLng, setPinLng] = useState(0);
     const [pinCaption, setPinCaption] = useState('');
@@ -94,6 +115,7 @@ export function usePinDrop(options: UsePinDropOptions) {
         setPinSource(null);
         setPinAccuracy(null);
         setPinTimestamp(null);
+        setPinRungLabel(null);
     }, []);
 
     const syncPoiMarker = useCallback((latitude: number, longitude: number, recenter = false) => {
@@ -116,7 +138,12 @@ export function usePinDrop(options: UsePinDropOptions) {
             latitude: number,
             longitude: number,
             source: Exclude<PinSelectionSource, null>,
-            details: { accuracy?: number | null; timestamp?: number | null; recenter?: boolean } = {},
+            details: {
+                accuracy?: number | null;
+                timestamp?: number | null;
+                recenter?: boolean;
+                rungLabel?: string | null;
+            } = {},
         ) => {
             if (!isValidPinCoordinate(latitude, longitude)) return false;
             setPinLat(latitude);
@@ -124,6 +151,7 @@ export function usePinDrop(options: UsePinDropOptions) {
             setPinSource(source);
             setPinAccuracy(details.accuracy ?? null);
             setPinTimestamp(details.timestamp ?? null);
+            setPinRungLabel(details.rungLabel ?? null);
             setLocationError(null);
             syncPoiMarker(latitude, longitude, details.recenter === true);
             return true;
@@ -171,6 +199,29 @@ export function usePinDrop(options: UsePinDropOptions) {
     const requestCurrentLocation = useCallback(
         async (identity = getAuthIdentityScope(), { preserveSelectionOnFailure = false } = {}) => {
             try {
+                // Claim the NMEA store before asking the bus. NmeaStore only
+                // ingests after something calls start(), so a surface that
+                // reads NmeaGpsProvider without this gets an honest null and
+                // falls to the phone — arbitration as theatre. Idempotent, and
+                // the config gate means a phone that has never met a gateway
+                // opens no sockets.
+                if (NmeaListenerService.getSavedConfig()) NmeaStore.start();
+
+                // Rungs a and b: the Garmin off the bus, then the Pi (which has
+                // already chosen between the bus and its USB stick by source).
+                const boat = await boatFix();
+                if (!isAuthIdentityScopeCurrent(identity)) return false;
+                if (boat && isFreshGpsPosition(boat)) {
+                    return selectPoiPosition(boat.latitude, boat.longitude, 'current', {
+                        accuracy: null,
+                        timestamp: boat.timestamp,
+                        recenter: true,
+                        rungLabel: describeRung(boat),
+                    });
+                }
+
+                // Rung c: the phone. Last, and only because no boat source
+                // would answer with something fresh.
                 const position = await GpsService.requestCurrentForegroundPosition({
                     staleLimitMs: CURRENT_LOCATION_MAX_AGE_MS,
                     timeoutSec: 10,
@@ -188,6 +239,7 @@ export function usePinDrop(options: UsePinDropOptions) {
                     accuracy: position.accuracy,
                     timestamp: position.timestamp,
                     recenter: true,
+                    rungLabel: describeRung(null),
                 });
             } catch (error) {
                 log.warn('current location unavailable:', error);
@@ -480,6 +532,7 @@ export function usePinDrop(options: UsePinDropOptions) {
         setShowPinSheet,
         showPoiSheet,
         setShowPoiSheet,
+        pinRungLabel,
         pinLat,
         setPinLat,
         pinLng,
