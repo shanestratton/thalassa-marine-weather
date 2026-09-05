@@ -175,9 +175,7 @@ Reconcile against what the app actually collects. Ground truth per data type:
 
 ### Rights
 
-- [ ] AIS redistribution: AISHub written permission (Desimir, 2026-09-02) —
-      recorded in the `public_ais_enabled` column comment (`20260905103000`).
-      Keep the email.
+- [x] AIS redistribution: AISHub written permission (Desimir, 2026-09-02) recorded live in the `public_ais_enabled` column comment (20260905103000 applied 2026-09-05). Shane keeps the email.
 - [ ] Charts: S-63 permits per cell; o-charts licence; OpenSeaMap attribution
       shown in the map attribution control.
 - [ ] Weather: CC-BY-4.0 attribution for ECMWF/DWD/UKMO/JMA/Météo-France/NOAA
@@ -199,5 +197,4 @@ Reconcile against what the app actually collects. Ground truth per data type:
 
 ### Build number
 
-- [ ] `CURRENT_PROJECT_VERSION` bumped from 101 to a value never uploaded
-      before; matches `VITE_APP_BUILD`; recorded in the dossier.
+- [x] `CURRENT_PROJECT_VERSION` = 102 on every configuration (0606365b), uploaded as 1.2.0 (102). `VITE_APP_BUILD = 102` in CI vars still to set (§21).
