@@ -170,6 +170,8 @@ Reconcile against what the app actually collects. Ground truth per data type:
 - [ ] Support contact published in the App Store listing and in-app
       (privacy@thalassawx.com is in the Terms; add a support address if
       different).
+- [ ] **Reviewer sign-in for App Store review.** Sign-in is email one-time code (no password), so the App Review form's mandatory username/password cannot be filled truthfully. Before submission: a review-only mailbox whose codes you relay via the review notes, or a documented test account. (TestFlight beta review 2026-09-06 worked with "Sign-in required" unticked + notes explaining OTP.)
+- [x] TestFlight Test Information saved 2026-09-06: contact, review notes (OTP explained), privacy URL; standard Apple EULA (License Agreement left blank).
 - [ ] Written moderation procedure (who reviews reports, within what time)
       exists somewhere you can point Apple at if asked. One paragraph is enough.
 
