@@ -196,12 +196,30 @@ async function hop(
 export async function fetchMarine(lat: number, lon: number): Promise<MarineReading | null> {
     const params = `lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
 
-    if (piCache.isAvailable()) {
+    // The Pi leg needs its OWN transport. hop() below speaks plain fetch,
+    // which is right for Supabase and impossible for the Pi: self-signed TLS
+    // that only the pinned native transport can complete. Sending the Pi leg
+    // through hop() meant -1202 every time, swallowed by hop's `() => null`
+    // and reported as "Pi marine miss" — a transport failure wearing a cache
+    // miss's clothes, which is why it stayed invisible. canReachPinned also
+    // skips the trip entirely when no pin exists to present.
+    if (piCache.canReachPinned()) {
         try {
-            const piUrl = `${piCache.baseUrl}/api/weather/marine?${params}`;
-            const viaPi = await hop(piUrl, lat, lon, 'pi');
+            const { pinnedPiRequest } = await import('../../PiPairingService');
+            const res = await withTimeout(
+                pinnedPiRequest({
+                    url: `${piCache.baseUrl}/api/weather/marine?${params}`,
+                    readTimeout: HOP_MS,
+                }).then(
+                    (r) => (r.status >= 200 && r.status < 300 && r.data ? JSON.parse(r.data) : null),
+                    () => null,
+                ),
+                null,
+                HOP_MS,
+            );
+            const viaPi = res ? mapMarine(res as RawMarine, lat, lon, 'pi') : null;
             if (viaPi) return viaPi;
-            log.warn('Pi marine miss — falling through to Supabase');
+            log.warn('Pi marine returned nothing — falling through to Supabase');
         } catch {
             /* fall through */
         }

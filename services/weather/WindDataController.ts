@@ -18,7 +18,6 @@ import { fetchWindGrid, fetchGlobalWindField, type WindGrid } from './windField'
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
 import { LocationStore } from '../../stores/LocationStore';
-import { piCache } from '../PiCacheService';
 import { withDeadline } from '../../utils/deadline';
 import { crumb } from '../../utils/flightRecorder';
 import { heapTag } from '../../utils/heapGauge';
@@ -908,40 +907,18 @@ export const WindDataController = {
             // Pi caches the binary GRIB keyed by rounded bounds so subsequent
             // fetches (pan, re-toggle, passage plan) are instant even when the
             // phone is on cellular.
-            const supabaseUrl =
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
-                'https://pcisdplnodrphauixcau.supabase.co';
-            const supabaseKey =
-                (typeof import.meta !== 'undefined' &&
-                    (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
-                '';
-            const directUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
-            const usePi = piCache.isAvailable();
-            const edgeUrl = usePi ? `${piCache.baseUrl}/api/grib/wind-grid` : directUrl;
-
-            // JS-level deadline — AbortSignal is a no-op under CapacitorHttp (see utils/deadline.ts)
-            const res = await withDeadline(
-                fetch(edgeUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(usePi || !supabaseKey
-                            ? {}
-                            : {
-                                  apikey: supabaseKey,
-                                  Authorization: `Bearer ${supabaseKey}`,
-                              }),
-                    },
-                    body: JSON.stringify({ north, south, east, west }),
-                }),
-                30_000,
-                'fetch-wind-grid',
-            );
+            // One implementation, shared with isochroneEnhancer and the
+            // passage planner. This copy called plain fetch() at the Pi's
+            // self-signed HTTPS and so failed with -1202 on every device;
+            // see services/weather/fetchWindGrid.ts.
+            const { fetchWindGridBuffer } = await import('./fetchWindGrid');
+            const res = await fetchWindGridBuffer({ north, south, east, west }, { timeoutMs: 30_000 });
             if (!isCurrentWindRequest(request)) return false;
 
-            if (res.ok) {
-                const buffer = await res.arrayBuffer();
-                if (!isCurrentWindRequest(request)) return false;
+            if (!isCurrentWindRequest(request)) return false;
+
+            if (res.status >= 200 && res.status < 300) {
+                const buffer = res.buf;
                 if (buffer.byteLength > 200) {
                     const { decodeGrib2WindMultiHour } = await import('./decodeGrib2Wind');
                     if (!isCurrentWindRequest(request)) return false;

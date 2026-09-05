@@ -96,58 +96,11 @@ async function ensureWindGridForRoute(
     const east = maxLon + lonPad;
 
     try {
-        const supabaseUrl =
-            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
-            'https://pcisdplnodrphauixcau.supabase.co';
-        const supabaseKey =
-            (typeof import.meta !== 'undefined' &&
-                (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
-            '';
-        const { piCache } = await import('./PiCacheService');
-        const usePi = piCache.isAvailable();
-        const url = usePi ? `${piCache.baseUrl}/api/grib/wind-grid` : `${supabaseUrl}/functions/v1/fetch-wind-grid`;
-        // Two different transports, because these are two different hosts.
-        // The Pi leg must be pinned — plain fetch cannot complete its
-        // self-signed handshake — while the Supabase leg is ordinary HTTPS
-        // with a public CA and an apikey header.
-        // Two different transports, because these are two different hosts.
-        // The Pi leg must be pinned — plain fetch cannot complete its
-        // self-signed handshake — while the Supabase leg is ordinary HTTPS
-        // with a public CA and an apikey header.
-        //
-        // The payload is BINARY GRIB2, so the Pi leg asks for arraybuffer and
-        // decodes the base64 the bridge returns. Reading this as text would
-        // corrupt it into a decode failure that looks like a bad forecast.
-        let status: number;
-        let buf: ArrayBuffer;
-        if (usePi) {
-            const { pinnedPiRequest } = await import('./PiPairingService');
-            const piRes = await pinnedPiRequest({
-                url,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                data: { north, south, east, west },
-                readTimeout: 20_000,
-                responseType: 'arraybuffer',
-            });
-            status = piRes.status;
-            const binary = atob(piRes.data || '');
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-            buf = bytes.buffer;
-        } else {
-            const cloudRes = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
-                body: JSON.stringify({ north, south, east, west }),
-                signal: AbortSignal.timeout(20_000),
-            });
-            status = cloudRes.status;
-            buf = await cloudRes.arrayBuffer();
-        }
+        // One implementation, shared with WindDataController and the passage
+        // planner. Two hand-copies of this block missed the pinned-transport
+        // migration; see services/weather/fetchWindGrid.ts.
+        const { fetchWindGridBuffer } = await import('./weather/fetchWindGrid');
+        const { status, buf } = await fetchWindGridBuffer({ north, south, east, west }, { timeoutMs: 20_000 });
         if (status < 200 || status >= 300) {
             log.warn(`wind grid fetch failed: HTTP ${status}`);
             return false;

@@ -38,10 +38,17 @@ const ALLOWED = new Map<string, string>([
     ['components/map/useMapInit.ts', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
     ['components/map/ThalassaMap.tsx', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
     ['components/chat/PinMapViewer.tsx', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
+    // Fetches the URL it builds, but over pinnedPiRequest — the pin is
+    // present, which is the whole point of the rule. Pinned by
+    // PiTransportCompleteness.test.ts, which reads the transport itself.
+    ['services/weather/api/unified.ts', 'builds and fetches it over the pinned transport'],
 ]);
 
 const SCAN_DIRS = ['services', 'components', 'hooks', 'stores', 'utils'];
-const BARE_BUILDERS = /\.(passthroughUrl|passthroughTileUrl)\s*\(/;
+// unifiedWeatherUrl is the THIRD builder of this shape — `${this.baseUrl}
+// /api/weather/unified?...` — and its absence here is why services/weather/
+// api/unified.ts fetched it with a plain fetch() undetected until 2026-09-05.
+const BARE_BUILDERS = /\.(passthroughUrl|passthroughTileUrl|unifiedWeatherUrl)\s*\(/;
 
 /**
  * Strip comments before scanning. Prose ABOUT these builders is fine and

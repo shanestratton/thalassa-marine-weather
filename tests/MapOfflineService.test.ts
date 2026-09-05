@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const piCache = vi.hoisted(() => ({
     isAvailable: vi.fn(),
-    canPassThrough: vi.fn(),
+    canReachPinned: vi.fn(),
     passthroughTileUrl: vi.fn(),
     passthroughTileResponse: vi.fn(),
     getStatus: vi.fn(),
@@ -64,7 +64,7 @@ beforeEach(() => {
     piCache.isAvailable.mockReturnValue(false);
     // The lane tests below are about transport, not pairing, so by default a
     // reachable Pi is also a usable one. The test that separates them says so.
-    piCache.canPassThrough.mockImplementation(() => piCache.isAvailable());
+    piCache.canReachPinned.mockImplementation(() => piCache.isAvailable());
     piTls.isPinnedTransportAvailable.mockReturnValue(false);
     piTls.piRequest.mockReset();
     // Default: no usable Pi lane, so callers go direct.
@@ -278,7 +278,7 @@ describe('offline tile download lanes', () => {
         enableCapability();
         nativeRuntime.enabled = true;
         piCache.isAvailable.mockReturnValue(true);
-        piCache.canPassThrough.mockReturnValue(false);
+        piCache.canReachPinned.mockReturnValue(false);
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
