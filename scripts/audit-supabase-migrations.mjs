@@ -135,7 +135,11 @@ for (const filename of entries) {
         if (!declared) continue;
         const fn = declared[1];
 
-        if (!/SET\s+search_path\s*=/i.test(chunk)) {
+        // `SET search_path = a, b` is the house style; `SET search_path TO 'a', 'b'`
+        // is what pg_get_functiondef emits, and a migration regenerated from a
+        // live body (20260905100000, 20260905101000) carries the latter. Same
+        // meaning; both pass.
+        if (!/SET\s+search_path\s*(=|TO)/i.test(chunk)) {
             errors.push(`${filename}: ${fn}() is SECURITY DEFINER without SET search_path`);
         }
         // Reachability has to be stated somewhere in the file — either the
