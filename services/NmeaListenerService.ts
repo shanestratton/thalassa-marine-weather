@@ -104,6 +104,33 @@ const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed
 const TCP_READ_TIMEOUT_S = 5; // Read timeout for TCP polling (seconds)
 const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
 /**
+ * Floor on the gap between two reads once data IS flowing.
+ *
+ * The data path used to `continue` straight into the next read with nothing
+ * between them. capacitor-tcp-socket resolves as soon as ANY bytes are
+ * available, not when expectLen is full, so against a live gateway this loop
+ * does not wait for a sentence — it spins as fast as the bridge can answer.
+ *
+ * Shane's Web Inspector, 2026-09-05: 25.7 MILLION TcpSocket.read calls in one
+ * session, about 7,000 a second. Every one is a full round trip across the
+ * ONE serial queue the whole app shares — JS to JSON to native and back —
+ * allocating a call object, a result object and a response string each time.
+ * That is the allocation RATE that walks a webview into the 2 GB ceiling while
+ * every retained-size counter stays small, and it is why unrelated plugins
+ * stall behind it.
+ *
+ * NMEA 0183 at 38400 baud is 3,840 bytes/s; a gateway carrying AIS as well
+ * rarely passes 10 KB/s. 40 ms between reads is 25 a second — 250 to 400 bytes
+ * of headroom per read against a 4 KB buffer, and 350x fewer bridge calls.
+ *
+ * The pause is skipped whenever a read comes back near-full, so a genuinely
+ * backed-up socket still drains at full speed. Pacing only spends headroom
+ * that measurably exists.
+ */
+const TCP_MIN_READ_INTERVAL_MS = 40;
+/** A read this full means bytes are still queued — drain, do not pace. */
+const TCP_READ_BACKLOG_BYTES = TCP_READ_BUFFER - 512;
+/**
  * Hard cap on the partial-line buffer. ~800 maximum-length NMEA sentences;
  * past this no delimiter is coming and the stream is not line-delimited NMEA.
  */
@@ -315,6 +342,10 @@ class NmeaListenerServiceClass {
     private tcpLineBuffer = '';
     /** Bytes discarded because no line delimiter ever arrived. */
     private tcpBufferDiscardedBytes = 0;
+    /** Total TcpSocket.read bridge calls this process — the rate is the risk. */
+    private tcpReadCalls = 0;
+    /** Reads that skipped the pace floor because the socket was backed up. */
+    private tcpBacklogReads = 0;
 
     /**
      * Report the buffer to the memory census.
@@ -327,6 +358,8 @@ class NmeaListenerServiceClass {
         void import('./memoryCensus').then(({ registerCensusProbe }) => {
             registerCensusProbe('nmeaBufferKB', () => Math.round(this.tcpLineBuffer.length / 1024));
             registerCensusProbe('nmeaDiscardedKB', () => Math.round(this.tcpBufferDiscardedBytes / 1024));
+            registerCensusProbe('nmeaReadCallsK', () => Math.round(this.tcpReadCalls / 1000));
+            registerCensusProbe('nmeaBacklogReads', () => this.tcpBacklogReads);
         });
     }
     /** Last error message for UI display */
@@ -640,6 +673,7 @@ class NmeaListenerServiceClass {
             while (this.tcpReadLoop && this.enabled && generation === this.connectionGeneration) {
                 try {
                     const readStartedAt = Date.now();
+                    this.tcpReadCalls++;
                     const { result } = await TcpSocket.read({
                         client,
                         expectLen: TCP_READ_BUFFER,
@@ -674,18 +708,20 @@ class NmeaListenerServiceClass {
                         // for as long as the feed runs. Nothing reset it
                         // between connect and disconnect.
                         //
-                        // That is the unbounded allocation behind the app being
-                        // killed at iOS's 2GB per-process ceiling: a plain JS
-                        // string, invisible to every counter the memory census
-                        // owns (ENC 0, tiles 0, GL 0, DOM 2,590 — all tiny
-                        // while the webview walked into the wall).
+                        // This was once written up as THE cause of the app
+                        // being killed at iOS's 2 GB per-process ceiling. It
+                        // was not, and the retraction matters more than the
+                        // bound: the "malformed/checksum-invalid" sentences
+                        // that made a non-delimited stream look likely were
+                        // measured by hand and every checksum was CORRECT —
+                        // GSV, VTG, GLL, ZDA, ROT, DTM, HTD, types with no
+                        // parser here. Well-formed sentences prove delimiters
+                        // exist, so this buffer never grew, and the census
+                        // said so: nmeaBufferKB 0, discarded 0.
                         //
-                        // Shane's Web Inspector, 2026-09-05: a live NMEA feed
-                        // logging "dropped 2,251 malformed/checksum-invalid
-                        // sentence(s)" and climbing, over 25.7 MILLION
-                        // TcpSocket.read calls in one session. A stream that
-                        // fails the checksum is exactly the stream that may
-                        // carry no newline.
+                        // Keep the bound anyway — an unbounded accumulator is
+                        // a bug whether or not it is today's bug. The rate
+                        // problem from the same session is TCP_MIN_READ_INTERVAL_MS.
                         //
                         // 64KB is ~800 maximum-length NMEA sentences. Past
                         // that, no delimiter is coming. Keep the tail so a
@@ -712,6 +748,19 @@ class NmeaListenerServiceClass {
                             if (trimmed.startsWith('$') || trimmed.startsWith('!')) {
                                 this.parseNmeaSentence(trimmed);
                             }
+                        }
+
+                        // Pace the data path. See TCP_MIN_READ_INTERVAL_MS —
+                        // an unpaced `continue` here is 7,000 bridge calls a
+                        // second. A near-full read means more bytes are
+                        // already queued, so that case drains immediately.
+                        if (result.length >= TCP_READ_BACKLOG_BYTES) {
+                            this.tcpBacklogReads++;
+                            continue;
+                        }
+                        const spent = Date.now() - readStartedAt;
+                        if (spent < TCP_MIN_READ_INTERVAL_MS) {
+                            await new Promise((r) => setTimeout(r, TCP_MIN_READ_INTERVAL_MS - spent));
                         }
                         continue;
                     }
