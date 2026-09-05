@@ -9,6 +9,7 @@
 
 import { safeRssHttpsUrl } from './urlSecurity.ts';
 import { readResponseTextLimited } from '../_shared/http-security.ts';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { plainTextFromMarkup } from '../_shared/plain-text.ts';
 
 const corsHeaders = {
@@ -152,11 +153,30 @@ async function fetchFeed(feed: { url: string; source: string; icon: string }): P
     }
 }
 
+/**
+ * One aggregated result per isolate, reused for CACHE_TTL_MS. Five upstream
+ * RSS fetches per request was the whole cost of this function, and every
+ * client asked the same question; the answer changes a few times an hour.
+ */
+const CACHE_TTL_MS = 10 * 60 * 1000;
+let cached: { at: number; body: string } | null = null;
+
 Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
 
+    // Audit item 16: this public news feed had no caller or volume control, so
+    // one script could make it fan out to five upstream publishers without
+    // limit. A signed-in caller gets an authenticated quota; anyone else a
+    // lower per-client one keyed by address hash — the helper get-weather uses.
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'maritime_intel', 120, 30, 3600);
+    if (caller instanceof Response) return withCors(caller, corsHeaders);
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+        return new Response(cached.body, {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=1800' },
+        });
+    }
     try {
         // Fetch all feeds in parallel
         const results = await Promise.allSettled(RSS_FEEDS.map(fetchFeed));
@@ -176,7 +196,11 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[maritime-intel] Returning ${limited.length} articles`);
 
-        return new Response(JSON.stringify({ articles: limited }), {
+        const body = JSON.stringify({ articles: limited });
+
+        if (limited.length > 0) cached = { at: Date.now(), body };
+
+        return new Response(body, {
             headers: {
                 ...corsHeaders,
                 'Content-Type': 'application/json',
