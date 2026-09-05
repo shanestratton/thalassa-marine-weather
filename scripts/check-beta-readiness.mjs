@@ -2731,11 +2731,21 @@ check(
         voiceOrchestrator.includes('Apple Music controls are unavailable in this public beta') &&
         voiceOrchestrator.includes('!FEATURE_VISIBILITY.appleMusic && APPLE_MUSIC_TOOL_NAMES.has(name)') &&
         !voiceOrchestrator.includes('Apple Music tools are available whenever') &&
-        includesAll(normalizedPublicTerms, [
-            'both connections are',
-            'disabled in this public-beta candidate',
-            'If a future release enables one and you explicitly connect it',
-        ]) &&
+        // The Terms must describe the SHIPPED state. With the flag on they say
+        // Apple Music is available and what it processes (v2.9, 2026-09-05);
+        // with it off they carry the held-state copy. Either way Gmail stays
+        // disabled.
+        (appleMusicFlagOn
+            ? includesAll(normalizedPublicTerms, [
+                  'Gmail connections are disabled in this public-beta candidate',
+                  'Apple Music is available: if you explicitly connect it',
+                  'does not receive or store your Apple Music user token',
+              ]) && !normalizedPublicTerms.includes('Apple Music connections are disabled')
+            : includesAll(normalizedPublicTerms, [
+                  'both connections are',
+                  'disabled in this public-beta candidate',
+                  'If a future release enables one and you explicitly connect it',
+              ])) &&
         // Held-state copy is asserted only while the feature IS held; with the
         // flag on these strings are expected to be gone.
         (appleMusicFlagOn || !appShell.includes('GlobalNowPlayingBar')),
@@ -3016,9 +3026,14 @@ check(
         // strict no-biometrics boundary, human fallback, and bounded audit.
         // v2.8 adds the public Product Feedback collection, optional browser
         // diagnostics, abuse-token, transactional-email, and retention terms.
-        'Version 2.8',
-        '28 August 2026',
-        'destructive in-app deletion flow is temporarily unavailable during this beta',
+        // v2.9 (5 Sep 2026) states that in-app account deletion is available
+        // (Settings → Account → Delete account) and exactly what it removes —
+        // the flag was on and the backend smoke had passed while the hosted
+        // Terms still said "temporarily unavailable" (audit item 7).
+        'Version 2.9',
+        '5 September 2026',
+        'You can permanently delete your account from within the App',
+        'Once you confirm, deletion cannot be undone',
         'mailto:privacy@thalassawx.com',
         'Twilio Verify',
         'solely to deliver and check one-time verification codes',
