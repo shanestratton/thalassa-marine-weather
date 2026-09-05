@@ -91,7 +91,7 @@ export function MapWeatherControls({
         <button
             type="button"
             onClick={() => onControlsHiddenChange(true)}
-            className="flex aspect-square h-auto shrink-0 items-center justify-center self-stretch rounded-2xl border border-white/8 bg-slate-900/80 text-slate-300 shadow-lg backdrop-blur-md transition-transform active:scale-95"
+            className="flex w-16 shrink-0 items-center justify-center self-stretch rounded-2xl border border-white/8 bg-slate-900/80 text-slate-300 shadow-lg backdrop-blur-md transition-transform active:scale-95"
             aria-label="Hide weather controls"
             title="Hide controls"
         >
