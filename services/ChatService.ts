@@ -22,7 +22,6 @@ import { boundedLocalQuarantine } from '../utils/localPrivacyRetention';
 import { supabase } from './supabase';
 import { Preferences } from '@capacitor/preferences';
 import { isAuthRetryableFetchError, type RealtimeChannel, type User } from '@supabase/supabase-js';
-import { moderateMessage } from './ContentModerationService';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -620,14 +619,13 @@ class ChatServiceClass {
             return null;
         }
 
-        // Fire-and-forget: async AI moderation check (~1-2s)
-        // Message is already posted — if flagged, it gets soft-deleted
+        // Moderation is SERVER-SIDE since 2026-09-05: the row was inserted
+        // 'pending', visible only to this author; a database trigger hands it
+        // to the moderate-chat-message Function, which publishes or rejects it
+        // and Realtime delivers the result. The phone no longer classifies its
+        // own message — a phone with no network, or a modified client, used to
+        // moderate nothing, and everyone saw everything first.
         const msg = data as ChatMessage;
-        if (this.operationIsCurrent(operation)) {
-            moderateMessage(msg.id, text, operation.userId, channelId).catch((e) => {
-                if (this.operationIsCurrent(operation)) log.warn(``, e);
-            });
-        }
 
         // Fire-and-forget: push notifications for SOS questions
         if (isQuestion && data?.id) {

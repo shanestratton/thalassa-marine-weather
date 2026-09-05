@@ -245,3 +245,9 @@ verify_jwt = false
 # Invoked by a database trigger / retry sweep over pg_net with the service key;
 # the function requires an exact service-role POST before delivering.
 verify_jwt = false
+
+[functions.moderate-chat-message]
+# Invoked by the chat_messages AFTER INSERT trigger and the retry sweep over
+# pg_net with the service key; the function requires an exact service-role
+# POST before any database or Gemini work. No user JWT exists in that path.
+verify_jwt = false
