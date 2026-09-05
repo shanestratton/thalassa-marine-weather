@@ -710,26 +710,46 @@ describe('GpsSubscriptionManager', () => {
             expect(trackBuffer.drain().map((point) => point.timestamp)).toEqual([t0, t0 + 300_000]);
         });
 
-        it('falls back to a live phone GPS at the 3-second nearshore cadence when NMEA reports only every 10 seconds', () => {
+        it('lets the boat GPS reclaim the track the moment it speaks, even mid-cadence', () => {
+            // POLICY REVERSED, 2026-09-05. This test used to assert the
+            // opposite: that once NMEA missed the nearshore three-second
+            // target, the phone became "the stable selected source" and a
+            // healthy-but-slower NMEA update could not displace it. The stated
+            // reason was to avoid receiver sawtooth and a sparse berth track,
+            // and against two receivers bolted to the same boat that reasoning
+            // holds.
+            //
+            // The phone is not bolted to the boat. Shane, standing 2.3 km away
+            // from Serene Summer while the log rejected his own handset twice
+            // at exactly 2321 m: "we need to ensure that the phone does not cut
+            // in unless we have a dead gps. killed, murdered. dead."
+            //
+            // So a slow chartplotter now costs track DENSITY, which is the
+            // cheap failure, instead of risking track TRUTH, which is not.
             startMgr({ getPlottingProfile: () => NEARSHORE_PLOTTING_PROFILE });
             vi.advanceTimersByTime(5_001);
 
             const t0 = Date.now();
             capturedNmeaHandler!(makeNmeaFix({ timestamp: t0, speed: 0 })); // opens from external GPS
 
-            // Once the NMEA source misses the nearshore three-second target,
-            // phone becomes the stable selected source. It is not displaced
-            // by the next healthy-but-slower NMEA update while phone remains
-            // live, so we avoid receiver sawtooth as well as a sparse berth
-            // track.
+            // With no gateway configured this manager has no vessel GPS to
+            // wait for, so the phone may contribute — the punter-without-a-boat
+            // branch. It fills the gaps while NMEA is quiet.
             vi.advanceTimersByTime(3_000);
             capturedLocationHandler!(makeFix({ timestamp: Date.now(), receivedAt: Date.now(), speed: 0 }));
             vi.advanceTimersByTime(3_000);
             capturedLocationHandler!(makeFix({ timestamp: Date.now(), receivedAt: Date.now(), speed: 0 }));
             vi.advanceTimersByTime(3_000);
             capturedLocationHandler!(makeFix({ timestamp: Date.now(), receivedAt: Date.now(), speed: 0 }));
+
+            // The boat's receiver speaks again. It is never suppressed, so it
+            // takes the selection straight back — the fix itself is deferred
+            // by the three-second cadence, one second after the last point.
             vi.advanceTimersByTime(1_000);
-            capturedNmeaHandler!(makeNmeaFix({ timestamp: Date.now(), speed: 0 })); // suppressed: phone is live
+            capturedNmeaHandler!(makeNmeaFix({ timestamp: Date.now(), speed: 0 }));
+
+            // ...and the phone two seconds later is now the one suppressed,
+            // because the vessel's GPS has just proved it is alive.
             vi.advanceTimersByTime(2_000);
             capturedLocationHandler!(makeFix({ timestamp: Date.now(), receivedAt: Date.now(), speed: 0 }));
 
@@ -738,7 +758,6 @@ describe('GpsSubscriptionManager', () => {
                 t0 + 3_000,
                 t0 + 6_000,
                 t0 + 9_000,
-                t0 + 12_000,
             ]);
             expect(onAcceptedFix).toHaveBeenCalledTimes(5);
         });

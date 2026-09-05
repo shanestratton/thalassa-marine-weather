@@ -32,6 +32,7 @@ import { BgGeoManager } from '../BgGeoManager';
 import type { CachedPosition } from '../BgGeoManager';
 import { EnvironmentService } from '../EnvironmentService';
 import { NmeaGpsProvider } from '../NmeaGpsProvider';
+import { NmeaListenerService } from '../NmeaListenerService';
 import { GpsPrecision } from './GpsPrecisionTracker';
 import type { GpsTrackBuffer } from './GpsTrackBuffer';
 import { haversineMeters, headingDelta } from './GpsTrackBuffer';
@@ -107,6 +108,32 @@ const COLD_START_FALLBACK_MS = 60_000;
 // only every 5–10 seconds. Coastal/offshore retain a 15-second maximum so a
 // truly silent selected receiver never blocks a live backup indefinitely.
 const SOURCE_FALLBACK_MAX_SILENCE_MS = 15_000;
+/**
+ * How long the vessel's GPS must be DEAD before the phone may take the track.
+ *
+ * The 15-second window above was designed for two receivers ON THE SAME BOAT,
+ * 10–50 m apart, to stop them alternating into a sawtooth. It is the wrong
+ * tool for the phone, because the phone is the one receiver that leaves.
+ *
+ * Shane, 2026-09-05, standing 2.3 km from Serene Summer, watching the log
+ * reject his own phone twice: "position spike 2321m in 3.5s = 1276kn implied",
+ * then again at 3.4s. Identical to the metre both times, because it was not
+ * drift — it was two real receivers in two real places, and the only thing
+ * between them and one joined-up track was a spike guard. His rule: "we need
+ * to ensure that the phone does not cut in unless we have a dead gps. killed,
+ * murdered. dead."
+ *
+ * `getFeedStatus() === 'unavailable'` is already the app's shared definition
+ * of a dead feed — The Glass, receiver status and navigation all use it, so
+ * this invents no second envelope. But it goes 'unavailable' 13 s after the
+ * last fix, and instantly on a dropped connection, which a reconnect ladder,
+ * a Wi-Fi roam or a gateway reboot all clear. Dead has to mean dead, so it
+ * must STAY unavailable for this long first.
+ *
+ * Three minutes costs at most three minutes of track when a gateway genuinely
+ * dies. Getting it wrong costs a voyage track that drove home in the car.
+ */
+const VESSEL_GPS_DEAD_DWELL_MS = 180_000;
 // Five minutes is a useful offshore storage baseline, but a single 5-minute
 // chord can hide a meaningful turn at speed. Keep a safety vertex when the
 // vessel has covered one nautical mile or made a material change of course.
@@ -191,6 +218,9 @@ export class GpsSubscriptionManager {
      */
     private lastAcceptedFix: CachedPosition | null = null;
 
+    /** When the vessel's GPS first went unavailable, or null while it is alive. */
+    private vesselGpsDeadSince: number | null = null;
+
     /** Receiver currently contributing accepted positions to the voyage. */
     private selectedTrackSource: TrackSource | null = null;
 
@@ -247,6 +277,7 @@ export class GpsSubscriptionManager {
         this.speedTierConfirmCount = 0;
         this.lastAcceptedFix = null;
         this.selectedTrackSource = null;
+        this.vesselGpsDeadSince = null;
         this.lastNmeaAcceptedAt = 0;
         this.lastPhoneAcceptedAt = 0;
         this.lastBufferedAt = 0;
@@ -314,7 +345,7 @@ export class GpsSubscriptionManager {
             if (
                 opts.isActive() &&
                 this.sourceCanContribute('nmea', cached, opts) &&
-                this.acceptFix(cached, opts.trackBuffer)
+                this.acceptFix(cached, opts.trackBuffer, 'nmea')
             ) {
                 this.lastAcceptedFix = cached;
                 this.noteAcceptedSource('nmea');
@@ -427,7 +458,11 @@ export class GpsSubscriptionManager {
         // one polyline. The selected source may yield after its profile-sized
         // silence window, so a 5–10s NMEA feed cannot block an available
         // 3-second nearshore phone fix forever.
-        if (opts.isActive() && this.sourceCanContribute('phone', pos, opts) && this.acceptFix(pos, opts.trackBuffer)) {
+        if (
+            opts.isActive() &&
+            this.sourceCanContribute('phone', pos, opts) &&
+            this.acceptFix(pos, opts.trackBuffer, 'phone')
+        ) {
             if (this.hasBufferedThisSession) {
                 this.lastAcceptedFix = pos;
                 this.noteAcceptedSource('phone');
@@ -532,6 +567,23 @@ export class GpsSubscriptionManager {
      * dashboard's selected weather location.
      */
     private sourceCanContribute(source: TrackSource, pos: CachedPosition, opts: GpsSubscriptionOptions): boolean {
+        // THE BOAT ALWAYS WINS, AND IMMEDIATELY. Its GPS is the one every
+        // other instrument is steering by, and it cannot be anywhere the
+        // vessel is not. Nothing it says needs to wait out a grace window.
+        if (source === 'nmea') return true;
+
+        // From here down, `source` is the phone.
+        //
+        // ASYMMETRY IS THE POINT. The old rule was the same in both
+        // directions: after a 15-second silence, whoever spoke next took the
+        // track. That is right for two receivers on one boat and wrong for the
+        // only receiver that can walk off it — a gateway hiccup was all it took
+        // to hand the voyage to a phone in a car park.
+        if (!this.isVesselGpsDead()) return false;
+
+        // The vessel's GPS is dead. The phone may open the track, or take it
+        // over — but a stale selection still gets the sawtooth guard, so two
+        // phone-side receivers cannot alternate either.
         if (!this.selectedTrackSource || this.selectedTrackSource === source) return true;
 
         const selectedAt = this.selectedTrackSource === 'nmea' ? this.lastNmeaAcceptedAt : this.lastPhoneAcceptedAt;
@@ -541,6 +593,25 @@ export class GpsSubscriptionManager {
             SOURCE_FALLBACK_MAX_SILENCE_MS,
         );
         return Date.now() - selectedAt >= fallbackAfterMs;
+    }
+
+    /**
+     * Is the vessel's GPS dead — not quiet, not reconnecting, DEAD?
+     *
+     * Two ways to be dead, and the first matters as much as the second: a
+     * phone with NO GATEWAY CONFIGURED has no vessel GPS to wait for, and must
+     * never be made to serve out a dwell before it can log its own trip. Every
+     * punter without a boat lives in that branch.
+     */
+    private isVesselGpsDead(now = Date.now()): boolean {
+        if (!NmeaListenerService.getSavedConfig()) return true;
+
+        if (NmeaGpsProvider.getFeedStatus(now) !== 'unavailable') {
+            this.vesselGpsDeadSince = null;
+            return false;
+        }
+        if (this.vesselGpsDeadSince === null) this.vesselGpsDeadSince = now;
+        return now - this.vesselGpsDeadSince >= VESSEL_GPS_DEAD_DWELL_MS;
     }
 
     /** Record an accepted-source handover only after the common GPS gate passes. */
@@ -690,7 +761,15 @@ export class GpsSubscriptionManager {
      *      because GPS-reported speed can stay normal while lat/lon
      *      spikes.
      */
-    private acceptFix(pos: CachedPosition, trackBuffer: GpsTrackBuffer): boolean {
+    /**
+     * @param source — which receiver offered this fix. Carried purely so the
+     *   rejection lines can NAME it. "position spike 2321m in 3.5s = 1276kn
+     *   implied" was true, useful, and did not say whether the 2,321 m was a
+     *   wandering receiver or a second one in another postcode — which is the
+     *   only thing that tells a bug from a skipper walking up the dock. It
+     *   cost a round of guessing on 2026-09-05; it costs one argument here.
+     */
+    private acceptFix(pos: CachedPosition, trackBuffer: GpsTrackBuffer, source: TrackSource): boolean {
         // Layer 0 — last-session replay. Allow a small slack for fixes
         // produced moments before Start was tapped (NMEA stamps arrival
         // time, so external fixes always pass).
@@ -718,7 +797,9 @@ export class GpsSubscriptionManager {
         // Layer 2 — GPS-reported speed.
         const gpsSpeedKts = (pos.speed ?? 0) * MS_TO_KTS;
         if (gpsSpeedKts > MAX_PLAUSIBLE_SPEED_KTS) {
-            log.warn(`GPS rejected: device speed ${gpsSpeedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap`);
+            log.warn(
+                `GPS rejected: ${source} device speed ${gpsSpeedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap`,
+            );
             return false;
         }
 
@@ -734,7 +815,11 @@ export class GpsSubscriptionManager {
             // out-of-order fix from overwriting lastAcceptedFix, moving the
             // shore resolver, or becoming the stop-time tail.
             if (pos.timestamp <= lastFix.timestamp) {
-                log.warn('GPS rejected: non-monotonic accepted-fix timestamp');
+                log.warn(
+                    `GPS rejected: non-monotonic accepted-fix timestamp (${source} offered ` +
+                        `${pos.timestamp}, last accepted ${lastFix.timestamp} from ` +
+                        `${this.selectedTrackSource ?? 'none'})`,
+                );
                 return false;
             }
             const dtSec = (pos.timestamp - lastFix.timestamp) / 1000;
@@ -744,7 +829,10 @@ export class GpsSubscriptionManager {
                 const impliedKts = (distM / dtSec) * MS_TO_KTS;
                 if (impliedKts > MAX_PLAUSIBLE_SPEED_KTS * 1.5) {
                     log.warn(
-                        `GPS rejected: position spike ${distM.toFixed(0)}m in ${dtSec.toFixed(1)}s = ${impliedKts.toFixed(0)}kn implied`,
+                        `GPS rejected: position spike ${distM.toFixed(0)}m in ${dtSec.toFixed(1)}s = ` +
+                            `${impliedKts.toFixed(0)}kn implied (${source} offered it; last accepted was ` +
+                            `${this.selectedTrackSource ?? 'none'}). Same distance twice means two ` +
+                            `receivers, not one wandering.`,
                     );
                     return false;
                 }
