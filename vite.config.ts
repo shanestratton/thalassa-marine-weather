@@ -1,5 +1,6 @@
 /// <reference types="vitest" />
 import path from 'path';
+import { execSync } from 'node:child_process';
 import http from 'http';
 import net from 'node:net';
 import fs from 'node:fs';
@@ -153,6 +154,19 @@ function releasePreviewDocumentRoutes() {
             });
         },
     };
+}
+
+/** The commit this bundle was built from, or 'unknown' — never a build failure. */
+function resolveCommitSha(): string {
+    const fromCi = String(process.env.GITHUB_SHA ?? '').trim();
+    if (/^[0-9a-f]{7,40}$/i.test(fromCi)) return fromCi.slice(0, 12);
+    try {
+        return execSync('git rev-parse --short=12 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+            .toString()
+            .trim();
+    } catch {
+        return 'unknown';
+    }
 }
 
 export default defineConfig(({ mode }) => {
@@ -373,6 +387,11 @@ export default defineConfig(({ mode }) => {
             // until Xcode RUNS it there. With a visible stamp, "is the fix on
             // the phone?" is a five-second glance instead of an argument.
             __BUILD_STAMP__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ') + 'Z'),
+            // Exact build identity for diagnostics: an error tagged only
+            // "1.2.0" cannot be tied to a commit or a TestFlight build number.
+            // CI supplies GITHUB_SHA; a local build asks git; neither is fatal.
+            __COMMIT_SHA__: JSON.stringify(resolveCommitSha()),
+            __APP_BUILD__: JSON.stringify(String(process.env.VITE_APP_BUILD ?? '').trim()),
 
             // Paid provider secrets never enter the browser bundle. All three
             // providers are accessed through authenticated, rate-limited relays.
@@ -421,7 +440,13 @@ export default defineConfig(({ mode }) => {
         },
         build: {
             outDir: 'dist',
-            sourcemap: mode !== 'production',
+            // Production emits source maps ONLY for a run that will upload and
+            // then delete them (scripts/upload-sourcemaps.mjs, SENTRY_SOURCEMAPS=1
+            // in CI). 'hidden' omits the sourceMappingURL comment, but the .map
+            // files still land in dist — and dist is what Vercel serves and what
+            // cap copy ships inside the app — so a local `npm run build` must
+            // never produce them (audit item 21).
+            sourcemap: mode !== 'production' ? true : process.env.SENTRY_SOURCEMAPS === '1' ? 'hidden' : false,
             cssMinify: true,
             chunkSizeWarningLimit: 750,
             rollupOptions: {
