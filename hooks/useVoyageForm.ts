@@ -1241,34 +1241,22 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     west: minLon - lonPad,
                     east: maxLon + lonPad,
                 };
-                const supabaseUrl =
-                    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
-                    'https://pcisdplnodrphauixcau.supabase.co';
-                const supabaseKey =
-                    (typeof import.meta !== 'undefined' &&
-                        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
-                    '';
-                const { piCache } = await import('../services/PiCacheService');
-                if (!operationIsCurrent()) return;
-                const usePi = piCache.isAvailable();
-                const url = usePi
-                    ? `${piCache.baseUrl}/api/grib/wind-grid`
-                    : `${supabaseUrl}/functions/v1/fetch-wind-grid`;
+                // One implementation, shared with isochroneEnhancer and
+                // WindDataController. This copy's own comment said "Same
+                // fetch logic as isochroneEnhancer.ensureWindGridForRoute" —
+                // and it still missed that function's migration to the pinned
+                // transport, so planning a passage ON THE BOAT threw -1202 and
+                // surfaced as a failed plan on the one network where the GRIB
+                // is already cached. See services/weather/fetchWindGrid.ts.
+                const { fetchWindGridOrNull } = await import('../services/weather/fetchWindGrid');
                 const fetchController = new AbortController();
                 const abortFetch = () => fetchController.abort();
                 controller.signal.addEventListener('abort', abortFetch, { once: true });
                 const fetchTimeout = setTimeout(() => fetchController.abort(), 20_000);
-                let res: Response;
+                let buf: ArrayBuffer | null;
                 try {
-                    res = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(usePi || !supabaseKey
-                                ? {}
-                                : { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }),
-                        },
-                        body: JSON.stringify(bbox),
+                    buf = await fetchWindGridOrNull(bbox, {
+                        timeoutMs: 20_000,
                         signal: fetchController.signal,
                     });
                 } finally {
@@ -1276,14 +1264,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     controller.signal.removeEventListener('abort', abortFetch);
                 }
                 if (!operationIsCurrent()) return;
-                if (res.ok) {
-                    const buf = await res.arrayBuffer();
+                if (buf) {
+                    const { decodeGrib2WindMultiHour } = await import('../services/weather/decodeGrib2Wind');
                     if (!operationIsCurrent()) return;
-                    if (buf.byteLength > 200) {
-                        const { decodeGrib2WindMultiHour } = await import('../services/weather/decodeGrib2Wind');
-                        if (!operationIsCurrent()) return;
-                        WindStore.setGrid(decodeGrib2WindMultiHour(buf));
-                    }
+                    WindStore.setGrid(decodeGrib2WindMultiHour(buf));
                 }
             }
             const windGrid = WindStore.getState().grid;

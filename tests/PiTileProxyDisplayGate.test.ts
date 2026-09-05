@@ -73,10 +73,10 @@ describe('Pi tile proxy display gate', () => {
         expect(decl).toBeGreaterThan(-1);
         const body = svc.slice(decl, decl + 400);
         // The DISPLAY gate is the one that must stay out of here. A pinned-key
-        // check is not it: canPassThrough() is isAvailable() plus the pin the
+        // check is not it: canReachPinned() is isAvailable() plus the pin the
         // native transport is about to demand anyway, so it turns a refused
         // round trip into the same null the caller already handles.
-        expect(body).toMatch(/if \(!this\.(isAvailable|canPassThrough)\(\)\) return null;/);
+        expect(body).toMatch(/if \(!this\.(isAvailable|canReachPinned)\(\)\) return null;/);
         expect(body).not.toContain('canDisplayProxiedTiles');
     });
 });

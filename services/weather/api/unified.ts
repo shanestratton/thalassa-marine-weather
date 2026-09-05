@@ -363,15 +363,25 @@ export async function fetchUnifiedWeatherRaw(
     // The dedicated endpoint uses the scheduler's exact key and rounds lat/
     // lon to 2 decimals server-side, so the Pi scheduler's pre-fetched data
     // is a HIT on nearly every boot.
-    if (piCache.isAvailable()) {
+    // canReachPinned + pinnedPiRequest, NOT isAvailable + fetch.
+    //
+    // The note above is a post-mortem of the CACHE KEY missing, and it ends
+    // "so the Pi scheduler's pre-fetched data is a HIT on nearly every boot".
+    // It never has been. The endpoint was fixed while the transport was not:
+    // a plain fetch cannot complete the Pi's self-signed handshake, so this
+    // call has failed with -1202 on every iOS device since the Pi moved to
+    // TLS, fallen silently through to direct, and left the scheduler
+    // pre-fetching a payload nothing ever read.
+    if (piCache.canReachPinned()) {
         try {
             const piUrl = piCache.unifiedWeatherUrl(lat, lon, userId, false);
             if (piUrl) {
-                const piRes = await fetch(piUrl, { signal: AbortSignal.timeout(5000) });
-                if (piRes.ok) {
-                    const data = await piRes.json();
+                const { pinnedPiRequest } = await import('../../PiPairingService');
+                const piRes = await pinnedPiRequest({ url: piUrl, readTimeout: 5000 });
+                if (piRes.status >= 200 && piRes.status < 300) {
+                    const data = piRes.data ? JSON.parse(piRes.data) : null;
                     if (data && !data.error) {
-                        const xCache = piRes.headers.get('X-Cache');
+                        const xCache = piRes.headers['X-Cache'] ?? piRes.headers['x-cache'];
                         cached = { data, fetchedAt: Date.now(), key: cacheKey };
                         log.info(`Unified weather served from Pi Cache (${data.provider}, X-Cache: ${xCache})`);
                         return data;

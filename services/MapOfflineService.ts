@@ -314,12 +314,12 @@ export async function downloadArea(
         }
     }
 
-    // canPassThrough, not isAvailable: a Pi that is reachable but not yet
+    // canReachPinned, not isAvailable: a Pi that is reachable but not yet
     // paired answers isAvailable() true, and every tile would then cross the
     // bridge only to be refused for want of a pinned key. The tile still
     // arrives — fetchTileResponse falls through to direct — but the progress
     // line said "via Pi cache" for a download that went nowhere near it.
-    const usePi = piCache.canPassThrough();
+    const usePi = piCache.canReachPinned();
     const route: 'pi' | 'direct' = usePi ? 'pi' : 'direct';
     const total = targets.length;
     let current = 0;

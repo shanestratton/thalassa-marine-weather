@@ -63,7 +63,10 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
 
     const sizeMB = useMemo(() => MapOfflineService.estimateSizeMB(tileCount), [tileCount]);
 
-    const route: 'pi' | 'direct' = piCache.isAvailable() ? 'pi' : 'direct';
+    // canReachPinned, matching MapOfflineService.downloadArea. isAvailable()
+    // is true for a Pi that is merely reachable, so this label promised "via
+    // Pi cache" for a download the service was about to send entirely direct.
+    const route: 'pi' | 'direct' = piCache.canReachPinned() ? 'pi' : 'direct';
     const directStorageLabel = Capacitor.isNativePlatform() ? 'persistent app storage' : 'browser offline storage';
 
     const busy = progress?.phase === 'downloading';
