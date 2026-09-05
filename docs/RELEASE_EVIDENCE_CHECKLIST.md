@@ -18,7 +18,10 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 
 ### Archive
 
-- [ ] Xcode 26.6 selected (`xcode-select -p` → the 26.6 install, not the beta).
+- [ ] Xcode 26.6 selected. On 2026-09-06 `xcode-select -p` still pointed at
+      `/Applications/Xcode-beta.app` (Xcode 27.0) — switch before archiving:
+      `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, then
+      `xcodebuild -version` must say 26.6.
 - [ ] Bump the build number: `CURRENT_PROJECT_VERSION` is **101** in
       `ios/App/App.xcodeproj/project.pbxproj` (both configs). App Store Connect
       needs a fresh, unique value — 102 or higher.
@@ -197,10 +200,9 @@ Reconcile against what the app actually collects. Ground truth per data type:
 - [ ] Developer portal → Identifiers → `com.thalassa.weather` → App Services →
       **MusicKit** enabled. (Not an `.entitlements` key; it is an App ID
       service plus `NSAppleMusicUsageDescription`, which is present.)
-- [ ] Production secrets: `npx supabase secrets set MUSICKIT_ENABLED=true`
-      **before** any `functions deploy musickit-token`. As of 2026-09-05 the
-      secret is not set and the remote Function is the older always-open
-      version; deploying local source first would take Apple Music down.
+- [x] Production secrets: `MUSICKIT_ENABLED=true` set and `musickit-token` v15
+      deployed in that order on 2026-09-05 (verified 2026-09-06). Apple Music
+      stayed up.
 - [ ] Verified on a real device (see 18 · iPhone).
 
 ### Build number
