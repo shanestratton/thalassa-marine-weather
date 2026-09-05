@@ -82,13 +82,24 @@ describe('why this one needed fixing rather than noting', () => {
             .sort();
         const later = names.filter((n) => n > '20260829030000_deletion_reach_enc_cells.sql');
         for (const name of later) {
-            // Redefinition or removal undoes the fix; privilege statements
-            // do not — 20260901130000 adds REVOKEs (definer hygiene).
+            // Removal undoes the fix outright. A REDEFINITION undoes it only if
+            // it drops the enc-cells branch — so a later migration may replace
+            // either function, provided the replacement still reaches
+            // u/<uid>/… chart cells. 20260905100000 does exactly that: it is
+            // the live body plus diary-video, and this guard used to forbid it
+            // on the grounds that any redefinition is a regression. Privilege
+            // statements (20260901130000) never counted.
             const sql = readFileSync(`${DIR}/${name}`, 'utf8');
-            expect(sql).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\.account_deletion_storage_inventory/);
             expect(sql).not.toMatch(/DROP FUNCTION (IF EXISTS )?public\.account_deletion_storage_inventory/);
-            expect(sql).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\.block_tombstoned_storage_write/);
             expect(sql).not.toMatch(/DROP FUNCTION (IF EXISTS )?public\.block_tombstoned_storage_write/);
+            if (/CREATE (OR REPLACE )?FUNCTION public\.account_deletion_storage_inventory/.test(sql)) {
+                expect(sql, `${name} redefines the inventory without the enc-cells branch`).toMatch(
+                    /object\.bucket_id = 'enc-cells'\s*AND split_part\(object\.name, '\/', 1\) = 'u'\s*AND split_part\(object\.name, '\/', 2\) = p_user_id::TEXT/,
+                );
+            }
+            if (/CREATE (OR REPLACE )?FUNCTION public\.block_tombstoned_storage_write/.test(sql)) {
+                expect(sql, `${name} redefines the write fence without the enc-cells branch`).toMatch(/'enc-cells'/);
+            }
         }
     });
 });
