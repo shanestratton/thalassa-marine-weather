@@ -42,10 +42,22 @@ export const ShipsBellReference: React.FC<Props> = ({ hour, minute }) => {
             </div>
 
             <div className="overflow-x-auto overscroll-x-contain">
-                <table className="w-max border-collapse text-[11px]">
+                {/* border-separate, NOT border-collapse.
+                    WebKit does not honour `position: sticky` on a table cell
+                    when the table is `border-collapse: collapse` — the cell
+                    scrolls away with everything else. The Bells column carried
+                    `sticky left-0` and still slid off on iOS (Shane 2026-09-05:
+                    "make sure that the Bells Column ... is locked and does not
+                    move at all"). Separate borders is the only way sticky
+                    survives here.
+
+                    The knock-on: a `border` on a <tr> is not rendered at all
+                    under border-separate, so the row rules moved onto the cells
+                    themselves. */}
+                <table className="w-max border-separate border-spacing-0 text-[11px]">
                     <thead>
                         <tr>
-                            <th className="sticky left-0 z-10 bg-slate-900 px-2 py-1.5 text-left font-black text-slate-400">
+                            <th className="sticky left-0 z-20 border-r border-white/[0.07] bg-slate-900 px-2 py-1.5 text-left font-black text-slate-400">
                                 Bells
                             </th>
                             {WATCH_ORDER.map((w) => (
@@ -62,8 +74,8 @@ export const ShipsBellReference: React.FC<Props> = ({ hour, minute }) => {
                     </thead>
                     <tbody>
                         {[1, 2, 3, 4, 5, 6, 7, 8].map((bells) => (
-                            <tr key={bells} className="border-t border-white/[0.05]">
-                                <th className="sticky left-0 z-10 bg-slate-900 px-2 py-1.5 text-left font-bold text-slate-300">
+                            <tr key={bells}>
+                                <th className="sticky left-0 z-20 border-r border-t border-white/[0.05] border-r-white/[0.07] bg-slate-900 px-2 py-1.5 text-left font-bold text-slate-300">
                                     <span className="flex items-center gap-1.5">
                                         <span className="flex gap-[3px]">
                                             {bellPattern(bells).map((group, i) => (
@@ -87,7 +99,7 @@ export const ShipsBellReference: React.FC<Props> = ({ hour, minute }) => {
                                     return (
                                         <td
                                             key={w}
-                                            className={`px-2 py-1.5 text-center tabular-nums ${
+                                            className={`border-t border-white/[0.05] px-2 py-1.5 text-center tabular-nums ${
                                                 isNow
                                                     ? 'rounded-md font-black text-slate-950'
                                                     : at
