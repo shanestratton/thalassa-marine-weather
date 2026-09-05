@@ -2,7 +2,7 @@
 
 - Status: **NO-GO for external public beta — the local candidate is refrozen and green; backend deployment, hosted, distribution, legal, and physical-device gates remain**
 - As of: **2026-08-06**
-- Candidate: **1.2.0 (101)**
+- Candidate: **1.2.0 (102)** — build 101 was uploaded once and can never be reused; bumped 2026-09-06 ahead of the Distribution archive
 - Intended channel: **TestFlight external testing**
 - Minimum OS: **iOS 17** (no watchOS target ships in this beta — the Watch companion was cut on 2026-09-05)
 - Enabled sign-in: **email one-time code, Sign in with Apple (native and web), Google** — per `config/public-beta-features.json` (`VITE_APPLE_SIGN_IN_ENABLED`, `VITE_APPLE_WEB_SIGN_IN_ENABLED`, `VITE_GOOGLE_SIGN_IN_ENABLED` all `true`). This line said "email one-time code only" until 2026-09-05 while line 45 below already recorded native Apple sign-in as enabled in the committed profile; the profile is the build's truth and this dossier follows it.
@@ -165,7 +165,7 @@ These require owner, provider, deployment, Apple-account, legal, or physical-dev
 - [ ] Deploy the exact frozen candidate to a non-production hosted preview and pass live routes, redirects, headers, and preview-only browser tests.
 - [x] Produce a stable-Xcode unsigned local archive. Xcode 26.6 archived build 101 successfully with the iPhone and embedded Watch targets; this closes compilation and packaging only.
 - [ ] Produce and export a Distribution-signed archive with current Apple Distribution identities and App Store profiles, then run Organizer Validate App and resolve every distribution/upload warning. No Distribution-signed candidate currently exists.
-- [ ] Confirm build 101 has not already been uploaded for version 1.2.0; if it has, increment phone and Watch build numbers together.
+- [x] Build 101 had already been uploaded for 1.2.0; phone and Watch-target build numbers incremented to 102 on 2026-09-06 (the Watch target stays in the project but is not embedded).
 - [ ] Run the Anchor Watch matrix on a signed physical iPhone: Always location, Time Sensitive delivery and Focus settings, mandatory audible sound check, locked/background operation, Ring/Silent, interruptions, route changes, acknowledgement, long suspension, and overnight behaviour.
 - [ ] Install and exercise the embedded Watch app on a physical watchOS 10+ device. Simulator compilation is not sufficient.
 - [ ] Upload to an internal TestFlight group first, complete clean-install/update/account-deletion and safety smoke tests, then submit the external group for Beta App Review.
