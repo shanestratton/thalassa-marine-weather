@@ -500,8 +500,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // The hero card asks the same question ("At Anchor" vs "Underway"), so it
     // must get the same answer. A boat whose anchor is watched by the Pi is at
     // anchor; only this phone's involvement changed.
-    // Only draw the arc once there is a real circle to draw.
-    const anchorShowSwing = (anchorEffectivelyArmed || anchorStatus === 'alarm') && anchorRadius > 0;
     const anchorStatusEffective: 'armed' | 'disarmed' | 'alarm' =
         anchorStatus === 'alarm' ? 'alarm' : anchorEffectivelyArmed ? 'armed' : 'disarmed';
 
@@ -816,7 +814,19 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             data-testid="vessel-safety-controls"
                             role="group"
                             style={SAFETY_CONTROL_GROUP}
-                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} gap-2 rounded-[20px] p-1`}
+                            /* auto-rows-[76px], not auto height. Four tiles in
+                               one grid row are all as tall as the tallest, so
+                               the Anchor tile's extra content — a swing dial
+                               instead of the 8x8 dot, plus a fourth "0m of
+                               35m" line — stretched the whole deck the moment
+                               the anchor went down, and shrank it again when
+                               it came up (Shane 2026-09-05: "when the anchor is
+                               down, can we not allow the anchor card to grow.
+                               as it is buggering up the page"). A fixed row is
+                               the durable fix: removing today's extra content
+                               would leave the next addition free to do it
+                               again. */
+                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} auto-rows-[76px] gap-2 rounded-[20px] p-1`}
                         >
                             {/* Order is deliberate (Shane 2026-08-04): MOB
                                 first — the one you reach for in a genuine
@@ -911,34 +921,33 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
                                 className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
-                                {anchorShowSwing ? (
-                                    // The live arc, moved here from the hero
-                                    // card: where the boat actually sits in its
-                                    // circle is the one thing worth a picture.
-                                    <SwingArc
-                                        radiusM={anchorRadius}
-                                        offsetM={anchorOffset}
-                                        bearingDeg={anchorBearing}
-                                        alarm={anchorStatus === 'alarm'}
-                                    />
-                                ) : (
+                                {/* THE SAME 8x8 DOT IN EVERY STATE. The live
+                                    swing arc used to take this slot while the
+                                    anchor was down — a picture worth having,
+                                    but not at a quarter of the deck's width,
+                                    where it made this tile taller than its
+                                    three siblings and dragged the row with it.
+                                    The arc still exists one tap away on the
+                                    Anchor screen, and on the At Anchor card
+                                    below where there is room for it. Here the
+                                    colour does the work: cyan down, grey up,
+                                    red and pulsing while dragging. */}
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: `${anchorColor}1f` }}
+                                >
                                     <div
-                                        className="flex h-8 w-8 items-center justify-center rounded-lg"
-                                        style={{ background: `${anchorColor}1f` }}
-                                    >
-                                        <div
-                                            className="h-3 w-3 rounded-full"
-                                            style={{
-                                                backgroundColor: anchorColor,
-                                                boxShadow:
-                                                    anchorEffectivelyArmed || anchorStatus === 'alarm'
-                                                        ? `0 0 8px ${anchorColor}60`
-                                                        : 'none',
-                                                animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
-                                            }}
-                                        />
-                                    </div>
-                                )}
+                                        className="h-3 w-3 rounded-full"
+                                        style={{
+                                            backgroundColor: anchorColor,
+                                            boxShadow:
+                                                anchorEffectivelyArmed || anchorStatus === 'alarm'
+                                                    ? `0 0 8px ${anchorColor}60`
+                                                    : 'none',
+                                            animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                                        }}
+                                    />
+                                </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
                                 <p
                                     className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
@@ -946,13 +955,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     {anchorLabelShort}
                                 </p>
-                                {anchorShowSwing && (
-                                    // How far out, of how far allowed — the
-                                    // reading the arc is a picture of.
-                                    <p className="text-[9px] font-bold leading-none tabular-nums text-slate-400">
-                                        {Math.round(anchorOffset)}m of {Math.round(anchorRadius)}m
-                                    </p>
-                                )}
+                                {/* No "0m of 35m" fourth line. Three tiles
+                                    carry an icon, a heading and one status
+                                    word; a fourth line here made this one
+                                    taller than all of them. The distance lives
+                                    on the At Anchor card and the Anchor
+                                    screen, both of which have the room. */}
                             </button>
                         </div>
 
