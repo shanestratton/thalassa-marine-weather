@@ -2965,8 +2965,47 @@ body,
     border-radius: 0 !important;
 }
 
+/* THE TIP IS THE ARROW. It was display:none, so the bubble floated with
+   nothing tying it to the water it described — and it is offset by 8px and
+   flips side near a screen edge, so "somewhere near here" was the best a
+   punter could read off it (Shane 2026-09-05: "can we have a little arrow on
+   the box that comes up to show you exactly where the spot is").
+
+   Coloured to match the popup card's own surface. Mapbox builds the tip from
+   border colours on a zero-size box, so the side that shows depends on the
+   anchor — every side is set, and the transparent ones stay transparent. */
 .weather-inspect-popup .mapboxgl-popup-tip {
-    display: none !important;
+    display: block !important;
+    border-width: 9px !important;
+}
+.weather-inspect-popup.mapboxgl-popup-anchor-top .mapboxgl-popup-tip,
+.weather-inspect-popup.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip,
+.weather-inspect-popup.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip {
+    border-bottom-color: rgba(15, 23, 42, 0.96) !important;
+}
+.weather-inspect-popup.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip,
+.weather-inspect-popup.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip,
+.weather-inspect-popup.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip {
+    border-top-color: rgba(15, 23, 42, 0.96) !important;
+}
+.weather-inspect-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+    border-right-color: rgba(15, 23, 42, 0.96) !important;
+}
+.weather-inspect-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+    border-left-color: rgba(15, 23, 42, 0.96) !important;
+}
+
+/* And the point the tip points AT. A ring rather than a filled dot, so the
+   pixel actually being reported stays visible through the middle of it. */
+.weather-inspect-spot {
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    border: 2px solid rgba(56, 189, 248, 0.95);
+    box-shadow:
+        0 0 0 1.5px rgba(2, 6, 23, 0.85),
+        0 0 10px rgba(56, 189, 248, 0.55);
+    pointer-events: none;
 }
 
 /* ── Seamark Popup — dark glass theme for nautical feature info ──────── */

@@ -220,6 +220,13 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
 
 export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onRetry, onClose, save }) => {
     const hasMarine = data && data.waveHeightM != null && data.waveHeightM > 0;
+    /**
+     * The sea half is still in the air. The atmospherics now paint as soon as
+     * they land rather than waiting for the marine request, so there is a real
+     * moment where wind and pressure are known and waves are not — and it must
+     * read as "coming", not as "this is dry land".
+     */
+    const marinePending = data?.marineStatus === 'pending';
 
     return (
         <div style={{ minWidth: 240, maxWidth: 280 }}>
@@ -430,6 +437,23 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                                     )}
                                 </div>
                             </>
+                        )}
+
+                        {marinePending && (
+                            <div
+                                role="status"
+                                aria-live="polite"
+                                className="mt-2 flex items-center gap-2 rounded-lg border border-white/6 bg-white/3 px-2.5 py-2 text-[11px] text-white/55"
+                            >
+                                <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-400" />
+                                Sea state loading&hellip;
+                            </div>
+                        )}
+
+                        {data?.marineStatus === 'land' && !hasMarine && (
+                            <p className="mt-2 text-[11px] leading-relaxed text-white/45">
+                                No sea state here — this point is over land.
+                            </p>
                         )}
 
                         {data?.marineStatus === 'unavailable' && (

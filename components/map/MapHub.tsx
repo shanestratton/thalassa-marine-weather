@@ -324,7 +324,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
     const [showOfflineArea, setShowOfflineArea] = useState(false);
     const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
-    const [weatherInspectMode, setWeatherInspectMode] = useState(false);
+    /**
+     * INSPECT IS THE DEFAULT MODE (Shane 2026-09-05: "i want to change the
+     * default layer from wind to Inspect"). The chart opens as a chart, and a
+     * tap answers a question about a place rather than the punter first having
+     * to switch off a weather field they did not ask for. Not persisted —
+     * neither is any other layer state now, deliberately.
+     */
+    const [weatherInspectMode, setWeatherInspectMode] = useState(true);
     // ── Route Tracer — grew out of coordinate capture (Shane 2026-07-07 →
     // promoted 2026-07-08 "let people make their own routes"). Tap pins
     // along your own line; every leg is graded LIVE against the router's

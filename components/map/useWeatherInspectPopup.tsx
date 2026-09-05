@@ -79,9 +79,14 @@ export function useWeatherInspectPopup(
     const inspectDataRef = useRef<PointWeatherData | null>(null);
     const inspectLoadingRef = useRef(false);
     const inspectPopupRef = useRef<mapboxgl.Popup | null>(null);
+    const inspectSpotRef = useRef<mapboxgl.Marker | null>(null);
     const inspectRootRef = useRef<ReturnType<typeof createRoot> | null>(null);
 
     const closeWeatherInspect = useCallback(() => {
+        if (inspectSpotRef.current) {
+            inspectSpotRef.current.remove();
+            inspectSpotRef.current = null;
+        }
         if (inspectPopupRef.current) {
             inspectPopupRef.current.remove();
             inspectPopupRef.current = null;
@@ -225,8 +230,27 @@ export function useWeatherInspectPopup(
                 .setDOMContent(container)
                 .addTo(map);
 
+            // THE EXACT SPOT, MARKED. The bubble is offset from the tap and
+            // flips side when it would run off the screen, so on its own it
+            // says "somewhere near here" (Shane 2026-09-05: "can we have a
+            // little arrow on the box that comes up to show you exactly where
+            // the spot is"). The popup's own tip is the arrow — un-hidden in
+            // index.css — and this is the point it points AT, so the two
+            // together are unambiguous even when the bubble flips.
+            const spotEl = document.createElement('div');
+            spotEl.className = 'weather-inspect-spot';
+            const spot = new mapboxgl.Marker({ element: spotEl, anchor: 'center' }).setLngLat([lon, lat]).addTo(map);
+            inspectSpotRef.current = spot;
+
             inspectPopupRef.current = popup;
             popup.on('close', () => {
+                // closeOnClick fires this without going through
+                // closeWeatherInspect, so the spot marker has to be cleared
+                // here as well or a tap elsewhere leaves it stranded.
+                if (inspectSpotRef.current) {
+                    inspectSpotRef.current.remove();
+                    inspectSpotRef.current = null;
+                }
                 if (inspectRootRef.current) {
                     inspectRootRef.current.unmount();
                     inspectRootRef.current = null;
@@ -243,7 +267,23 @@ export function useWeatherInspectPopup(
                 inspectLoadingRef.current = true;
                 paint();
                 void import('../../services/weather/pointWeather')
-                    .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
+                    .then(({ fetchPointWeather }) =>
+                        // PAINT THE ATMOSPHERICS THE MOMENT THEY LAND. The two
+                        // requests fire together but the marine one is often
+                        // the slower, and holding a complete answer behind it
+                        // meant the bubble sat on a spinner with the wind,
+                        // pressure and temperature already in hand (Shane
+                        // 2026-09-05: "i would like it to be quicker"). The
+                        // marine block fills in underneath, marked 'pending'
+                        // rather than claiming it is unavailable.
+                        fetchPointWeather(lat, lon, (partial) => {
+                            if (inspectRootRef.current !== root || !inspectPopupRef.current) return;
+                            view.data = partial;
+                            view.loading = false;
+                            view.error = null;
+                            paint();
+                        }),
+                    )
                     .then((data) => {
                         if (inspectRootRef.current !== root || !inspectPopupRef.current) return;
                         if (!data) throw new Error('No atmospheric report was returned for this position.');

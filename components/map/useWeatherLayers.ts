@@ -176,7 +176,20 @@ function pressureFrameForValidAt(grid: any, validAt: number | null): number | nu
  * to strip it on EVERY launch, so even after switching it on the next open
  * lost it again, and THE PURGE then wiped the layer set once per device.
  */
-export const DEFAULT_LAYERS: WeatherLayer[] = ['wind'];
+/**
+ * NO WEATHER OVERLAY ON A COLD START.
+ *
+ * It was ['wind'] — the signature field, and a reasonable opening move while
+ * the chart was mostly a weather surface. It is not one any more: Shane
+ * 2026-09-05, "i want to change the default layer from wind to Inspect". The
+ * chart opens as a chart, and the first tap answers a question about a place
+ * instead of switching off a field the punter did not ask for.
+ *
+ * Inspect is not a WeatherLayer — it is a mode, defaulted in MapHub — so the
+ * layer default is simply empty. The active ROUTE is unaffected either way:
+ * 'route-line' belongs to useMapInit and has never been a weather layer.
+ */
+export const DEFAULT_LAYERS: WeatherLayer[] = [];
 
 /** Keep decoded CMEMS ownership to one visible marine product at a time. */
 export function enforceCmemsMarineExclusivity(
@@ -201,7 +214,7 @@ const SESSION_LAYERS_KEY = 'thalassa_active_layers';
  * Two rules, both Shane's, held at once (2026-08-21: "on first startup, we
  * have the wind, however if the punter has adjusted things (like ais on and
  * wind off for example) can it persist after going to another screen?"):
- *   - COLD APP START → wind only (the 2026-08-04 rule, unchanged). No
+ *   - COLD APP START → DEFAULT_LAYERS, which is now EMPTY (was wind). No
  *     localStorage restore — layer state must never haunt a later boot
  *     (house philosophy, MapHub satellite-base notes).
  *   - WITHIN A SESSION → the punter's own toggles win. sessionStorage is
@@ -400,21 +413,22 @@ export function useWeatherLayers(
         });
     }, []);
 
-    // Persist layer selection to localStorage whenever it changes.
-    // An empty selection WRITES "[]" rather than removing the key: with wind
-    // as the first-run default, "no key" and "user turned everything off"
-    // would otherwise be indistinguishable and every all-off would bounce
-    // back to wind on the next launch.
+    // SESSION ONLY. The localStorage write that used to sit here was never
+    // read back — sessionInitialLayers reads sessionStorage and nothing else —
+    // so it did no work, and it was a loaded gun: the next person to "fix" the
+    // missing restore would have resurrected cross-launch persistence in one
+    // line. Shane changed his mind about that on 2026-09-05 ("i have changed
+    // my mind about allowing the layers to persist from app restarts"), so the
+    // gun is unloaded rather than left lying there.
+    //
+    // sessionStorage is exactly the scope that survives a tab switch or an
+    // error-boundary remount and dies with the process.
     //
     // userLayers, NOT activeLayers — see the derivation above. Persisting the
-    // rendered set would write "[]" for the whole time the tracer is open, and
-    // that "[]" is honoured on next launch.
+    // rendered set would write "[]" for the whole time the tracer is open.
     useEffect(() => {
         try {
-            const serialised = JSON.stringify([...userLayers]);
-            localStorage.setItem(STORAGE_KEY, serialised);
-            // The session mirror is what a same-session remount restores.
-            sessionStorage.setItem(STORAGE_KEY, serialised);
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...userLayers]));
         } catch {
             /* ignore */
         }
