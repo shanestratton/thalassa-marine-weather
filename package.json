@@ -98,7 +98,7 @@
         "@storybook/react-vite": "^10.5.3",
         "@supabase/auth-js": "^2.98.0",
         "@tailwindcss/postcss": "^4.3.3",
-        "@testing-library/jest-dom": "^6.9.1",
+        "@testing-library/jest-dom": "^7.0.1",
         "@testing-library/react": "^16.3.3",
         "@transistorsoft/background-geolocation-types": "^5.2.2",
         "@types/geojson": "^7946.0.16",
