@@ -869,7 +869,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <MobIcon color="#ef4444" />
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h4>
-                                <p className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance text-red-400">
+                                <p className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-red-400">
                                     Overboard
                                 </p>
                             </button>
@@ -890,7 +890,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <SignalIcon color="#67E8F9" />
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h4>
-                                <p className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance text-slate-400">
+                                <p className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
                                     Position
                                 </p>
                             </button>
@@ -915,7 +915,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         Guardian
                                     </h4>
                                     <p
-                                        className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance"
+                                        className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
                                         style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
                                     >
                                         {/* The "· N nearby" suffix does not fit here; the
@@ -971,7 +971,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
                                 <p
-                                    className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance"
+                                    className="max-w-full text-[10px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
                                     style={{ color: anchorColor }}
                                 >
                                     {anchorLabelShort}
