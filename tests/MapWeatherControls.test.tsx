@@ -319,7 +319,10 @@ describe('MapWeatherControls', () => {
             />,
         );
         const hide = screen.getByRole('button', { name: 'Hide weather controls' });
-        expect(hide.className).toContain('aspect-square');
+        // w-16 = the pill's height (8px + 48px play tile + 8px). Not aspect-square:
+        // a flex-stretched height is not "definite" in WebKit, so aspect-ratio
+        // collapsed the width to the glyph on the phone.
+        expect(hide.className).toContain('w-16');
         expect(hide.className).toContain('self-stretch');
         expect(hide.className).toContain('rounded-2xl');
         // Not self-positioned any more — the row positions it.
