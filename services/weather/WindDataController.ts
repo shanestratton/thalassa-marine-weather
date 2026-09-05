@@ -17,6 +17,7 @@ import type mapboxgl from 'mapbox-gl';
 import { fetchWindGrid, fetchGlobalWindField, type WindGrid } from './windField';
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
+import { satelliteModeBlocks } from '../networkPolicy';
 import { LocationStore } from '../../stores/LocationStore';
 import { withDeadline } from '../../utils/deadline';
 import { crumb } from '../../utils/flightRecorder';
@@ -847,6 +848,17 @@ export const WindDataController = {
             lastFetchedBounds !== null &&
             !isCacheStale(lastFetchedBounds) &&
             boundsOverlap(lastFetchedBounds, visibleBounds);
+        // SATELLITE MODE: the wind OVERLAY does not auto-download a GRIB.
+        // One grid is a binary far larger than the whole ~200 KB/day budget the
+        // Account screen promises, and this path is automatic — it fires when
+        // the layer is on and the map moves. The passage planner is untouched:
+        // it calls fetchWindGrid directly, because planning a route is an
+        // explicit act that needs its wind (audit item 12). Leave whatever is
+        // already drawn in place and clear the loading state so no pill spins.
+        if (satelliteModeBlocks('grib')) {
+            WindStore.setLoading(false);
+            return false;
+        }
         if (!beginWindGridLoad(request, keepRenderedGrid)) return false;
 
         try {

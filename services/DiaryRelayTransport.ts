@@ -13,7 +13,7 @@ import { getConnectionState } from './ConnectionPriorityService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { pinnedPiRequest } from './PiPairingService';
 import { piCache } from './PiCacheService';
-import { useSettingsStore } from '../stores/settingsStore';
+import { satelliteModeActive } from './networkPolicy';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { supabaseUrl } from './supabase';
 import { createLogger } from '../utils/createLogger';
@@ -79,11 +79,8 @@ function validOperationId(value: string): boolean {
 }
 
 function isManualSatelliteMode(): boolean {
-    try {
-        return useSettingsStore.getState().settings.satelliteMode === true;
-    } catch {
-        return false;
-    }
+    // One source of truth — services/networkPolicy.ts.
+    return satelliteModeActive();
 }
 
 /**
