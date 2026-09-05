@@ -16,6 +16,7 @@
 // ── Types ──────────────────────────────────────────────────
 
 import { createLogger } from '../../utils/createLogger';
+import { satelliteModeBlocks } from '../networkPolicy';
 import { withDeadline } from '../../utils/deadline';
 import { piCache } from '../PiCacheService';
 import type { WindGrid } from './windField';
@@ -488,6 +489,11 @@ export async function fetchPressureEye(approxLat: number, approxLon: number): Pr
                 (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
             '';
         if (!supabaseUrl) return null;
+        // A pressure GRIB is the same class of download as the wind grid.
+        if (satelliteModeBlocks('grib')) {
+            log.info('[CYCLONE] Satellite Mode — pressure grid not fetched');
+            return null;
+        }
 
         const url = `${supabaseUrl}/functions/v1/fetch-pressure-grid`;
         const resp = await withDeadline(
@@ -922,6 +928,10 @@ export async function fetchGfsTrackerPositions(): Promise<Map<string, GfsTracker
                 return new Map<string, GfsTrackerPosition[]>();
             }
 
+            if (satelliteModeBlocks('grib')) {
+                log.info('[CYCLONE] Satellite Mode — GFS tracker not fetched');
+                return new Map<string, GfsTrackerPosition[]>();
+            }
             const url = `${supabaseUrl}/functions/v1/fetch-gfs-tracker`;
             log.info('[CYCLONE] 🎯 Fetching GFS tracker positions...');
 

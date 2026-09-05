@@ -11,6 +11,7 @@
  */
 
 import { CapacitorHttp } from '@capacitor/core';
+import { satelliteModeBlocks } from '../../networkPolicy';
 import { createLogger } from '../../../utils/createLogger';
 import { piCache } from '../../PiCacheService';
 import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
@@ -141,6 +142,8 @@ async function fetchRainbowPrecipUncached(
         log.warn('No Supabase URL configured — cannot fetch Rainbow.ai data');
         return null;
     }
+
+    if (satelliteModeBlocks('raster')) return null;
 
     try {
         // ── Rainbow Global Nowcast API (via proxy) ──
