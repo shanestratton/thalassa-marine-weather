@@ -16,28 +16,41 @@ import { SailPlanDiagram } from '../components/nmea/gauges/SailPlanDiagram';
 
 const base = { band: 'Beam reach', main: 'Full', yankee: 'Full', stay: false as const };
 
+/**
+ * The centreline, read from the drawing rather than hardcoded.
+ *
+ * These assertions used to compare against a literal 150 (half of the old
+ * 300-wide viewBox) and select the boom as querySelectorAll('line')[2] — a
+ * positional index into the artwork. Both broke on the 2026-09-05 rescale,
+ * neither because the BEHAVIOUR changed. Marks carry data-mark now, and the
+ * centreline comes off the viewBox, so this file survives the next redraw.
+ */
+function centreline(container: HTMLElement): number {
+    const box = container.querySelector('svg')!.getAttribute('viewBox')!.split(' ');
+    return Number(box[2]) / 2;
+}
+const mark = (container: HTMLElement, name: string) => container.querySelector(`[data-mark="${name}"]`) as SVGElement;
+
 describe('the rig mirrors with the tack', () => {
     it('sets the sails to starboard when the wind is over the port side', () => {
         // Wind at 315 is on the port bow, so the boom is out to starboard.
         // Drawing it the other way would be a boat that cannot be sailing.
         const { container } = render(<SailPlanDiagram {...base} windAngle={315} />);
-        const boom = container.querySelectorAll('line')[2] as SVGLineElement;
-        expect(Number(boom.getAttribute('x2'))).toBeGreaterThan(150);
+        expect(Number(mark(container, 'boom').getAttribute('x2'))).toBeGreaterThan(centreline(container));
     });
 
     it('sets them to port when the wind is over the starboard side', () => {
         const { container } = render(<SailPlanDiagram {...base} windAngle={45} />);
-        const boom = container.querySelectorAll('line')[2] as SVGLineElement;
-        expect(Number(boom.getAttribute('x2'))).toBeLessThan(150);
+        expect(Number(mark(container, 'boom').getAttribute('x2'))).toBeLessThan(centreline(container));
     });
 });
 
 describe('the boom angle follows the point of sail', () => {
     it('is close to the centreline beating and well out running', () => {
         const beat = render(<SailPlanDiagram {...base} band="Beating" windAngle={45} />);
-        const beatX = Number((beat.container.querySelectorAll('line')[2] as SVGLineElement).getAttribute('x2'));
+        const beatX = Number(mark(beat.container, 'boom').getAttribute('x2'));
         const run = render(<SailPlanDiagram {...base} band="Running" windAngle={45} />);
-        const runX = Number((run.container.querySelectorAll('line')[2] as SVGLineElement).getAttribute('x2'));
+        const runX = Number(mark(run.container, 'boom').getAttribute('x2'));
         // Both to port, but running is much further out.
         expect(runX).toBeLessThan(beatX);
     });
@@ -54,8 +67,9 @@ describe('sails that are not set are not drawn', () => {
 
     it('dims the boom and drops the sail when the main is down', () => {
         const { container } = render(<SailPlanDiagram {...base} main="Down" windAngle={45} />);
-        const boom = container.querySelectorAll('line')[2] as SVGLineElement;
-        expect(boom.getAttribute('opacity')).toBe('0.5');
+        expect(mark(container, 'boom').getAttribute('opacity')).toBe('0.5');
+        // And no mainsheet, because there is no sail for it to be trimming.
+        expect(mark(container, 'mainsheet')).toBeNull();
     });
 });
 
@@ -94,10 +108,13 @@ describe('the yankee lead, which is not the same as the car', () => {
         expect(container.textContent).toContain('POLED');
         // Wind on the starboard bow, so the rig is to port and the pole to
         // starboard. Drawing the pole to leeward would be a gybe waiting.
-        const pole = Array.from(container.querySelectorAll('line')).find(
-            (l) => l.getAttribute('stroke-width') === '3',
-        ) as SVGLineElement;
-        expect(Number(pole.getAttribute('x2'))).toBeGreaterThan(150);
+        const cx = centreline(container);
+        expect(Number(mark(container, 'pole').getAttribute('x2'))).toBeGreaterThan(cx);
+        // And the SAIL it carries goes with it. The yankee was drawn to
+        // leeward in every state, including this one — the pole was right and
+        // the sail it holds out was on the other side of the boat.
+        const yankee = container.querySelector('path[d^="M 170 62"]') as SVGPathElement;
+        expect(yankee.getAttribute('d')).toContain(`${cx + 66}`);
     });
 
     it('draws no yankee gear at all when the sail is furled', () => {

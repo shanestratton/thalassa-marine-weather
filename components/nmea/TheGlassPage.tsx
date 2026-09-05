@@ -2092,7 +2092,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         stay={plan.row.stay}
                                                         runners={plan.row.runners}
                                                         prevent={plan.row.prevent}
-                                                        className="mx-auto mt-2 block h-auto w-full max-w-[260px]"
+                                                        /* 420, not 260. The container measures 340
+                                                           CSS px on a 390pt phone, so the old cap threw
+                                                           away 24% of the width available and shrank
+                                                           every mark by the same fraction. 420 never
+                                                           binds on a phone and only caps a tablet, where
+                                                           it stops the type ballooning. */
+                                                        className="mx-auto mt-2 block h-auto w-full max-w-[420px]"
                                                     />
                                                     {/* A reference, deliberately static: it reads
                                                         nothing from the boat, so it cannot be wrong
@@ -2104,7 +2110,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 [&::-webkit-details-marker]:hidden">
                                                             Parts of a sail
                                                         </summary>
-                                                        <SailPartsDiagram className="mx-auto mt-2 block h-auto w-full max-w-[260px]" />
+                                                        {/* SEPARATE BUG, same cause, found while
+                                                            fixing the one above: this diagram's viewBox
+                                                            is 640 wide in the same 260px box — a 0.41
+                                                            scale, so its fontSize 9 labels rendered at
+                                                            3.7px. It was the least legible thing on the
+                                                            page, sitting directly under the sail plan. */}
+                                                        <SailPartsDiagram className="mx-auto mt-2 block h-auto w-full max-w-[420px]" />
                                                     </details>
                                                     <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-gray-300">
                                                         <p>
