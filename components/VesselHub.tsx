@@ -814,19 +814,28 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             data-testid="vessel-safety-controls"
                             role="group"
                             style={SAFETY_CONTROL_GROUP}
-                            /* auto-rows-[76px], not auto height. Four tiles in
-                               one grid row are all as tall as the tallest, so
-                               the Anchor tile's extra content — a swing dial
-                               instead of the 8x8 dot, plus a fourth "0m of
-                               35m" line — stretched the whole deck the moment
-                               the anchor went down, and shrank it again when
-                               it came up (Shane 2026-09-05: "when the anchor is
-                               down, can we not allow the anchor card to grow.
-                               as it is buggering up the page"). A fixed row is
-                               the durable fix: removing today's extra content
-                               would leave the next addition free to do it
-                               again. */
-                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} auto-rows-[76px] gap-2 rounded-[20px] p-1`}
+                            /* A FIXED ROW, SIZED FROM THE CONTENT.
+                               Four tiles in one grid row are all as tall as
+                               the tallest, so the Anchor tile's extra content
+                               used to stretch the whole deck the moment the
+                               anchor went down and shrink it when it came up
+                               (Shane 2026-09-05: "when the anchor is down, can
+                               we not allow the anchor card to grow"). Pinning
+                               it is the durable fix — removing today's extra
+                               content would leave the next addition free to do
+                               it again.
+
+                               92, and the number is arithmetic rather than
+                               taste: py-2.5 (20) + two gap-1.5 (12) + the h-8
+                               icon (32) + an 11px heading + a 10px status = 85,
+                               plus slack for font metrics. My first attempt
+                               pinned it at 76 and clipped the second line off
+                               every tile — "OVERBOA", "POSITION", "OFF"
+                               (Shane, same day: "their words are being cut
+                               off"). A row too short is a worse bug than a row
+                               that grows, so the test beside this asserts the
+                               sum rather than the magic number. */
+                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} auto-rows-[92px] gap-2 rounded-[20px] p-1`}
                         >
                             {/* Order is deliberate (Shane 2026-08-04): MOB
                                 first — the one you reach for in a genuine
@@ -848,7 +857,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <MobIcon color="#ef4444" />
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h4>
-                                <p className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide text-red-400">
+                                <p className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide text-red-400">
                                     Overboard
                                 </p>
                             </button>
@@ -869,7 +878,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <SignalIcon color="#67E8F9" />
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h4>
-                                <p className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide text-slate-400">
+                                <p className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide text-slate-400">
                                     Position
                                 </p>
                             </button>
@@ -894,7 +903,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         Guardian
                                     </h4>
                                     <p
-                                        className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                        className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide"
                                         style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
                                     >
                                         {/* The "· N nearby" suffix does not fit here; the
@@ -950,7 +959,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
                                 <p
-                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                    className="max-w-full truncate text-[10px] font-bold uppercase leading-none tracking-wide"
                                     style={{ color: anchorColor }}
                                 >
                                     {anchorLabelShort}

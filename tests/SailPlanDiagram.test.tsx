@@ -26,33 +26,44 @@ const base = { band: 'Beam reach', main: 'Full', yankee: 'Full', stay: false as 
  * centreline comes off the viewBox, so this file survives the next redraw.
  */
 function centreline(container: HTMLElement): number {
+    // The FRAME's centre. Since 2026-09-05 the hull leans away from whichever
+    // side the labels are on, so for "is this mark to port or starboard" use
+    // the mast instead — that is the middle of the ship.
     const box = container.querySelector('svg')!.getAttribute('viewBox')!.split(' ');
     return Number(box[2]) / 2;
 }
 const mark = (container: HTMLElement, name: string) => container.querySelector(`[data-mark="${name}"]`) as SVGElement;
+/** The middle of the SHIP, which is not the middle of the frame — see above. */
+const mastX = (container: HTMLElement) => Number(mark(container, 'mast').getAttribute('cx'));
 
 describe('the rig mirrors with the tack', () => {
     it('sets the sails to starboard when the wind is over the port side', () => {
         // Wind at 315 is on the port bow, so the boom is out to starboard.
         // Drawing it the other way would be a boat that cannot be sailing.
         const { container } = render(<SailPlanDiagram {...base} windAngle={315} />);
-        expect(Number(mark(container, 'boom').getAttribute('x2'))).toBeGreaterThan(centreline(container));
+        expect(Number(mark(container, 'boom').getAttribute('x2'))).toBeGreaterThan(mastX(container));
     });
 
     it('sets them to port when the wind is over the starboard side', () => {
         const { container } = render(<SailPlanDiagram {...base} windAngle={45} />);
-        expect(Number(mark(container, 'boom').getAttribute('x2'))).toBeLessThan(centreline(container));
+        expect(Number(mark(container, 'boom').getAttribute('x2'))).toBeLessThan(mastX(container));
     });
 });
 
 describe('the boom angle follows the point of sail', () => {
     it('is close to the centreline beating and well out running', () => {
         const beat = render(<SailPlanDiagram {...base} band="Beating" windAngle={45} />);
-        const beatX = Number(mark(beat.container, 'boom').getAttribute('x2'));
+        // Distance OFF THE MAST, not an absolute x. The hull's frame position
+        // changes with the tack, so comparing raw x2 across two renders
+        // measures the lean as well as the boom.
+        const beatX = Math.abs(Number(mark(beat.container, 'boom').getAttribute('x2')) - mastX(beat.container));
         const run = render(<SailPlanDiagram {...base} band="Running" windAngle={45} />);
-        const runX = Number(mark(run.container, 'boom').getAttribute('x2'));
-        // Both to port, but running is much further out.
-        expect(runX).toBeLessThan(beatX);
+        const runX = Math.abs(Number(mark(run.container, 'boom').getAttribute('x2')) - mastX(run.container));
+        // Running is much further out. This read `runX < beatX` while both
+        // were absolute x on the same tack — true, but only because "further
+        // out to port" meant a SMALLER number. As a distance off the mast it
+        // says what it means.
+        expect(runX).toBeGreaterThan(beatX);
     });
 });
 
@@ -108,12 +119,14 @@ describe('the yankee lead, which is not the same as the car', () => {
         expect(container.textContent).toContain('POLED');
         // Wind on the starboard bow, so the rig is to port and the pole to
         // starboard. Drawing the pole to leeward would be a gybe waiting.
-        const cx = centreline(container);
+        // The BOAT's centreline, off the mast — the hull no longer sits at
+        // the frame's centre, it leans away from the labels.
+        const cx = Number(mark(container, 'mast').getAttribute('cx'));
         expect(Number(mark(container, 'pole').getAttribute('x2'))).toBeGreaterThan(cx);
         // And the SAIL it carries goes with it. The yankee was drawn to
         // leeward in every state, including this one — the pole was right and
         // the sail it holds out was on the other side of the boat.
-        const yankee = container.querySelector('path[d^="M 170 62"]') as SVGPathElement;
+        const yankee = container.querySelector(`path[d^="M ${cx} 62"]`) as SVGPathElement;
         expect(yankee.getAttribute('d')).toContain(`${cx + 66}`);
     });
 
