@@ -38,6 +38,12 @@ describe('LocalDatabase durable outbox', () => {
         vi.resetModules();
         vi.clearAllMocks();
         localStorage.clear();
+        // These tests model a device whose vessel files already live in
+        // Directory.Data. Without this marker the first initialisation also
+        // lists Documents to move anything left there — one extra readdir,
+        // which would shift every ordered mock chain below by one. The move
+        // itself is covered by LocalDatabaseDocumentsMigration.test.ts.
+        localStorage.setItem('thalassa_localdb_moved_to_data', '1');
         vi.mocked(Filesystem.readdir).mockResolvedValue({ files: [] });
         vi.mocked(Filesystem.writeFile).mockResolvedValue({ uri: 'mock://file' });
         vi.mocked(Filesystem.rename).mockResolvedValue();
