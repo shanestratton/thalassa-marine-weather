@@ -29,6 +29,10 @@ export interface MapBaseSelectorProps {
     visible: boolean;
     value: MapBaseKind;
     onChange: (value: MapBaseKind) => void;
+    /** Installed cells. Zero means there is nothing to switch, so no row. */
+    encCellCount: number;
+    encVisible: boolean;
+    onToggleEnc: () => void;
 }
 
 /**
@@ -36,13 +40,25 @@ export interface MapBaseSelectorProps {
  * only the raster underneath the ENC stack; navigation marks, safety depth and
  * route checks remain owned by their existing layers.
  */
-export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorProps) {
+export function MapBaseSelector({
+    visible,
+    value,
+    onChange,
+    encCellCount,
+    encVisible,
+    onToggleEnc,
+}: MapBaseSelectorProps) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const menuId = useId();
     const selected = MAP_BASE_OPTIONS.find((option) => option.id === value) ?? MAP_BASE_OPTIONS[0];
+    /* The ENC row is a menu item too, so the arrow keys have to know about it
+       or the one control a skipper reaches for under memory pressure would be
+       the one item they cannot reach without a mouse. */
+    const showEncRow = encCellCount > 0;
+    const itemCount = MAP_BASE_OPTIONS.length + (showEncRow ? 1 : 0);
 
     useEffect(() => {
         if (!visible) setOpen(false);
@@ -82,7 +98,7 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                 event.preventDefault();
                 const focusedIndex = optionRefs.current.findIndex((option) => option === document.activeElement);
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
-                const nextIndex = (focusedIndex + direction + MAP_BASE_OPTIONS.length) % MAP_BASE_OPTIONS.length;
+                const nextIndex = (focusedIndex + direction + itemCount) % itemCount;
                 optionRefs.current[nextIndex]?.focus({ preventScroll: true });
             }}
         >
@@ -120,9 +136,6 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                     aria-label="Map base"
                     className="mt-2 w-[min(280px,calc(100vw-32px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl"
                 >
-                    <p className="px-2 pb-2 pt-1 text-[10px] font-semibold leading-snug text-slate-400">
-                        Visual background only — ENC safety layers stay above it.
-                    </p>
                     {MAP_BASE_OPTIONS.map((option, index) => {
                         const checked = option.id === value;
                         return (
@@ -158,6 +171,61 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                             </button>
                         );
                     })}
+
+                    {/* ── ENC MASTER SWITCH ──
+                        Lives here rather than floating on the chart (Shane
+                        2026-09-05: "move the enc button up into that drop down
+                        box... put it at the bottom after ocean").
+
+                        A CHECKBOX, not a fourth radio. Hybrid/Satellite/Ocean
+                        are one exclusive choice of raster; ENC is a separate
+                        stack drawn ABOVE whichever of those is showing. Making
+                        it a menuitemradio would tell a screen reader that
+                        turning charts on turns the base map off.
+
+                        Offered whenever there are cells to switch — and
+                        crucially ALSO when they are already off, or it would be
+                        a one-way door. */}
+                    {showEncRow && (
+                        <>
+                            <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
+                            <button
+                                ref={(element) => {
+                                    optionRefs.current[MAP_BASE_OPTIONS.length] = element;
+                                }}
+                                type="button"
+                                role="menuitemcheckbox"
+                                aria-checked={encVisible}
+                                aria-label={encVisible ? 'Turn ENC charts off' : 'Turn ENC charts on'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onToggleEnc();
+                                    setOpen(false);
+                                    triggerRef.current?.focus({ preventScroll: true });
+                                }}
+                                className={`flex min-h-[52px] w-full items-center justify-between rounded-xl px-3 text-left transition-colors active:scale-[0.98] ${
+                                    encVisible
+                                        ? 'border border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
+                                        : 'border border-white/10 text-slate-400'
+                                }`}
+                            >
+                                <span>
+                                    <span className="block text-xs font-black">ENC charts</span>
+                                    <span className="block text-[10px] font-medium text-slate-400">
+                                        {encVisible ? 'Safety layers above the base' : 'Hidden — base map only'}
+                                    </span>
+                                </span>
+                                {/* The state, not just what tapping does. */}
+                                <span
+                                    className={`text-[10px] font-black uppercase tracking-wider ${
+                                        encVisible ? 'text-emerald-300' : 'text-slate-500'
+                                    }`}
+                                >
+                                    {encVisible ? 'ON' : 'OFF'}
+                                </span>
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </div>

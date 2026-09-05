@@ -9,9 +9,22 @@ vi.mock('../utils/system', async (importOriginal) => ({
     triggerHaptic,
 }));
 
-function Harness() {
+function Harness({ encCellCount = 9, onToggleEnc = vi.fn() }: { encCellCount?: number; onToggleEnc?: () => void }) {
     const [base, setBase] = useState<MapBaseKind>('hybrid');
-    return <MapBaseSelector visible value={base} onChange={setBase} />;
+    const [enc, setEnc] = useState(true);
+    return (
+        <MapBaseSelector
+            visible
+            value={base}
+            onChange={setBase}
+            encCellCount={encCellCount}
+            encVisible={enc}
+            onToggleEnc={() => {
+                onToggleEnc();
+                setEnc((on) => !on);
+            }}
+        />
+    );
 }
 
 beforeEach(() => triggerHaptic.mockClear());
@@ -23,9 +36,10 @@ describe('MapBaseSelector', () => {
         // No beta wording on the chart at all (Shane 2026-08-06).
         expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Map base: Hybrid' }));
-        expect(screen.getByRole('menu', { name: 'Map base' })).toHaveTextContent(
-            'Visual background only — ENC safety layers stay above it.',
-        );
+        // The "Visual background only — ENC safety layers stay above it."
+        // header is gone (Shane 2026-09-05). The ENC row below says the same
+        // thing by being switchable, which is more use than a caption.
+        expect(screen.getByRole('menu', { name: 'Map base' })).not.toHaveTextContent('Visual background only');
         fireEvent.click(screen.getByRole('menuitemradio', { name: /Satellite Clean aerial imagery/ }));
         expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
 
