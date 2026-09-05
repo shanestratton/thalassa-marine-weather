@@ -90,3 +90,7 @@ declare module '*.png' {
     export default src;
 }
 declare const __BUILD_STAMP__: string;
+/** Short commit SHA the bundle was built from ('unknown' when git is unavailable). */
+declare const __COMMIT_SHA__: string;
+/** iOS build number (CURRENT_PROJECT_VERSION) supplied as VITE_APP_BUILD; '' when unset. */
+declare const __APP_BUILD__: string;

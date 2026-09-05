@@ -113,7 +113,22 @@ jobs:
             - name: Build
               # Keep CI on the same production path used for releases. This
               # includes the pre/post-build client-secret scans in package.json.
+              # SENTRY_SOURCEMAPS=1 emits HIDDEN maps that the next step uploads
+              # and then deletes — they must be gone before any dist check runs.
+              env:
+                  SENTRY_SOURCEMAPS: '1'
+                  VITE_APP_BUILD: ${{ vars.VITE_APP_BUILD }}
               run: npm run build
+
+            - name: Upload hidden source maps to Sentry, then delete them
+              # Skips the upload (exit 0) when SENTRY_AUTH_TOKEN is not set;
+              # deletes the maps regardless so dist never carries source.
+              env:
+                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+                  SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+                  SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+                  VITE_APP_BUILD: ${{ vars.VITE_APP_BUILD }}
+              run: npm run sourcemaps:upload
 
             - name: Verify production preview routes and artifacts
               run: npm run check:web-release

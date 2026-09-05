@@ -9,11 +9,19 @@
  *   import { captureException, setUser } from './services/sentry';
  */
 
+import { Capacitor } from '@capacitor/core';
+
 type SentryModule = typeof import('@sentry/react');
 type SentryBreadcrumb = Parameters<SentryModule['addBreadcrumb']>[0];
 
 let _sentry: SentryModule | null = null;
 let _loading: Promise<SentryModule> | null = null;
+
+/** thalassa@<version>+<build>, or thalassa@<version> when no build number was supplied. */
+export function buildRelease(): string {
+    const version = import.meta.env.VITE_APP_VERSION || '0.0.0';
+    return __APP_BUILD__ ? `thalassa@${version}+${__APP_BUILD__}` : `thalassa@${version}`;
+}
 
 const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const IS_PROD = import.meta.env.PROD;
@@ -92,7 +100,11 @@ function loadSentry(): Promise<SentryModule> {
             mod.init({
                 dsn: DSN,
                 environment: IS_PROD ? 'production' : 'development',
-                release: `thalassa@${import.meta.env.VITE_APP_VERSION || '0.0.0'}`,
+                // `version+build` is what Sentry needs to match an event to an
+                // uploaded source map AND to a TestFlight build; the bare
+                // version could not tell two builds of 1.2.0 apart (audit 21).
+                release: buildRelease(),
+                dist: __APP_BUILD__ || undefined,
                 sendDefaultPii: false,
                 tracesSampleRate: IS_PROD ? 0.05 : 0,
                 // Public beta deliberately ships without screen/session
@@ -145,7 +157,12 @@ function loadSentry(): Promise<SentryModule> {
                 },
 
                 initialScope: {
-                    tags: { app: 'thalassa', platform: 'web' },
+                    tags: {
+                        app: 'thalassa',
+                        platform: Capacitor.getPlatform(),
+                        commit: __COMMIT_SHA__,
+                        build: __APP_BUILD__ || 'unset',
+                    },
                 },
             });
         }

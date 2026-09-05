@@ -11,6 +11,7 @@
         "build": "npm run check:client-secrets && NODE_OPTIONS=--max-old-space-size=4096 tsc && vite build && npm run check:client-secrets -- --dist",
         "check:bundle": "node scripts/check-bundle-size.js",
         "check:beta": "node scripts/check-beta-readiness.mjs",
+        "sourcemaps:upload": "node scripts/upload-sourcemaps.mjs",
         "check:beta:source": "node scripts/check-beta-readiness.mjs --source-only",
         "check:client-secrets": "node scripts/check-client-secrets.mjs",
         "check:web-release": "node scripts/verify-web-release.mjs",
