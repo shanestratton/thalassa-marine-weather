@@ -21,15 +21,19 @@ describe('the staysail', () => {
     it('is still drawn when stowed, and says so', () => {
         const c = draw({ stay: false });
         expect(c.textContent).toContain('STAYSAIL (STOWED)');
-        // Ghosted, not deleted — the stowed outline is dashed.
-        expect(c.querySelector('path[stroke-dasharray="3 4"]')).not.toBeNull();
+        // Ghosted, not deleted — the stowed outline is dashed. Selected by
+        // data-mark rather than by its dash pattern: the dash is styling and
+        // changed with the 2026-09-05 rescale (3 4 → 4 5), while what this
+        // test cares about is that the mark is still THERE.
+        const ghost = c.querySelector('[data-mark="staysail"]')!;
+        expect(ghost).not.toBeNull();
+        expect(ghost.getAttribute('stroke-dasharray')).toBeTruthy();
     });
 
     it('is filled when set and unfilled when stowed', () => {
-        expect(draw({ stay: true }).innerHTML).toContain('rgba(255,255,255,0.10)');
+        expect(draw({ stay: true }).innerHTML).toContain('rgba(255,255,255,0.16)');
         const stowed = draw({ stay: false });
-        const ghost = stowed.querySelector('path[stroke-dasharray="3 4"]');
-        expect(ghost?.getAttribute('fill')).toBe('none');
+        expect(stowed.querySelector('[data-mark="staysail"]')?.getAttribute('fill')).toBe('none');
     });
 
     it('calls it a storm jib when that is what is up', () => {
@@ -47,10 +51,10 @@ describe('the staysail', () => {
         // that makes her a cutter rather than a sloop.
         for (const stay of [true, false, 'storm'] as const) {
             const c = draw({ stay });
-            const fittings = [...c.querySelectorAll('circle')].filter(
-                (el) => el.getAttribute('cy') === '40' || el.getAttribute('cy') === '76',
-            );
-            expect(fittings).toHaveLength(2);
+            // By data-mark, not by hardcoded cy. Their y positions moved with
+            // the rescale; that they BOTH exist in every staysail state is the
+            // contract, and it is what makes her read as a cutter.
+            expect(c.querySelectorAll('[data-mark="stay-fitting"]')).toHaveLength(2);
         }
     });
 

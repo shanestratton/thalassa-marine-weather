@@ -21,6 +21,10 @@
  */
 import React from 'react';
 
+/* Type is sized against the RENDERED pixel, not the viewBox. At 640 wide in a
+   420px box the scale is 0.656, so fontSize 15 lands at 9.8px and 17 at 11.2px
+   — legible. They were 9 and 12, which at the old 260px cap rendered at 3.7px
+   and 4.9px (Shane could not have read them, and neither could anyone). */
 const W = 640;
 const H = 320;
 
@@ -85,7 +89,7 @@ const Corner: React.FC<{ at: [number, number]; label: string; dx: number; dy: nu
             y={at[1] + dy}
             textAnchor="middle"
             fill={INK}
-            fontSize={12}
+            fontSize={17}
             fontWeight={900}
             style={{ letterSpacing: '.1em' }}
         >
@@ -105,7 +109,7 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
         {/* Mast and boom: the spars the three corners attach to. */}
         <line x1={M_HEAD[0]} y1={26} x2={M_TACK[0]} y2={246} stroke={SPAR} strokeWidth={5} strokeLinecap="round" />
         <line x1={74} y1={M_TACK[1]} x2={262} y2={M_CLEW[1]} stroke={SPAR} strokeWidth={5} strokeLinecap="round" />
-        <text x={M_HEAD[0] - 6} y={20} textAnchor="middle" fill={NOTE} fontSize={9}>
+        <text x={M_HEAD[0] - 6} y={20} textAnchor="middle" fill={NOTE} fontSize={15}>
             mast
         </text>
 
@@ -137,13 +141,13 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
                 />
             );
         })}
-        <text x={M_HEAD[0] + 18} y={92} fill={CORNER} fontSize={9} fontWeight={800}>
+        <text x={M_HEAD[0] + 18} y={92} fill={CORNER} fontSize={15} fontWeight={800}>
             BATTENS
         </text>
-        <text x={M_HEAD[0] + 18} y={103} fill={NOTE} fontSize={9}>
+        <text x={M_HEAD[0] + 18} y={103} fill={NOTE} fontSize={15}>
             hold the roach out
         </text>
-        <text x={M_HEAD[0] + 16} y={186} fill={CORNER} fontSize={9} fontWeight={800}>
+        <text x={M_HEAD[0] + 16} y={186} fill={CORNER} fontSize={15} fontWeight={800}>
             reef down to a batten
         </text>
 
@@ -156,10 +160,10 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
         {/* The leech label sits out in the clear and points back at the curve,
             because the curve is the part worth naming. */}
         <Leader from={[276, 108]} to={[M_CLEW[0] - 8, 132]} label="LEECH" fill={EDGE} anchor="start" />
-        <text x={276} y={122} fill={NOTE} fontSize={9}>
+        <text x={276} y={122} fill={NOTE} fontSize={15}>
             the curve is
         </text>
-        <text x={276} y={133} fill={NOTE} fontSize={9}>
+        <text x={276} y={133} fill={NOTE} fontSize={15}>
             the ROACH
         </text>
 
@@ -179,12 +183,12 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
             strokeLinecap="round"
         />
         <line x1={378} y1={246} x2={604} y2={246} stroke={SPAR} strokeWidth={5} strokeLinecap="round" />
-        <text x={352} y={96} fill={NOTE} fontSize={9}>
+        <text x={352} y={96} fill={NOTE} fontSize={15}>
             forestay
         </text>
         {/* Clear of the line, not on it — the label was printing over the deck
             it names. */}
-        <text x={608} y={240} fill={NOTE} fontSize={9} textAnchor="start">
+        <text x={608} y={240} fill={NOTE} fontSize={15} textAnchor="start">
             deck
         </text>
 
@@ -206,7 +210,7 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
             strokeWidth={2}
             strokeLinecap="round"
         />
-        <text x={Y_CLEW[0] + 26} y={228} fill={SHEET} fontSize={9} fontWeight={800}>
+        <text x={Y_CLEW[0] + 26} y={228} fill={SHEET} fontSize={15} fontWeight={800}>
             sheet
         </text>
 
@@ -231,7 +235,7 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
                 />
             );
         })}
-        <text x={452} y={112} fill="#38bdf8" fontSize={9} fontWeight={800}>
+        <text x={452} y={112} fill="#38bdf8" fontSize={15} fontWeight={800}>
             TELLTALES
         </text>
 
@@ -244,10 +248,10 @@ export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className =
         <Leader from={[452, 218]} to={[460, 200]} label="FOOT" fill={EDGE} />
         {/* Lifted clear of the foot: at the old y the second line ran straight
             through the very edge it was explaining. */}
-        <text x={420} y={148} fill={NOTE} fontSize={9}>
+        <text x={420} y={148} fill={NOTE} fontSize={15}>
             a YANKEE is cut high,
         </text>
-        <text x={420} y={159} fill={NOTE} fontSize={9}>
+        <text x={420} y={159} fill={NOTE} fontSize={15}>
             so the foot clears the deck
         </text>
 
