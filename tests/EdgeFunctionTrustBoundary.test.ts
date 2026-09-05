@@ -18,7 +18,12 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
 
     it('locks every cron/sweeper entry point to exact service-role POST requests', () => {
         // sweep-expired-escrows is gone with the Marketplace (bc065281).
-        for (const name of ['check-weather-alerts', 'scrape-vessel-metadata', 'sweep-stale-vessels']) {
+        for (const name of [
+            'check-weather-alerts',
+            'moderate-chat-message',
+            'scrape-vessel-metadata',
+            'sweep-stale-vessels',
+        ]) {
             const edge = functionSource(name);
             expect(edge, name).toContain('requireServiceRolePost(');
             expect(edge, name).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");

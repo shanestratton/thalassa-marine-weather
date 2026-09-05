@@ -3,6 +3,7 @@
  * Extracted from ChatPage to reduce monolith complexity.
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { isAwaitingModeration, moderationHint } from '../../services/chat/messagePolicy';
 import type { ChatMessage } from '../../services/ChatService';
 import {
     getAvatarGradient,
@@ -430,7 +431,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                 {/* Message body */}
                                                 {isDeleted ? (
                                                     <p className="text-sm text-white/40 italic py-0.5">
-                                                        [removed by moderator]
+                                                        {isSelf && msg.moderation_status === 'rejected'
+                                                            ? '[not posted]'
+                                                            : '[removed by moderator]'}
                                                     </p>
                                                 ) : (
                                                     (() => {
@@ -587,7 +590,8 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                                   : 'Message delivered'
                                                                         }
                                                                     >
-                                                                        {msg.delivery_status === 'sending'
+                                                                        {msg.delivery_status === 'sending' ||
+                                                                        isAwaitingModeration(msg)
                                                                             ? '…'
                                                                             : msg.delivery_status === 'queued'
                                                                               ? '◷'
@@ -605,6 +609,21 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                             : 'Queued — sends when online'}
                                                     </p>
                                                 )}
+                                                {(() => {
+                                                    // Server-side moderation state, author only. Nothing
+                                                    // for an approved message; that is the ordinary case.
+                                                    const hint = !msg.delivery_status
+                                                        ? moderationHint(msg, isSelf)
+                                                        : null;
+                                                    return hint ? (
+                                                        <p
+                                                            className={`mt-1 text-[11px] ${hint.tone === 'warn' ? 'text-amber-300/80' : 'text-sky-300/60'}`}
+                                                            role="status"
+                                                        >
+                                                            {hint.text}
+                                                        </p>
+                                                    ) : null;
+                                                })()}
 
                                                 {/* Action row — visible at rest. There is no hover on a phone, so
                                                     opacity-0 made Helpful/Report/Mod unreachable on the only device

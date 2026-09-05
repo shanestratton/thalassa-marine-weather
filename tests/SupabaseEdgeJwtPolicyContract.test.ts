@@ -52,6 +52,8 @@ const CREDENTIALLESS_ALLOWLIST = {
     'fetch-gfs-tracker': 'bare fetch(url) from CycloneTrackingService; per-client public quota inside',
     'float-plan': 'database-free tombstone for historical public links',
     'founding-skipper-application': 'public application form with HMAC per-client quota and service-role-only RPC',
+    'moderate-chat-message':
+        'chat_messages trigger / retry sweep over pg_net with the service key; exact service-role POST checked',
     'proxy-himawari-ir': 'map raster source that cannot attach Authorization',
     'proxy-rainbow': 'credentialless Pi passthrough with a per-client public quota',
     'satellite-tile': 'map raster source that cannot attach Authorization; per-client public quota inside',
@@ -166,8 +168,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         }
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
         expect(Object.keys(FLIP_TO_TRUE)).toHaveLength(12);
-        // The six credentialless drifts plus the eight that were already allowlisted.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(14);
+        // The six credentialless drifts, the eight already allowlisted, and
+        // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push).
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(15);
         expect(Object.keys(PI_PENDING_FALSE)).toHaveLength(4);
     });
 

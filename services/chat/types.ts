@@ -26,6 +26,15 @@ export interface ChatMessage {
     is_pinned: boolean;
     deleted_at: string | null;
     created_at: string;
+    /**
+     * Server-side moderation (2026-09-05). A new row is 'pending' and visible
+     * only to its author until the moderation service approves it; 'rejected'
+     * rows are soft-deleted with a reason the author can read; 'held' means the
+     * classifier could not be reached and the message was never published.
+     * Absent on rows loaded from clients older than the column.
+     */
+    moderation_status?: 'pending' | 'approved' | 'rejected' | 'held';
+    moderation_reason?: string | null;
     /** Local-only state for an optimistic message; never persisted remotely. */
     delivery_status?: 'sending' | 'queued';
 }
