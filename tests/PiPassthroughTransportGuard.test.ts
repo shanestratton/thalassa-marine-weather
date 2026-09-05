@@ -108,9 +108,34 @@ describe('Pi passthrough transport guard', () => {
         expect(svc).toContain('async passthroughText(');
         expect(svc).toContain('async passthroughJson<T = unknown>(');
         expect(svc).toContain('async passthroughTileResponse(');
-        // They must go through piRequest — that IS the pinned transport.
-        const textBody = svc.slice(svc.indexOf('async passthroughText('), svc.indexOf('async passthroughJson<'));
-        expect(textBody).toContain('piRequest(');
-        expect(textBody).not.toMatch(/\bfetch\s*\(/);
+        // pinnedPiRequest — and NOT the bare piRequest, which this test used to
+        // demand by name. `piRequest` takes an OPTIONAL pinnedSpki and passes
+        // whatever it is given; only `pinnedPiRequest` fills it in from
+        // getPairing(). So the wrapper that ten call sites were migrated onto,
+        // to fix precisely this bug, was itself unpinned — and this assertion
+        // held it there, with a comment asserting the opposite.
+        //
+        // Match the bare call with a boundary that a pinnedPiRequest cannot
+        // satisfy, or `expect(body).toContain('piRequest(')` passes on the
+        // pinned one and the guard goes back to sleep.
+        // Strip comments first. The prose around these functions describes the
+        // very mistakes being guarded against — "cannot be fetched with plain
+        // fetch()" sits in the next docblock down — so a raw slice matches the
+        // warning instead of the code.
+        const bare = stripComments(svc);
+        for (const [name, body] of [
+            [
+                'passthroughText',
+                bare.slice(bare.indexOf('async passthroughText('), bare.indexOf('async passthroughJson<')),
+            ],
+            [
+                'passthroughTileResponse',
+                bare.slice(bare.indexOf('async passthroughTileResponse('), bare.indexOf('passthroughUrl(originalUrl:')),
+            ],
+        ] as const) {
+            expect(body, `${name} must present the pin`).toContain('pinnedPiRequest(');
+            expect(body, `${name} must not use the unpinned transport`).not.toMatch(/[^d]\bpiRequest\s*\(/);
+            expect(body, `${name} must not use plain fetch`).not.toMatch(/\bfetch\s*\(/);
+        }
     });
 });

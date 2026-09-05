@@ -1309,7 +1309,15 @@ class PiCacheServiceImpl {
         const piUrl = this.passthroughUrl(originalUrl, ttlMs, source);
         if (!piUrl) return null;
         try {
-            const res = await piRequest({ url: piUrl, readTimeout: timeoutMs });
+            // pinnedPiRequest, NOT piRequest. The bare one takes no pin, and
+            // PiTlsPlugin.swift refuses every path but /api/pair/info without
+            // one — so this wrapper, the thing ten call sites were migrated ONTO
+            // to fix exactly this bug, could never have worked. Every
+            // passthrough since has been a round trip to a refusal, logged as
+            // "[pi] passthrough <source> failed — caller should go direct".
+            // Shane's Web Inspector, 2026-09-05, on a paired Pi: bom-aws and
+            // mapbox-geocode both refused for want of a pinned key.
+            const res = await pinnedPiRequest({ url: piUrl, readTimeout: timeoutMs });
             if (res.status < 200 || res.status >= 300) {
                 log.warn(`[pi] passthrough ${source} returned ${res.status} — caller should go direct`);
                 return null;
@@ -1359,7 +1367,12 @@ class PiCacheServiceImpl {
         const piUrl = this.passthroughTileUrl(originalUrl, ttlMs);
         if (!piUrl) return null;
         try {
-            const res = await piRequest({ url: piUrl, responseType: 'arraybuffer', readTimeout: timeoutMs });
+            // pinnedPiRequest — see passthroughText above. Same bug, same file.
+            const res = await pinnedPiRequest({
+                url: piUrl,
+                responseType: 'arraybuffer',
+                readTimeout: timeoutMs,
+            });
             if (res.status < 200 || res.status >= 300 || !res.data) return null;
             const binary = atob(res.data);
             const bytes = new Uint8Array(binary.length);
