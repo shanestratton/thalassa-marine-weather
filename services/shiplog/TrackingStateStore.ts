@@ -173,6 +173,15 @@ export interface StoredPosition {
     /** Last recorded speed — used for acceleration-based spike filtering */
     speedKts?: number;
     /**
+     * Distance accrual state (services/shiplog/distanceAccrual.ts): where
+     * distance last accrued FROM, a fix awaiting confirmation, and whether
+     * the boat was under way. Absent on records written before 2026-09-06;
+     * the accrual then anchors on this position.
+     */
+    accrualAnchor?: { latitude: number; longitude: number };
+    moveCandidate?: { latitude: number; longitude: number };
+    moving?: boolean;
+    /**
      * Voyage this position belongs to. captureLog ignores a stored
      * position from a DIFFERENT voyage (no distance/speed deltas across
      * voyage boundaries), and captureImmediate uses the match to decide
