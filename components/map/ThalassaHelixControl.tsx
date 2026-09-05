@@ -209,6 +209,14 @@ export interface ThalassaHelixControlProps {
     dualColor?: boolean;
     /** Accent color for forecast frames (track fill when dualColor; sublabel always) */
     forecastAccent?: string;
+    /**
+     * Rendered as a sibling AFTER the pill, inside the positioned row, and
+     * stretched to the pill's height. MapWeatherControls passes the minimise
+     * button here so it sits right beside the scrubber at exactly its height
+     * (Shane, 2026-09-06) instead of floating at a hardcoded offset that
+     * drifted whenever the pill's width did.
+     */
+    trailing?: React.ReactNode;
 }
 
 export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
@@ -229,6 +237,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         nowIndex,
         dualColor,
         forecastAccent = '#fbbf24',
+        trailing,
     }) => {
         // ── Refs for smooth DOM-direct drag ──
         const trackRef = useRef<HTMLDivElement>(null);
@@ -504,7 +513,9 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
 
                 {/* ═══ MAIN CONTROL — SCRUBBER + TIME ═══ */}
                 <div
-                    className="absolute z-500 flex items-end gap-2"
+                    // items-stretch, not items-end: the trailing minimise
+                    // button takes the pill's height, whatever that is.
+                    className="absolute z-500 flex items-stretch gap-2"
                     style={{
                         left: 12,
                         bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
@@ -674,6 +685,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             </div>
                         )}
                     </div>
+                    {trailing}
                 </div>
             </>
         );
@@ -687,9 +699,11 @@ ThalassaHelixControl.displayName = 'ThalassaHelixControl';
 export interface LegendDockProps {
     layers: HelixLayer[];
     embedded?: boolean;
+    /** Same contract as ThalassaHelixControl.trailing: the minimise square, at the dock's height. */
+    trailing?: React.ReactNode;
 }
 
-export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded }) => {
+export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded, trailing }) => {
     // Collapsed by default, matching ThalassaHelixControl's legend — and more
     // important here, because this renders ONE ~160px bar PER LAYER. With two
     // layers up it filled the bottom-left corner twice over, directly under
@@ -702,7 +716,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
     if (!expanded) {
         return (
             <div
-                className="absolute z-500 flex items-end gap-2 animate-in fade-in duration-200"
+                className="absolute z-500 flex items-stretch gap-2 animate-in fade-in duration-200"
                 style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
             >
                 {validLayers.map((layer) => (
@@ -721,6 +735,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
                         <span className="text-sm">{LAYER_CONFIGS[layer]?.icon}</span>
                     </button>
                 ))}
+                {trailing}
             </div>
         );
     }

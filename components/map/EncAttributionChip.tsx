@@ -201,7 +201,9 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             // calc(64px + inset + 8px) — the full-width chart furniture band
             // at z-500 sits there, and it would re-hide this chip.
             className="absolute right-2 z-140 pointer-events-auto max-w-[280px]"
-            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 136px)' }}
+            // Above the Mapbox ⓘ + scale stack, lifted to 4rem + 73px (≈ 137–193px
+            // above the inset) to clear the Locate fab on 2026-09-06.
+            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 204px)' }}
             role="contentinfo"
             aria-label="ENC chart attribution"
         >
