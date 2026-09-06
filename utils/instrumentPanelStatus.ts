@@ -27,7 +27,15 @@ export interface PanelMetric {
     freshness: DataFreshness;
 }
 
-export type PanelState = 'no-gateway' | 'disconnected' | 'error' | 'connecting' | 'waiting' | 'stale' | 'live';
+export type PanelState =
+    | 'no-gateway'
+    | 'disconnected'
+    | 'error'
+    | 'connecting'
+    | 'waiting'
+    | 'stale'
+    | 'live'
+    | 'remote';
 
 export interface PanelDiagnosis {
     state: PanelState;
@@ -45,13 +53,29 @@ export interface PanelDiagnosis {
 export function diagnosePanel(params: {
     /** Has a gateway host/port ever been saved? */
     gatewayConfigured: boolean;
-    connectionStatus: NmeaConnectionStatus;
+    connectionStatus: NmeaConnectionStatus | 'remote';
     /** Every metric the panel can display. */
     metrics: readonly PanelMetric[];
     /** Seconds since the socket connected, when known. */
     secondsSinceConnect?: number | null;
+    /** Who is feeding the store from the cloud, when nothing is wired. */
+    remote?: { source: 'pi' | 'device'; deviceLabel: string | null; ageSeconds: number } | null;
 }): PanelDiagnosis {
-    const { gatewayConfigured, connectionStatus, metrics, secondsSinceConnect = null } = params;
+    const { gatewayConfigured, connectionStatus, metrics, secondsSinceConnect = null, remote = null } = params;
+
+    // No socket, but the boat is reporting through the cloud — say so, and say
+    // how old. Not 'live' and not 'no gateway': a crew phone on the train has
+    // neither a gateway nor a fault.
+    if (connectionStatus === 'remote') {
+        const who = remote?.deviceLabel ?? (remote?.source === 'device' ? 'the skipper’s phone' : 'the Pi');
+        const age = remote ? Math.max(0, Math.round(remote.ageSeconds)) : null;
+        return {
+            state: 'remote',
+            label: 'Remote',
+            detail: `Reading the boat through the cloud — ${who} reported ${age === null ? 'moments' : `${age} s`} ago.`,
+            actionable: false,
+        };
+    }
 
     if (!gatewayConfigured) {
         return {

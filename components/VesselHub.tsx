@@ -25,6 +25,7 @@ import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
+import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
 import { useUIStore } from '../stores/uiStore';
@@ -1328,6 +1329,12 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     vesselName,
 }) => {
     const claimHeld = holdsClaim(claim);
+    // The Pi publishing the boat to the cloud within the last minute IS the
+    // primary device (Shane 2026-09-06: "one source of truth"); phones stand
+    // down and the claim button goes with them until she goes quiet.
+    const cloud = useCloudTelemetry();
+    const piPrimary = cloud.piPrimary;
+    const piName = cloud.latest?.deviceLabel ?? 'The Pi';
 
     /**
      * Which GPS speaks for the boat.
@@ -1469,7 +1476,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     )}
                     {vesselName && (
                         <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-cyan-300/80">
-                            Skipper device
+                            {piPrimary ? 'Primary: the Pi' : 'Skipper device'}
                         </span>
                     )}
                 </div>
@@ -1514,16 +1521,25 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     )}
                     <p className="sr-only">{statusDescription}</p>
                 </div>
-                <button
-                    type="button"
-                    onClick={handleAction}
-                    aria-label={actionLabel}
-                    className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[10px] font-black uppercase tracking-[0.06em] transition-colors active:brightness-110 ${
-                        claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
-                    }`}
-                >
-                    {actionLabel}
-                </button>
+                {piPrimary ? (
+                    <p
+                        data-testid="skipper-device-pi-primary"
+                        className="flex h-11 w-full items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-[10px] font-black uppercase tracking-[0.06em] text-emerald-300"
+                    >
+                        {piName} publishes the boat · phones stand down
+                    </p>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={handleAction}
+                        aria-label={actionLabel}
+                        className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[10px] font-black uppercase tracking-[0.06em] transition-colors active:brightness-110 ${
+                            claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
+                        }`}
+                    >
+                        {actionLabel}
+                    </button>
+                )}
             </div>
             <ConfirmDialog
                 isOpen={takeoverRequest !== null}
