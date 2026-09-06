@@ -71,6 +71,7 @@ import {
     shoalRate,
     type SailingWind,
 } from '../../services/sailing/sereneSailing';
+import { closeHauledDegFor, pointOfSail } from '../../services/sailing/pointOfSail';
 
 interface TheGlassPageProps {
     onBack: () => void;
@@ -1026,6 +1027,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const roseTrueAngle =
         normaliseBowAngle(twaSigned.value) ??
         (twd.value !== null && heading.value !== null ? normaliseBowAngle(twd.value - heading.value) : null);
+
+    // "In irons / Pinching / Running square" — generic geometry off the true
+    // wind angle and her own closest-to-the-wind number (profile, default by
+    // rig). Shane 2026-09-06: "so we know when to tack".
+    const closeHauledDeg = closeHauledDegFor(vesselProfile);
+    const pointing = useMemo(
+        () => pointOfSail({ windFromDeg: roseTrueAngle, sogKts: sog.value, closeHauledDeg }),
+        [roseTrueAngle, sog.value, closeHauledDeg],
+    );
+    const pointingShown = pointing !== null && (pointing.level !== 'good' || pointing.wingAndWing);
+    // Running: square wing-and-wing, or come up and gybe down. The brain's own
+    // rule (TRIM.Running) is the pole comes down above 20 kn gusts; that is the
+    // default, and the skipper can pick either for the session.
+    const [downwindPick, setDownwindPick] = useState<'wing' | 'gybe' | null>(null);
+    const downwind: 'wing' | 'gybe' = downwindPick ?? (recentGust != null && recentGust >= 20 ? 'gybe' : 'wing');
 
     const windMetrics = [state.tws, state.twa, state.aws, state.awa, state.twd];
     const windAvailable = windMetrics.some(metricIsAvailable);
@@ -2050,6 +2066,37 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     {plan.band.band} · {Math.round(plan.off)}° off ·{' '}
                                                     {fmt(recentGust, 0)} kts gusts (10 min)
                                                 </p>
+                                                {pointingShown && pointing && (
+                                                    <div
+                                                        data-testid="point-of-sail-strip"
+                                                        className={`mt-2 flex items-start gap-2 rounded-xl border px-2.5 py-2 ${
+                                                            pointing.level === 'serious'
+                                                                ? 'border-red-400/35 bg-red-500/10'
+                                                                : pointing.level === 'warning'
+                                                                  ? 'border-amber-400/30 bg-amber-500/10'
+                                                                  : 'border-emerald-400/25 bg-emerald-500/8'
+                                                        }`}
+                                                    >
+                                                        <span
+                                                            className={`shrink-0 text-[11px] font-black uppercase tracking-widest ${
+                                                                pointing.level === 'serious'
+                                                                    ? 'text-red-300'
+                                                                    : pointing.level === 'warning'
+                                                                      ? 'text-amber-300'
+                                                                      : 'text-emerald-300'
+                                                            }`}
+                                                        >
+                                                            {pointing.label}
+                                                        </span>
+                                                        <span className="min-w-0 text-[12px] leading-snug text-slate-200">
+                                                            {pointing.detail}{' '}
+                                                            <span className="text-gray-500">
+                                                                {Math.round(pointing.offBow)}° off · she holds{' '}
+                                                                {pointing.closeHauledDeg}°
+                                                            </span>
+                                                        </span>
+                                                    </div>
+                                                )}
                                                 <p className="mt-1 text-xl font-black text-white">
                                                     {reefDescribe(plan.row, plan.row.main === 'Down').m}
                                                 </p>
@@ -2084,8 +2131,51 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         so they stay. Every mark in the diagram
                                                         comes from this same plan; if the two ever
                                                         disagree, the diagram is the bug. */}
+                                                    {plan.band.band === 'Running' && (
+                                                        <>
+                                                            <div
+                                                                className="mt-2 flex gap-2"
+                                                                role="group"
+                                                                aria-label="How to sail downwind"
+                                                            >
+                                                                <button
+                                                                    type="button"
+                                                                    aria-pressed={downwind === 'wing'}
+                                                                    onClick={() => setDownwindPick('wing')}
+                                                                    className={`flex-1 rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                                                        downwind === 'wing'
+                                                                            ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
+                                                                            : 'border-white/8 bg-white/3 text-gray-400'
+                                                                    }`}
+                                                                >
+                                                                    Square · wing and wing
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    aria-pressed={downwind === 'gybe'}
+                                                                    onClick={() => setDownwindPick('gybe')}
+                                                                    className={`flex-1 rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                                                        downwind === 'gybe'
+                                                                            ? 'border-sky-400/40 bg-sky-500/15 text-sky-300'
+                                                                            : 'border-white/8 bg-white/3 text-gray-400'
+                                                                    }`}
+                                                                >
+                                                                    Gybe down · 145–165°
+                                                                </button>
+                                                            </div>
+                                                            <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
+                                                                {downwind === 'wing'
+                                                                    ? 'Yankee poled out to windward, staysail set on the other side, preventer on. Under 20 kn gusts this is her happy place; if she starts to roll, come up and gybe your way down.'
+                                                                    : 'Pole down and it stays down. Come up to 145–165°, sail the broad reach and gybe your way downwind — steadier, and faster once the gusts pass 20 kn.'}
+                                                            </p>
+                                                        </>
+                                                    )}
                                                     <SailPlanDiagram
-                                                        band={plan.band.band}
+                                                        band={
+                                                            plan.band.band === 'Running' && downwind === 'gybe'
+                                                                ? 'Broad reach'
+                                                                : plan.band.band
+                                                        }
                                                         windAngle={roseTrueAngle}
                                                         main={plan.row.main}
                                                         yankee={plan.row.yankee}

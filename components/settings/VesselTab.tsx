@@ -3,6 +3,7 @@
  * Extracted from SettingsModal monolith (63 lines → standalone component).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
 import type { PolarData } from '../../types/navigation';
@@ -1543,6 +1544,30 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 Used for provisioning and watch scheduling in passage plans
                             </p>
                         </div>
+                        {vessel?.type === 'sail' && (
+                            <div className="mt-4">
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    Closest to the wind (° true)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="25"
+                                    max="70"
+                                    step="1"
+                                    value={Number.isFinite(vessel?.closeHauledTwa) ? vessel.closeHauledTwa : ''}
+                                    onChange={(e) => {
+                                        const n = parseInt(e.target.value, 10);
+                                        updateVessel('closeHauledTwa', Number.isFinite(n) ? n : Number.NaN);
+                                    }}
+                                    placeholder={String(closeHauledDegFor(vessel))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                />
+                                <p className="text-[11px] text-gray-400 mt-1">
+                                    The Instrument Panel calls “In irons” and “Pinching” against this. Blank uses the
+                                    default for her rig ({closeHauledDegFor(vessel)}°).
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </React.Fragment>
