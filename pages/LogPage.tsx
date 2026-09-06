@@ -1841,6 +1841,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             }
                                             key={summary.voyageId}
                                             summary={summary}
+                                            isLiveVoyage={
+                                                state.isTracking && state.currentVoyageId === summary.voyageId
+                                            }
                                             entries={entriesByVoyage.get(summary.voyageId) ?? NO_ENTRIES}
                                             isSelected={selectedVoyageId === summary.voyageId}
                                             isExpanded={expandedVoyages.has(summary.voyageId)}

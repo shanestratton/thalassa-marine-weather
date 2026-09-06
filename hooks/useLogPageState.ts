@@ -46,6 +46,8 @@ import {
     selectEmptyVoyagesToPrune,
     isMaritimeVoyage,
     type VoyageSummary,
+    isEmptyTrack,
+    trackSpanM,
 } from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
@@ -1250,7 +1252,11 @@ export function useLogPageState() {
                 // action that ends it. See utils/extremes.
                 const dist = maxOf(ve.map((e) => e.cumulativeDistanceNM || 0));
                 const hasManual = ve.some((e) => e.entryType === 'manual');
-                if (dist < 0.05 && !hasManual) {
+                // Same verdict as the load-time sweep: 0.0 NM, OR a footprint
+                // no bigger than GPS jitter — the boat on the hard that accrued
+                // 0.1 NM and never went anywhere (Shane 2026-09-06).
+                const wentNowhere = isEmptyTrack({ totalDistanceNM: dist, spanM: trackSpanM(ve) });
+                if (wentNowhere && !hasManual) {
                     // OPTIMISTIC (Shane 2026-08-12: the tidy-up "takes some time
                     // to come"). The wait was the awaited cloud delete — a network
                     // round trip standing between End Voyage and the announcement.
