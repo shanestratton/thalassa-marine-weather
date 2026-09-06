@@ -10,6 +10,7 @@ import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
 import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
+import { resolveWeatherPosition } from '../services/weatherPosition';
 import { LocationStore } from '../stores/LocationStore';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -395,10 +396,18 @@ export const useAppController = () => {
                 // This already-granted-only path uses the foreground provider
                 // and fails closed before any prompt. It never initializes the
                 // Transistorsoft background or motion engine.
-                const fix = await GpsService.getCurrentPositionIfGranted({
-                    staleLimitMs: 60_000,
-                    timeoutSec: 8,
-                });
+                // The boat first, her held fix when she is quiet, the phone
+                // last (services/weatherPosition) — the phone read stays the
+                // passive, already-granted one.
+                const resolved = await resolveWeatherPosition(
+                    () =>
+                        GpsService.getCurrentPositionIfGranted({
+                            staleLimitMs: 60_000,
+                            timeoutSec: 8,
+                        }).then((p) => (p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null)),
+                    { mayAsk: false },
+                );
+                const fix = resolved.fix ? { latitude: resolved.fix.lat, longitude: resolved.fix.lon } : null;
                 if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
                 if (!fix) return;
 

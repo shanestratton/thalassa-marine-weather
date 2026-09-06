@@ -11,6 +11,9 @@ import { resolveForecastModel, getForecastModelInfo, isSpitfire } from '../../se
 import { listPublishedModels } from '../../services/weather/wxPublished';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
+import { WeatherPositionChoiceDialog } from './WeatherPositionChoiceDialog';
+import { describeWeatherFix } from '../../services/weatherPosition';
+import type { WeatherPositionChoice } from '../../context/WeatherContext';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -73,7 +76,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         isOffshore: isOffshoreProp,
     }) => {
         const env = useEnvironment();
-        const { refreshData, loading, backgroundUpdating, error } = useWeather();
+        const { refreshData, loading, backgroundUpdating, error, positionSource, positionChoice } = useWeather();
+        // Widened on purpose: test harnesses mock useWeather() without these.
+        const choice: WeatherPositionChoice | undefined = positionChoice;
         const isSyncing = loading || backgroundUpdating;
         const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
         // Error state takes precedence over staleness — if the last
@@ -165,6 +170,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // escape hatch lives inside the sheet.
         const updateSettings = useSettingsStore((s) => s.updateSettings);
         const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+        const vesselName = useSettingsStore((s) => s.settings.vessel?.name?.trim() || 'The boat');
         const modelInfo = getForecastModelInfo(glassModel);
         const [showModelSheet, setShowModelSheet] = useState(false);
 
@@ -185,6 +191,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // Past ~90 min the age tints amber so staleness is visible without
         // reading the number.
         const forecastAgeStale = Number.isFinite(generatedMs) && ageTick - generatedMs > 90 * 60 * 1000;
+        // Which receiver the weather is for — the boat, her held last fix
+        // (with its age, off the same minute tick), or the phone.
+        const positionLabel = positionSource ? describeWeatherFix(positionSource, ageTick) : '';
 
         // What ACTUALLY served this data, when the publisher says so. The
         // pill's face stays the pinned selection (it is a picker, and must
@@ -320,7 +329,29 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             </svg>
                         </button>
                     </div>
+                    {/* Shane 2026-09-06: "hold her last fix. with a message of
+                        course." Tapping while a hold is in force re-opens the
+                        boat-or-phone question. */}
+                    {positionSource && (
+                        <button
+                            type="button"
+                            onClick={() => choice?.open()}
+                            aria-label={`Weather position: ${positionLabel}`}
+                            className={`mt-1 w-full text-center text-[10px] font-semibold uppercase tracking-wider ${
+                                positionSource.kind === 'held' ? 'text-amber-300/90' : 'text-slate-400'
+                            }`}
+                        >
+                            {positionLabel}
+                            {positionSource.kind === 'held' ? ' · tap to change' : ''}
+                        </button>
+                    )}
                 </div>
+
+                <WeatherPositionChoiceDialog
+                    prompt={choice?.prompt ?? null}
+                    vesselName={vesselName}
+                    onChoose={(picked) => choice?.answer(picked)}
+                />
 
                 <ModelPickerSheet
                     visible={showModelSheet}
