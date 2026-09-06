@@ -58,9 +58,56 @@ export interface VoyageSummary {
      * preserves the old per-entry filter now that the list is summary-driven.
      */
     landFraction: number | null;
+    /**
+     * How big the track's footprint is: the diagonal of its bounding box in
+     * metres. A boat that never left the hard writes a jitter cloud a few
+     * tens of metres across however much distance the hops add up to; a
+     * real move is hundreds. null when unknown (an older server RPC).
+     */
+    spanM?: number | null;
 }
 
 const DEFAULT_VOYAGE_ID = 'default_voyage';
+
+const EARTH_RADIUS_M = 6_371_000;
+
+/** Great-circle metres between two points. Local so the summary layer stays dependency-free. */
+function metresBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(Math.min(1, a)));
+}
+
+function realFix(lat: unknown, lon: unknown): lat is number {
+    return (
+        typeof lat === 'number' &&
+        typeof lon === 'number' &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        !(lat === 0 && lon === 0) // captureImmediate's placeholder, never a position
+    );
+}
+
+/** Bounding-box diagonal of a set of entries, in metres; null when fewer than two real fixes. */
+export function trackSpanM(entries: readonly Pick<ShipLogEntry, 'latitude' | 'longitude'>[]): number | null {
+    let minLat = Number.POSITIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    let minLon = Number.POSITIVE_INFINITY;
+    let maxLon = Number.NEGATIVE_INFINITY;
+    let fixes = 0;
+    for (const e of entries) {
+        if (!realFix(e.latitude, e.longitude)) continue;
+        fixes += 1;
+        if (e.latitude < minLat) minLat = e.latitude;
+        if (e.latitude > maxLat) maxLat = e.latitude;
+        if (e.longitude < minLon) minLon = e.longitude;
+        if (e.longitude > maxLon) maxLon = e.longitude;
+    }
+    if (fixes < 2) return fixes === 1 ? 0 : null;
+    return metresBetween(minLat, minLon, maxLat, maxLon);
+}
 
 /**
  * NULL and the historical empty-string value both mean "ungrouped". Some
@@ -95,6 +142,7 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
         let totalDistanceNM = 0;
         let speedSum = 0;
         let speedCount = 0;
+        const spanM = trackSpanM(sorted);
         let hasManual = false;
         let isPlannedRoute = false;
         let isImported = false;
@@ -135,6 +183,7 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
             lastLon: last?.longitude ?? null,
             firstIsOnWater: first?.isOnWater ?? null,
             landFraction: waterDataCount > 0 ? landCount / waterDataCount : null,
+            spanM,
         });
     }
 
@@ -211,6 +260,12 @@ function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
         // function simply omits it → null → the voyage counts as maritime
         // (fail-open), same as "no water data".
         landFraction: row.land_fraction == null ? null : Number(row.land_fraction),
+        // min/max lat/lon arrive with the 2026-09-06 RPC revision; an older
+        // deployed function omits them → null → the prune keys on distance alone.
+        spanM:
+            row.min_lat == null || row.max_lat == null || row.min_lon == null || row.max_lon == null
+                ? null
+                : metresBetween(Number(row.min_lat), Number(row.min_lon), Number(row.max_lat), Number(row.max_lon)),
     };
 }
 
@@ -376,6 +431,21 @@ export function computePersonalRecords(summaries: VoyageSummary[]): PersonalReco
 // never got a real fix; clutter the user asked to have swept away.
 /** Distance below which a track reads "0.0 NM" (rounds at 1 dp). */
 export const EMPTY_TRACK_NM = 0.05;
+/**
+ * A track whose whole footprint fits inside this box never went anywhere,
+ * whatever its hops added up to. Shane's boat on the hard accrued 0.1 NM of
+ * confirmed jitter over an afternoon and so survived the distance rule
+ * (2026-09-06); its bounding box was a few tens of metres. A genuine berth
+ * move is hundreds of metres, an anchor swing not much more than this, and
+ * anything sailed is kilometres.
+ */
+export const EMPTY_TRACK_SPAN_M = 150;
+
+/** Went nowhere: reads 0.0 NM, or the entire track sits inside a jitter-sized box. */
+export function isEmptyTrack(s: Pick<VoyageSummary, 'totalDistanceNM' | 'spanM'>): boolean {
+    if (s.totalDistanceNM < EMPTY_TRACK_NM) return true;
+    return s.spanM != null && s.spanM < EMPTY_TRACK_SPAN_M;
+}
 /** A voyage touched this recently might still be recording (this or another device). */
 export const RECENT_ACTIVE_MS = 15 * 60 * 1000;
 
@@ -403,7 +473,7 @@ export function selectEmptyVoyagesToPrune(
     const { activeVoyageId, nowMs, deviceStoppedIds } = opts;
     const out: string[] = [];
     for (const s of summaries) {
-        if (s.totalDistanceNM >= EMPTY_TRACK_NM) continue;
+        if (!isEmptyTrack(s)) continue;
         if (s.voyageId === activeVoyageId) continue;
         if (s.isPlannedRoute || s.isImported) continue;
         if (s.hasManual) continue;

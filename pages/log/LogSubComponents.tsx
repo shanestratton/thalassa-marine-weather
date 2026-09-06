@@ -16,7 +16,13 @@ import { publishFollowedRoute } from '../../services/shiplog/publishFollowedRout
 import { VoyageLogService } from '../../services/VoyageLogService';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
-import { groupEntriesByDate, groupEntriesByNoonWindow, computePropulsionSplit } from '../../utils/voyageData';
+import {
+    groupEntriesByDate,
+    groupEntriesByNoonWindow,
+    computePropulsionSplit,
+    shouldShowDayRuns,
+    dayRunLabel,
+} from '../../utils/voyageData';
 import { createLogger } from '../../utils/createLogger';
 import { usePersistedState } from '../../hooks/usePersistedState';
 
@@ -342,10 +348,13 @@ export const VoyageCard: React.FC<{
     filteredEntries: ShipLogEntry[];
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
+    /** True only for the voyage this device is recording right now — drives the LIVE badge. */
+    isLiveVoyage?: boolean;
 }> = React.memo(
     ({
         summary,
         entries,
+        isLiveVoyage = false,
         isSelected,
         isExpanded,
         onToggle,
@@ -798,12 +807,13 @@ export const VoyageCard: React.FC<{
                                             );
                                         })()}
 
-                                    {/* Day's runs (noon-to-noon) — only for multi-day
-                                    passages, the classic bluewater logbook view. */}
+                                    {/* Day's runs (noon-to-noon) — only for passages that
+                                    span a whole day, the classic bluewater logbook view.
+                                    Distances are the gated totals the card uses. */}
                                     {!isPlannedRoute &&
                                         (() => {
                                             const runs = groupEntriesByNoonWindow(voyageFilteredEntries);
-                                            if (runs.length < 2) return null;
+                                            if (!shouldShowDayRuns(runs, voyageFilteredEntries)) return null;
                                             return (
                                                 <div className="px-4 pt-3">
                                                     <div className="text-[10px] font-bold uppercase tracking-wider text-sky-400/70 mb-1.5">
@@ -818,10 +828,7 @@ export const VoyageCard: React.FC<{
                                                                 <span className="text-white/70 font-medium">
                                                                     Day {r.dayNumber}
                                                                     <span className="text-white/50 ml-2">
-                                                                        {new Date(r.windowStartMs).toLocaleDateString(
-                                                                            'en-GB',
-                                                                            { day: '2-digit', month: 'short' },
-                                                                        )}
+                                                                        {dayRunLabel(r)}
                                                                     </span>
                                                                 </span>
                                                                 <span className="font-bold text-emerald-400 tabular-nums">
@@ -838,6 +845,7 @@ export const VoyageCard: React.FC<{
                                     >
                                         <DateGroupedTimeline
                                             groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
+                                            isTracking={isLiveVoyage}
                                             onDeleteEntry={onDeleteEntry}
                                             onEditEntry={onEditEntry}
                                             voyageFirstEntryId={entries[entries.length - 1]?.id}

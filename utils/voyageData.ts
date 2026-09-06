@@ -6,6 +6,100 @@
 import { ShipLogEntry } from '../types';
 import { estimatePropulsion } from '../services/shiplog/propulsion';
 
+// ── Distance made good, from the gated running total ────────────────
+// Every per-leg distanceNM is a raw GPS hop, and a boat on the hard writes
+// thousands of them: the day rows under a 0.1 nm voyage card read 2.6 NM
+// (Shane 2026-09-06). cumulativeDistanceNM is the GATED total (the anchor +
+// two-fix rule in services/shiplog/distanceAccrual), and it is monotonic per
+// voyage — so the distance a group of entries made good is the total at the
+// group's end minus the total just before it began. Entries without a total
+// (imported, pre-accrual builds) fall back to the raw sum.
+
+interface CumulativeSeries {
+    tsMs: number[];
+    /** Running maximum, so a stray non-monotonic value cannot go negative. */
+    cum: number[];
+}
+
+function seriesKey(e: ShipLogEntry): string {
+    return e.voyageId && e.voyageId.length > 0 ? e.voyageId : 'default_voyage';
+}
+
+function hasCumulative(e: ShipLogEntry): boolean {
+    return typeof e.cumulativeDistanceNM === 'number' && Number.isFinite(e.cumulativeDistanceNM);
+}
+
+/** One chronological running-total series per voyage. */
+export function cumulativeSeriesByVoyage(entries: ShipLogEntry[]): Map<string, CumulativeSeries> {
+    const grouped = new Map<string, ShipLogEntry[]>();
+    for (const e of entries) {
+        if (!hasCumulative(e)) continue;
+        const key = seriesKey(e);
+        const list = grouped.get(key);
+        if (list) list.push(e);
+        else grouped.set(key, [e]);
+    }
+    const out = new Map<string, CumulativeSeries>();
+    for (const [key, list] of grouped) {
+        list.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        const tsMs: number[] = [];
+        const cum: number[] = [];
+        let running = 0;
+        for (const e of list) {
+            running = Math.max(running, e.cumulativeDistanceNM as number);
+            tsMs.push(new Date(e.timestamp).getTime());
+            cum.push(running);
+        }
+        out.set(key, { tsMs, cum });
+    }
+    return out;
+}
+
+/** The running total just before `tsMs` — 0 when nothing precedes it. */
+function totalBefore(series: CumulativeSeries, tsMs: number): number {
+    let lo = 0;
+    let hi = series.tsMs.length; // first index with tsMs >= target
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (series.tsMs[mid] < tsMs) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo === 0 ? 0 : series.cum[lo - 1];
+}
+
+/**
+ * NM made good by `group`, from the gated running totals. null when no entry
+ * in the group carries a total — the caller then sums the raw legs.
+ */
+export function gatedDistanceNM(group: ShipLogEntry[], series: Map<string, CumulativeSeries>): number | null {
+    const byVoyage = new Map<string, ShipLogEntry[]>();
+    for (const e of group) {
+        if (!hasCumulative(e)) continue;
+        const key = seriesKey(e);
+        const list = byVoyage.get(key);
+        if (list) list.push(e);
+        else byVoyage.set(key, [e]);
+    }
+    if (byVoyage.size === 0) return null;
+    let total = 0;
+    for (const [key, list] of byVoyage) {
+        const s = series.get(key);
+        let groupMax = 0;
+        let earliest = Number.POSITIVE_INFINITY;
+        for (const e of list) {
+            groupMax = Math.max(groupMax, e.cumulativeDistanceNM as number);
+            earliest = Math.min(earliest, new Date(e.timestamp).getTime());
+        }
+        const before = s ? totalBefore(s, earliest) : 0;
+        total += Math.max(0, groupMax - before);
+    }
+    return total;
+}
+
+function rawLegSumNM(entries: ShipLogEntry[]): number {
+    return entries.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
+}
+
 export interface GroupedEntries {
     date: string; // YYYY-MM-DD (local)
     displayDate: string; // e.g., "February 1, 2026"
@@ -36,6 +130,7 @@ function getLocalDateString(timestamp: string): string {
  */
 export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
     const grouped = new Map<string, ShipLogEntry[]>();
+    const series = cumulativeSeriesByVoyage(entries);
 
     // Group by LOCAL date (not UTC)
     entries.forEach((entry) => {
@@ -67,7 +162,7 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
                 // Sort entries within date newest first
                 entries: dateEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
                 stats: {
-                    totalDistance: dateEntries.reduce((sum, e) => sum + (e.distanceNM || 0), 0),
+                    totalDistance: gatedDistanceNM(dateEntries, series) ?? rawLegSumNM(dateEntries),
                     avgSpeed: speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
                     maxSpeed: speeds.length > 0 ? Math.max(...speeds) : 0,
                     entryCount: dateEntries.length,
@@ -103,14 +198,16 @@ function noonWindowStartMs(timestamp: string): number {
 }
 
 /**
- * Break a voyage into noon-to-noon day's runs. Distance is the SUM of
- * per-leg distanceNM within each window (NOT a cumulativeDistanceNM diff
- * — turn pins copy cumulative and contribute 0 distance, so a naive diff
- * double-counts). Each leg is attributed to its end-entry's window; at
- * 5 s cadence the boundary leg is metres, negligible. Windows are
- * returned chronologically and numbered Day 1..N.
+ * Break a voyage into noon-to-noon day's runs. Distance is the GATED total
+ * made good inside the window (running total at the window's end minus the
+ * total just before it) — the same number the voyage card shows, so the rows
+ * can never out-count the card. Turn pins carry the total and add nothing;
+ * a naive per-window sum of raw legs counted every jitter hop. Entries with
+ * no running total (imported, pre-accrual builds) fall back to the raw sum.
+ * Windows are returned chronologically and numbered Day 1..N.
  */
 export function groupEntriesByNoonWindow(entries: ShipLogEntry[]): DayRun[] {
+    const series = cumulativeSeriesByVoyage(entries);
     const byWindow = new Map<number, ShipLogEntry[]>();
     for (const e of entries) {
         const w = noonWindowStartMs(e.timestamp);
@@ -126,12 +223,57 @@ export function groupEntriesByNoonWindow(entries: ShipLogEntry[]): DayRun[] {
         return {
             dayNumber: i + 1,
             windowStartMs,
-            distanceNM: sorted.reduce((sum, e) => sum + (e.distanceNM || 0), 0),
+            distanceNM: gatedDistanceNM(sorted, series) ?? rawLegSumNM(sorted),
             firstTs: sorted[0].timestamp,
             lastTs: sorted[sorted.length - 1].timestamp,
             entryCount: sorted.length,
         };
     });
+}
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** A day's run needs a whole day: the panel is for passages, not a 4 h track that crosses noon. */
+export const DAY_RUNS_MIN_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Show the day's-runs panel only for a voyage that spans at least one full
+ * day. Any track crossing local noon produces two windows (Shane's 10:32 →
+ * 14:23 boatyard track read "Day 1 05 Sep / Day 2 06 Sep", 2026-09-06), so
+ * the window count alone was never the test.
+ */
+export function shouldShowDayRuns(runs: DayRun[], entries: ShipLogEntry[]): boolean {
+    if (runs.length < 2 || entries.length < 2) return false;
+    let earliest = Number.POSITIVE_INFINITY;
+    let latest = Number.NEGATIVE_INFINITY;
+    for (const e of entries) {
+        const t = new Date(e.timestamp).getTime();
+        if (!Number.isFinite(t)) continue;
+        if (t < earliest) earliest = t;
+        if (t > latest) latest = t;
+    }
+    return latest - earliest >= DAY_RUNS_MIN_DURATION_MS;
+}
+
+/**
+ * Label a run by the dates the sailing happened on ("06 Sep", "05–06 Sep"),
+ * not by the noon its window started at — a run entirely inside 06 Sep was
+ * being presented as 05 Sep.
+ */
+export function dayRunLabel(run: Pick<DayRun, 'firstTs' | 'lastTs'>): string {
+    const first = new Date(run.firstTs);
+    const last = new Date(run.lastTs);
+    const day = (d: Date) => String(d.getDate()).padStart(2, '0');
+    // A fixed table, not toLocaleDateString: ICU spells September "Sept" in
+    // en-GB on some engines and "Sep" on others, and a logbook column should
+    // not depend on which.
+    const mon = (d: Date) => MONTH_ABBR[d.getMonth()];
+    if (first.getFullYear() === last.getFullYear() && first.getMonth() === last.getMonth()) {
+        return first.getDate() === last.getDate()
+            ? `${day(first)} ${mon(first)}`
+            : `${day(first)}–${day(last)} ${mon(first)}`;
+    }
+    return `${day(first)} ${mon(first)}–${day(last)} ${mon(last)}`;
 }
 
 // ── Sail vs motor split ─────────────────────────────────────────────

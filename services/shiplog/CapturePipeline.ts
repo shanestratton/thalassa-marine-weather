@@ -444,6 +444,21 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
  * so it only consumes points that were either persisted or deliberately
  * filtered.
  */
+const M_PER_S_TO_KTS = 1.943844;
+
+/**
+ * What goes in the log as speed: the receiver's speed over ground when it
+ * reports a valid one (Doppler, honest at a standstill), else the hop speed
+ * only when the movement gate confirmed the boat actually moved. Exported
+ * for the unit test.
+ */
+export function recordedSpeedKts(reportedMps: number | null | undefined, hopKts: number, moving: boolean): number {
+    if (typeof reportedMps === 'number' && Number.isFinite(reportedMps) && reportedMps >= 0) {
+        return reportedMps * M_PER_S_TO_KTS;
+    }
+    return moving ? hopKts : 0;
+}
+
 async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOptions = {}): Promise<CaptureLogOutcome> {
     if (!contextIsCurrent(ctx)) return { status: 'stale' };
     const {
@@ -561,6 +576,16 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
             );
             cumulativeDistanceNM = accrual.cumulativeDistanceNM;
 
+            // The RECORDED speed is not the raw hop. A boat on the hard read
+            // 7.4 kts max from 15 m jitter hops over 4 s (Shane 2026-09-06):
+            // the spike gates above rightly see the raw leg, but the log
+            // carries the receiver's own speed over ground when it reports
+            // one, and the hop speed only when the movement gate confirmed a
+            // move. The 0,0-placeholder case above already zeroed it.
+            if (!(lastPos.latitude === 0 && lastPos.longitude === 0)) {
+                speedKts = recordedSpeedKts(bestPos?.speed, speedKts, accrual.moving);
+            }
+
             if (distanceNM >= STATIONARY_THRESHOLD_NM) {
                 ctx.trackingState.lastMovementTime = timestamp;
                 await ctx.saveTrackingState();
@@ -611,7 +636,9 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
             latitude,
             longitude,
             positionFormatted: formatPositionDMS(latitude, longitude),
-            distanceNM: Math.round(distanceNM * 100) / 100,
+            // Four places, not two: 0.01 NM is 18.5 m, so every 9–18 m hop
+            // was credited a full 0.01 and the rows summing legs ran hot.
+            distanceNM: Math.round(distanceNM * 10_000) / 10_000,
             cumulativeDistanceNM: Math.round(cumulativeDistanceNM * 100) / 100,
             speedKts: Math.round(speedKts * 10) / 10,
             courseDeg,

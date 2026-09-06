@@ -65,10 +65,13 @@ describe('Voyage Data Utilities', () => {
         });
 
         it('should calculate daily statistics', () => {
+            // Distance made good comes from the gated running total
+            // (cumulativeDistanceNM), not the raw hops — so the mock's flat
+            // 10.0 total is replaced with a series that actually accrues.
             const entries: ShipLogEntry[] = [
-                createMockEntry({ speedKts: 6.0, distanceNM: 1.5 }),
-                createMockEntry({ speedKts: 8.0, distanceNM: 2.0 }),
-                createMockEntry({ speedKts: 7.0, distanceNM: 1.75 }),
+                createMockEntry({ speedKts: 6.0, distanceNM: 1.5, cumulativeDistanceNM: 1.5 }),
+                createMockEntry({ speedKts: 8.0, distanceNM: 2.0, cumulativeDistanceNM: 3.5 }),
+                createMockEntry({ speedKts: 7.0, distanceNM: 1.75, cumulativeDistanceNM: 5.25 }),
             ];
 
             const grouped = groupEntriesByDate(entries);

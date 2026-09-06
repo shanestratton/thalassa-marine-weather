@@ -75,6 +75,7 @@ import {
     addManual,
     flushBufferedTrack,
     type CaptureContext,
+    recordedSpeedKts,
 } from '../services/shiplog/CapturePipeline';
 import { GpsTrackBuffer } from '../services/shiplog/GpsTrackBuffer';
 import { saveEntryOnlineOrOffline, demotePreviousAutoWaypoint } from '../services/shiplog/EntrySave';
@@ -587,5 +588,18 @@ describe('flushBufferedTrack', () => {
         expect(saveEntry).toHaveBeenCalledTimes(1);
         expect(saveEntry.mock.calls[0][0].latitude).toBeCloseTo(-27.49);
         expect(ctx.trackBuffer.length).toBe(0);
+    });
+});
+
+describe('recordedSpeedKts — what the log carries as speed (Shane 2026-09-06: 7.4 kts max on the hard)', () => {
+    it('prefers the receiver’s own speed over ground, converted to knots', () => {
+        expect(recordedSpeedKts(3.0, 7.4, false)).toBeCloseTo(5.83, 2);
+        expect(recordedSpeedKts(0, 7.4, false)).toBe(0);
+    });
+    it('without a reported speed, a hop only counts once the movement gate confirmed a move', () => {
+        expect(recordedSpeedKts(null, 7.4, false)).toBe(0);
+        expect(recordedSpeedKts(undefined, 6.2, true)).toBe(6.2);
+        expect(recordedSpeedKts(-1, 6.2, true)).toBe(6.2); // iOS reports -1 for "invalid"
+        expect(recordedSpeedKts(Number.NaN, 6.2, false)).toBe(0);
     });
 });

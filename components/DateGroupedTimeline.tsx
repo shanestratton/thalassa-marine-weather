@@ -4,7 +4,7 @@
  * Sticky date headers, smooth animations
  */
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { ShipLogEntry } from '../types';
 import { GroupedEntries } from '../utils/voyageData';
 import { CompassIcon, WindIcon } from './Icons';
@@ -23,6 +23,12 @@ interface DateGroupedTimelineProps {
     onEditEntry?: (entry: ShipLogEntry) => void;
     voyageFirstEntryId?: string;
     voyageLastEntryId?: string;
+    /**
+     * Whether THIS voyage is being recorded right now. LIVE used to mean
+     * "dated today", which put the badge on a stopped track beneath a
+     * "Slide to start tracking" slider (Shane 2026-09-06).
+     */
+    isTracking?: boolean;
 }
 
 // Get today's date as YYYY-MM-DD in local timezone
@@ -41,8 +47,11 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
     onEditEntry,
     voyageFirstEntryId,
     voyageLastEntryId,
+    isTracking = false,
 }) => {
-    const todayStr = useMemo(() => getTodayDateString(), []);
+    // Per render, not memoised: a session left open across local midnight
+    // kept calling yesterday "Today".
+    const todayStr = getTodayDateString();
 
     // Track expanded dates
     const [expandedDates, setExpandedDates] = useState<Set<string>>(() => {
@@ -142,7 +151,7 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                         <span className={`font-bold ${isToday ? 'text-sky-400' : 'text-white'}`}>
                                             {isToday ? 'Today' : group.displayDate}
                                         </span>
-                                        {isToday && (
+                                        {isToday && isTracking && (
                                             <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
                                                 LIVE
                                             </span>
