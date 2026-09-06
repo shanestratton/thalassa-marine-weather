@@ -79,7 +79,7 @@ interface AtomicTransactionJournal {
 
 // ── Where the database lives ───────────────────────────────────
 /**
- * Directory.Data, NOT Directory.Documents.
+ * Directory.Library — NOT Directory.Documents, and NOT Directory.Data.
  *
  * Info.plist turns on UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace
  * so the S-63 chart fingerprint is findable in the Files app — a deliberate
@@ -89,12 +89,21 @@ interface AtomicTransactionJournal {
  * Thalassa" listed a skipper's private vessel records beside the one file
  * meant to be there (external audit, 2026-09-05, item 10).
  *
- * Directory.Data is the app's Library — backed up, persistent, and not shown
- * in Files. Everything this module reads or writes goes there. Existing files
- * are moved once by migrateVesselFilesOutOfDocuments() on the first
- * initialisation after this change; Documents is then left to the exports.
+ * Build 102 chose Directory.Data for the fix, believing it to be the app's
+ * Library. On iOS it is not: @capacitor/filesystem resolves DATA, DOCUMENTS,
+ * EXTERNAL and EXTERNAL_STORAGE to the one Documents folder (8.1.2,
+ * ios/Sources/FilesystemPlugin/IONFileStructures+Converters.swift). Only
+ * LIBRARY resolves to Library: backed up, persistent, never shown in Files.
+ * The 102 "move" therefore found every file already at its destination,
+ * skipped the copy and deleted the source — the only copy — and the sync
+ * layer then re-pulled whatever the server held (upgrade test, 2026-09-06).
+ *
+ * Everything this module reads or writes goes to Library. Files that older
+ * builds left in Documents are moved once by migrateVesselFilesOutOfDocuments(),
+ * which refuses to delete anything until the platform has confirmed that the
+ * source and destination folders are different places.
  */
-const DB_DIRECTORY = Directory.Data;
+const DB_DIRECTORY = Directory.Library;
 /** Every file this module owns starts with this — see scopedFilename(). */
 const DB_FILE_PREFIX = 'vessel_';
 /**
@@ -103,8 +112,13 @@ const DB_FILE_PREFIX = 'vessel_';
  * Documents holds the skipper's own exports and can be large, and a listing
  * on every init to confirm an empty result is a cost with no return. A run
  * that could not move something does NOT set it, so the next launch retries.
+ *
+ * A new key on purpose: build 102 set the old one on every upgraded device
+ * after its move-to-the-same-folder, and that must not stop the real move.
  */
-export const LOCALDB_MOVED_TO_DATA_MARKER = 'thalassa_localdb_moved_to_data';
+export const LOCALDB_MOVED_TO_LIBRARY_MARKER = 'thalassa_localdb_moved_to_library';
+/** Build 102's marker; cleared when the real move completes. */
+const STALE_MOVED_TO_DATA_MARKER = 'thalassa_localdb_moved_to_data';
 
 // ── File paths ─────────────────────────────────────────────────
 
@@ -222,33 +236,58 @@ async function listDbFiles(): Promise<Set<string>> {
  * Move every vessel_* file out of Documents, once.
  *
  * Idempotent and crash-safe by construction: copy first, delete second, and a
- * file already present in Data is not copied over — so a run interrupted
+ * file already present in Library is not copied over — so a run interrupted
  * between the two steps simply deletes the stale Documents copy next time,
  * and a run interrupted before the copy starts again from scratch. A file
  * that will not move is logged and left; nothing here may throw, because the
  * database must still open on a device where Documents is unreadable.
  *
+ * Nothing is deleted until the platform has said that Documents and
+ * DB_DIRECTORY are two different folders. "Already present at the
+ * destination" means nothing when the destination IS the source — that is how
+ * build 102 deleted the database it meant to move. Any doubt (an error, an
+ * empty answer, the same URI) leaves every file where it is and the marker
+ * off, so the next launch looks again.
+ *
  * .tmp and .bak recovery copies move too — they share the prefix, and
  * readJsonFile() knows how to finish an interrupted swap from them.
  */
-function movedToDataAlready(): boolean {
+function movedToLibraryAlready(): boolean {
     try {
-        return localStorage.getItem(LOCALDB_MOVED_TO_DATA_MARKER) === '1';
+        return localStorage.getItem(LOCALDB_MOVED_TO_LIBRARY_MARKER) === '1';
     } catch {
         return false; // No storage — behave as a first launch and look.
     }
 }
 
-function rememberMovedToData(): void {
+function rememberMovedToLibrary(): void {
     try {
-        localStorage.setItem(LOCALDB_MOVED_TO_DATA_MARKER, '1');
+        localStorage.setItem(LOCALDB_MOVED_TO_LIBRARY_MARKER, '1');
+        localStorage.removeItem(STALE_MOVED_TO_DATA_MARKER);
     } catch {
         /* Cannot remember — the next launch lists Documents again, which is safe. */
     }
 }
 
+/**
+ * Asks the platform where `name` would live in each folder and compares the
+ * answers. The same relative name is used on both sides so the only
+ * difference can be the folder itself.
+ */
+async function documentsIsSeparateFrom(directory: Directory, name: string): Promise<boolean> {
+    try {
+        const source = await Filesystem.getUri({ path: name, directory: Directory.Documents });
+        const target = await Filesystem.getUri({ path: name, directory });
+        const from = source?.uri ?? '';
+        const to = target?.uri ?? '';
+        return from.length > 0 && to.length > 0 && from !== to;
+    } catch {
+        return false;
+    }
+}
+
 async function migrateVesselFilesOutOfDocuments(): Promise<void> {
-    if (movedToDataAlready()) return;
+    if (movedToLibraryAlready()) return;
 
     let names: string[];
     try {
@@ -260,7 +299,14 @@ async function migrateVesselFilesOutOfDocuments(): Promise<void> {
         return; // No Documents listing — leave the marker unset and look again next launch.
     }
     if (names.length === 0) {
-        rememberMovedToData();
+        rememberMovedToLibrary();
+        return;
+    }
+
+    if (!(await documentsIsSeparateFrom(DB_DIRECTORY, names[0]))) {
+        log.error(
+            `[LocalDB] Left ${names.length} vessel file(s) in Documents: the platform did not confirm that Documents and the database folder are different places`,
+        );
         return;
     }
 
@@ -285,7 +331,7 @@ async function migrateVesselFilesOutOfDocuments(): Promise<void> {
         }
     }
     if (moved > 0) log.info(`[LocalDB] Moved ${moved} vessel file(s) out of the Files-visible Documents folder`);
-    if (failed === 0) rememberMovedToData();
+    if (failed === 0) rememberMovedToLibrary();
 }
 
 async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
@@ -501,7 +547,7 @@ export function initLocalDatabase(userId: string | null = null): Promise<void> {
         identityGeneration += 1;
 
         // FIRST, before any read: bring files written by older builds into
-        // Directory.Data. Every helper below reads DB_DIRECTORY only, so a file
+        // DB_DIRECTORY. Every helper below reads DB_DIRECTORY only, so a file
         // still sitting in Documents would read as "no data" — and a fresh empty
         // table would then be written over the top of a real one.
         await migrateVesselFilesOutOfDocuments();

@@ -45,8 +45,15 @@ iPhone:
 - [ ] Upgrade path: install the previous TestFlight build, create data, upgrade
       in place → vessel records, diary entries, ship log intact. **Item 10**: the
       vessel database moved out of Documents — after upgrade, open Files → On My
-      iPhone → Thalassa: only the S-63 fingerprint file should be visible, no
-      `vessel_*.json`.
+      iPhone → Thalassa: no `vessel_*.json` (the S-63 fingerprint and the
+      enc-cells / offline*map_v1 / osm-overlay folders are expected there).
+      \_102 FAILED this on 2026-09-06 (checks 1 and 2 passed): Capacitor's
+      Filesystem resolves `Directory.Data` to Documents on iOS, so the 102 move
+      found every file "already at the destination", skipped the copy and
+      deleted the only copy; the sync then re-pulled the server's records, and
+      anything edited offline since the last sync was lost. Fixed in
+      LocalDatabase (`Directory.Library` + a same-folder guard that refuses to
+      delete) for build 103 — re-run this check on the 102 → 103 upgrade.*
 - [ ] Anchor Watch controlled ashore test (audible check, arm, lock screen,
       background, acknowledge) — do not rely on it as the only alarm.
 - [ ] MOB tile: "OVERBOARD" fully legible at Display Zoom → Larger Text.

@@ -36,8 +36,11 @@ vi.mock('@capacitor/filesystem', () => ({
         mkdir: vi.fn().mockResolvedValue(undefined),
         readdir: vi.fn().mockResolvedValue({ files: [] }),
         stat: vi.fn().mockResolvedValue({ type: 'file', size: 0, ctime: 0, mtime: 0, uri: '' }),
+        getUri: vi.fn(async ({ path, directory }: { path: string; directory: string }) => ({
+            uri: `mock://${directory}/${path}`,
+        })),
     },
-    Directory: { Data: 'DATA', Documents: 'DOCUMENTS', Cache: 'CACHE' },
+    Directory: { Data: 'DATA', Documents: 'DOCUMENTS', Library: 'LIBRARY', Cache: 'CACHE' },
     Encoding: { UTF8: 'utf8' },
 }));
 
