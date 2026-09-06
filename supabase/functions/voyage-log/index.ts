@@ -162,6 +162,38 @@ async function publicPhotos(supabase: DiaryPhotoSigner, photos: unknown, ownerUs
 }
 
 /**
+ * Sign a published entry's video for playback, exactly as publicPhotos signs
+ * its photos. diary-video went private on 2026-09-04
+ * (20260904120000_private_diary_video.sql) while this handler kept passing the
+ * row's public-bucket URL straight through; that URL now answers 400 "Bucket
+ * not found", and the public page read the dead player as a clip that had not
+ * come ashore yet (Shane, 2026-09-06: photos through, video not).
+ *
+ * Accepts the `storage:diary-video:<path>` ref and the public-bucket URL that
+ * older rows and the direct uploader still write. The path is bound to the
+ * entry's owner before signing, as for photos. A clip the Pi has not yet landed
+ * cannot be signed: its original URL passes through so the page keeps showing
+ * its honest "still crossing" card until the object exists.
+ */
+async function publicVideo(supabase: DiaryPhotoSigner, video: unknown, ownerUserId: string): Promise<string | null> {
+    if (typeof video !== 'string' || video.length === 0) return null;
+    const passThrough = /^https:\/\//i.test(video) ? video : null;
+    const privatePrefix = 'storage:diary-video:';
+    let path: string | null = null;
+    if (video.startsWith(privatePrefix)) {
+        path = video.slice(privatePrefix.length);
+    } else {
+        const legacy = video.match(/diary-video\/(.+?)(?:\?.*)?$/);
+        if (legacy) path = decodeURIComponent(legacy[1]);
+    }
+    if (!path) return passThrough;
+    if (path.split('/')[0] !== ownerUserId) return null;
+    const { data, error } = await supabase.storage.from('diary-video').createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) return passThrough;
+    return data.signedUrl;
+}
+
+/**
  * rising / falling / steady from the last hour of barometric pressure.
  * Time-windowed, not sample-count-windowed: underway capture runs every
  * 30-60 s, so "last 5 samples" spanned 2.5-5 minutes — inside a single
@@ -1168,10 +1200,7 @@ Deno.serve(async (req: Request) => {
                 body: e.body,
                 mood: e.mood,
                 photos: await publicPhotos(supabase, e.photos, e.user_id as string),
-                // The video bucket is public (like photos before the signing
-                // change), and this query is already fenced to is_public rows —
-                // the URL passes through untouched.
-                video_url: typeof e.video_url === 'string' && e.video_url.startsWith('https://') ? e.video_url : null,
+                video_url: await publicVideo(supabase, e.video_url, e.user_id as string),
                 location_name: e.location_name,
                 latitude: e.latitude,
                 longitude: e.longitude,

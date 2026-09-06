@@ -33,6 +33,13 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] External group **Beta Skippers** with 102 submitted to Beta App Review 2026-09-06 10:03 AEST (_Waiting for Review_). Its tester shows "No Builds Available" / NOT_INVITED — expected until Apple approves; auto-notify is on, so the invite sends itself. **Public link OFF** until the device matrix below passes. Funnel: Founding Skippers approval emails carry the link.
 - [x] Test Information: contact, OTP review notes, privacy URL; age rating 13+ (UGC + messaging, Terms say not for under-13s).
 
+### Bugs found during the matrix (2026-09-06)
+
+Process: reproduce → find the cause in code or production → fix with a test that would have caught it → ship (edge function deploy, or the next build) → re-check on the phone. Recorded here so the evidence trail shows what beta found.
+
+- [x] **Public Voyage Log shows "the video is still making its way ashore" for a clip that landed.** Photos through, video not. Cause: `diary-video` went private on 2026-09-04 (20260904120000) but `voyage-log` still passed the row's public-bucket URL through; production answers 400 "Bucket not found" and the page reads any non-OK as "not ashore yet". Fix: `publicVideo()` signs the clip for the entry's owner exactly like photos. Ships with `supabase functions deploy voyage-log`; no app build. Re-test: Check again on the public page → the clip plays.
+- [x] **102 upgrade deleted the local vessel database.** See the upgrade-path item below; fix c95b5ade, ships in build 103.
+
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
 
 iPhone:
