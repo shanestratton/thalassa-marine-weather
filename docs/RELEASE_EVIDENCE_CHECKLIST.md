@@ -228,3 +228,4 @@ Reconcile against what the app actually collects. Ground truth per data type:
 ### Build number
 
 - [x] `CURRENT_PROJECT_VERSION` = 102 on every configuration (0606365b), uploaded as 1.2.0 (102). `VITE_APP_BUILD = 102` in CI vars still to set (§21).
+- [x] Bumped to 103 on every configuration, 2026-09-06 afternoon, for the matrix fixes (vessel database, boat-first weather, tides, STOP, Radio Console, Ship's Log, Skipper card, In irons / wing and wing). `VITE_APP_BUILD = 103` in CI vars still to set.
