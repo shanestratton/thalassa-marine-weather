@@ -1714,6 +1714,47 @@ Deno.serve(async (req: Request) => {
             }
             : null;
 
+        // The Pi's live snapshot (vessel_telemetry, build 104) beats the phone's
+        // last track point when it is fresher and under ten minutes old: the
+        // boat's own bus, published from the boat, whoever is aboard.
+        let liveTelemetry = telemetry;
+        if (telemetryBelongsToView) {
+            const { data: cloud } = await supabase
+                .from('vessel_telemetry')
+                .select(
+                    'reported_at, lat, lon, sog_kts, cog_deg, heading_deg, tws_kts, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, device_label, source',
+                )
+                .eq('owner_id', ownerId)
+                .maybeSingle();
+            const row = (cloud ?? null) as Record<string, unknown> | null;
+            const cloudAt = row && typeof row.reported_at === 'string' ? Date.parse(row.reported_at) : Number.NaN;
+            const lastAt = last && typeof last.timestamp === 'string' ? Date.parse(last.timestamp) : Number.NaN;
+            const cloudFresh = Number.isFinite(cloudAt) && Date.now() - cloudAt < 10 * 60_000;
+            const cloudNewer = !Number.isFinite(lastAt) || cloudAt > lastAt;
+            const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+            if (row && cloudFresh && cloudNewer) {
+                liveTelemetry = {
+                    ...(telemetry ?? {}),
+                    sog: n(row.sog_kts),
+                    cog: n(row.cog_deg),
+                    heading: n(row.heading_deg),
+                    baro: n(row.pressure_hpa) ?? (telemetry?.baro ?? null),
+                    baro_trend: telemetry?.baro_trend ?? 'steady',
+                    aws: n(row.aws_kts),
+                    awa: n(row.awa_deg),
+                    tws: n(row.tws_kts),
+                    twd: n(row.twd_deg),
+                    depth: n(row.depth_m),
+                    water_temp: n(row.water_temp_c),
+                    lat: n(row.lat) ?? telemetry?.lat ?? null,
+                    lon: n(row.lon) ?? telemetry?.lon ?? null,
+                    updated_at: new Date(cloudAt).toISOString(),
+                    is_last_known: false,
+                    source: row.source === 'device' ? 'device' : 'pi',
+                } as typeof telemetry;
+            }
+        }
+
         return json(
             {
                 vessel,
@@ -1730,7 +1771,7 @@ Deno.serve(async (req: Request) => {
                     decimated: track.length < selectedFullTrack.length,
                 },
                 waypoints,
-                telemetry,
+                telemetry: liveTelemetry,
                 nearby_vessels: nearbyVessels,
                 generated_at: new Date().toISOString(),
             },

@@ -38,6 +38,7 @@ export const NmeaStatusDot: React.FC<{ className?: string }> = ({ className = ''
         connecting: { color: 'bg-amber-400 animate-pulse', label: 'Connecting…' },
         disconnected: { color: 'bg-gray-500', label: 'NMEA Disconnected' },
         error: { color: 'bg-red-400 animate-pulse', label: 'NMEA Error' },
+        remote: { color: 'bg-sky-400', label: 'Remote via cloud' },
     };
 
     const c = config[state.connectionStatus];

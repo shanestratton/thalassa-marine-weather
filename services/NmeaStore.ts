@@ -93,9 +93,48 @@ export interface NmeaStoreState {
     satellites: TimestampedMetric; // Satellites in use
     gpsFixQuality: number | null; // GGA fix quality (1=GPS, 2=DGPS, 4=RTK)
 
-    // Connection
-    connectionStatus: NmeaConnectionStatus;
+    // Connection. 'remote' = no gateway socket; the numbers are the boat's
+    // own, read from the cloud row the Pi keeps (services/CloudTelemetryService).
+    connectionStatus: NmeaConnectionStatus | 'remote';
+    remote: RemoteFeed | null;
     lastAnyUpdate: number; // Epoch ms — last time ANY metric was updated
+}
+
+/** Who is feeding the store from the cloud, and how old the reading is. */
+export interface RemoteFeed {
+    source: 'pi' | 'device';
+    deviceLabel: string | null;
+    /** Epoch ms of the instrument reading, as the Pi reported it. */
+    reportedAt: number;
+    /** Epoch ms when this phone read it. */
+    receivedAt: number;
+}
+
+/** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
+export interface RemoteInstrumentSnapshot {
+    source: 'pi' | 'device';
+    deviceLabel: string | null;
+    reportedAt: number;
+    lat: number | null;
+    lon: number | null;
+    sogKts: number | null;
+    cogDeg: number | null;
+    headingDeg: number | null;
+    stwKts: number | null;
+    twsKts: number | null;
+    /** Signed, negative to port. */
+    twaDeg: number | null;
+    twdDeg: number | null;
+    awsKts: number | null;
+    /** Signed, negative to port. */
+    awaDeg: number | null;
+    depthM: number | null;
+    heelDeg: number | null;
+    pitchDeg: number | null;
+    waterTempC: number | null;
+    rudderDeg: number | null;
+    rpm: number | null;
+    voltageV: number | null;
 }
 
 export type NmeaStoreListener = (state: NmeaStoreState) => void;
@@ -119,7 +158,14 @@ class NmeaStoreClass {
         // Subscribe to raw NMEA data
         this.unsubSample = NmeaListenerService.onSample((sample) => this.ingestSample(sample));
         this.unsubStatus = NmeaListenerService.onStatusChange((status) => {
+            if (status !== 'connected' && this.state.remote) {
+                // The socket is down but the cloud is feeding us: stay remote.
+                this.state.connectionStatus = 'remote';
+                this.notify();
+                return;
+            }
             this.state.connectionStatus = status;
+            if (status === 'connected') this.state.remote = null; // the boat itself wins
             if (status !== 'connected') this.retireAllMetrics();
             this.notify();
         });
@@ -174,8 +220,64 @@ class NmeaStoreClass {
         return () => this.listeners.delete(cb);
     }
 
+    /**
+     * Feed the store from the cloud snapshot. Refused while a gateway socket is
+     * connected — the boat's own bus always wins — and never touches the
+     * socket's own status machine otherwise. Every metric is stamped with the
+     * time this phone read it, so the watchdog ages a feed that stops arriving.
+     */
+    ingestRemote(snapshot: RemoteInstrumentSnapshot): boolean {
+        if (NmeaListenerService.getStatus() === 'connected' || this.state.connectionStatus === 'connected')
+            return false;
+        const now = Date.now();
+        const put = (metric: TimestampedMetric, value: number | null) => {
+            if (value !== null && Number.isFinite(value)) this.updateMetric(metric, value, now);
+        };
+        put(this.state.tws, snapshot.twsKts);
+        put(this.state.twa, snapshot.twaDeg === null ? null : Math.abs(snapshot.twaDeg));
+        put(this.state.twaSigned, snapshot.twaDeg);
+        put(this.state.heel, snapshot.heelDeg);
+        put(this.state.pitch, snapshot.pitchDeg);
+        put(this.state.twd, snapshot.twdDeg);
+        put(this.state.aws, snapshot.awsKts);
+        put(this.state.awa, snapshot.awaDeg);
+        put(this.state.stw, snapshot.stwKts);
+        put(this.state.heading, snapshot.headingDeg);
+        put(this.state.depth, snapshot.depthM);
+        put(this.state.sog, snapshot.sogKts);
+        put(this.state.cog, snapshot.cogDeg);
+        put(this.state.waterTemp, snapshot.waterTempC);
+        put(this.state.rudder, snapshot.rudderDeg);
+        put(this.state.rpm, snapshot.rpm);
+        put(this.state.voltage, snapshot.voltageV);
+        put(this.state.latitude, snapshot.lat);
+        put(this.state.longitude, snapshot.lon);
+        this.state.remote = {
+            source: snapshot.source,
+            deviceLabel: snapshot.deviceLabel,
+            reportedAt: snapshot.reportedAt,
+            receivedAt: now,
+        };
+        this.state.connectionStatus = 'remote';
+        this.state.lastAnyUpdate = now;
+        this.notify();
+        return true;
+    }
+
+    /** The cloud feed has stopped or gone stale: back to whatever the socket says. */
+    clearRemote(): void {
+        if (!this.state.remote && this.state.connectionStatus !== 'remote') return;
+        this.state.remote = null;
+        this.retireAllMetrics();
+        this.state.connectionStatus = NmeaListenerService.getStatus();
+        this.notify();
+    }
+
     /** Whether external GPS has a live fix (lat/lon updated within 3s) */
     hasGpsFix(): boolean {
+        // A cloud snapshot is the boat's position, but it is not a receiver
+        // this phone is wired to — the GPS chain has its own Pi rung for that.
+        if (this.state.connectionStatus !== 'connected') return false;
         return (
             this.state.latitude.freshness === 'live' &&
             this.state.longitude.freshness === 'live' &&
@@ -388,6 +490,7 @@ class NmeaStoreClass {
             satellites: emptyMetric(),
             gpsFixQuality: null,
             connectionStatus: 'disconnected',
+            remote: null,
             lastAnyUpdate: 0,
         };
     }

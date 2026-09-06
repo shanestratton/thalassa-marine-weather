@@ -73,6 +73,7 @@ import {
 } from '../../services/sailing/sereneSailing';
 import { closeHauledDegFor, pointOfSail } from '../../services/sailing/pointOfSail';
 import { useWeatherOptional } from '../../context/WeatherContext';
+import { CloudTelemetryService } from '../../services/CloudTelemetryService';
 
 /** Picker value meaning “wherever the boat is”. */
 const SHIP_ZONE_AUTO = 'auto';
@@ -612,13 +613,20 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     useEffect(() => {
         if (NmeaListenerService.getSavedConfig()) NmeaStore.start();
     }, []);
+    // (b) in Shane's order — a: the gateway socket, b: the cloud row the Pi
+    // keeps, c: honestly nothing. The service feeds the same store and only
+    // while this page is open.
+    useEffect(() => {
+        CloudTelemetryService.retain();
+        return () => CloudTelemetryService.release();
+    }, []);
 
     // How long the socket has been up, so "waiting" can become "no data" once
     // patience stops being the right answer.
     const [connectedAt, setConnectedAt] = useState<number | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
     useEffect(() => {
-        if (state.connectionStatus !== 'connected') {
+        if (state.connectionStatus !== 'connected' && state.connectionStatus !== 'remote') {
             setConnectedAt(null);
             return;
         }
@@ -1013,7 +1021,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         onBack();
     }, [onBack]);
 
-    const isConnected = state.connectionStatus === 'connected';
+    const isConnected = state.connectionStatus === 'connected' || state.connectionStatus === 'remote';
     const metricIsAvailable = (metric: TimestampedMetric): boolean =>
         isConnected && metric.value !== null && metric.freshness !== 'dead';
     // Wind liveness now spans the apparent and direction metrics too — the
@@ -1179,16 +1187,25 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         connectionStatus: state.connectionStatus,
         metrics: panelMetrics,
         secondsSinceConnect: connectedAt === null ? null : (nowMs - connectedAt) / 1000,
+        remote: state.remote
+            ? {
+                  source: state.remote.source,
+                  deviceLabel: state.remote.deviceLabel,
+                  ageSeconds: (nowMs - state.remote.reportedAt) / 1000,
+              }
+            : null,
     });
     const panelStatus = diagnosis.label;
     const panelStatusDot =
         diagnosis.state === 'live'
             ? 'bg-emerald-400 animate-pulse'
-            : diagnosis.state === 'stale'
-              ? 'bg-amber-400'
-              : diagnosis.actionable
-                ? 'bg-rose-400'
-                : 'bg-slate-500';
+            : diagnosis.state === 'remote'
+              ? 'bg-sky-400 animate-pulse'
+              : diagnosis.state === 'stale'
+                ? 'bg-amber-400'
+                : diagnosis.actionable
+                  ? 'bg-rose-400'
+                  : 'bg-slate-500';
 
     // Which transducer is quiet while the rest of the boat reports? Naming it
     // turns "why is the wind rose empty" into a job on the boat rather than a
