@@ -174,9 +174,11 @@ describe('video reaches the row and the public page', () => {
         expect(upsert).toMatch(/GRANT EXECUTE ON FUNCTION public\.diary_relay_upsert_entry.*TO service_role;/);
     });
 
-    it('the public voyage log selects and passes the video through', () => {
+    it('the public voyage log selects the video and signs it for the page', () => {
         expect(voyageLog).toContain('photos, video_url, location_name');
-        expect(voyageLog).toMatch(/video_url: typeof e\.video_url === 'string'/);
+        // Signed for the owner since 2026-09-06: the bucket is private, and the raw
+        // public-bucket URL answered 400 (see VoyageLogVideoSigning.test.ts).
+        expect(voyageLog).toContain('video_url: await publicVideo(supabase, e.video_url, e.user_id as string),');
     });
 
     it('the public page plays it, and video-only entries advertise in the list', () => {
