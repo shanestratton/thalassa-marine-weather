@@ -1650,15 +1650,33 @@ class PiCacheServiceImpl {
         }
     }
 
-    /** Reassert the in-memory policy only when the Pi reports a mismatch. */
+    /**
+     * Reassert the skipper's WAN policy whenever the Pi reports a mismatch.
+     *
+     * The Pi fails closed on EVERY restart (allow_internet = 0, deliberately —
+     * a stale `true` must not drain private work over a satellite link). The
+     * desired value is therefore read live from the same rule the diary uses
+     * (isDiaryRelayInternetAllowed: satellite mode is the one state that
+     * closes the gate), not from whatever this session last pushed. Until
+     * 2026-09-06 the in-memory copy started `false`, agreed with a rebooted
+     * Pi's 0, and the diary and telemetry relays stood down until a diary
+     * handoff happened to run — the first telemetry deploy sat at
+     * `internet-off` for exactly that reason.
+     */
     private async reconcileDiaryRelayInternetPolicy(): Promise<void> {
-        if (!this.status.reachable || this.status.diaryRelayAllowInternet === this.diaryRelayAllowInternet) return;
+        if (!this.status.reachable) return;
+        // Loaded at call time: DiaryRelayTransport imports this module.
+        const { isDiaryRelayInternetAllowed } = await import('./DiaryRelayTransport');
+        const desired = isDiaryRelayInternetAllowed();
+        this.diaryRelayAllowInternet = desired;
+        if (this.status.diaryRelayAllowInternet === desired) return;
         const applied = await this.pushConfig({
             supabaseUrl: '',
             supabaseAnonKey: '',
-            diaryRelayAllowInternet: this.diaryRelayAllowInternet,
+            diaryRelayAllowInternet: desired,
         });
-        if (!applied) log.debug('Diary relay WAN policy reconciliation deferred');
+        if (applied) this.status = { ...this.status, diaryRelayAllowInternet: desired };
+        else log.debug('Diary relay WAN policy reconciliation deferred');
     }
 
     /**
