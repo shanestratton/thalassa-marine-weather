@@ -26,6 +26,7 @@ import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../ser
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
 import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
+import { useNmeaConnectionStatus } from './nmea/useNmeaStore';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
 import { useUIStore } from '../stores/uiStore';
@@ -175,6 +176,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
     const rawVesselName = (ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined;
     const vesselName: string = rawVesselName || 'Your Vessel';
+    // How the boat is being read right now: her own gateway when aboard, the
+    // Pi's cloud snapshot when away (Shane 2026-09-07: "update the NMEA
+    // Gateway card since it will not need to directly connect any more").
+    const nmeaLink = useNmeaConnectionStatus();
+    const gatewayStatus =
+        nmeaLink.status === 'connected'
+            ? 'Connected · instruments & AIS'
+            : nmeaLink.status === 'remote'
+              ? `Away · reading her via ${nmeaLink.remote?.deviceLabel ?? 'the Pi'}`
+              : 'Instruments & AIS · connect when aboard';
+    const gatewayStatusColor =
+        nmeaLink.status === 'connected' ? '#6ee7b7' : nmeaLink.status === 'remote' ? '#7dd3fc' : '#94a3b8';
     const vesselNameSet = !!rawVesselName && rawVesselName.trim().length > 0;
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
     const [position, setPosition] = useState<GpsPosition | null>(null);
@@ -1254,8 +1267,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             <OfficeRow
                                 icon={<SignalIcon color="#cbd5e1" />}
                                 label="NMEA Gateway"
-                                status="Instruments & AIS"
-                                statusColor="#94a3b8"
+                                status={gatewayStatus}
+                                statusColor={gatewayStatusColor}
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('nmea');
