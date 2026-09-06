@@ -238,6 +238,10 @@ app.get('/status', (_req, res) => {
             cache: cache.getStats(),
             bindHost: BIND_HOST,
             unsafeAdminEnabled: UNSAFE_ADMIN_API_ENABLED,
+            telemetry: (() => {
+                const t = telemetryPublisher.status();
+                return { publishing: t.running, lastOutcome: t.lastOutcome, lastSentAt: t.lastSentAt };
+            })(),
         }),
     );
 });
@@ -264,6 +268,7 @@ app.get('/api/admin/status', requireAppApi, (_req, res) => {
             // different skipper, without exposing the relay token or URL.
             diaryRelayOwnerId: diaryRelay.relay.ownerId,
             diaryRelayAllowInternet: diaryRelay.relay.allowInternet,
+            telemetryPublisher: telemetryPublisher.status(),
         },
         diaryRelay,
         // describe() never includes the credential, so this is safe here.

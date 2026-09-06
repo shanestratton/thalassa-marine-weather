@@ -93,6 +93,8 @@ export function publicStatusPayload(options: {
     cache: PublicCacheStats;
     bindHost: '127.0.0.1' | '0.0.0.0';
     unsafeAdminEnabled: boolean;
+    /** Whether the boat is publishing its instruments to the cloud, and how it last went. No identities. */
+    telemetry?: { publishing: boolean; lastOutcome: string | null; lastSentAt: number | null };
 }): Record<string, unknown> {
     return {
         status: 'ok',
@@ -105,6 +107,7 @@ export function publicStatusPayload(options: {
             unsafeAdminApi: options.unsafeAdminEnabled,
         },
         cache: options.cache,
+        ...(options.telemetry ? { telemetry: options.telemetry } : {}),
     };
 }
 
