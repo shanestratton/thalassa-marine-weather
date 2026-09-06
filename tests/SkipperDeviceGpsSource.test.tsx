@@ -53,13 +53,15 @@ describe('skipper device card — GPS source of truth', () => {
         expect(card()).toHaveTextContent('Boat GPS');
     });
 
-    it('falls back to PHONE when the gateway has no position behind it', () => {
+    it('shows only THIS DEVICE when the gateway has no position behind it', () => {
         // "as long as it has got one that is" — a Pi that is connected but has
         // no GPS reads 'unavailable', and the card must not promise a boat fix
-        // that does not exist.
+        // that does not exist. (Shane 2026-09-06: "if no pi, then just THIS
+        // DEVICE" — the phone is not a peer to name, it is what is left.)
         getFeedStatus.mockReturnValue('unavailable');
         renderCard();
-        expect(card()).toHaveTextContent('Phone GPS');
+        expect(card()).not.toHaveTextContent('Boat GPS');
+        expect(card()).toHaveTextContent('This device');
     });
 
     it('notices the feed GOING AWAY, which emits no event', () => {
@@ -71,13 +73,15 @@ describe('skipper device card — GPS source of truth', () => {
         act(() => {
             vi.advanceTimersByTime(2_100);
         });
-        expect(card()).toHaveTextContent('Phone GPS');
+        expect(card()).not.toHaveTextContent('Boat GPS');
+        expect(card()).toHaveTextContent('This device');
     });
 
     it('recovers to the boat GPS without a remount', () => {
         getFeedStatus.mockReturnValue('unavailable');
         renderCard();
-        expect(card()).toHaveTextContent('Phone GPS');
+        expect(card()).not.toHaveTextContent('Boat GPS');
+        expect(card()).toHaveTextContent('This device');
 
         getFeedStatus.mockReturnValue('live');
         act(() => {

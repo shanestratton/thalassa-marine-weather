@@ -34,7 +34,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             <SkipperDeviceControl claim={claim} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
         );
 
-        const takeover = screen.getByRole('button', { name: 'Press to make this the primary device' });
+        const takeover = screen.getByRole('button', { name: 'Press to make this the Primary Device' });
         fireEvent.click(takeover);
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
@@ -66,7 +66,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Press to make this the primary device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Press to make this the Primary Device' }));
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
         act(() => setAuthIdentityScope('different-user'));
@@ -86,7 +86,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Press to make this the primary device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Press to make this the Primary Device' }));
         rerender(
             <SkipperDeviceControl
                 claim={recentOtherClaim({ deviceId: 'new-holder', claimedAt: new Date(Date.now() + 1).toISOString() })}
@@ -109,7 +109,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         expect(screen.getByText('No device claimed yet — any signed-in device can publish.')).toBeInTheDocument();
         expect(screen.queryByText(/Claim one to make it the single source/i)).not.toBeInTheDocument();
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
-        expect(screen.getByRole('button', { name: 'Press to make this the primary device' })).toHaveClass(
+        expect(screen.getByRole('button', { name: 'Press to make this the Primary Device' })).toHaveClass(
             'h-11',
             'whitespace-nowrap',
         );
@@ -123,7 +123,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         );
 
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
-        expect(screen.getByRole('button', { name: 'Release — let another device take it' })).toHaveClass(
+        expect(screen.getByRole('button', { name: 'Release — this is not the Primary Device' })).toHaveClass(
             'h-11',
             'whitespace-nowrap',
         );

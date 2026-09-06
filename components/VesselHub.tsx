@@ -24,6 +24,7 @@ import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
+import { piCache } from '../services/PiCacheService';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
 import { useUIStore } from '../stores/uiStore';
@@ -1343,9 +1344,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
      * boat fix that does not exist. Polled rather than subscribed because the
      * interesting transition is the feed GOING AWAY, which emits nothing.
      */
-    const [vesselGpsLive, setVesselGpsLive] = useState(() => NmeaGpsProvider.getFeedStatus() !== 'unavailable');
+    const boatGpsPresent = () => NmeaGpsProvider.getFeedStatus() !== 'unavailable' || piCache.isAvailable();
+    const [vesselGpsLive, setVesselGpsLive] = useState(boatGpsPresent);
     useEffect(() => {
-        const read = () => setVesselGpsLive(NmeaGpsProvider.getFeedStatus() !== 'unavailable');
+        const read = () => setVesselGpsLive(boatGpsPresent());
         read();
         const id = setInterval(read, 2_000);
         return () => clearInterval(id);
@@ -1365,7 +1367,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     useEffect(() => {
         void refreshSkipperClaim({ maxAgeMs: 0 });
     }, []);
-    const actionLabel = claimHeld ? 'Release — let another device take it' : 'Press to make this the primary device';
+    // Shane 2026-09-06: "Release - this is not the Primary Device" / "Press to make this the Primary Device".
+    const actionLabel = claimHeld
+        ? 'Release — this is not the Primary Device'
+        : 'Press to make this the Primary Device';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;
         claim: SkipperClaim;
@@ -1435,53 +1440,79 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         <>
             <div
                 data-testid="skipper-device-card"
-                className="mb-4 h-[120px] overflow-hidden rounded-2xl border border-cyan-500/20 bg-slate-900/40 p-3"
+                className={`mb-4 h-[120px] overflow-hidden rounded-2xl border bg-slate-900/40 p-3 ${
+                    claimHeld
+                        ? 'border-emerald-400/35 shadow-[0_0_22px_-10px_rgba(52,211,153,0.45)]'
+                        : 'border-cyan-400/35 shadow-[0_0_22px_-10px_rgba(34,211,238,0.4)]'
+                }`}
             >
-                {/* The vessel rides on the EXISTING title row rather than a new
-                    line: the card is a fixed h-[120px] with overflow-hidden, and
-                    two tests assert that height. It truncates instead of
-                    wrapping so a long boat name can never push the claim button
-                    out of the card. */}
+                {/* Shane 2026-09-06: the boat's name is the top line, the GPS
+                    order is the next, the button says what pressing it does.
+                    Fixed h-[120px] with overflow-hidden (tests assert it), so
+                    every row has a fixed height and truncates, never wraps. */}
                 <div className="mb-1.5 flex h-5 items-center gap-2">
-                    <span className="shrink-0 text-[11px] font-black uppercase tracking-widest text-cyan-300">
-                        ⚓ Skipper device
+                    <span aria-hidden="true" className="shrink-0 text-[12px] leading-none text-cyan-300">
+                        ⚓
                     </span>
-                    {vesselName && (
+                    {vesselName ? (
                         <span
                             data-testid="skipper-device-vessel"
                             title={vesselName}
-                            className="min-w-0 flex-1 truncate text-right text-[11px] font-bold text-white/90"
+                            className="min-w-0 flex-1 truncate text-[13px] font-black tracking-wide text-white/90"
                         >
                             {vesselName}
                         </span>
+                    ) : (
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-widest text-cyan-300">
+                            Skipper device
+                        </span>
                     )}
-                    {claimHeld && (
-                        <span className="ml-auto shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
-                            This device
+                    {vesselName && (
+                        <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-cyan-300/80">
+                            Skipper device
                         </span>
                     )}
                 </div>
-                {/* The GPS source rides on the EXISTING status line. The card
-                    is a fixed h-[120px] with overflow-hidden and four tests
-                    assert that height, so a new row would push the claim button
-                    out of the card rather than grow it. */}
+                {/* The order the app believes GPS in: the boat's own receiver
+                    (bus, or the Pi that holds it) when it is present, then this
+                    device — or just this device when there is no boat GPS. */}
                 <div className="mb-2 flex h-4 items-center gap-2">
-                    <p className="min-w-0 flex-1 truncate whitespace-nowrap text-[11px] leading-snug text-gray-400">
-                        {statusDescription}
-                    </p>
                     <span
                         data-testid="skipper-device-gps-source"
                         title={
                             vesselGpsLive
-                                ? 'The boat’s own GPS is live and is the source of truth for position.'
-                                : 'No position from the boat’s GPS — falling back to this phone.'
+                                ? 'The boat’s own GPS speaks first; this device stands in when it is quiet.'
+                                : 'No boat GPS present — this device is the only position source.'
                         }
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
-                            vesselGpsLive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
-                        }`}
+                        className="flex min-w-0 shrink-0 items-center gap-1.5"
                     >
-                        {vesselGpsLive ? 'Boat GPS' : 'Phone GPS'}
+                        {vesselGpsLive && (
+                            <>
+                                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                                    Boat GPS
+                                </span>
+                                <span aria-hidden="true" className="text-[10px] font-black text-gray-500">
+                                    ›
+                                </span>
+                            </>
+                        )}
+                        <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                                claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/8 text-gray-300'
+                            }`}
+                        >
+                            This device
+                        </span>
                     </span>
+                    {claim && !claimHeld && (
+                        <span
+                            title={statusDescription}
+                            className="min-w-0 flex-1 truncate text-right text-[10px] font-bold text-amber-300"
+                        >
+                            {claim.deviceName} · {claimAgeLabel(claim)}
+                        </span>
+                    )}
+                    <p className="sr-only">{statusDescription}</p>
                 </div>
                 <button
                     type="button"
