@@ -25,6 +25,34 @@ export function useNmeaStore(): NmeaStoreState {
     return state;
 }
 
+/**
+ * Just the connection state and who is feeding it — for rows and headers that
+ * must not re-render on every instrument sample. Re-renders only when the
+ * status, or the remote feed's source, changes.
+ */
+export function useNmeaConnectionStatus(): {
+    status: NmeaStoreState['connectionStatus'];
+    remote: NmeaStoreState['remote'];
+} {
+    const pick = (s: NmeaStoreState) => ({ status: s.connectionStatus, remote: s.remote });
+    const [value, setValue] = useState(() => pick(NmeaStore.getState()));
+    useEffect(
+        () =>
+            NmeaStore.subscribe((s) => {
+                const next = pick(s);
+                setValue((prev) =>
+                    prev.status === next.status &&
+                    prev.remote?.source === next.remote?.source &&
+                    prev.remote?.deviceLabel === next.remote?.deviceLabel
+                        ? prev
+                        : next,
+                );
+            }),
+        [],
+    );
+    return value;
+}
+
 // ═══════════════════════════════════════════
 // NmeaStatusDot — Compact connection indicator
 // ═══════════════════════════════════════════

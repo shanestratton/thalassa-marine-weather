@@ -8,7 +8,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
-import { NmeaStatusDot } from '../nmea/useNmeaStore';
+import { NmeaStatusDot, useNmeaConnectionStatus } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -167,6 +167,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // avoids the race condition where NmeaStore.start() misses the initial
     // 'connecting' status because NmeaListenerService.start() fires first.
     const [connStatus, setConnStatus] = useState(NmeaListenerService.getStatus());
+    // The store, not the socket: 'remote' means the Instrument Panel is being
+    // fed from the Pi's cloud snapshot because no socket is up. This page owns
+    // the socket, so it says so rather than reading as a fault.
+    const storeLink = useNmeaConnectionStatus();
+    const readingViaCloud = storeLink.status === 'remote';
     const [reconnectAttempts, setReconnectAttempts] = useState(0);
     const [lastError, setLastError] = useState<string | null>(null);
     const [aisCount, setAisCount] = useState(0);
@@ -385,6 +390,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                         ? 'Connection failed'
                                         : 'Disconnected'}
                             </h3>
+                            {readingViaCloud && !isConnected && !isConnecting && (
+                                <span className="ml-auto rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-sky-300">
+                                    Away · via {storeLink.remote?.deviceLabel ?? 'the Pi'}
+                                </span>
+                            )}
                             {/* Show host:port when connected or connecting */}
                             {(isConnected || isConnecting || hasFailed) && (
                                 <span className="text-xs text-white/70 font-mono ml-auto">
