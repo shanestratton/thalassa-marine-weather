@@ -142,6 +142,11 @@ export class TelemetryPublisher {
         this.inFlight = true;
         try {
             const outcome = await this.attempt();
+            if (outcome !== this.lastOutcome) {
+                // One line per change of state, never per tick: the journal
+                // answers "why is the row not there" without filling itself.
+                console.log(`[telemetry] publisher: ${outcome}`);
+            }
             this.lastOutcome = outcome;
             if (outcome === 'sent') {
                 this.consecutiveFailures = 0;
