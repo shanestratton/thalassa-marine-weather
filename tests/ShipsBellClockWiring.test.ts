@@ -24,7 +24,12 @@ describe("the ship's bell clock in the instrument panel", () => {
     it('reads the phone and shows which zone it is keeping', () => {
         // A clock showing a time without saying WHICH time is the one thing a
         // clock must never do.
-        expect(page).toMatch(/const zoneClock = clockInZone\(clockNow, clockZone\)/);
+        // Ship's time follows the BOAT's position by default (Shane 2026-09-06);
+        // a picked zone still wins, and the phone is the fallback while no
+        // position has been seen.
+        expect(page).toMatch(/const zoneClock = clockInZone\(clockNow, effectiveZone\)/);
+        expect(page).toMatch(/localStorage\.getItem\('thalassa_clock_zone'\) \|\| SHIP_ZONE_AUTO/);
+        expect(page).toMatch(/clockZone === SHIP_ZONE_AUTO \? \(shipZone \?\? deviceTimeZone\(\)\) : clockZone/);
         expect(page).toMatch(/zoneLabel=\{zoneClock\.label\}/);
         expect(clock).toMatch(/\{zoneLabel\}/);
     });

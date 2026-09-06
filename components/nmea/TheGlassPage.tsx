@@ -72,6 +72,10 @@ import {
     type SailingWind,
 } from '../../services/sailing/sereneSailing';
 import { closeHauledDegFor, pointOfSail } from '../../services/sailing/pointOfSail';
+import { useWeatherOptional } from '../../context/WeatherContext';
+
+/** Picker value meaning “wherever the boat is”. */
+const SHIP_ZONE_AUTO = 'auto';
 
 interface TheGlassPageProps {
     onBack: () => void;
@@ -876,11 +880,17 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         const id = setInterval(() => setClockNow(new Date()), 1000);
         return () => clearInterval(id);
     }, []);
+    // Ship's time is the time where the BOAT is, not where the phone is
+    // (Shane 2026-09-06: "that should work on the vessels location time rather
+    // than the punters iphone time. unless of course, it cant be seen"). The
+    // weather already resolves the boat's position (bus, Pi, her held fix) and
+    // carries that place's zone, so 'auto' follows it and falls back to the
+    // phone only while no position has been seen. A picked zone still wins.
     const [clockZone, setClockZone] = useState<string>(() => {
         try {
-            return localStorage.getItem('thalassa_clock_zone') || deviceTimeZone();
+            return localStorage.getItem('thalassa_clock_zone') || SHIP_ZONE_AUTO;
         } catch {
-            return deviceTimeZone();
+            return SHIP_ZONE_AUTO;
         }
     });
     useEffect(() => {
@@ -891,7 +901,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         }
     }, [clockZone]);
     const zoneOptions = useMemo(() => listTimeZones(), []);
-    const zoneClock = clockInZone(clockNow, clockZone);
+    const shipZone = useWeatherOptional()?.weatherData?.timeZone ?? null;
+    const effectiveZone = clockZone === SHIP_ZONE_AUTO ? (shipZone ?? deviceTimeZone()) : clockZone;
+    const zoneClock = clockInZone(clockNow, effectiveZone);
 
     // ── The clock's voice ──
     //
@@ -1352,6 +1364,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         aria-label="Clock time zone"
                                         className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white"
                                     >
+                                        <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
+                                            {shipZone
+                                                ? `Ship’s position · ${zoneDisplayName(shipZone)}`
+                                                : `Ship’s position · ${zoneDisplayName(deviceTimeZone())} (phone until she reports)`}
+                                        </option>
                                         {zoneOptions.map((z) => (
                                             <option key={z} value={z} className="bg-slate-900">
                                                 {zoneDisplayName(z)}
