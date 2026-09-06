@@ -89,4 +89,6 @@ export interface NowPlayingStageProps {
     onNext: () => void;
     onPrevious: () => void;
     onPickSpeaker: () => void;
+    /** Stop = pause + clear the queue; the now-playing state goes away (Shane 2026-09-06). */
+    onStop: () => void;
 }

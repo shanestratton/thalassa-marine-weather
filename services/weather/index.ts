@@ -4,7 +4,7 @@ import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
 import { fetchWeatherKitFull, buildReportFromWeatherKit } from './api/weatherkit';
 import { fetchUnifiedWeather } from './api/unified';
-import { fetchRealTides } from './api/tides';
+import { fetchRealTides, interpolateTideHourly } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
 import { crumb } from '../../utils/flightRecorder';
@@ -600,23 +600,10 @@ const _fetchWeatherByStrategyImpl = async (
         report.tides = tideData.tides;
         if (tideData.guiDetails) report.tideGUIDetails = tideData.guiDetails;
 
-        // Generate dense hourly tide data for the graph (cosine interpolation)
-        const sorted = [...tideData.tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-        const interpolated: { time: string; height: number }[] = [];
-        for (let i = 0; i < sorted.length - 1; i++) {
-            const tStart = new Date(sorted[i].time).getTime();
-            const tEnd = new Date(sorted[i + 1].time).getTime();
-            const hStart = sorted[i].height;
-            const hEnd = sorted[i + 1].height;
-            for (let t = tStart; t < tEnd; t += 30 * 60 * 1000) {
-                const ratio = (t - tStart) / (tEnd - tStart);
-                const height = (hStart + hEnd) / 2 + ((hStart - hEnd) / 2) * Math.cos(ratio * Math.PI);
-                interpolated.push({ time: new Date(t).toISOString(), height });
-            }
-        }
-        if (interpolated.length > 0) {
-            report.tideHourly = interpolated.map((p) => ({ time: p.time, height: p.height }));
-        }
+        // Dense half-hourly heights for the graph — shared with the tide-only
+        // refresh in WeatherContext (services/weather/api/tides.ts).
+        const interpolated = interpolateTideHourly(tideData.tides);
+        if (interpolated.length > 0) report.tideHourly = interpolated;
     } else if (stormGlassReport?.tides?.length) {
         // Fallback: StormGlass may have tides if WorldTides failed
         report.tides = stormGlassReport.tides;

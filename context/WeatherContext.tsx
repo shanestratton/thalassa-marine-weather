@@ -35,7 +35,8 @@ import {
 } from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
-import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
+import { decideFollowAction, haversineNM, tideNeedsRefresh, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
+import { fetchTidesForPosition } from '../services/weather/api/tides';
 import {
     resolveWeatherPosition,
     setHeldChoice,
@@ -983,12 +984,15 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     // 0.5 NM renames keep resetting the baseline — a boat could cross an
     // ocean in small hops without ever tripping a forecast refresh.
     const weatherPointRef = useRef<{ lat: number; lon: number; generatedAt: string } | null>(null);
+    /** Where the tides on screen were fetched for — reset by every real fetch, moved by each tide-only refresh. */
+    const tidePointRef = useRef<{ lat: number; lon: number } | null>(null);
     useEffect(() => {
         if (!isCurrentScope()) return;
         const d = weatherData;
         if (!d?.coordinates || !d.generatedAt) return;
         if (weatherPointRef.current?.generatedAt !== d.generatedAt) {
             weatherPointRef.current = { lat: d.coordinates.lat, lon: d.coordinates.lon, generatedAt: d.generatedAt };
+            tidePointRef.current = { lat: d.coordinates.lat, lon: d.coordinates.lon };
         }
     }, [isCurrentScope, weatherData]);
 
@@ -1073,6 +1077,29 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                             ...existing,
                             locationName: name,
                             coordinates: { lat: latitude, lon: longitude },
+                        });
+                    }
+                    // The tide station follows sooner than the forecast: the
+                    // label under the graph read the old station until the
+                    // 30 NM refetch (Shane 2026-09-06). Tide-only; the 24 h
+                    // upstream cache makes a repeat cheap.
+                    if (
+                        existing &&
+                        tideNeedsRefresh(tidePointRef.current, { lat: latitude, lon: longitude }) &&
+                        !useUIStore.getState().isOffline
+                    ) {
+                        tidePointRef.current = { lat: latitude, lon: longitude }; // one attempt per hop
+                        void fetchTidesForPosition(latitude, longitude).then((tides) => {
+                            if (!tides || !isCurrentScope() || cancelled) return;
+                            if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
+                            const current = weatherDataRef.current;
+                            if (!current) return;
+                            setWeatherData({
+                                ...current,
+                                tides: tides.tides,
+                                tideHourly: tides.tideHourly,
+                                tideGUIDetails: tides.tideGUIDetails ?? current.tideGUIDetails,
+                            });
                         });
                     }
                 }
