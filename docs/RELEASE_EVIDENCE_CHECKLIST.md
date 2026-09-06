@@ -26,6 +26,13 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] Archive verified: no Watch folder, no PlugIns; background modes = audio, location, fetch (2026-09-06).
 - [x] Uploaded 2026-09-06 ≈09:20 — "Thalassa Marine Weather 1.2.0 (102) uploaded". ITSAppUsesNonExemptEncryption=false, so no export-compliance prompt. App Store Connect now holds two records: **Thalassa Marine Weather** (`com.thalassa.weather`, this one) and the older **Thalassa** (`com.thalassa.weather-2025`, never had a build — it is what made the name "Thalassa" look taken).
 
+### TestFlight (2026-09-06)
+
+- [x] Build 102 processed — _Ready to Submit_, expires in 90 days.
+- [x] Internal group **Skipper** (Shane) with 102 — no review; installable immediately.
+- [x] External group **Beta Skippers** with 102 submitted to Beta App Review (_Waiting for Review_). **Public link OFF** until the device matrix below passes. Funnel: Founding Skippers approval emails carry the link.
+- [x] Test Information: contact, OTP review notes, privacy URL; age rating 13+ (UGC + messaging, Terms say not for under-13s).
+
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
 
 iPhone:
