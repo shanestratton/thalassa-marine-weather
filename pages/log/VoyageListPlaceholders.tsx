@@ -23,34 +23,23 @@ export const VoyageListSkeleton: React.FC = () => (
 );
 
 export const VoyageListEmptyState: React.FC = () => (
-    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
-        {/* Decorative maritime line art */}
-        <div className="relative w-24 h-24 mb-6">
-            <svg viewBox="0 0 96 96" fill="none" className="w-full h-full">
-                {/* Outer ring — dashed */}
-                <circle cx="48" cy="48" r="44" stroke="rgba(56,189,248,0.12)" strokeWidth="1" strokeDasharray="3 5" />
-                {/* Middle ring — solid faint */}
-                <circle cx="48" cy="48" r="32" stroke="rgba(56,189,248,0.08)" strokeWidth="0.5" />
-                {/* Compass rose petals */}
-                <path d="M48 4L51 44H45L48 4Z" fill="rgba(56,189,248,0.25)" />
-                <path d="M48 92L45 52H51L48 92Z" fill="rgba(56,189,248,0.10)" />
-                <path d="M4 48L44 45V51L4 48Z" fill="rgba(56,189,248,0.10)" />
-                <path d="M92 48L52 51V45L92 48Z" fill="rgba(56,189,248,0.10)" />
-                {/* Center dot */}
-                <circle cx="48" cy="48" r="3" fill="rgba(56,189,248,0.30)" />
-                {/* Track line suggestion — curved */}
-                <path
-                    d="M20 70 C32 55, 64 42, 76 28"
-                    stroke="rgba(52,211,153,0.25)"
-                    strokeWidth="1.5"
-                    strokeDasharray="4 3"
-                    strokeLinecap="round"
-                />
-                {/* Waypoint dots on the track */}
-                <circle cx="20" cy="70" r="2.5" fill="rgba(52,211,153,0.35)" />
-                <circle cx="48" cy="49" r="2" fill="rgba(52,211,153,0.25)" />
-                <circle cx="76" cy="28" r="2.5" fill="rgba(52,211,153,0.35)" />
-            </svg>
+    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-8">
+        {/* Watermark — the Thalassa mark, big and faint, where the little
+            compass used to be (Shane 2026-09-06: "the thalassa icon in a
+            watermark look. do it big"). The PNG is opaque on near-black:
+            `lighten` lets the page ground win under it and a radial mask
+            feathers the square away, so only the rose and the wave remain. */}
+        <div className="relative mb-2 h-[280px] w-full max-w-[380px]" aria-hidden="true" data-testid="log-watermark">
+            <img
+                src="/thalassa-icon.png"
+                alt=""
+                draggable={false}
+                className="pointer-events-none absolute left-1/2 top-1/2 w-[380px] max-w-none -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.16] mix-blend-lighten"
+                style={{
+                    maskImage: 'radial-gradient(circle at 50% 50%, black 52%, transparent 76%)',
+                    WebkitMaskImage: 'radial-gradient(circle at 50% 50%, black 52%, transparent 76%)',
+                }}
+            />
         </div>
         <p className="text-base font-bold text-white mb-1.5">Begin Your Log</p>
         <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">

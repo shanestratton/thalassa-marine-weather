@@ -47,6 +47,12 @@ Process: reproduce → find the cause in code or production → fix with a test 
 
 - [x] **Skipper Device card was hard to read.** Re-laid 2026-09-06: vessel name on top, the GPS order beneath (Boat GPS › This device, or just This device), the button says "Press to make this the Primary Device" / "Release — this is not the Primary Device", a faint emerald/cyan edge; same 120 px footprint. Ships in 103.
 
+### Next build (104) — agreed 2026-09-06 evening
+
+- [ ] **The Pi is the primary device when she's aboard.** The Pi publishes the boat's track and a live instrument snapshot to the cloud itself — position, COG, SOG, true and apparent wind, depth, heel, heading, the whole bus — and holds the skipper claim; phones only claim among themselves when the Pi is off or unreachable. Skipper Device card reads "Primary device: Calypso" with the button greyed.
+- [ ] **Crew see the Instrument Panel anywhere, no VPN.** Same publisher; crew membership gates the read (RLS); the panel gets a remote mode that feeds the cloud snapshot into the same instrument store when the Pi is not on the LAN. Marta installs Thalassa, accepts the crew invite, done. Tailscale stays the skipper's full path; a node-share link in the crew invite is the advanced option. No Funnel.
+- [ ] Verify a claimed phone that leaves the boat while tracking cannot publish the skipper's position as the boat's.
+
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
 
 iPhone:
