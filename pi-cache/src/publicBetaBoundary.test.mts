@@ -10,6 +10,7 @@ import {
     APP_API_DISABLED_CODE,
     appApiDisabledPayload,
     appApiEnabled,
+    declaredWanUplink,
 } from './publicBetaBoundary.js';
 
 test('Pi server is loopback/admin-off/CORS-closed by default', () => {
@@ -92,4 +93,13 @@ test('disabled admin response is explicit and stable', () => {
     assert.equal(payload.status, 'disabled');
     assert.equal(payload.code, ADMIN_API_DISABLED_CODE);
     assert.match(payload.error, /THALASSA_UNSAFE_ADMIN_API=1/);
+});
+
+test('the operator may declare the uplink; anything unclear stays undeclared (fail closed)', () => {
+    assert.equal(declaredWanUplink({}), null);
+    assert.equal(declaredWanUplink({ THALASSA_PI_WAN_UPLINK: 'ordinary' }), 'ordinary');
+    assert.equal(declaredWanUplink({ THALASSA_PI_WAN_UPLINK: ' 4G ' }), 'ordinary');
+    assert.equal(declaredWanUplink({ THALASSA_PI_WAN_UPLINK: 'satellite' }), 'satellite');
+    assert.equal(declaredWanUplink({ THALASSA_PI_WAN_UPLINK: 'yes' }), null);
+    assert.equal(declaredWanUplink({ THALASSA_PI_WAN_UPLINK: 'true' }), null);
 });

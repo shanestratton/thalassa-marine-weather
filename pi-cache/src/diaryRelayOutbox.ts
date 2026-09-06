@@ -227,6 +227,13 @@ export interface DiaryRelayOutboxOptions {
     fetchImpl?: DiaryRelayFetch;
     retryIntervalMs?: number;
     requestTimeoutMs?: number;
+    /**
+     * The operator's declaration of this Pi's uplink (publicBetaBoundary
+     * declaredWanUplink). 'ordinary' keeps the internet gate OPEN across
+     * restarts; 'satellite' pins it shut; null/undefined is the fail-closed
+     * default that waits for the app to re-apply the skipper's policy.
+     */
+    wanUplink?: 'ordinary' | 'satellite' | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -565,9 +572,17 @@ export class DiaryRelayOutbox {
         // until a currently connected authenticated app re-applies the
         // skipper's policy. This prevents a stale `true` flag from draining
         // private diary work over a satellite link during a restart race.
+        //
+        // UNLESS the operator has declared the uplink (THALASSA_PI_WAN_UPLINK):
+        // a Pi that only ever talks through a 4G router keeps the gate open
+        // across restarts, so the telemetry and diary relays do not stand down
+        // until a phone happens to reconnect (2026-09-07 06:08: the first
+        // telemetry deploy sat at `internet-off` all night for exactly that).
+        // A declared satellite uplink pins the gate shut instead.
+        const bootPolicy = options.wanUplink === 'ordinary' ? 1 : 0;
         this.db
-            .prepare('UPDATE diary_relay_config SET allow_internet = 0, updated_at = ? WHERE singleton = 1')
-            .run(this.now());
+            .prepare('UPDATE diary_relay_config SET allow_internet = ?, updated_at = ? WHERE singleton = 1')
+            .run(bootPolicy, this.now());
 
         this.fetchImpl =
             options.fetchImpl ?? ((url, init) => outboundFetch(url, init as Parameters<typeof outboundFetch>[1]));

@@ -68,6 +68,7 @@ import {
     unsafeAdminApiEnabled,
     appApiEnabled,
     appApiDisabledPayload,
+    declaredWanUplink,
 } from './publicBetaBoundary.js';
 
 // ── Config (mutable only after explicit unsafe-development opt-in) ──
@@ -128,7 +129,11 @@ const cache = new Cache(CACHE_DIR);
 // reports unavailable, so a Pi without one behaves exactly as before.
 const barometer = new Barometer(CACHE_DIR);
 void barometer.start();
-const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, { trustedSupabaseOrigin: SUPABASE_ORIGIN });
+const WAN_UPLINK = declaredWanUplink(process.env);
+const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, {
+    trustedSupabaseOrigin: SUPABASE_ORIGIN,
+    wanUplink: WAN_UPLINK,
+});
 // The big-upload babysitter. Borrows the outbox's pairing credential; holds
 // clips on disk until WAN lets it redeem a signed upload URL per object.
 const diaryVideoRelay = new DiaryVideoRelay(CACHE_DIR, () => diaryRelayOutbox.lendVideoCredentials());
@@ -737,7 +742,18 @@ server.listen(PORT, BIND_HOST, () => {
     console.log(
         `   App API:    ${APP_API_ENABLED ? 'pairing, ENC charts, OSM, diary' : 'DISABLED — the app cannot pair or sync charts'}`,
     );
-    console.log(`   CORS:       ${CORS_ORIGINS.size > 0 ? [...CORS_ORIGINS].join(', ') : 'same-origin only'}\n`);
+    console.log(`   CORS:       ${CORS_ORIGINS.size > 0 ? [...CORS_ORIGINS].join(', ') : 'same-origin only'}`);
+    // The internet gate's boot behaviour, stated plainly: an undeclared uplink
+    // shuts it on every restart until a phone re-applies the skipper's policy.
+    console.log(
+        `   WAN uplink: ${
+            WAN_UPLINK === 'ordinary'
+                ? 'ordinary (declared) — internet gate stays open across restarts'
+                : WAN_UPLINK === 'satellite'
+                  ? 'satellite (declared) — internet gate pinned shut'
+                  : 'undeclared — gate shuts on restart until the app re-applies the policy'
+        }\n`,
+    );
 
     /* ── Background workers are NOT an admin API ──────────────────────────
        Both of these used to require THALASSA_UNSAFE_ADMIN_API, which meant the

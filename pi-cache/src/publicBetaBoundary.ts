@@ -4,6 +4,25 @@ export const UNSAFE_ADMIN_FLAG = 'THALASSA_UNSAFE_ADMIN_API';
 export const APP_API_FLAG = 'THALASSA_PI_APP_API';
 export const LAN_BIND_FLAG = 'THALASSA_PI_LAN_BIND';
 export const CORS_ORIGINS_FLAG = 'THALASSA_CORS_ORIGINS';
+/**
+ * The operator's declaration of what this Pi's uplink IS. The Pi cannot tell a
+ * satellite link from ordinary internet on its own, so by default it shuts its
+ * internet gate on every restart until a phone re-applies the skipper's policy
+ * (see DiaryRelayOutbox). A boat whose Pi only ever talks through a 4G router
+ * can say so here and keep the gate open across restarts; a boat on a satellite
+ * link can pin it shut. Anything else is "undeclared" — the safe default.
+ * (Shane 2026-09-07: "then Tailscale becomes a pure convenience for you".)
+ */
+export const WAN_UPLINK_FLAG = 'THALASSA_PI_WAN_UPLINK';
+export type DeclaredWanUplink = 'ordinary' | 'satellite';
+
+export function declaredWanUplink(env: NodeJS.ProcessEnv = process.env): DeclaredWanUplink | null {
+    const raw = (env[WAN_UPLINK_FLAG] ?? '').trim().toLowerCase();
+    if (raw === 'ordinary' || raw === 'internet' || raw === '4g' || raw === 'lte' || raw === 'cellular')
+        return 'ordinary';
+    if (raw === 'satellite' || raw === 'sat') return 'satellite';
+    return null;
+}
 
 export const ADMIN_API_DISABLED_CODE = 'PI_ADMIN_API_DISABLED';
 export const APP_API_DISABLED_CODE = 'PI_APP_API_DISABLED';
