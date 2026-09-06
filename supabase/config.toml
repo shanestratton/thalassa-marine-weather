@@ -56,6 +56,12 @@ verify_jwt = true
 # audience before writing a service-role-only pending event.
 verify_jwt = false
 
+[functions.telemetry-relay]
+# The Pi's live instrument snapshot. Authenticated by the SAME per-pairing relay
+# token as diary-relay (_shared/pi-relay-auth.ts) — the Pi holds no user JWT by
+# design, so the gateway must not demand one.
+verify_jwt = false
+
 [functions.diary-relay]
 # The gateway must NOT demand a JWT here: the Pi relay authenticates with the
 # per-pairing relay token (X-Thalassa-Pi-Relay-*) and holds no user JWT by

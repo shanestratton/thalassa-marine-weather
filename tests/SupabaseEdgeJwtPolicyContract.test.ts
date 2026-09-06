@@ -71,6 +71,8 @@ const CREDENTIALLESS_ALLOWLIST = {
     'satellite-tile': 'map raster source that cannot attach Authorization; per-client public quota inside',
     'send-anchor-alarm': 'database trigger over pg_net with the service key; exact service-role POST checked',
     'send-push': 'database trigger / retry sweep over pg_net with the service key; exact service-role POST checked',
+    'telemetry-relay':
+        'Pi relay authenticates with its own relay token (the diary-relay pairing, via _shared/pi-relay-auth); no user JWT by design',
     'voyage-log': 'public shore-contact link with a scoped published-data response',
 } as const;
 
@@ -169,9 +171,10 @@ describe('Supabase Edge gateway JWT policy', () => {
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
         // 16 function-guarded + 6 credentialless drifts = 22.
         expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(16);
-        // The six credentialless drifts, the eight already allowlisted, and
-        // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push).
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(15);
+        // The six credentialless drifts, the eight already allowlisted,
+        // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
+        // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(16);
     });
 
     it('every declared function has a comment explaining its policy', () => {
