@@ -423,7 +423,12 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
           : 'bg-amber-500/10 border-amber-500/30 text-amber-400';
 
     return (
-        <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-y-auto">
+        // One screen, no page scroll (Shane 2026-09-06): a stressed operator
+        // must never have to scroll to find the call buttons. The transcript
+        // owns the middle and scrolls inside itself; LAT/LON, SOG/COG/UTC sit
+        // directly under it; the channel line and the three call buttons are
+        // pinned 8 px above the tab bar and never move.
+        <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-hidden">
             <PageHeader
                 title="Radio Console"
                 subtitle="Report Position"
@@ -441,8 +446,8 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             />
 
             {/* ── Vessel identity strip ── */}
-            <div className="shrink-0 px-5 py-4 border-b border-white/6">
-                <div className="text-2xl font-black text-white uppercase tracking-wide mb-2.5">
+            <div className="shrink-0 px-5 py-3 border-b border-white/6">
+                <div className="text-xl font-black text-white uppercase tracking-wide mb-2">
                     {vesselName ?? 'Vessel name not set'}
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -495,147 +500,205 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                 )}
             </div>
 
-            {/* ── Position display ── */}
-            <div className="shrink-0 px-5 py-7 bg-white/2 border-b border-white/6">
-                {position ? (
-                    <div className="flex flex-col gap-3 font-mono">
-                        <div className="flex items-baseline gap-3">
-                            <span className="text-[11px] font-extrabold tracking-[0.2em] text-slate-500 w-8 shrink-0">
-                                LAT
-                            </span>
-                            <span className="text-3xl sm:text-4xl font-black text-sky-400 tracking-tight">
-                                {formatLat(position.latitude)}
-                            </span>
+            {/* ── Middle: transcript box, readouts, nature, steps. Scrolls only
+                   on a screen too short to hold it; the footer below never does. ── */}
+            <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pt-3 pb-2 overflow-y-auto">
+                {/* ── Transcript — the deliverable, front and centre ── */}
+                <div
+                    className={`flex-1 min-h-[150px] flex flex-col rounded-2xl border px-4 py-3 ${
+                        dscMode === 'distress'
+                            ? 'border-red-400/35 bg-red-950/25'
+                            : dscMode === 'urgency'
+                              ? 'border-amber-400/35 bg-amber-950/20'
+                              : 'border-white/8 bg-white/3'
+                    }`}
+                >
+                    <div className="shrink-0 flex items-center justify-between gap-2 mb-2">
+                        <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500">
+                            {dscMode === 'routine' ? 'Transcript' : 'Voice Transcript'}
                         </div>
-                        <div className="flex items-baseline gap-3">
-                            <span className="text-[11px] font-extrabold tracking-[0.2em] text-slate-500 w-8 shrink-0">
-                                LON
-                            </span>
-                            <span className="text-3xl sm:text-4xl font-black text-sky-400 tracking-tight">
-                                {formatLon(position.longitude)}
-                            </span>
+                        <div
+                            className={`px-2 py-0.5 rounded-full border text-[9px] font-extrabold tracking-widest uppercase ${
+                                dscMode === 'distress'
+                                    ? 'border-red-400/40 bg-red-500/15 text-red-300'
+                                    : dscMode === 'urgency'
+                                      ? 'border-amber-400/40 bg-amber-500/15 text-amber-300'
+                                      : 'border-sky-500/40 bg-sky-500/15 text-sky-300'
+                            }`}
+                        >
+                            {dscMode === 'distress' ? 'Mayday' : dscMode === 'urgency' ? 'Pan-Pan' : 'Position report'}
                         </div>
                     </div>
-                ) : (
-                    <div
-                        className={`flex flex-col items-center justify-center gap-3 py-8 ${
-                            gpsBlocked ? 'text-red-400' : 'text-slate-500'
-                        }`}
-                    >
-                        <svg
-                            width="32"
-                            height="32"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
-                            className={gpsBlocked ? '' : 'animate-pulse'}
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                        <div
+                            data-testid="dsc-transcript"
+                            className="text-[17px] font-semibold leading-relaxed text-white select-text"
                         >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                            />
-                        </svg>
-                        {/* On the screen a skipper reads a position off for a
-                            VHF distress or MOB call, "no position" must never
-                            be dressed as "nearly there". */}
-                        <span className="text-[13px] font-bold tracking-wider uppercase">
-                            {gpsBlocked ? gpsBlocked.title : 'Acquiring GPS Fix…'}
-                        </span>
-                        {gpsBlocked && (
-                            <>
-                                <span className="max-w-xs px-4 text-center text-[11px] font-medium normal-case leading-snug text-slate-400">
-                                    {gpsBlocked.detail} Read your position from the chartplotter before transmitting.
+                            {currentTranscript || 'Awaiting GPS…'}
+                        </div>
+                        {!position && (
+                            <div
+                                className={`mt-3 flex flex-col items-start gap-2 ${
+                                    gpsBlocked ? 'text-red-400' : 'text-slate-500'
+                                }`}
+                            >
+                                {/* On the screen a skipper reads a position off for a
+                                    VHF distress or MOB call, "no position" must never
+                                    be dressed as "nearly there". */}
+                                <span className="text-[12px] font-bold tracking-wider uppercase">
+                                    {gpsBlocked ? gpsBlocked.title : 'Acquiring GPS Fix…'}
                                 </span>
-                                {gpsHealth?.actionable && (
-                                    <button
-                                        onClick={
-                                            gpsHealth.reason === 'not-determined'
-                                                ? () => void requestGpsAccess()
-                                                : openDeviceSettings
-                                        }
-                                        className="rounded-lg bg-sky-500/90 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white active:scale-95"
-                                    >
-                                        {gpsHealth.reason === 'not-determined' ? 'Allow Location' : 'Open Settings'}
-                                    </button>
+                                {gpsBlocked && (
+                                    <>
+                                        <span className="text-[11px] font-medium normal-case leading-snug text-slate-400">
+                                            {gpsBlocked.detail} Read your position from the chartplotter before
+                                            transmitting.
+                                        </span>
+                                        {gpsHealth?.actionable && (
+                                            <button
+                                                onClick={
+                                                    gpsHealth.reason === 'not-determined'
+                                                        ? () => void requestGpsAccess()
+                                                        : openDeviceSettings
+                                                }
+                                                className="rounded-lg bg-sky-500/90 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white active:scale-95"
+                                            >
+                                                {gpsHealth.reason === 'not-determined'
+                                                    ? 'Allow Location'
+                                                    : 'Open Settings'}
+                                            </button>
+                                        )}
+                                    </>
                                 )}
-                            </>
+                            </div>
+                        )}
+                        {dscMode !== 'routine' && natureOfDistress === 'mob' && mobSnapshot && (
+                            <div className="mt-3 rounded-xl border border-red-400/35 bg-red-950/30 px-3 py-2">
+                                <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300">
+                                    MOB datum · not current vessel position
+                                </div>
+                                <div className="mt-1 font-mono text-sm font-bold text-white">
+                                    {formatLat(mobSnapshot.fixLat)} {formatLon(mobSnapshot.fixLon)}
+                                </div>
+                                <div className="mt-1 text-[11px] font-semibold text-red-100/80">
+                                    Marked {new Date(mobSnapshot.activatedAt).toISOString().slice(11, 19)} UTC · ±
+                                    {Math.round(mobSnapshot.fixAccuracy)} m
+                                </div>
+                            </div>
                         )}
                     </div>
-                )}
+                </div>
+
+                {/* ── Readouts — directly under the transcript ── */}
+                <div className="shrink-0 rounded-xl border border-white/6 bg-white/2 px-4 py-3 font-mono">
+                    <div className="flex items-baseline justify-between gap-3">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="text-[10px] font-extrabold tracking-[0.2em] text-slate-500">LAT</span>
+                            <span className="text-[19px] font-black text-sky-400 tracking-tight">
+                                {position ? formatLat(position.latitude) : '—'}
+                            </span>
+                        </div>
+                        <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="text-[10px] font-extrabold tracking-[0.2em] text-slate-500">LON</span>
+                            <span className="text-[19px] font-black text-sky-400 tracking-tight">
+                                {position ? formatLon(position.longitude) : '—'}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="mt-2 flex items-center border-t border-white/6 pt-2">
+                        <div className="flex-1 text-center">
+                            <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase">
+                                SOG
+                            </div>
+                            <div className="text-[18px] font-black text-white">
+                                {position ? sogKts.toFixed(1) : '—'}
+                                <span className="text-[10px] font-bold text-slate-500 ml-0.5">kts</span>
+                            </div>
+                        </div>
+                        <div className="w-px h-7 bg-white/8 shrink-0" />
+                        <div className="flex-1 text-center">
+                            <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase">
+                                COG
+                            </div>
+                            <div className="text-[18px] font-black text-white">
+                                {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '—'}
+                                <span className="text-[10px] font-bold text-slate-500 ml-0.5">°T</span>
+                            </div>
+                        </div>
+                        <div className="w-px h-7 bg-white/8 shrink-0" />
+                        <div className="flex-1 text-center">
+                            <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase">
+                                UTC
+                            </div>
+                            <div className="text-[16px] font-black text-white tracking-wider">{utcTime}</div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Nature of distress (urgency & distress only) ── */}
+                {dscMode !== 'routine' && <NatureSelector value={natureOfDistress} onChange={setNatureOfDistress} />}
+
+                {/* ── On your VHF — the DSC steps (urgency & distress only) ── */}
+                {dscMode !== 'routine' && <DscSteps mode={dscMode} />}
+
+                {/*
+                 * Speak and Copy are gone (Shane 2026-08-28: "i am just not happy
+                 * with the voice Claude, best we remove them. people will just
+                 * have to read it out"). The transcript IS the deliverable: a
+                 * radio script exists to be read aloud by whoever holds the
+                 * handset, and it is selectable text as the fallback for the
+                 * sat-phone SMS path the file header mentions.
+                 */}
             </div>
 
-            {/* ── SOG / COG / UTC strip ── */}
-            <div className="shrink-0 flex items-center px-5 py-4 border-b border-white/6">
-                <div className="flex-1 text-center">
-                    <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">SOG</div>
-                    <div className="text-[22px] font-black text-white font-mono">
-                        {position ? sogKts.toFixed(1) : '—'}
-                        <span className="text-[11px] font-bold text-slate-500 ml-0.5">kts</span>
-                    </div>
-                </div>
-                <div className="w-px h-8 bg-white/8 shrink-0" />
-                <div className="flex-1 text-center">
-                    <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">COG</div>
-                    <div className="text-[22px] font-black text-white font-mono">
-                        {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '—'}
-                        <span className="text-[11px] font-bold text-slate-500 ml-0.5">°T</span>
-                    </div>
-                </div>
-                <div className="w-px h-8 bg-white/8 shrink-0" />
-                <div className="flex-1 text-center">
-                    <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">UTC</div>
-                    <div className="text-[18px] font-black text-white font-mono tracking-wider">{utcTime}</div>
-                </div>
+            {/* ── Pinned footer: channel line + the three call buttons.
+                   8 px above the tab bar, outside the scroll region — they
+                   never move (Shane 2026-09-06). ── */}
+            <div
+                className="shrink-0 px-5 pt-2 border-t border-white/6 bg-slate-950"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
+                <ChannelStrip mode={dscMode} />
+                <DscSelector mode={dscMode} onChange={setDscMode} mobActive={mobActive} />
             </div>
-
-            {/* ── DSC call-type selector ── */}
-            <DscSelector mode={dscMode} onChange={setDscMode} mobActive={mobActive} />
-
-            {/* ── Nature of distress (urgency & distress only) ── */}
-            {dscMode !== 'routine' && <NatureSelector value={natureOfDistress} onChange={setNatureOfDistress} />}
-
-            {dscMode !== 'routine' && natureOfDistress === 'mob' && mobSnapshot && (
-                <div className="mx-5 mt-3 rounded-xl border border-red-400/35 bg-red-950/30 px-3 py-2.5">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300">
-                        MOB datum · not current vessel position
-                    </div>
-                    <div className="mt-1 font-mono text-sm font-bold text-white">
-                        {formatLat(mobSnapshot.fixLat)} {formatLon(mobSnapshot.fixLon)}
-                    </div>
-                    <div className="mt-1 text-[11px] font-semibold text-red-100/80">
-                        Marked {new Date(mobSnapshot.activatedAt).toISOString().slice(11, 19)} UTC · ±
-                        {Math.round(mobSnapshot.fixAccuracy)} m
-                    </div>
-                </div>
-            )}
-
-            {/* ── Instructions + transcript preview ── */}
-            <DscInstructions mode={dscMode} transcript={currentTranscript} />
-
-            {/*
-             * Speak and Copy are gone (Shane 2026-08-28: "i am just not happy
-             * with the voice Claude, best we remove them. people will just
-             * have to read it out").
-             *
-             * The transcript above IS the deliverable. A radio script exists
-             * to be read aloud by whoever is holding the handset, and a
-             * synthesised voice reading a position over VHF was never going to
-             * beat a person doing it — the fact that it had to spell every
-             * digit out one at a time was the tell.
-             *
-             * Copy went with it at his request. That does cost the sat-phone
-             * SMS path the file header mentions; the transcript is selectable
-             * text on screen, which is the fallback.
-             */}
-            <div style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }} />
         </div>
     );
 };
 
 // ── DSC sub-components ───────────────────────────────────────────────────────
+
+/**
+ * Which channel to be on, VHF and HF, for the selected call (Shane
+ * 2026-09-06: "we should let the punter know what channel they should be on,
+ * vhf and hf"). The HF figures are the ITU GMDSS distress and safety
+ * frequencies (Radio Regulations Appendix 15): DSC alert 8414.5 / 6312 /
+ * 4207.5 kHz, then voice on the paired 8291 / 6215 / 4125 kHz. Routine HF
+ * traffic has no single answer — coast stations publish their own working
+ * frequencies — so the strip says so rather than guess.
+ */
+const ChannelStrip: React.FC<{ mode: DscMode }> = ({ mode }) => {
+    const rows =
+        mode === 'routine'
+            ? [
+                  ['VHF', 'Call on Ch 16, then shift to a working channel'],
+                  ['HF', "Your coast station's published working frequency"],
+              ]
+            : [
+                  ['VHF', `DSC ${mode === 'distress' ? 'Distress' : 'Urgency'} on Ch 70, then voice on Ch 16`],
+                  ['HF', 'DSC 8414.5 / 6312 / 4207.5 kHz, then voice 8291 / 6215 / 4125 kHz'],
+              ];
+    const tone = mode === 'distress' ? 'text-red-300' : mode === 'urgency' ? 'text-amber-300' : 'text-sky-300';
+    return (
+        <div className="mb-2 space-y-0.5" role="note" aria-label="Which channel to use">
+            {rows.map(([band, text]) => (
+                <div key={band} className="flex items-baseline gap-2">
+                    <span className={`w-7 shrink-0 text-[10px] font-extrabold tracking-[0.2em] ${tone}`}>{band}</span>
+                    <span className="text-[11px] font-semibold leading-snug text-slate-200">{text}</span>
+                </div>
+            ))}
+        </div>
+    );
+};
 
 const DscSelector: React.FC<{
     mode: DscMode;
@@ -662,8 +725,8 @@ const DscSelector: React.FC<{
         );
     };
     return (
-        <div className="shrink-0 px-5 pt-4">
-            <div className="flex items-center gap-2 mb-2">
+        <div className="shrink-0">
+            <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500">DSC Call</div>
                 {mobActive && (
                     <div className="px-2 py-0.5 rounded-full bg-red-500/15 border border-red-400/30 text-red-300 text-[9px] font-extrabold tracking-widest uppercase animate-pulse">
@@ -684,14 +747,12 @@ const NatureSelector: React.FC<{
     value: DistressNature;
     onChange: (n: DistressNature) => void;
 }> = ({ value, onChange }) => (
-    <div className="shrink-0 px-5 pt-3">
-        <label className="block text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1.5">
-            Nature
-        </label>
+    <div className="shrink-0 flex items-center gap-3">
+        <label className="shrink-0 text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500">Nature</label>
         <select
             value={value}
             onChange={(e) => onChange(e.target.value as DistressNature)}
-            className="w-full px-3 py-2.5 rounded-xl bg-white/4 border border-white/8 text-white text-[13px] font-bold focus:outline-hidden focus:border-white/20"
+            className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-white text-[13px] font-bold focus:outline-hidden focus:border-white/20"
         >
             {(Object.keys(NATURE_LABEL) as DistressNature[]).map((k) => (
                 <option key={k} value={k} className="bg-slate-900">
@@ -702,67 +763,40 @@ const NatureSelector: React.FC<{
     </div>
 );
 
-const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode, transcript }) => {
-    if (mode === 'routine') {
-        return (
-            <div className="shrink-0 px-5 pt-3">
-                <div className="rounded-xl border border-white/6 bg-white/2 px-3 py-2.5">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
-                        Transcript
-                    </div>
-                    <div data-testid="dsc-transcript" className="text-base font-medium leading-relaxed text-white">
-                        {transcript || 'Awaiting GPS…'}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
+const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
     const isDistress = mode === 'distress';
     const steps = isDistress
         ? [
               'Lift the red distress flap on your VHF.',
               'Press & hold the DSC DISTRESS button for 5 seconds.',
               'Wait for acknowledgement, then switch to Channel 16.',
-              'Read this transcript slowly, twice if needed.',
+              'Read the transcript slowly, twice if needed.',
           ]
         : [
               'Select DSC Urgency / All-Ships call on your VHF.',
               'Transmit on Channel 70 (DSC), then switch to Channel 16.',
-              'Read this transcript slowly and clearly.',
+              'Read the transcript slowly and clearly.',
           ];
-
     return (
-        <div className="shrink-0 px-5 pt-3 space-y-3">
+        <div
+            className={`shrink-0 rounded-xl border px-3 py-2 ${
+                isDistress ? 'border-red-400/30 bg-red-950/30' : 'border-amber-400/30 bg-amber-950/20'
+            }`}
+        >
             <div
-                className={`rounded-xl border px-3 py-2.5 ${
-                    isDistress ? 'border-red-400/30 bg-red-950/30' : 'border-amber-400/30 bg-amber-950/20'
+                className={`text-[10px] font-extrabold tracking-[0.2em] uppercase mb-1 ${
+                    isDistress ? 'text-red-300' : 'text-amber-300'
                 }`}
             >
-                <div
-                    className={`text-[10px] font-extrabold tracking-[0.2em] uppercase mb-1.5 ${
-                        isDistress ? 'text-red-300' : 'text-amber-300'
-                    }`}
-                >
-                    On your VHF
-                </div>
-                <ol className="space-y-1 list-decimal list-inside text-sm text-slate-200 leading-relaxed">
-                    {steps.map((s, i) => (
-                        <li key={i}>{s}</li>
-                    ))}
-                </ol>
-                <div className={`mt-2 text-xs font-bold ${isDistress ? 'text-red-300' : 'text-amber-300'}`}>
-                    This app does not transmit DSC — it prepares the voice script.
-                </div>
+                On your VHF
             </div>
-
-            <div className="rounded-xl border border-white/6 bg-white/2 px-3 py-2.5">
-                <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
-                    Voice Transcript
-                </div>
-                <div data-testid="dsc-transcript" className="text-base font-medium leading-relaxed text-white">
-                    {transcript || 'Awaiting GPS…'}
-                </div>
+            <ol className="space-y-0.5 list-decimal list-inside text-[12px] text-slate-200 leading-snug">
+                {steps.map((s, i) => (
+                    <li key={i}>{s}</li>
+                ))}
+            </ol>
+            <div className={`mt-1.5 text-[11px] font-bold ${isDistress ? 'text-red-300' : 'text-amber-300'}`}>
+                This app does not transmit DSC — it prepares the voice script.
             </div>
         </div>
     );
