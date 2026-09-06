@@ -1272,5 +1272,8 @@ export const useWeather = () => {
     return context;
 };
 
+/** The same context, or undefined outside a provider — for pages that only borrow a field from it. */
+export const useWeatherOptional = () => useContext(WeatherContext);
+
 // Scheduling internals now imported from services/WeatherScheduler.ts
 // Import directly: import { isBadWeather, getUpdateInterval, ... } from '../services/WeatherScheduler'
