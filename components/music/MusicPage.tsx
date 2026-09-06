@@ -23,6 +23,7 @@ import {
     getUserPlaylists,
     playPlaylist,
     pauseMusic,
+    stopMusic,
     resumeMusic,
     skipNext,
     skipPrevious,
@@ -370,6 +371,20 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         } catch (err) {
             setLoadError((err as Error).message);
         }
+        refreshNowPlayingFast();
+    }, [refreshNowPlayingFast]);
+
+    // Stop = pause + clear the queue: the off switch. The floating bar's X
+    // already took this path; the page had only pause.
+    const handleStop = useCallback(async () => {
+        triggerHaptic('medium');
+        try {
+            const r = await stopMusic();
+            if (r.isError) setLoadError(r.content);
+        } catch (err) {
+            setLoadError((err as Error).message);
+        }
+        setActivePlaylistId(null);
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
@@ -819,6 +834,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                     onResume={() => void handleResume()}
                                     onNext={() => void handleNext()}
                                     onPrevious={() => void handlePrevious()}
+                                    onStop={() => void handleStop()}
                                     onPickSpeaker={() => {
                                         triggerHaptic('light');
                                         void showRoutePicker();

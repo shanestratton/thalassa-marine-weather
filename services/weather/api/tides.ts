@@ -1,4 +1,4 @@
-import { Tide, StormGlassTideData } from '../../../types';
+import { Tide, TidePoint, StormGlassTideData } from '../../../types';
 import { fetchWorldTides } from './worldtides';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { pruneMap } from '../../../utils/boundedMap';
@@ -85,3 +85,43 @@ export const fetchRealTides = async (
 export const fetchSeaLevels = async (_lat: number, _lon: number): Promise<Partial<StormGlassTideData>[]> => {
     return [];
 };
+
+/**
+ * Dense half-hourly heights between extremes, by cosine interpolation — the
+ * curve the tide graph draws. Lived inline in services/weather/index.ts;
+ * shared so the follower can refresh tides for a new position without a
+ * full weather fetch.
+ */
+export function interpolateTideHourly(tides: readonly Tide[]): TidePoint[] {
+    const sorted = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const points: TidePoint[] = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const tStart = new Date(sorted[i].time).getTime();
+        const tEnd = new Date(sorted[i + 1].time).getTime();
+        if (!Number.isFinite(tStart) || !Number.isFinite(tEnd) || tEnd <= tStart) continue;
+        const hStart = sorted[i].height;
+        const hEnd = sorted[i + 1].height;
+        for (let t = tStart; t < tEnd; t += 30 * 60 * 1000) {
+            const ratio = (t - tStart) / (tEnd - tStart);
+            const height = (hStart + hEnd) / 2 + ((hStart - hEnd) / 2) * Math.cos(ratio * Math.PI);
+            points.push({ time: new Date(t).toISOString(), height });
+        }
+    }
+    return points;
+}
+
+export interface TidesForPosition {
+    tides: Tide[];
+    tideHourly: TidePoint[];
+    tideGUIDetails?: TideGUIDetails;
+}
+
+/**
+ * Tides for a position, shaped as the weather report carries them. null when
+ * no station answered — the caller keeps what it has. 24 h cached upstream.
+ */
+export async function fetchTidesForPosition(lat: number, lon: number): Promise<TidesForPosition | null> {
+    const data = await fetchRealTides(lat, lon);
+    if (!data?.tides?.length) return null;
+    return { tides: data.tides, tideHourly: interpolateTideHourly(data.tides), tideGUIDetails: data.guiDetails };
+}

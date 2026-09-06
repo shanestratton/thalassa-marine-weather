@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { SafeImage } from '../../ui/SafeImage';
 import { GeneratedPlaylistArtwork } from './GeneratedPlaylistArtwork';
 import { SpeakerChip } from './SpeakerChip';
+import { StopChip } from './StopChip';
 import { formatPlaybackTime } from './helpers';
 import { MusicIcon, PauseIcon, PlayIcon, SkipNextIcon, SkipPrevIcon } from './icons';
 import type { NowPlayingStageProps } from './types';
@@ -21,6 +22,7 @@ export const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
     onNext,
     onPrevious,
     onPickSpeaker,
+    onStop,
 }) => {
     const [imageFailed, setImageFailed] = useState(false);
     const artworkUrl = nowPlaying?.artworkUrl;
@@ -204,7 +206,12 @@ export const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
                         <SkipNextIcon className="h-6 w-6" />
                     </button>
                 </div>
-                <div className="-mb-1 -mr-1 mt-1.5 flex justify-end">
+                {/* Output controls. STOP kills the queue outright — pause left
+                    the track loaded and the only off switch was the X on the
+                    floating bar (Shane 2026-09-06: "a kill switch here for
+                    music … just beside the speaker button"). */}
+                <div className="-mb-1 -mr-1 mt-1.5 flex items-center justify-end gap-2">
+                    <StopChip onStop={onStop} />
                     <SpeakerChip speaker={speaker} onPick={onPickSpeaker} />
                 </div>
             </div>

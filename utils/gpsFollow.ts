@@ -66,3 +66,16 @@ export function decideFollowAction(args: {
     }
     return 'none';
 }
+
+/**
+ * The tide station follows the boat sooner than the forecast does: stations
+ * sit a few miles apart along a coast, and the label under the tide graph
+ * kept the old one until the 30 NM refetch (Shane 2026-09-06).
+ */
+export const TIDE_REFRESH_NM = 3;
+
+/** Refresh the tides once the boat is TIDE_REFRESH_NM from the point they were fetched for. */
+export function tideNeedsRefresh(tidePoint: LatLon | null, position: LatLon): boolean {
+    if (!tidePoint) return false;
+    return haversineNM(tidePoint.lat, tidePoint.lon, position.lat, position.lon) >= TIDE_REFRESH_NM;
+}
