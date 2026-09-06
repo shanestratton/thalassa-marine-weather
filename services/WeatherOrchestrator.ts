@@ -27,6 +27,7 @@ import { degreesToCardinal } from '../utils';
 import { EnvironmentService } from './EnvironmentService';
 import { getErrorMessage } from '../utils/createLogger';
 import { GpsService } from './GpsService';
+import { resolveWeatherPosition } from './weatherPosition';
 import {
     saveLargeDataImmediate,
     loadLargeData,
@@ -538,7 +539,7 @@ export class WeatherOrchestrator {
             if (!hasCachedData) this.cb.setLoadingMessage('Getting GPS Location...');
             log.info('Requesting GPS position...');
             addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
-            GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+            this.weatherPositionOrPhone(60_000, 10).then((pos) => {
                 if (!this.isCurrentIdentity()) return;
                 if (pos) {
                     log.info(`GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
@@ -620,6 +621,27 @@ export class WeatherOrchestrator {
 
     // ── Location Resolution ────────────────────────────────────
 
+    /**
+     * Where the weather is for: the boat (the bus, then the Pi), her held last
+     * fix when she is quiet, and the phone only when no boat has ever answered
+     * on this device or the skipper chose it — services/weatherPosition. The
+     * phone read is the passive, already-granted one. These paths have no UI
+     * to ask boat-or-phone with, so they never do; the follower asks.
+     */
+    private async weatherPositionOrPhone(
+        staleLimitMs: number,
+        timeoutSec: number,
+    ): Promise<{ latitude: number; longitude: number } | null> {
+        const resolved = await resolveWeatherPosition(
+            () =>
+                GpsService.getCurrentPositionIfGranted({ staleLimitMs, timeoutSec }).then((p) =>
+                    p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
+                ),
+            { mayAsk: false },
+        );
+        return resolved.fix ? { latitude: resolved.fix.lat, longitude: resolved.fix.lon } : null;
+    }
+
     async resolveLocation(location: string, coords?: Coords, fetchEpoch?: number): Promise<ResolvedLocation> {
         this.assertCurrent(fetchEpoch);
         addBreadcrumb({
@@ -636,7 +658,7 @@ export class WeatherOrchestrator {
         if (!resolvedCoords) {
             if (location === 'Current Location') {
                 this.cb.setLoadingMessage('Getting GPS Location...');
-                const pos = await GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 15 });
+                const pos = await this.weatherPositionOrPhone(60_000, 15);
                 this.assertCurrent(fetchEpoch);
                 if (pos) {
                     addBreadcrumb({

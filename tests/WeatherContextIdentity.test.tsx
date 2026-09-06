@@ -359,7 +359,10 @@ describe('WeatherProvider identity transition', () => {
                 <Probe />
             </WeatherProvider>,
         );
-        expect(contextMocks.gps).toHaveBeenCalled();
+        // The follower asks the boat (bus, Pi, her held fix) before the phone —
+        // services/weatherPosition — so the phone request lands a few
+        // microtasks after mount rather than synchronously.
+        await vi.waitFor(() => expect(contextMocks.gps).toHaveBeenCalled());
 
         await act(async () => {
             setAuthIdentityScope('account-b');

@@ -36,6 +36,14 @@ import {
 
 import { createLogger } from '../utils/createLogger';
 import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
+import {
+    resolveWeatherPosition,
+    setHeldChoice,
+    type HeldChoice,
+    type WeatherFix,
+    type WeatherFixKind,
+} from '../services/weatherPosition';
+import type { BoatFixRung } from '../services/boatPositionChain';
 import { useWeatherStore } from '../stores/weatherStore';
 import { useUIStore } from '../stores/uiStore';
 import {
@@ -48,6 +56,27 @@ import {
 const log = createLogger('WeatherContext');
 
 // ── Context Type (unchanged — zero consumer impact) ──────────
+
+/** Which receiver the weather is for while following — see services/weatherPosition. */
+export interface WeatherPositionSource {
+    kind: WeatherFixKind;
+    timestamp: number;
+    rung?: BoatFixRung;
+    source?: string | null;
+}
+
+/** The boat-or-phone question while her last fix is held. */
+export interface WeatherPositionChoicePrompt {
+    held: WeatherFix;
+    phone: WeatherFix | null;
+}
+
+export interface WeatherPositionChoice {
+    prompt: WeatherPositionChoicePrompt | null;
+    answer: (choice: HeldChoice) => void;
+    /** Re-open the question from the status line while a hold is in force. */
+    open: () => void;
+}
 
 interface WeatherContextType {
     weatherData: MarineWeatherReport | null;
@@ -73,6 +102,9 @@ interface WeatherContextType {
     handleSaveVoyagePlan: (plan: VoyagePlan) => void;
     clearVoyagePlan: () => void;
     incrementQuota: () => void;
+    /** Which receiver the weather is for while following: the boat, her held last fix, or the phone. */
+    positionSource: WeatherPositionSource | null;
+    positionChoice: WeatherPositionChoice;
     historyCache: Record<string, MarineWeatherReport>;
     setHistoryCache: React.Dispatch<React.SetStateAction<Record<string, MarineWeatherReport>>>;
 }
@@ -194,6 +226,35 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const [weatherData, _setWeatherData] = useState<MarineWeatherReport | null>(initialWeather);
     const [voyagePlan, setVoyagePlan] = useState<VoyagePlan | null>(null);
     const [historyCache, setHistoryCache] = useState<Record<string, MarineWeatherReport>>({});
+
+    // ── Where the weather is for: boat → her held last fix → phone ──
+    const [positionSource, setPositionSource] = useState<WeatherPositionSource | null>(null);
+    const positionSourceRef = useRef<WeatherPositionSource | null>(null);
+    const [positionPrompt, setPositionPrompt] = useState<WeatherPositionChoicePrompt | null>(null);
+    const lastHeldRef = useRef<WeatherFix | null>(null);
+    const lastPhoneRef = useRef<WeatherFix | null>(null);
+    const askedHeldRef = useRef<number | null>(null);
+    const followTickRef = useRef<(() => void) | null>(null);
+    // Publish only on a change of receiver (or of the held fix itself): a live
+    // fix arrives every tick, and re-rendering every consumer of this context
+    // every 5 s for an unchanged label would be a cost with no return.
+    const publishPositionSource = useCallback((fix: WeatherFix | null) => {
+        const next: WeatherPositionSource | null = fix
+            ? { kind: fix.kind, timestamp: fix.timestamp, rung: fix.rung, source: fix.source ?? null }
+            : null;
+        const prev = positionSourceRef.current;
+        const same =
+            (prev === null && next === null) ||
+            (prev !== null &&
+                next !== null &&
+                prev.kind === next.kind &&
+                prev.rung === next.rung &&
+                (prev.source ?? null) === (next.source ?? null) &&
+                (next.kind !== 'held' || prev.timestamp === next.timestamp));
+        if (same) return;
+        positionSourceRef.current = next;
+        setPositionSource(next);
+    }, []);
 
     // ── Refs ─────────────────────────────────────────────────
     const historyCacheRef = useRef<Record<string, MarineWeatherReport>>({});
@@ -949,10 +1010,26 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (!displayed || !weatherPoint) return;
             const generation = ++tickGeneration;
 
-            GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then(async (pos) => {
+            // The boat first (the bus, then the Pi), her held last fix when
+            // she is quiet, and the phone only as the last resort — see
+            // services/weatherPosition. The phone read stays the passive,
+            // already-granted one. (Shane 2026-09-06: the forecast drove to
+            // his daughter's with him; the boat had not moved.)
+            resolveWeatherPosition(() =>
+                GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then((p) =>
+                    p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
+                ),
+            ).then(async (resolved) => {
                 if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
-                if (!pos) return;
-                const { latitude, longitude } = pos;
+                publishPositionSource(resolved.fix);
+                lastHeldRef.current = resolved.held;
+                lastPhoneRef.current = resolved.phone;
+                if (resolved.ask && resolved.held && askedHeldRef.current !== resolved.held.timestamp) {
+                    askedHeldRef.current = resolved.held.timestamp;
+                    setPositionPrompt({ held: resolved.held, phone: resolved.phone });
+                }
+                if (!resolved.fix) return;
+                const { lat: latitude, lon: longitude } = resolved.fix;
 
                 const action = decideFollowAction({
                     weatherPoint,
@@ -1004,15 +1081,25 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
 
         // Immediate first tick — covers 'opened the app after a flight'
         // (≥30 NM → instant refetch) and boot-time name prettify.
+        followTickRef.current = tick;
         tick();
         const followTimer = setInterval(tick, GPS_FOLLOW_POLL_MS);
 
         return () => {
             cancelled = true;
             tickGeneration += 1;
+            followTickRef.current = null;
             clearInterval(followTimer);
         };
-    }, [fetchWeather, isCurrentScope, locationMode, setWeatherData]);
+    }, [fetchWeather, isCurrentScope, locationMode, setWeatherData, publishPositionSource]);
+
+    // Off GPS-follow (a port was picked): no receiver line, no open question.
+    useEffect(() => {
+        if (locationMode === 'gps') return;
+        publishPositionSource(null);
+        setPositionPrompt(null);
+        lastHeldRef.current = null;
+    }, [locationMode, publishPositionSource]);
 
     // ── LIVE OVERLAY (delegates to orchestrator) ────────────
     useEffect(() => {
@@ -1080,6 +1167,27 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     ]);
 
     // ── CONTEXT VALUE (memoized) ────────────────────────────
+    const answerPositionChoice = useCallback(
+        (choice: HeldChoice) => {
+            const held = positionPrompt?.held ?? lastHeldRef.current;
+            setPositionPrompt(null);
+            if (!held) return;
+            setHeldChoice(held, choice);
+            log.info(`Boat quiet — the weather follows ${choice === 'boat' ? 'her last fix' : 'the phone'}`);
+            followTickRef.current?.();
+        },
+        [positionPrompt],
+    );
+    const openPositionChoice = useCallback(() => {
+        const held = lastHeldRef.current;
+        if (!held) return;
+        setPositionPrompt({ held, phone: lastPhoneRef.current });
+    }, []);
+    const positionChoice = React.useMemo<WeatherPositionChoice>(
+        () => ({ prompt: positionPrompt, answer: answerPositionChoice, open: openPositionChoice }),
+        [positionPrompt, answerPositionChoice, openPositionChoice],
+    );
+
     const contextValue = React.useMemo(
         () => ({
             weatherData,
@@ -1099,6 +1207,8 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             handleSaveVoyagePlan,
             clearVoyagePlan,
             incrementQuota,
+            positionSource,
+            positionChoice,
             historyCache,
             setHistoryCache: setHistoryCacheForScope,
         }),
@@ -1119,6 +1229,8 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             handleSaveVoyagePlan,
             clearVoyagePlan,
             incrementQuota,
+            positionSource,
+            positionChoice,
             historyCache,
             setHistoryCacheForScope,
         ],

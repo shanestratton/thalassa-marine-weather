@@ -446,7 +446,9 @@ describe('WeatherOrchestrator identity fences', () => {
         const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
 
         await orchestrator.loadCacheAndInit();
-        expect(weatherMocks.getCurrentPositionIfGranted).toHaveBeenCalledOnce();
+        // The boat is asked first (services/weatherPosition), so the phone
+        // request follows several microtasks behind loadCacheAndInit.
+        await vi.waitFor(() => expect(weatherMocks.getCurrentPositionIfGranted).toHaveBeenCalledOnce());
         expect(weatherMocks.getCurrentPosition).not.toHaveBeenCalled();
 
         setAuthIdentityScope('account-b');
