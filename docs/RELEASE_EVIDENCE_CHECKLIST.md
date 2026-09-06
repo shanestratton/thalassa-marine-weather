@@ -29,8 +29,8 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 ### TestFlight (2026-09-06)
 
 - [x] Build 102 processed — _Ready to Submit_, expires in 90 days.
-- [x] Internal group **Skipper** (Shane) with 102 — no review; installable immediately.
-- [x] External group **Beta Skippers** with 102 submitted to Beta App Review (_Waiting for Review_). **Public link OFF** until the device matrix below passes. Funnel: Founding Skippers approval emails carry the link.
+- [x] Internal group **Skipper** (Shane) with 102 — no review. Tester sat at NOT_INVITED (no email, TestFlight app empty; remove/re-add did not help) until an invitation was created through App Store Connect's own API from the logged-in session (HTTP 201) → state INSTALLED, 2026-09-06.
+- [x] External group **Beta Skippers** with 102 submitted to Beta App Review 2026-09-06 10:03 AEST (_Waiting for Review_). Its tester shows "No Builds Available" / NOT_INVITED — expected until Apple approves; auto-notify is on, so the invite sends itself. **Public link OFF** until the device matrix below passes. Funnel: Founding Skippers approval emails carry the link.
 - [x] Test Information: contact, OTP review notes, privacy URL; age rating 13+ (UGC + messaging, Terms say not for under-13s).
 
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
