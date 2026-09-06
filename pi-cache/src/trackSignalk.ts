@@ -136,3 +136,104 @@ export async function currentTrackFix(deps: BroadcastDeps): Promise<TrackFix | n
     const doc = await fetchSelfDocument(deps);
     return doc === null ? null : readTrackFix(doc);
 }
+
+// ── The whole bus, for the cloud snapshot ────────────────────────────────
+
+/** Everything the Instrument Panel draws, in the units it draws them in. */
+export interface TelemetrySnapshot {
+    /** ISO time of the reading: GPS time when the bus offers it, else the Pi's clock. */
+    reportedAt: string;
+    lat: number | null;
+    lon: number | null;
+    sogKts: number | null;
+    cogDeg: number | null;
+    headingDeg: number | null;
+    stwKts: number | null;
+    twsKts: number | null;
+    /** Signed, negative to port — Signal K's angleTrueWater is already signed. */
+    twaDeg: number | null;
+    twdDeg: number | null;
+    awsKts: number | null;
+    /** Signed, negative to port. */
+    awaDeg: number | null;
+    depthM: number | null;
+    heelDeg: number | null;
+    pitchDeg: number | null;
+    waterTempC: number | null;
+    pressureHpa: number | null;
+    rudderDeg: number | null;
+    rpm: number | null;
+    voltageV: number | null;
+}
+
+/** A signed angle in radians to degrees in -180..180, unlike `degrees()` which makes a bearing. */
+function signedDegrees(rad: number | null): number | null {
+    if (rad === null) return null;
+    const d = ((((rad * RAD_TO_DEG) % 360) + 540) % 360) - 180;
+    return d === -180 ? 180 : d;
+}
+
+/** First child of a Signal K collection (propulsion.*, electrical.batteries.*) that has `leaf`. */
+function firstChildNumber(doc: unknown, collectionPath: string, leaf: string): number | null {
+    const collection = valueAt(doc, collectionPath);
+    if (typeof collection !== 'object' || collection === null) return null;
+    for (const key of Object.keys(collection as Record<string, unknown>)) {
+        if (key === 'meta' || key === 'value' || key === 'timestamp' || key === '$source') continue;
+        const v = num(collection, `${key}.${leaf}`);
+        if (v !== null) return v;
+    }
+    return null;
+}
+
+/**
+ * Read the boat's whole bus off a Signal K self document for the cloud
+ * snapshot (services/CloudTelemetryService on the phones, vessel_telemetry in
+ * the cloud). null when the document offers nothing at all.
+ */
+export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
+    const latRaw = num(selfDocument, 'navigation.position.latitude');
+    const lonRaw = num(selfDocument, 'navigation.position.longitude');
+    const hasPosition =
+        latRaw !== null &&
+        lonRaw !== null &&
+        Math.abs(latRaw) <= 90 &&
+        Math.abs(lonRaw) <= 180 &&
+        !(latRaw === 0 && lonRaw === 0);
+
+    const iso = valueAt(selfDocument, 'navigation.datetime');
+    const gpsMs = typeof iso === 'string' ? Date.parse(iso) : Number.NaN;
+    const reportedAt = new Date(Number.isFinite(gpsMs) ? gpsMs : now()).toISOString();
+
+    const waterK = num(selfDocument, 'environment.water.temperature');
+    const pressurePa = num(selfDocument, 'environment.outside.pressure');
+    const revolutionsHz = firstChildNumber(selfDocument, 'propulsion', 'revolutions');
+
+    const snapshot: TelemetrySnapshot = {
+        reportedAt,
+        lat: hasPosition ? latRaw : null,
+        lon: hasPosition ? lonRaw : null,
+        sogKts: knots(num(selfDocument, 'navigation.speedOverGround')),
+        cogDeg: degrees(num(selfDocument, 'navigation.courseOverGroundTrue')),
+        headingDeg: degrees(
+            num(selfDocument, 'navigation.headingTrue') ?? num(selfDocument, 'navigation.headingMagnetic'),
+        ),
+        stwKts: knots(num(selfDocument, 'navigation.speedThroughWater')),
+        twsKts: knots(num(selfDocument, 'environment.wind.speedTrue')),
+        twaDeg: signedDegrees(num(selfDocument, 'environment.wind.angleTrueWater')),
+        twdDeg: degrees(num(selfDocument, 'environment.wind.directionTrue')),
+        awsKts: knots(num(selfDocument, 'environment.wind.speedApparent')),
+        awaDeg: signedDegrees(num(selfDocument, 'environment.wind.angleApparent')),
+        depthM:
+            num(selfDocument, 'environment.depth.belowTransducer') ??
+            num(selfDocument, 'environment.depth.belowSurface'),
+        heelDeg: signedDegrees(num(selfDocument, 'navigation.attitude.roll')),
+        pitchDeg: signedDegrees(num(selfDocument, 'navigation.attitude.pitch')),
+        waterTempC: waterK === null ? null : waterK - KELVIN_OFFSET,
+        pressureHpa: pressurePa === null ? null : pressurePa / 100,
+        rudderDeg: signedDegrees(num(selfDocument, 'steering.rudderAngle')),
+        rpm: revolutionsHz === null ? null : revolutionsHz * 60,
+        voltageV: firstChildNumber(selfDocument, 'electrical.batteries', 'voltage'),
+    };
+    const anything = Object.entries(snapshot).some(([key, value]) => key !== 'reportedAt' && value !== null);
+    return anything ? snapshot : null;
+}
