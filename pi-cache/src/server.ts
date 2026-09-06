@@ -9,6 +9,7 @@
  */
 
 import 'dotenv/config';
+import os from 'node:os';
 
 // Force IPv4 for all fetch() calls — most boat networks lack IPv6 connectivity
 // and Node.js 22's undici-based fetch() tries AAAA records first, causing timeouts
@@ -35,6 +36,7 @@ import { createDiaryRelayRoutes } from './routes/diary.js';
 import { createTrackRoutes } from './routes/track.js';
 import { TrackStore } from './trackStore.js';
 import { TrackRecorderRunner } from './trackRunner.js';
+import { TELEMETRY_RELAY_PATH, TelemetryPublisher } from './telemetryPublisher.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
@@ -146,6 +148,21 @@ const trackRecorder = new TrackRecorderRunner({
    her own record; a Pi that forgot after every power cycle would fail exactly
    the case it exists for — the phone flat, the app crashed, nobody watching. */
 if (trackStore.isEnabled()) trackRecorder.start();
+
+/* The boat's live snapshot to the cloud — position and the whole bus, every
+   few seconds, so the Pi is the primary device and crew see the Instrument
+   Panel anywhere (Shane 2026-09-06). Uses the diary pairing's credential and
+   the skipper's internet policy; THALASSA_TELEMETRY_PUBLISH=0 switches it off. */
+const telemetryPublisher = new TelemetryPublisher({
+    fetchImpl: fetch,
+    signalkOrigin: SIGNALK_ORIGIN,
+    endpoint: `${SUPABASE_ORIGIN}${TELEMETRY_RELAY_PATH}`,
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendTelemetryCredentials(),
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+    deviceLabel: os.hostname(),
+});
+if (process.env.THALASSA_TELEMETRY_PUBLISH !== '0') telemetryPublisher.start();
 
 /* The shore watch, when the skipper hands it to this Pi.
  *

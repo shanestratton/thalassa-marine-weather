@@ -641,6 +641,19 @@ export class DiaryRelayOutbox {
         return relay ? { relayId: relay.relayId, token: relay.token } : null;
     }
 
+    /**
+     * Lend the pairing credential to the telemetry publisher, and to nothing
+     * else. It presents this to the telemetry-relay Edge Function, which
+     * verifies the credential and stores one bounded snapshot row for the
+     * skipper who paired this Pi — the strongest thing it can do is say where
+     * the boat is and what her instruments read, to the people the skipper
+     * already lets see that. No url, for the same reason as the anchor watch:
+     * the endpoint comes from the process-startup trust anchor.
+     */
+    lendTelemetryCredentials(): { relayId: string; token: string } | null {
+        return this.lendAnchorCredentials();
+    }
+
     configure(input: DiaryRelayConfigInput): DiaryRelayPublicConfiguration {
         if (input.allowInternet !== undefined && typeof input.allowInternet !== 'boolean') {
             throw new DiaryRelayValidationError('allowInternet must be a boolean');
