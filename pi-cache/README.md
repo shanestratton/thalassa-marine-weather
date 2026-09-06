@@ -68,3 +68,18 @@ ENC_WATCHER_ENABLED=true
 To exercise the complete flow from another device, both the LAN-bind and unsafe-admin switches are required, plus the
 exact browser origin when applicable. Do not bypass certificate pinning, expose the service to an untrusted network,
 or add a plaintext fallback.
+
+## Internet gate across restarts (`THALASSA_PI_WAN_UPLINK`)
+
+The Pi cannot tell a satellite link from ordinary internet on its own, so by
+default it shuts its internet gate on every restart and waits for the app to
+re-apply the skipper's policy — the diary and telemetry relays stand down until
+then. If this Pi only ever talks through an ordinary link (a 4G router, marina
+Wi-Fi), declare it in `.env` and the gate stays open across restarts:
+
+```
+THALASSA_PI_WAN_UPLINK=ordinary
+```
+
+`satellite` pins the gate shut instead. Anything else is treated as undeclared.
+The app's own policy pushes still apply on top.

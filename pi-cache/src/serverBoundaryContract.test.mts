@@ -239,7 +239,12 @@ test('HTTP configuration may assert but never mutate or persist a new Supabase a
 });
 
 test('diary relay endpoint and production transport inherit the startup Supabase trust anchor', () => {
-    assert.match(source, /new DiaryRelayOutbox\(CACHE_DIR, \{ trustedSupabaseOrigin: SUPABASE_ORIGIN \}\)/);
+    // The trust anchor is still the process-startup origin; the operator's
+    // uplink declaration (THALASSA_PI_WAN_UPLINK) rides alongside it.
+    assert.match(
+        source,
+        /new DiaryRelayOutbox\(CACHE_DIR, \{\s*trustedSupabaseOrigin: SUPABASE_ORIGIN,?\s*(wanUplink: WAN_UPLINK,?\s*)?\}\)/,
+    );
     assert.match(diaryRelaySource, /parsed\.href !== trustedRelayEndpoint/);
     assert.match(diaryRelaySource, /this\.fetchImpl\s*=\s*options\.fetchImpl \?\?/);
     assert.match(diaryRelaySource, /outboundFetch\(url,/);
