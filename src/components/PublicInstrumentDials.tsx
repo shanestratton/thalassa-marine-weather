@@ -11,7 +11,7 @@ import { clockInZone } from '../../utils/timeZones';
 import { observedTendency } from '../../utils/barometerTendency';
 
 const MODES = ['Apparent', 'True wind', 'COG', 'Barometer', 'Heel', 'Trim', 'Helm', 'Ship’s bell'] as const;
-type Mode = (typeof MODES)[number];
+export type PublicInstrumentMode = (typeof MODES)[number];
 const valid = (value: number | null | undefined): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? value : null;
 
@@ -74,8 +74,14 @@ const Bell: React.FC<{ zone: string | null | undefined }> = ({ zone }) => {
 };
 
 /** Native instrument faces, kept large enough to read on a phone. */
-export const PublicInstrumentDials: React.FC<{ instruments: VoyageLogInstruments }> = ({ instruments: t }) => {
-    const [mode, setMode] = useState<Mode>('Apparent');
+export const PublicInstrumentDials: React.FC<{
+    instruments: VoyageLogInstruments;
+    mode?: PublicInstrumentMode;
+    onModeChange?: (mode: PublicInstrumentMode) => void;
+}> = ({ instruments: t, mode: selectedMode, onModeChange }) => {
+    const [localMode, setLocalMode] = useState<PublicInstrumentMode>('Apparent');
+    const mode = selectedMode ?? localMode;
+    const setMode = onModeChange ?? setLocalMode;
     const id = useId().replace(/:/g, '');
     const baro = valid(t.baro);
     const old = valid(t.pressure_3h);

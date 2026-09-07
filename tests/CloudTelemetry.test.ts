@@ -134,9 +134,11 @@ describe('the panel says Remote, not Live and not No gateway', () => {
 
     it('the public page publishes an opted-in snapshot separately from the map position', () => {
         const fn = read('supabase/functions/voyage-log/index.ts');
-        expect(fn).toContain(".from('vessel_telemetry')");
-        expect(fn).toContain('if (instrumentsAllowed && boatId)');
-        expect(fn).toContain('instruments = publicInstrumentSnapshot');
+        const reader = read('supabase/functions/_shared/public-instrument-reader.ts');
+        expect(reader).toContain(".from('vessel_telemetry')");
+        expect(reader).toContain('if (instrumentsAllowed && boatId)');
+        expect(reader).toContain('instruments = publicInstrumentSnapshot');
+        expect(fn).toContain('await readPublicInstruments(');
         expect(fn).toContain('telemetry: instrumentsEnabled ? telemetry : redactPublicTelemetry(telemetry)');
     });
 });

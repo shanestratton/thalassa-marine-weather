@@ -17,7 +17,9 @@ describe('public Voyage Log trip selector safety contract', () => {
     });
 
     it('fails closed for track data when hidden-voyage authority cannot be read', () => {
-        expect(source).toContain('trackVisibilityReadable = false');
+        const reader = readFileSync('supabase/functions/_shared/public-instrument-reader.ts', 'utf8');
+        expect(reader).toContain('trackVisibilityReadable: !hidden.error');
+        expect(source).toContain('const { hiddenVoyageIds, trackVisibilityReadable } = authority');
         expect(source).toContain('if (!trackVisibilityReadable) return { data: [], error: null };');
         expect(source).toContain("tripSelection.mode === 'legacy' && trackVisibilityReadable");
     });

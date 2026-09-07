@@ -3,10 +3,11 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VoyageLogData, VoyageLogEntry, VoyageLogInstruments } from '../src/voyageLogApi';
 
-const mocks = vi.hoisted(() => ({ fetchVoyageLog: vi.fn(), mapMount: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchVoyageLog: vi.fn(), fetchPublicInstruments: vi.fn(), mapMount: vi.fn() }));
 vi.mock('../src/voyageLogApi', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../src/voyageLogApi')>()),
     fetchVoyageLog: mocks.fetchVoyageLog,
+    fetchPublicInstruments: mocks.fetchPublicInstruments,
     parseVoyageLogParams: () => ({ handle: 'serene-summer' }),
 }));
 vi.mock('../src/components/TopNav', () => ({ default: () => null }));
@@ -109,6 +110,7 @@ beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     mocks.fetchVoyageLog.mockReset().mockResolvedValue(DATA);
+    mocks.fetchPublicInstruments.mockReset().mockImplementation(() => new Promise(() => {}));
     mocks.mapMount.mockClear();
 });
 afterEach(() => {
@@ -131,6 +133,69 @@ const expectDiaryOnly = () => {
 };
 
 describe('public voyage Instruments / Diary switch', () => {
+    it('a delayed full response cannot change a newer instrument consent answer or stop its panel', async () => {
+        mocks.fetchPublicInstruments.mockResolvedValue(DATA);
+        await openPage();
+        let complete!: (data: VoyageLogData) => void;
+        mocks.fetchVoyageLog.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    complete = resolve;
+                }),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(70_000));
+        await act(async () => complete({ ...DATA, instruments_shared: false }));
+        expect(screen.getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
+        mocks.fetchPublicInstruments.mockResolvedValue({ ...DATA, instruments_shared: false });
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(screen.getByRole('region', { name: 'Instrument sharing status' })).toBeInTheDocument();
+    });
+
+    it('refreshes heel and trim across a minute, then expires a stopped source', async () => {
+        let sourceStopped = false;
+        let at = NOW;
+        mocks.fetchPublicInstruments.mockImplementation(async () => {
+            if (!sourceStopped) at = Date.now();
+            return {
+                ...DATA,
+                instruments: {
+                    ...INSTRUMENTS,
+                    updated_at: new Date(Date.now()).toISOString(),
+                    heel_at: new Date(at).toISOString(),
+                    pitch_at: new Date(at).toISOString(),
+                },
+            };
+        });
+        await openPage();
+        fireEvent.click(screen.getByRole('button', { name: 'Heel', pressed: false }));
+        for (let i = 0; i < 15; i++) {
+            await act(async () => vi.advanceTimersByTimeAsync(5_000));
+            expect(screen.getByText('Heel', { selector: 'dt' }).parentElement!).toHaveTextContent('12.3');
+            expect(screen.getByRole('button', { name: 'Heel', pressed: true })).toBeInTheDocument();
+        }
+        expect(mocks.fetchVoyageLog).toHaveBeenCalledTimes(2);
+        sourceStopped = true;
+        await act(async () => vi.advanceTimersByTimeAsync(30_000));
+        expect(
+            within(screen.getByText('Heel', { selector: 'dt' }).parentElement!).getByLabelText('Unavailable'),
+        ).toBeInTheDocument();
+        expect(
+            within(screen.getByText('Pitch', { selector: 'dt' }).parentElement!).getByLabelText('Unavailable'),
+        ).toBeInTheDocument();
+    });
+
+    it('keeps Trim selected through a failed instrument request and recovery', async () => {
+        mocks.fetchPublicInstruments.mockResolvedValue(DATA);
+        await openPage();
+        fireEvent.click(screen.getByRole('button', { name: 'Trim' }));
+        mocks.fetchPublicInstruments.mockRejectedValueOnce(new Error('offline'));
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(screen.getByText('Connection lost')).toBeInTheDocument();
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(screen.getByRole('button', { name: 'Trim', pressed: true })).toBeInTheDocument();
+    });
+
     it('shows shared instruments first and mounts only the selected content without remounting the map', async () => {
         await openPage();
         expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
