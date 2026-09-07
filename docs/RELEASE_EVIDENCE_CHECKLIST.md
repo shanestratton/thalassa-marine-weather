@@ -80,6 +80,10 @@ Process: reproduce → find the cause in code or production → fix with a test 
 
 - [x] **Skipper Device card still confusing with the Pi primary: "Primary: the Pi" on the top line, then "This device" on the next.** Fix f879b712: the GPS-order row shows only when no Pi is primary (empty row, same height, so the 120 px card never moves); the pill reads "The Pi is the Primary Device". Ships in 105.
 
+- [x] **Settings → Advanced: the Calypso and Calypso's Knowledge sections** removed (27b30549; "we no longer have calypso any more"). Ships in 105.
+- [x] **ℹ System Status: the "Last flight · suspended kill" block** removed; **the GPS glyph moved in** as a Position row (boat/phone with its fix dot, the sentence beside it) instead of a header chip; the ℹ button is now always present so the row can always be found (27b30549). Ships in 105.
+- [x] **The chart's layer menu folds itself after 8 s without a touch** (27b30549); a touch inside restarts the clock. Ships in 105.
+
 ### Also in 103 — the Pi as primary device (agreed 2026-09-06 evening, built that night and 2026-09-07)
 
 Planned and written up as 104; the 103 bundle was rebuilt after each of these landed, so they ship in 103 and the matrix below covers them too.
