@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { destinationBounds, publicMapDestination } from '../publicMapDestination';
+import { installMusgraveImagery } from '../publicSatelliteCoverage';
 import type { VoyageLogDestination } from '../voyageLogApi';
 import Map, { AttributionControl, Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
@@ -623,6 +624,7 @@ function MapContainer({
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
+                onStyleData={(event) => installMusgraveImagery(event.target)}
                 /* Flat, by request (Shane 2026-09-02: "i prefer flat earth
                    claude, you know like it really is"). The globe was tried
                    here for one afternoon; a chart is a chart. Its atmosphere

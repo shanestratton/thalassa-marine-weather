@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import TopNav from '../src/components/TopNav';
 import { TelemetryPanel } from '../src/components/TelemetryPanel';
+import DiarySidebar from '../src/components/DiarySidebar';
 import { PUBLIC_POSITION_FRESH_MS } from '../src/publicVoyageFreshness';
 import type { VoyageLogTelemetry, VoyageLogInstruments } from '../src/voyageLogApi';
 
@@ -39,6 +40,44 @@ function telemetry(updatedAt = new Date(NOW).toISOString()): VoyageLogTelemetry 
 }
 
 const vessel = { name: 'Calypso', type: 'sail', model: 'Beneteau' };
+
+describe('instrument sharing visibility', () => {
+    const sidebarProps = {
+        entries: [],
+        telemetry: null,
+        instruments: telemetry(),
+        nowMs: NOW,
+        connectionLost: false,
+        lastSuccessfulAt: NOW,
+        selectedEntry: null,
+        onSelectEntry: () => {},
+        onClearSelection: () => {},
+        onPhotoClick: () => {},
+    };
+
+    it('explains withheld sharing without rendering even a retained instrument snapshot', () => {
+        render(<DiarySidebar {...sidebarProps} showTelemetry={false} showSharingNotice />);
+        expect(screen.getByRole('region', { name: 'Instrument sharing status' })).toHaveTextContent(
+            'Instruments aren’t currently being shared.',
+        );
+        expect(screen.getByText(/open the main Thalassa app/)).toBeInTheDocument();
+        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+        expect(screen.queryByText('Live')).not.toBeInTheDocument();
+    });
+
+    it('replaces the explanation with readings only once the parent confirms sharing', () => {
+        const { rerender } = render(<DiarySidebar {...sidebarProps} showTelemetry={false} showSharingNotice />);
+        rerender(<DiarySidebar {...sidebarProps} showTelemetry showSharingNotice={false} />);
+        expect(screen.queryByRole('region', { name: 'Instrument sharing status' })).not.toBeInTheDocument();
+        expect(screen.getByText('1012.0')).toBeInTheDocument();
+    });
+
+    it('keeps historical views free of present-tense sharing notices and readings', () => {
+        render(<DiarySidebar {...sidebarProps} showTelemetry={false} showSharingNotice={false} />);
+        expect(screen.queryByText('Onboard instruments')).not.toBeInTheDocument();
+        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+    });
+});
 
 describe('public voyage status honesty', () => {
     it('ages TopNav out of Live without requiring a new payload', () => {

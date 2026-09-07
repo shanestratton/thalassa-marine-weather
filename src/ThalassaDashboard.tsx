@@ -486,6 +486,7 @@ export default function ThalassaDashboard() {
                                 telemetry={scopedTelemetry}
                                 instruments={state.data.instruments ?? null}
                                 showTelemetry={requestedTrip === 'latest' && state.data.instruments_shared === true}
+                                showSharingNotice={requestedTrip === 'latest' && state.data.instruments_shared !== true}
                                 title={diaryTitle}
                                 context={diaryContext}
                                 emptyMessage={diaryEmptyMessage}

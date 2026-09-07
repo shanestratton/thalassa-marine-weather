@@ -1,6 +1,6 @@
 import React from 'react';
 import { MOOD, type VoyageLogEntry, type VoyageLogTelemetry, type VoyageLogInstruments } from '../voyageLogApi';
-import { TelemetryPanel } from './TelemetryPanel';
+import { InstrumentsNotShared, TelemetryPanel } from './TelemetryPanel';
 
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
@@ -11,6 +11,8 @@ interface DiarySidebarProps {
     lastSuccessfulAt: number | null;
     /** Historical/all-diary views deliberately omit present-tense instruments. */
     showTelemetry?: boolean;
+    /** Latest view only: explain withheld sharing without exposing readings. */
+    showSharingNotice?: boolean;
     /** The selected trip's public-facing name. */
     title?: string;
     /** A short context line below the title. */
@@ -306,6 +308,7 @@ export default function DiarySidebar({
     connectionLost,
     lastSuccessfulAt,
     showTelemetry = false,
+    showSharingNotice = false,
     title,
     context,
     emptyMessage,
@@ -323,14 +326,16 @@ export default function DiarySidebar({
             {/* Current readings require explicit consent in latest mode.
                 They can be live at the berth without an active voyage; a
                 deliberately selected historical trip never receives them. */}
-            {showTelemetry && (
+            {showTelemetry ? (
                 <TelemetryPanel
                     instruments={instruments ?? null}
                     nowMs={nowMs}
                     connectionLost={connectionLost}
                     lastSuccessfulAt={lastSuccessfulAt}
                 />
-            )}
+            ) : showSharingNotice ? (
+                <InstrumentsNotShared />
+            ) : null}
             {selectedEntry ? (
                 <EntryDetail entry={selectedEntry} onBack={onClearSelection} onPhotoClick={onPhotoClick} />
             ) : (
