@@ -164,6 +164,30 @@ describe('public voyage dashboard polling honesty', () => {
         expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
     });
 
+    it('does not revive retained historical traffic while a return-to-latest request is pending', async () => {
+        const history = {
+            ...DATA,
+            trips: [...DATA.trips, { ...DATA.trips[0], id: 'old-trip', active: false }],
+            selected_trip: 'old-trip',
+        };
+        mocks.fetchVoyageLog.mockResolvedValue(history);
+        render(<ThalassaDashboard />);
+        await flushReact();
+        expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
+        await act(async () =>
+            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
+                target: { value: 'old-trip' },
+            }),
+        );
+        mocks.fetchVoyageLog.mockImplementation(() => new Promise(() => {}));
+        await act(async () =>
+            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
+                target: { value: 'latest' },
+            }),
+        );
+        expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
+    });
+
     it.each([NOW - 6 * 3_600_000, NOW + 60_001])('withholds ships around an unsafe boat fix %s', async (at) => {
         mocks.fetchVoyageLog.mockResolvedValue({
             ...DATA,
