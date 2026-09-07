@@ -39,12 +39,14 @@
  * Deploy with JWT verification OFF (public function), same as vessels-nearby.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import tzLookup from 'npm:tz-lookup@6.1.25';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse } from '../_shared/http-security.ts';
 import { decimatePublicTrack } from '../_shared/track-decimation.ts';
 import {
     canPublishInstruments,
     publicInstrumentSnapshot,
+    publicInstrumentTimeZone,
     redactPublicTelemetry,
     redactPublicTrackPoint,
 } from '../_shared/public-instruments.ts';
@@ -1739,13 +1741,22 @@ Deno.serve(async (req: Request) => {
             const { data: cloud, error: instrumentError } = await supabase
                 .from('vessel_telemetry')
                 .select(
-                    'boat_id, reported_at, source, sog_kts, cog_deg, heading_deg, stw_kts, tws_kts, twa_deg, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, voltage_v, rpm, heel_deg, pitch_deg, rudder_deg, extra',
+                    'boat_id, reported_at, source, lat, lon, sog_kts, cog_deg, heading_deg, stw_kts, tws_kts, twa_deg, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, voltage_v, rpm, heel_deg, pitch_deg, rudder_deg, extra',
                 )
                 .eq('owner_id', ownerId)
                 .eq('boat_id', boatId)
                 .maybeSingle();
             if (!instrumentError) {
-                instruments = publicInstrumentSnapshot(cloud as Record<string, unknown> | null, boatId);
+                const snapshotNow = Date.now();
+                instruments = publicInstrumentSnapshot(
+                    cloud as Record<string, unknown> | null,
+                    boatId,
+                    snapshotNow,
+                    // At the berth there may be no public voyage fix. Resolve
+                    // only the timezone from the consented boat's independently
+                    // timestamped position; never publish its private coordinates.
+                    publicInstrumentTimeZone(cloud, boatId, telemetry, tzLookup, snapshotNow),
+                );
             }
         }
 

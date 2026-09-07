@@ -87,17 +87,16 @@ test('does not overwrite Signal K attitude or GPS timestamp/position when supple
         {
             barometer: empty,
             wind: { connected: true, generated_at_ms: now, sensor_at_ms: { heel: now }, heel: 5 },
-            shipTimeZone: 'Australia/Brisbane',
         },
         now,
     )!;
     assert.equal(merged.heelDeg, 3);
     assert.equal(merged.reportedAt, base.reportedAt);
     assert.equal(merged.lat, -27);
-    assert.equal(merged.extra?.ship_time_zone, 'Australia/Brisbane');
+    assert.equal(merged.extra?.ship_time_zone, undefined);
 });
-test('can report onboard pressure without GPS, but never creates a position or data from just a clock', () => {
-    assert.equal(mergeOnboardSensors(null, { barometer: empty, shipTimeZone: 'Australia/Brisbane' }, now), null);
+test('can report onboard pressure without GPS, but never creates a position or data from nothing', () => {
+    assert.equal(mergeOnboardSensors(null, { barometer: empty }, now), null);
     const merged = mergeOnboardSensors(null, { barometer: { ...empty, available: true, latest: sample(now) } }, now)!;
     assert.equal(merged.lat, null);
     assert.equal(merged.pressureHpa, 1017.9);

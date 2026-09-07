@@ -50,7 +50,7 @@ describe('public instruments consent and provenance', () => {
         expect(snapshot).toMatchObject({
             house_battery_soc: 0,
             pressure_3h: 1017,
-            ship_time_zone: 'Australia/Brisbane',
+            ship_time_zone: null, // A fixed Pi setting cannot override vessel location.
         });
         expect(JSON.stringify(snapshot)).not.toContain('PRIVATE');
         expect(

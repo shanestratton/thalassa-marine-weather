@@ -73,6 +73,30 @@ test('the body is the Edge Function’s snake_case shape, marked as the Pi', () 
     assert.ok('voltage_v' in body && 'depth_m' in body && 'rudder_deg' in body);
 });
 
+test('exports the actual position timestamp, never the independent GPS/report clock', () => {
+    const now = Date.parse('2026-09-07T05:00:00Z');
+    const doc = (timestamp: string | undefined) => ({
+        timestamp: new Date(now).toISOString(),
+        navigation: {
+            timestamp: new Date(now).toISOString(),
+            datetime: { value: new Date(now).toISOString() },
+            position: { value: { latitude: -27.2, longitude: 153.11 }, timestamp },
+        },
+    });
+    const fresh = readTelemetrySnapshot(doc(new Date(now - 1_000).toISOString()), () => now)!;
+    assert.equal((buildTelemetryBody(fresh, 'test').extra as Record<string, unknown>).position_at, now - 1_000);
+    for (const timestamp of [
+        undefined,
+        'bad',
+        new Date(now - 600_000).toISOString(),
+        new Date(now + 5_001).toISOString(),
+    ]) {
+        const stale = readTelemetrySnapshot(doc(timestamp), () => now)!;
+        assert.equal(stale.reportedAt, new Date(now).toISOString());
+        assert.equal(stale.extra?.position_at, undefined);
+    }
+});
+
 function fakeSignalK(selfDoc: unknown) {
     return async (url: string | URL, init?: RequestInit) => {
         const u = String(url);
