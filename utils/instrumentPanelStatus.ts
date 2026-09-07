@@ -67,7 +67,9 @@ export function diagnosePanel(params: {
     // how old. Not 'live' and not 'no gateway': a crew phone on the train has
     // neither a gateway nor a fault.
     if (connectionStatus === 'remote') {
-        const who = remote?.deviceLabel ?? (remote?.source === 'device' ? 'the skipper’s phone' : 'the Pi');
+        // The Pi's hostname (deviceLabel) stays out of the punter's eye —
+        // Shane 2026-09-07: it is the internal Pi name, not the boat's.
+        const who = remote?.source === 'device' ? 'the skipper’s phone' : 'the Pi';
         const age = remote ? Math.max(0, Math.round(remote.ageSeconds)) : null;
         return {
             state: 'remote',

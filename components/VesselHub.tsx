@@ -184,7 +184,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         nmeaLink.status === 'connected'
             ? 'Connected · instruments & AIS'
             : nmeaLink.status === 'remote'
-              ? `Away · reading her via ${nmeaLink.remote?.deviceLabel ?? 'the Pi'}`
+              ? 'Away · reading her via the Pi'
               : 'Instruments & AIS · connect when aboard';
     const gatewayStatusColor =
         nmeaLink.status === 'connected' ? '#6ee7b7' : nmeaLink.status === 'remote' ? '#7dd3fc' : '#94a3b8';
@@ -1347,7 +1347,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     // down and the claim button goes with them until she goes quiet.
     const cloud = useCloudTelemetry();
     const piPrimary = cloud.piPrimary;
-    const piName = cloud.latest?.deviceLabel ?? 'The Pi';
+    // Shane 2026-09-07: "calypso is not the boat name. it is the internal pi
+    // name. so maybe just shorten it to Pi" — the hostname never reaches the
+    // punter's eye; every boat's Pi is "the Pi".
 
     /**
      * Which GPS speaks for the boat.
@@ -1537,9 +1539,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 {piPrimary ? (
                     <p
                         data-testid="skipper-device-pi-primary"
-                        className="flex h-11 w-full items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-[10px] font-black uppercase tracking-[0.06em] text-emerald-300"
+                        className="flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.06em] text-emerald-300"
                     >
-                        {piName} publishes the boat · phones stand down
+                        The Pi publishes the boat · phones stand down
                     </p>
                 ) : (
                     <button

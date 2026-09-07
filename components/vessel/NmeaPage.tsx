@@ -392,7 +392,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             </h3>
                             {readingViaCloud && !isConnected && !isConnecting && (
                                 <span className="ml-auto rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-sky-300">
-                                    Away · via {storeLink.remote?.deviceLabel ?? 'the Pi'}
+                                    Away · via the Pi
                                 </span>
                             )}
                             {/* Show host:port when connected or connecting */}

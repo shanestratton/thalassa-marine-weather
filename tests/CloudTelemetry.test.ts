@@ -113,7 +113,9 @@ describe('the panel says Remote, not Live and not No gateway', () => {
         });
         expect(d.state).toBe('remote');
         expect(d.label).toBe('Remote');
-        expect(d.detail).toContain('calypso reported 7 s ago');
+        // The hostname stays out of the punter's eye (Shane 2026-09-07).
+        expect(d.detail).toContain('the Pi reported 7 s ago');
+        expect(d.detail).not.toContain('calypso');
         expect(d.actionable).toBe(false);
     });
 
@@ -130,10 +132,11 @@ describe('the panel says Remote, not Live and not No gateway', () => {
         expect(service).toContain('CLOUD_TELEMETRY_LIVE_MAX_AGE_MS = 60_000');
     });
 
-    it('the public page prefers the Pi’s snapshot when it is fresher than the phone’s last point', () => {
+    it('the public page publishes an opted-in snapshot separately from the map position', () => {
         const fn = read('supabase/functions/voyage-log/index.ts');
         expect(fn).toContain(".from('vessel_telemetry')");
-        expect(fn).toContain('const cloudFresh = Number.isFinite(cloudAt) && Date.now() - cloudAt < 10 * 60_000;');
-        expect(fn).toContain('telemetry: liveTelemetry,');
+        expect(fn).toContain('if (instrumentsAllowed && boatId)');
+        expect(fn).toContain('instruments = publicInstrumentSnapshot');
+        expect(fn).toContain('telemetry: instrumentsEnabled ? telemetry : redactPublicTelemetry(telemetry)');
     });
 });
