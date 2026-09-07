@@ -6,6 +6,7 @@
  * Also includes the Chart Locker for uploading/downloading charts.
  */
 import React, { useState, useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
+import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import { AvNavService, type AvNavConnectionStatus } from '../../services/AvNavService';
 import { BoatNetworkService, useBoatNetwork } from '../../services/BoatNetworkService';
 import { PiProvisionService, DEFAULT_USERNAME, type ProvisionProgress } from '../../services/PiProvisionService';
@@ -260,9 +261,10 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
         // 3. Start NMEA listener if signalk-nmea found
         if (hasNmea || hasSignalK) {
             const nmeaPort = network.services.find((s) => s.name === 'signalk-nmea')?.port || 10110;
-            NmeaListenerService.configure(piHost, nmeaPort);
-            NmeaStore.start();
-            NmeaListenerService.start();
+            // With a Pi paired the LAN lane is the feed; the policy opens no
+            // socket (Shane 2026-09-08). Without one, this is the Pi's own
+            // NMEA-over-TCP service, configured and started as before.
+            InstrumentSourcePolicy.ensureFeed({ host: piHost, port: nmeaPort });
         }
 
         // 4. Configure Pi Cache if found

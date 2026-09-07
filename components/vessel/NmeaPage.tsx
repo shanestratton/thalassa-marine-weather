@@ -231,6 +231,19 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // saying so). Keep them apart: a failure has to look like a failure.
     const isConnecting = connStatus === 'connecting';
     const hasFailed = connStatus === 'error';
+    const [showDirect, setShowDirect] = useState(false);
+    // With a Pi paired and no socket of the skipper's own, the card is about
+    // the Pi: the direct-connection controls roll up behind one link and no
+    // failure is shown — nothing is trying to connect (Shane 2026-09-08: "if
+    // we have a pi at the vessel, then nothing should try to connect").
+    const piMode = piPaired && !isConnected && !isConnecting;
+    const rolledUp = piMode && !showDirect;
+    const piHeadline =
+        storeLink.status === 'remote'
+            ? storeLink.remote?.via === 'lan'
+                ? 'Aboard · via the Pi'
+                : 'Away · via the Pi'
+            : 'Via the Pi · waiting for her';
 
     // ── Position source ────────────────────────────────────────────────
     // Shane, 2026-08-02, with a Bad Elf GPS Pro+ paired: "there is no mention
@@ -377,7 +390,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     {/* ═══ CONNECTION CARD ═══ */}
                     <div
                         className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
-                            isConnected ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/3 border-white/6'
+                            isConnected
+                                ? 'bg-emerald-500/10 border-emerald-500/20'
+                                : piMode && storeLink.status === 'remote'
+                                  ? 'bg-sky-500/10 border-sky-500/20'
+                                  : 'bg-white/3 border-white/6'
                         }`}
                     >
                         <div className="flex items-center gap-3 mb-3">
@@ -387,7 +404,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                         ? 'bg-emerald-400'
                                         : isConnecting
                                           ? 'bg-amber-400 animate-pulse'
-                                          : 'bg-gray-500'
+                                          : piMode
+                                            ? storeLink.status === 'remote'
+                                                ? storeLink.remote?.via === 'lan'
+                                                    ? 'bg-emerald-400'
+                                                    : 'bg-sky-400'
+                                                : 'bg-sky-400/50'
+                                            : 'bg-gray-500'
                                 }`}
                             />
                             <h3 className="text-sm font-black text-white">
@@ -395,17 +418,19 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     ? 'Connected'
                                     : isConnecting
                                       ? 'Connecting…'
-                                      : hasFailed
-                                        ? 'Connection failed'
-                                        : 'Disconnected'}
+                                      : piMode
+                                        ? piHeadline
+                                        : hasFailed
+                                          ? 'Connection failed'
+                                          : 'Disconnected'}
                             </h3>
-                            {readingViaCloud && !isConnected && !isConnecting && (
+                            {readingViaCloud && !isConnected && !isConnecting && !piMode && (
                                 <span className="ml-auto rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-sky-300">
                                     {storeLink.remote?.via === 'lan' ? 'Aboard · via the Pi' : 'Away · via the Pi'}
                                 </span>
                             )}
                             {/* Show host:port when connected or connecting */}
-                            {(isConnected || isConnecting || hasFailed) && (
+                            {(isConnected || isConnecting || hasFailed) && !rolledUp && (
                                 <span className="text-xs text-white/70 font-mono ml-auto">
                                     {host}:{port}
                                 </span>
@@ -444,13 +469,26 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                          * raises: can this phone reach THIS gateway from where
                          * it is standing right now.
                          */}
-                        <GatewayRouteNote host={host} />
+                        {!rolledUp && <GatewayRouteNote host={host} />}
 
-                        {piPaired && !isConnected && !isConnecting && (
-                            <p className="mb-3 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/15 text-xs leading-snug text-sky-200">
-                                A Pi is paired, so this phone reads her through the Pi and leaves the gateway’s three
-                                TCP slots alone. Connect here only if the Pi is down.
-                            </p>
+                        {piMode && (
+                            <div className="mb-3 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/15 text-xs leading-snug text-sky-200">
+                                <p>
+                                    A Pi is paired, so this phone reads her through the Pi and leaves the gateway’s
+                                    three TCP slots alone. Nothing here connects on its own.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDirect((v) => !v)}
+                                    aria-expanded={showDirect}
+                                    data-testid="nmea-gateway-direct-toggle"
+                                    className="mt-1.5 text-[11px] font-black uppercase tracking-wider text-sky-300 underline-offset-2 hover:underline"
+                                >
+                                    {showDirect
+                                        ? 'Hide the gateway settings'
+                                        : 'Gateway settings — only if the Pi is down'}
+                                </button>
+                            </div>
                         )}
 
                         {/* Why it failed — shown on the FIRST failure, not
@@ -461,7 +499,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             only informative token, the final digit, lives.
                             Also survives the 5-minute park now, so the reason
                             is still on screen when it is finally read. */}
-                        {(lastError || reconnectAttempts > 0) && !isConnected && (
+                        {(lastError || reconnectAttempts > 0) && !isConnected && !rolledUp && (
                             <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/15">
                                 {reconnectAttempts > 0 && (
                                     <p className="text-xs text-amber-300 font-medium">
@@ -476,7 +514,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             </div>
                         )}
 
-                        {!isConnected && !isConnecting && (
+                        {!isConnected && !isConnecting && !rolledUp && (
                             <div className="space-y-3 mb-3">
                                 {/* Device preset selector */}
                                 <div>
@@ -531,7 +569,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         )}
 
                         <div className="flex gap-2">
-                            {!isConnected && !isConnecting && (
+                            {!isConnected && !isConnecting && !rolledUp && (
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Connect NMEA"

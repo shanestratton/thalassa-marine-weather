@@ -2065,8 +2065,15 @@ export function groupTracesByTrip(traces: readonly SavedTrace[]): TripGroup[] {
     }
     return order.map((key) => {
         const legs = sortTripLegs(groups.get(key)!);
-        const base = stripLegBadge(legs[0].name);
-        return { key, legs, label: legs.length > 1 ? `${base} … (${legs.length} legs)` : base };
+        const first = legs[0];
+        if (legs.length === 1) return { key, legs, label: stripLegBadge(first.name) };
+        // A trip reads first origin – FINAL destination, the same rule as the
+        // passage rollup. Leg 1's name is only the first hop (Shane 2026-09-08:
+        // a Newport → Whitsundays passage was headed "Newport - Mackay").
+        const last = legs[legs.length - 1];
+        const origin = originNameFromRouteName(first.name) ?? stripLegBadge(first.name);
+        const dest = last.destName ?? destNameFromRouteName(last.name) ?? stripLegBadge(last.name);
+        return { key, legs, label: `${origin} - ${dest} (${legs.length} legs)` };
     });
 }
 
