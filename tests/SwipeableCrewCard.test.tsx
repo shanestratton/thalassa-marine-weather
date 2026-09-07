@@ -28,6 +28,7 @@ function makeMember(overrides: Partial<CrewMember> = {}): CrewMember {
         owner_email: 'captain@example.com',
         shared_registers: ['stores', 'galley'],
         permissions: {
+            can_view_instruments: false,
             can_view_stores: true,
             can_edit_stores: false,
             can_view_galley: true,

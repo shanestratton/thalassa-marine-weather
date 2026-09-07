@@ -66,8 +66,20 @@ export function diagnosePanel(params: {
         via?: 'lan' | 'cloud';
         ageSeconds: number;
     } | null;
+    /**
+     * Crew only: has the skipper shared the Instrument Panel with this account?
+     * 'none' for a skipper, or anyone who crews on nothing.
+     */
+    crewShare?: 'none' | 'shared' | 'not-shared';
 }): PanelDiagnosis {
-    const { gatewayConfigured, connectionStatus, metrics, secondsSinceConnect = null, remote = null } = params;
+    const {
+        gatewayConfigured,
+        connectionStatus,
+        metrics,
+        secondsSinceConnect = null,
+        remote = null,
+        crewShare = 'none',
+    } = params;
 
     // No socket, but the boat is reporting through the cloud — say so, and say
     // how old. Not 'live' and not 'no gateway': a crew phone on the train has
@@ -96,6 +108,25 @@ export function diagnosePanel(params: {
     }
 
     if (!gatewayConfigured) {
+        // Shane 2026-09-07: the panel is invite-only. A crew phone with no
+        // gateway of its own is the normal case, not a fault — say what is
+        // actually missing: the skipper's share, or the boat reporting.
+        if (crewShare === 'not-shared') {
+            return {
+                state: 'no-gateway',
+                label: 'Not shared',
+                detail: 'The skipper has not shared the Instrument Panel with you yet. Ask them to switch it on for you under Crew.',
+                actionable: false,
+            };
+        }
+        if (crewShare === 'shared') {
+            return {
+                state: 'no-gateway',
+                label: 'Boat quiet',
+                detail: 'The boat is not reporting right now. Her Pi publishes every few seconds while it is on and online.',
+                actionable: false,
+            };
+        }
         return {
             state: 'no-gateway',
             label: 'No gateway',

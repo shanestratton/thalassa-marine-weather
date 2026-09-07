@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const migration = read('supabase/migrations/20260906170000_vessel_telemetry.sql');
+const sharing = read('supabase/migrations/20260907140000_instrument_sharing.sql');
 const fn = read('supabase/functions/telemetry-relay/index.ts');
 const auth = read('supabase/functions/_shared/pi-relay-auth.ts');
 
@@ -22,12 +23,29 @@ describe('vessel_telemetry', () => {
         expect(migration).not.toMatch(/GRANT (INSERT|UPDATE|ALL)/);
     });
 
-    it('the skipper reads their own row; boat members and accepted vessel crew read the boat’s', () => {
+    it('2026-09-06: the skipper read their own row; boat members and all accepted crew read the boat’s (superseded below)', () => {
         expect(migration).toContain('USING (owner_id = auth.uid());');
         expect(migration).toContain('FROM public.boat_members AS member');
         expect(migration).toContain('member.boat_id = vessel_telemetry.boat_id');
         expect(migration).toContain('FROM public.vessel_crew AS membership');
         expect(migration).toContain("membership.status = 'accepted'");
+    });
+
+    it('2026-09-07: the panel is invite-only — crew read only with the skipper’s share, and boat_members no longer grants it', () => {
+        expect(sharing).toContain('DROP POLICY IF EXISTS vessel_telemetry_crew_reads ON public.vessel_telemetry;');
+        const policy = sharing.slice(sharing.indexOf('CREATE POLICY vessel_telemetry_crew_reads'));
+        expect(policy).toContain("membership.status = 'accepted'");
+        expect(policy).toContain("COALESCE((membership.permissions ->> 'can_view_instruments')::boolean, false)");
+        expect(policy).not.toContain('boat_members');
+        // The switch exists on every row, false unless ticked.
+        expect(sharing).toContain('"can_view_instruments": false');
+        expect(sharing).toContain(`SET permissions = permissions || '{"can_view_instruments": false}'::jsonb`);
+        // The owner's own read is left where it was.
+        expect(sharing).not.toMatch(/(DROP|CREATE) POLICY[^;]*vessel_telemetry_owner_reads/);
+        // The app derives the same flag from the 'instruments' register.
+        const crew = read('services/CrewService.ts');
+        expect(crew).toContain("can_view_instruments: registers.includes('instruments')");
+        expect(crew).toContain("instruments: 'Instrument Panel'");
     });
 
     it('the relay function is the only writer, and it writes as the Pi’s paired skipper', () => {

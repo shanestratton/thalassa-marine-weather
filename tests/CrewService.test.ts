@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     ALL_REGISTERS,
+    INVITE_REGISTERS,
     REGISTER_LABELS,
     REGISTER_ICONS,
     DEFAULT_PERMISSIONS,
@@ -27,6 +28,7 @@ describe('CrewService constants', () => {
             'maintenance',
             'documents',
             'galley',
+            'instruments',
             'passage_meals',
             'passage_chat',
             'passage_route',
@@ -63,6 +65,31 @@ describe('DEFAULT_PERMISSIONS', () => {
         expect(keys).toContain('can_view_nav');
         expect(keys).toContain('can_view_weather');
         expect(keys).toContain('can_edit_log');
+        expect(keys).toContain('can_view_instruments');
+    });
+});
+
+describe('the Instrument Panel is invite-only (Shane 2026-09-07)', () => {
+    it('is a register on the invite, first in the list, and the share derives from it', () => {
+        expect(INVITE_REGISTERS[0]).toBe('instruments');
+        expect(REGISTER_LABELS.instruments).toBe('Instrument Panel');
+        expect(syncPassagePermissions(['instruments']).can_view_instruments).toBe(true);
+        expect(syncPassagePermissions(['stores']).can_view_instruments).toBe(false);
+        // Re-saving without the register withdraws the share; other flags survive.
+        const kept = syncPassagePermissions(['stores'], {
+            ...DEFAULT_PERMISSIONS,
+            can_view_nav: true,
+            can_view_instruments: true,
+        });
+        expect(kept.can_view_instruments).toBe(false);
+        expect(kept.can_view_nav).toBe(true);
+    });
+
+    it('only a co-skipper preset carries the instruments; everyone else is an explicit tick', () => {
+        expect(ROLE_DEFAULT_PERMISSIONS['co-skipper'].can_view_instruments).toBe(true);
+        expect(ROLE_DEFAULT_PERMISSIONS.navigator.can_view_instruments).toBe(false);
+        expect(ROLE_DEFAULT_PERMISSIONS.deckhand.can_view_instruments).toBe(false);
+        expect(ROLE_DEFAULT_PERMISSIONS.punter.can_view_instruments).toBe(false);
     });
 });
 

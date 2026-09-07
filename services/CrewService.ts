@@ -53,13 +53,22 @@ export type SharedRegister =
     | 'maintenance'
     | 'documents'
     | 'galley'
+    /** The live Instrument Panel off the Pi — invite-only (Shane 2026-09-07). */
+    | 'instruments'
     | 'passage_meals'
     | 'passage_chat'
     | 'passage_route'
     | 'passage_checklist';
 
 /** Vessel-level registers (Ship's Office) */
-export const VESSEL_REGISTERS: SharedRegister[] = ['stores', 'equipment', 'maintenance', 'documents', 'galley'];
+export const VESSEL_REGISTERS: SharedRegister[] = [
+    'stores',
+    'equipment',
+    'maintenance',
+    'documents',
+    'galley',
+    'instruments',
+];
 
 /** Passage Planning child card registers */
 export const PASSAGE_REGISTERS: SharedRegister[] = [
@@ -70,14 +79,19 @@ export const PASSAGE_REGISTERS: SharedRegister[] = [
 ];
 
 /**
- * Registers offered in the "+ Invite Crew" modal — five shareable
- * access levels surfaced at invite time. Galley deliberately omitted:
+ * Registers offered in the "+ Invite Crew" modal — six shareable
+ * access levels surfaced at invite time. Instruments first: Shane
+ * 2026-09-07, "when we invite a crew member, we need a toggle that says
+ * share instrument panel" — the live panel is invite-only, off unless
+ * this is ticked, and the vessel_telemetry read policy checks it.
+ * Galley deliberately omitted:
  * meal-planning crew assignment happens per-passage via the Voyage
  * Provisioning card in the Departure Brief group, not as a blanket
  * vessel-wide grant. Checklist added so crew can be granted access to
  * the passage readiness checks at invite time.
  */
 export const INVITE_REGISTERS: SharedRegister[] = [
+    'instruments',
     'stores',
     'equipment',
     'maintenance',
@@ -94,6 +108,7 @@ export const REGISTER_LABELS: Record<SharedRegister, string> = {
     maintenance: 'R&M',
     documents: 'Documents',
     galley: 'Galley & Meals',
+    instruments: 'Instrument Panel',
     passage_meals: 'Meal Planner',
     passage_chat: 'Group Chat',
     passage_route: 'Passage Route',
@@ -106,6 +121,7 @@ export const REGISTER_ICONS: Record<SharedRegister, string> = {
     maintenance: '🔧',
     documents: '📄',
     galley: '🍳',
+    instruments: '🧭',
     passage_meals: '🍽️',
     passage_chat: '💬',
     passage_route: '🗺️',
@@ -120,6 +136,8 @@ export interface CrewPermissions {
     can_view_nav: boolean;
     can_view_weather: boolean;
     can_edit_log: boolean;
+    /** The live Instrument Panel (vessel_telemetry) — the skipper's explicit share. */
+    can_view_instruments: boolean;
     // Passage Planning child card permissions
     can_view_passage: boolean;
     can_view_passage_meals: boolean;
@@ -135,6 +153,7 @@ export const DEFAULT_PERMISSIONS: CrewPermissions = {
     can_view_nav: false,
     can_view_weather: false,
     can_edit_log: false,
+    can_view_instruments: false,
     can_view_passage: false,
     can_view_passage_meals: false,
     can_view_passage_chat: false,
@@ -145,7 +164,8 @@ export const DEFAULT_PERMISSIONS: CrewPermissions = {
 /**
  * Keep the legacy/shared-register selector and the canonical JSONB passage
  * flags in sync. Existing vessel-level permission flags are preserved; only
- * the four one-to-one passage flags and their parent gate are derived here.
+ * the four one-to-one passage flags, their parent gate, and the Instrument
+ * Panel share are derived here.
  */
 export function syncPassagePermissions(
     registers: SharedRegister[],
@@ -160,6 +180,7 @@ export function syncPassagePermissions(
         ...DEFAULT_PERMISSIONS,
         ...current,
         can_view_passage: canViewMeals || canViewChat || canViewRoute || canViewChecklist,
+        can_view_instruments: registers.includes('instruments'),
         can_view_passage_meals: canViewMeals,
         can_view_passage_chat: canViewChat,
         can_view_passage_route: canViewRoute,
@@ -177,6 +198,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: true,
         can_view_weather: true,
         can_edit_log: true,
+        can_view_instruments: true,
         can_view_passage: true,
         can_view_passage_meals: true,
         can_view_passage_chat: true,
@@ -190,6 +212,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: true,
         can_view_weather: true,
         can_edit_log: true,
+        can_view_instruments: false,
         can_view_passage: true,
         can_view_passage_meals: false,
         can_view_passage_chat: true,
@@ -203,6 +226,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: false,
         can_view_weather: false,
         can_edit_log: false,
+        can_view_instruments: false,
         can_view_passage: true,
         can_view_passage_meals: true,
         can_view_passage_chat: true,
@@ -216,6 +240,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: false,
         can_view_weather: false,
         can_edit_log: false,
+        can_view_instruments: false,
         can_view_passage: false,
         can_view_passage_meals: false,
         can_view_passage_chat: false,

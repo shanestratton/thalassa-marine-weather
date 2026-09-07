@@ -379,6 +379,7 @@ const membership = (ownerId: string, voyageId: string | null): CrewMember => ({
     owner_email: `${ownerId}@example.com`,
     shared_registers: ['passage_checklist'],
     permissions: {
+        can_view_instruments: false,
         can_view_stores: false,
         can_edit_stores: false,
         can_view_galley: false,
