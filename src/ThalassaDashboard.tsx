@@ -2,7 +2,7 @@ import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react
 
 import TopNav from './components/TopNav';
 import MapContainer from './components/MapContainer';
-import DiarySidebar from './components/DiarySidebar';
+import DiarySidebar, { type PublicVoyagePanel } from './components/DiarySidebar';
 import type { PhotoLightboxMetadata } from './components/PhotoLightbox';
 import { VoyageProgressBar } from './components/VoyageProgressBar';
 import {
@@ -94,6 +94,9 @@ export default function ThalassaDashboard() {
     // and the map window grows. Survives the 2-min background refresh
     // because that setState never remounts this component.
     const [diaryHidden, setDiaryHidden] = useState(false);
+    // Keep the viewer's choice across polling and folding the panel. Historic
+    // trips always show their diary, never today's live instrument feed.
+    const [panelView, setPanelView] = useState<PublicVoyagePanel | null>(null);
 
     const load = useCallback(async (showSpinner: boolean, trip: string) => {
         // Polls and picker changes can overlap on a slow satellite link. Only
@@ -191,6 +194,8 @@ export default function ThalassaDashboard() {
 
     // Selecting an entry flies the map there and opens its detail in the box.
     const handleSelect = useCallback((entry: VoyageLogEntry) => {
+        setPanelView('diary');
+        setDiaryHidden(false);
         setSelectedEntry(entry);
     }, []);
 
@@ -203,6 +208,8 @@ export default function ThalassaDashboard() {
 
     // A photo tap: focus the entry (so the box shows its story) + open fullscreen.
     const handlePhoto = useCallback((entry: VoyageLogEntry, index: number) => {
+        setPanelView('diary');
+        setDiaryHidden(false);
         setSelectedEntry(entry);
         setLightbox(entryLightbox(entry, index));
     }, []);
@@ -304,6 +311,13 @@ export default function ThalassaDashboard() {
     // refresh never wrests the camera away from a viewer who is panning.
     const mapFocusKey = selectedTripId ?? requestedTrip;
     const latestOptionLabel = latestTrip ? `Latest trip · ${latestTrip.label}` : 'Latest trip · No trip started yet';
+    // With no started trip, the server can resolve "latest" to all-diary;
+    // shared instruments must still work for a boat sitting at her berth.
+    const canViewInstruments = requestedTrip === 'latest';
+    const visiblePanel = canViewInstruments
+        ? (panelView ?? (state.data.instruments_shared === true ? 'instruments' : 'diary'))
+        : 'diary';
+    const panelLabel = visiblePanel === 'instruments' ? 'instruments' : 'log entries';
 
     return (
         // Desktop (md+): locked app-shell — full-height map + internally-
@@ -440,7 +454,7 @@ export default function ThalassaDashboard() {
                         waypoints={waypoints ?? EMPTY_WAYPOINTS}
                         nearbyVessels={showNearbyVessels ? (nearbyVessels ?? NO_VESSELS) : NO_VESSELS}
                         onEntryClick={handleSelect}
-                        selectedEntryId={selectedEntry?.id}
+                        selectedEntryId={visiblePanel === 'diary' ? selectedEntry?.id : undefined}
                         focusKey={mapFocusKey}
                         // Fold/unfold changes the map's box — kick an
                         // explicit canvas resize so it fills the void.
@@ -449,7 +463,7 @@ export default function ThalassaDashboard() {
                     />
                 </main>
 
-                {/* Diary column: [toggle strip][diary]. The strip is a
+                {/* Side column: [fold strip][view switch][instruments OR diary]. The strip is a
                     horizontal bar on mobile (sits between map and diary)
                     and a slim full-height rail on desktop (sits on the
                     sidebar's map-side edge). Collapsing unmounts the diary
@@ -460,8 +474,9 @@ export default function ThalassaDashboard() {
                         type="button"
                         onClick={() => setDiaryHidden((v) => !v)}
                         aria-expanded={!diaryHidden}
-                        aria-label={diaryHidden ? 'Show log entries' : 'Hide log entries'}
-                        title={diaryHidden ? 'Show log entries' : 'Hide log entries'}
+                        aria-label={`${diaryHidden ? 'Show' : 'Hide'} ${panelLabel}`}
+                        title={`${diaryHidden ? 'Show' : 'Hide'} ${panelLabel}`}
+                        aria-controls="voyage-side-panel"
                         className="shrink-0 flex items-center justify-center gap-2 w-full h-10 md:w-7 md:h-auto bg-slate-800 hover:bg-slate-700/70 active:bg-slate-700 md:border-r border-slate-700 text-slate-400 hover:text-sky-300 transition-colors"
                     >
                         <svg
@@ -476,17 +491,51 @@ export default function ThalassaDashboard() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                         </svg>
                         <span className="text-[10px] font-bold uppercase tracking-widest md:hidden">
-                            {diaryHidden ? `Show log entries (${entries.length})` : 'Hide log entries'}
+                            {diaryHidden ? `Show ${panelLabel}` : `Hide ${panelLabel}`}
                         </span>
                     </button>
                     {!diaryHidden && (
-                        <div className="w-full md:w-96 lg:w-[420px] flex flex-col min-h-0 md:h-full">
+                        <div
+                            id="voyage-side-panel"
+                            className="w-full md:w-96 lg:w-[420px] flex flex-col min-h-0 md:h-full"
+                        >
+                            <div className="shrink-0 border-b border-slate-700 bg-slate-900 p-3">
+                                <div
+                                    role="group"
+                                    aria-label="Side panel view"
+                                    className="flex rounded-xl border border-slate-600/60 bg-slate-950 p-1"
+                                >
+                                    {(['instruments', 'diary'] as const).map((view) => (
+                                        <button
+                                            key={view}
+                                            type="button"
+                                            aria-pressed={visiblePanel === view}
+                                            aria-controls="voyage-panel-content"
+                                            disabled={view === 'instruments' && !canViewInstruments}
+                                            title={
+                                                view === 'instruments' && !canViewInstruments
+                                                    ? 'Choose Latest trip to see current instruments'
+                                                    : undefined
+                                            }
+                                            onClick={() => setPanelView(view)}
+                                            className={`min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-40 ${
+                                                visiblePanel === view
+                                                    ? 'bg-teal-300 text-slate-950 shadow-sm'
+                                                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                                            }`}
+                                        >
+                                            {view === 'instruments' ? 'Instruments' : 'Diary'}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <DiarySidebar
                                 entries={entries}
                                 telemetry={scopedTelemetry}
                                 instruments={state.data.instruments ?? null}
-                                showTelemetry={requestedTrip === 'latest' && state.data.instruments_shared === true}
-                                showSharingNotice={requestedTrip === 'latest' && state.data.instruments_shared !== true}
+                                view={visiblePanel}
+                                showTelemetry={canViewInstruments && state.data.instruments_shared === true}
+                                showSharingNotice={canViewInstruments && state.data.instruments_shared !== true}
                                 title={diaryTitle}
                                 context={diaryContext}
                                 emptyMessage={diaryEmptyMessage}

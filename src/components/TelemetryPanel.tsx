@@ -56,7 +56,9 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
     connectionLost,
     lastSuccessfulAt,
 }) => {
-    const [sensorClock, setSensorClock] = useState(nowMs);
+    // Reopening this panel must not rewind freshness to the parent's slower
+    // clock tick and briefly revive an expired sensor reading.
+    const [sensorClock, setSensorClock] = useState(() => Math.max(nowMs, Date.now()));
     useEffect(() => {
         const timer = setInterval(() => setSensorClock(Date.now()), 5_000);
         return () => clearInterval(timer);
