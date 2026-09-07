@@ -40,6 +40,7 @@ import { fetchTidesForPosition } from '../services/weather/api/tides';
 import {
     resolveWeatherPosition,
     setHeldChoice,
+    setWeatherFollowTarget,
     type HeldChoice,
     type WeatherFix,
     type WeatherFixKind,
@@ -1014,11 +1015,10 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (!displayed || !weatherPoint) return;
             const generation = ++tickGeneration;
 
-            // The boat first (the bus, then the Pi), her held last fix when
-            // she is quiet, and the phone only as the last resort — see
-            // services/weatherPosition. The phone read stays the passive,
-            // already-granted one. (Shane 2026-09-06: the forecast drove to
-            // his daughter's with him; the boat had not moved.)
+            // The phone by default; the boat (the bus, then the Pi, then her
+            // cloud row, then her held last fix) when the skipper picked her
+            // row in the ★ menu — see services/weatherPosition (2026-09-08).
+            // The phone read stays the passive, already-granted one.
             resolveWeatherPosition(() =>
                 GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then((p) =>
                     p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
@@ -1200,6 +1200,9 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             setPositionPrompt(null);
             if (!held) return;
             setHeldChoice(held, choice);
+            // The same switch the saved-locations menu throws (2026-09-08): the
+            // dialog is just the ℹ panel's door to it while a held fix shows.
+            setWeatherFollowTarget(choice);
             log.info(`Boat quiet — the weather follows ${choice === 'boat' ? 'her last fix' : 'the phone'}`);
             followTickRef.current?.();
         },

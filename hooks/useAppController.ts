@@ -396,9 +396,9 @@ export const useAppController = () => {
                 // This already-granted-only path uses the foreground provider
                 // and fails closed before any prompt. It never initializes the
                 // Transistorsoft background or motion engine.
-                // The boat first, her held fix when she is quiet, the phone
-                // last (services/weatherPosition) — the phone read stays the
-                // passive, already-granted one.
+                // The punter's phone by default, or the boat when her row in
+                // the ★ menu is picked (services/weatherPosition, 2026-09-08)
+                // — the phone read stays the passive, already-granted one.
                 const resolved = await resolveWeatherPosition(
                     () =>
                         GpsService.getCurrentPositionIfGranted({
