@@ -12,7 +12,7 @@ import { classifyCompletedVoyage } from '../../utils/passageClass';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { useEndpointNames } from './useEndpointNames';
 import { useToast } from '../../components/Toast';
-import { publishFollowedRoute } from '../../services/shiplog/publishFollowedRoute';
+import { publishFollowedRouteDetailed } from '../../services/shiplog/publishFollowedRoute';
 import { VoyageLogService } from '../../services/VoyageLogService';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
@@ -257,11 +257,19 @@ const FollowRouteButton: React.FC<{
             // voyage re-links, so the public page swaps to it; following
             // while not tracking just draws the chart line with a hint.
             try {
-                const result = await publishFollowedRoute(voyageId);
+                const { result, hold } = await publishFollowedRouteDetailed(voyageId);
                 if (result === 'linked') toast.success('Your public page now follows this route');
                 else if (result === 'not-tracking')
                     toast.info('Following on your chart — Slide to Start Tracking to show it on your public page');
-                else toast.error(VoyageLogService.lastError ?? 'Following locally — couldn’t update your public page');
+                else if (result === 'held-elsewhere' && hold) {
+                    // Another device's route stands. The page owns the
+                    // centred confirm that names it (authorship 2026-09-08)
+                    // — never a toast for a two-line decision.
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:follow-held-elsewhere', { detail: { planVoyageId: voyageId, hold } }),
+                    );
+                } else
+                    toast.error(VoyageLogService.lastError ?? 'Following locally — couldn’t update your public page');
             } catch (error) {
                 log.warn('Followed locally but could not publish route:', error);
                 toast.error('Following locally — couldn’t update your public page');

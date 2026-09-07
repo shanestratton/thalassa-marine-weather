@@ -15,8 +15,11 @@ import {
     VoyageLogService,
     voyageLogApiUrl,
     voyageLogPublicUrl,
+    type PlanLinkRow,
     type VoyageLogConfig,
 } from '../../services/VoyageLogService';
+import { getDeviceId } from '../../services/skipperDevice';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { supabase } from '../../services/supabase';
 import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
@@ -76,7 +79,15 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     const [trackBusyId, setTrackBusyId] = useState<string | null>(null);
     // Voyage ↔ passage-plan links (drives the page's dynamic destination).
     const [planRoutes, setPlanRoutes] = useState<RouteOrTrack[]>([]);
-    const [planLinks, setPlanLinks] = useState<Map<string, string>>(new Map());
+    // voyage_id → link row, WITH its author stamp (2026-09-08): the picker
+    // says who set a link and asks before replacing another device's.
+    const [planLinks, setPlanLinks] = useState<Map<string, PlanLinkRow>>(new Map());
+    const [pendingLinkChange, setPendingLinkChange] = useState<{
+        voyageId: string;
+        planId: string | null;
+        holder: string;
+        holderPlanLabel: string | null;
+    } | null>(null);
     const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null);
 
     // Ref for the hero URL element — used by the auto-fit effect below
@@ -233,7 +244,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         void Promise.all([
             ShipLogService.getVoyageSummaries(),
             VoyageLogService.getHiddenVoyageIds(),
-            VoyageLogService.getPlanLinks(),
+            VoyageLogService.getPlanLinkRows(),
             fetchRoutesAndTracks(true).catch(() => ({
                 routes: [] as RouteOrTrack[],
                 tracks: [] as RouteOrTrack[],
@@ -300,7 +311,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         [identityScope, operationIsCurrent],
     );
 
-    const handlePlanLink = useCallback(
+    const commitPlanLink = useCallback(
         async (voyageId: string, planId: string | null) => {
             const scope = identityScope;
             const epoch = operationEpochRef.current;
@@ -312,8 +323,15 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
             triggerHaptic('light');
             setPlanLinks((current) => {
                 const next = new Map(current);
-                if (immutablePlanId) next.set(immutableVoyageId, immutablePlanId);
-                else next.delete(immutableVoyageId);
+                if (immutablePlanId) {
+                    next.set(immutableVoyageId, {
+                        voyageId: immutableVoyageId,
+                        planVoyageId: immutablePlanId,
+                        deviceId: getDeviceId(),
+                        deviceName: null,
+                        updatedAt: null,
+                    });
+                } else next.delete(immutableVoyageId);
                 return next;
             });
             // Through the durable intent ledger, not a bare write (audit
@@ -342,6 +360,26 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
             }
         },
         [identityScope, operationIsCurrent],
+    );
+
+    /** Another device set the standing link → confirm, naming it; else commit. */
+    const handlePlanLink = useCallback(
+        (voyageId: string, planId: string | null) => {
+            const existing = planLinks.get(voyageId);
+            const foreign = !!existing?.deviceId && existing.deviceId !== getDeviceId();
+            if (existing && foreign && existing.planVoyageId !== planId) {
+                setLinkPickerFor(null);
+                setPendingLinkChange({
+                    voyageId,
+                    planId,
+                    holder: existing.deviceName?.trim() || 'another device',
+                    holderPlanLabel: planRoutes.find((r) => r.id === existing.planVoyageId)?.label ?? null,
+                });
+                return;
+            }
+            void commitPlanLink(voyageId, planId);
+        },
+        [commitPlanLink, planLinks, planRoutes],
     );
 
     // Auto-fit the public URL hero text to its container — start at
@@ -936,8 +974,10 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             year: 'numeric',
                         });
                         const kind = v.isPlannedRoute ? ' · planned route' : v.isImported ? ' · imported' : '';
-                        const linkedPlanId = planLinks.get(v.voyageId) ?? null;
+                        const linkRow = planLinks.get(v.voyageId) ?? null;
+                        const linkedPlanId = linkRow?.planVoyageId ?? null;
                         const linkedPlan = linkedPlanId ? planRoutes.find((r) => r.id === linkedPlanId) : null;
+                        const linkSetElsewhere = !!linkRow?.deviceId && linkRow.deviceId !== getDeviceId();
                         const canLink = !v.isPlannedRoute && !v.isImported && planRoutes.length > 0;
                         return (
                             <React.Fragment key={v.voyageId}>
@@ -959,6 +999,21 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                                 Passage: {linkedPlan?.label ?? (linkedPlanId ? 'linked plan' : 'none')}{' '}
                                                 ▸
                                             </button>
+                                        )}
+                                        {canLink && linkRow && linkSetElsewhere && (
+                                            <div
+                                                className="text-[11px] text-gray-500 mt-0.5"
+                                                data-testid={`plan-link-set-by-${v.voyageId}`}
+                                            >
+                                                Set by {linkRow.deviceName?.trim() || 'another device'}
+                                                {linkRow.updatedAt && Number.isFinite(Date.parse(linkRow.updatedAt))
+                                                    ? ` · ${new Date(linkRow.updatedAt).toLocaleTimeString('en-AU', {
+                                                          hour: '2-digit',
+                                                          minute: '2-digit',
+                                                          hour12: false,
+                                                      })}`
+                                                    : ''}
+                                            </div>
                                         )}
                                     </div>
                                     <Toggle
@@ -1001,6 +1056,28 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     })}
                 </Section>
             )}
+
+            <ConfirmDialog
+                isOpen={!!pendingLinkChange}
+                title={pendingLinkChange?.planId ? 'Replace the published route?' : 'Unlink the published route?'}
+                message={
+                    pendingLinkChange
+                        ? `${pendingLinkChange.holder} set ${pendingLinkChange.holderPlanLabel ?? 'the current route'} on this voyage. ${
+                              pendingLinkChange.planId
+                                  ? 'Your public page will switch to the route you picked.'
+                                  : 'Your public page will show no route.'
+                          }`
+                        : ''
+                }
+                confirmLabel={pendingLinkChange?.planId ? 'Replace' : 'Unlink'}
+                cancelLabel="Keep theirs"
+                onConfirm={() => {
+                    const change = pendingLinkChange;
+                    setPendingLinkChange(null);
+                    if (change) void commitPlanLink(change.voyageId, change.planId);
+                }}
+                onCancel={() => setPendingLinkChange(null)}
+            />
 
             <CloudStorageSection />
 

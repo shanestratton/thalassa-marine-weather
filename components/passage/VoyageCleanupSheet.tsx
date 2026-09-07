@@ -26,6 +26,7 @@ import { deleteVoyageById, getAllVoyagesForUser, type Voyage, type VoyageStatus 
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { getDeviceId } from '../../services/skipperDevice';
 
 interface VoyageCleanupSheetProps {
     isOpen: boolean;
@@ -213,6 +214,17 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                             <p className="text-[10px] text-gray-500 mt-0.5">
                                                 {new Date(v.created_at).toLocaleDateString()} · ID {v.id.slice(0, 8)}…
                                             </p>
+                                            {v.status === 'active' &&
+                                                v.recording_device_id &&
+                                                v.recording_device_id !== getDeviceId() && (
+                                                    <p className="text-[11px] text-sky-200/90 mt-1">
+                                                        Recording on{' '}
+                                                        <span className="font-bold text-white">
+                                                            {v.recording_device_name?.trim() || 'another device'}
+                                                        </span>{' '}
+                                                        — deleting it here stops nothing on that device.
+                                                    </p>
+                                                )}
                                         </div>
                                         <span
                                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border shrink-0 ${STATUS_STYLE[v.status]}`}

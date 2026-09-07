@@ -35,6 +35,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { EmptyState } from '../ui/EmptyState';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { getDeviceId } from '../../services/skipperDevice';
 import { ensureActiveVoyageLogging, stashCastOffHandoff, startHandoffGps } from '../../services/castOffHandoff';
 import { FloatPlanSheet } from './FloatPlanSheet';
 import { composeArrivalMessage } from '../../services/floatPlan';
@@ -880,6 +881,27 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     </p>
                                 </div>
                             )}
+
+                        {/* Recorded on another device (authorship 2026-09-08):
+                            a caution, not a block — Cast Off is advisory.
+                            Ending here archives the passage while that phone
+                            may still be logging, so say whose it is. */}
+                        {activeVoyage?.recording_device_id && activeVoyage.recording_device_id !== getDeviceId() && (
+                            <div
+                                role="status"
+                                data-testid="end-voyage-recorded-elsewhere"
+                                className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-400/25"
+                            >
+                                <p className="text-xs text-sky-100/90">
+                                    This passage is being recorded on{' '}
+                                    <span className="font-bold text-white">
+                                        {activeVoyage.recording_device_name?.trim() || 'another device'}
+                                    </span>
+                                    . End it there if you can — ending here archives the passage while that device may
+                                    still be logging.
+                                </p>
+                            </div>
+                        )}
 
                         {error && (
                             <p role="alert" className="text-sm text-red-400 text-center">

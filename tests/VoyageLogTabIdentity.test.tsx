@@ -44,6 +44,9 @@ vi.mock('../services/VoyageLogService', () => ({
         setPublicInstrumentsEnabled: mocks.setPublicInstrumentsEnabled,
         getHiddenVoyageIds: mocks.getHiddenVoyageIds,
         getPlanLinks: mocks.getPlanLinks,
+        // The tab reads the author-stamped rows (2026-09-08); the same empty
+        // map serves both shapes in these identity tests.
+        getPlanLinkRows: mocks.getPlanLinks,
         setVoyageHidden: mocks.setVoyageHidden,
         setVoyagePlanLink: mocks.setVoyagePlanLink,
         lastError: null,

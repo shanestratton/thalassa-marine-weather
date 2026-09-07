@@ -27,9 +27,37 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('savedRoutePoints');
 
+/** Trip-chain and mirror fields a second device needs to group legs under
+ *  their passage and to publish the right planned mirror (2026-09-08). */
+export interface SavedRouteFetchExtras {
+    tripId?: string;
+    legOrdinal?: number;
+    destName?: string;
+    plannedRouteId?: string;
+    passageVoyageId?: string;
+    updatedAt?: string;
+}
+
 export type SavedRouteFetch =
-    | { ok: true; id: string; name: string; points: TracePoint[] }
+    | ({ ok: true; id: string; name: string; points: TracePoint[] } & SavedRouteFetchExtras)
     | { ok: false; reason: string };
+
+export function savedRouteFetchExtras(row: Record<string, unknown>): SavedRouteFetchExtras {
+    return {
+        ...(typeof row.trip_id === 'string' && row.trip_id ? { tripId: row.trip_id } : {}),
+        ...(typeof row.leg_ordinal === 'number' && Number.isInteger(row.leg_ordinal) && row.leg_ordinal > 0
+            ? { legOrdinal: row.leg_ordinal }
+            : {}),
+        ...(typeof row.dest_name === 'string' && row.dest_name ? { destName: row.dest_name } : {}),
+        ...(typeof row.planned_route_id === 'string' && row.planned_route_id
+            ? { plannedRouteId: row.planned_route_id }
+            : {}),
+        ...(typeof row.passage_voyage_id === 'string' && row.passage_voyage_id
+            ? { passageVoyageId: row.passage_voyage_id }
+            : {}),
+        ...(typeof row.updated_at === 'string' && row.updated_at ? { updatedAt: row.updated_at } : {}),
+    };
+}
 
 /**
  * Decode a `saved_routes.points` value. Rejects the whole route if ANY pair is
@@ -69,7 +97,9 @@ export async function fetchSavedRoutePoints(savedRouteId: string): Promise<Saved
     try {
         const { data, error } = await supabase
             .from('saved_routes')
-            .select('id, name, points, deleted')
+            .select(
+                'id, name, points, deleted, trip_id, leg_ordinal, dest_name, planned_route_id, passage_voyage_id, updated_at',
+            )
             .eq('id', id)
             .maybeSingle();
 
@@ -88,7 +118,13 @@ export async function fetchSavedRoutePoints(savedRouteId: string): Promise<Saved
         if (!points) {
             return { ok: false, reason: 'This route’s waypoints are unreadable. Rebuild it in Route Tracer.' };
         }
-        return { ok: true, id, name: typeof data.name === 'string' ? data.name : 'Saved route', points };
+        return {
+            ok: true,
+            id,
+            name: typeof data.name === 'string' ? data.name : 'Saved route',
+            points,
+            ...savedRouteFetchExtras(data as Record<string, unknown>),
+        };
     } catch (e) {
         log.warn('saved_routes fetch threw:', (e as Error)?.message || e);
         return { ok: false, reason: 'Connect to fetch this route — its waypoints are not on this device.' };

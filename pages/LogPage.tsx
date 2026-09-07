@@ -20,6 +20,7 @@ import { useToast } from '../components/Toast';
 import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
 import {
     clearCastOffHandoff,
+    ensureActiveVoyageLogging,
     peekCastOffHandoff,
     startHandoffGps,
     subscribeCastOffHandoff,
@@ -70,7 +71,17 @@ import { ImportSheet } from './log/ImportSheet';
 import { ShareSheet } from './log/ShareSheet';
 import { ShareFormSheet } from './log/ShareFormSheet';
 import { StatsSheet } from './log/StatsSheet';
-import { publishFollowedRoute, clearFollowedRoute } from '../services/shiplog/publishFollowedRoute';
+import {
+    publishFollowedRoute,
+    publishFollowedRouteDetailed,
+    clearFollowedRoute,
+    type PublishFollowHold,
+} from '../services/shiplog/publishFollowedRoute';
+import { PLAN_LINK_INTENT_DROPPED_EVENT, type PlanLinkIntentDropped } from '../services/shiplog/planLinkIntent';
+import { currentRouteReplaceDecision, ROUTE_AUTHORITY_REFUSAL } from '../services/shiplog/routeAuthority';
+import { useRemotePassage } from '../hooks/useRemotePassage';
+import type { RemotePassage } from '../services/shiplog/remotePassage';
+import { RemotePassageCard } from './log/RemotePassageCard';
 import { isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
@@ -254,6 +265,28 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         emptyPruneNotice,
         clearEmptyPruneNotice,
     } = useLogPageState();
+
+    // ── The passage the ACCOUNT is running on another device (2026-09-08) ──
+    // Server truth: the active voyage (stamped with the device that cast off)
+    // and its followed-route link (stamped with the device that set it). This
+    // device shows it, draws its route, and never overwrites it without a
+    // confirm that names the other device.
+    const { remote: remotePassage, refresh: refreshRemotePassage } = useRemotePassage({
+        enabled: !!identityScope.userId,
+        trackingVoyageId: state.isTracking ? (state.currentVoyageId ?? null) : null,
+    });
+    const remotePassageRef = useRef<RemotePassage | null>(null);
+    remotePassageRef.current = remotePassage;
+    /** The follow sheet is open ON BEHALF of the remote passage (its voyage id). */
+    const remoteSheetVoyageRef = useRef<string | null>(null);
+    const [remoteJoinBusy, setRemoteJoinBusy] = useState(false);
+    /** Another device's route stands on the voyage this pick would publish
+     *  to — the centred confirm that names it, then replaces on yes. */
+    const [replaceRequest, setReplaceRequest] = useState<{
+        planVoyageId: string;
+        forVoyageId?: string;
+        hold: PublishFollowHold;
+    } | null>(null);
 
     // One automatic retry per handed-off voyage: an app death right after
     // Cast Off restores the handoff as 'failed' — start GPS again without
@@ -460,6 +493,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // or clearing the link would kill the choice they explicitly made.
         followSelectionGenerationRef.current += 1;
         const promptVid = followPromptVoyageId;
+        // Opened from the remote-passage card: closing it changes nothing —
+        // the other device's line stays drawn here and published there.
+        if (promptVid !== null && remoteSheetVoyageRef.current === promptVid) {
+            remoteSheetVoyageRef.current = null;
+            setFollowPromptVoyageId(null);
+            return;
+        }
         const confirmed = promptVid !== null && confirmedFollowVoyages.has(promptVid);
         if (promptVid && !confirmed) dismissedFollowVoyages.add(promptVid);
         const follow = useFollowRouteStore.getState();
@@ -623,7 +663,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         setFollowBlockNotice(fetched.reason);
                         return;
                     }
-                    trace = adoptServerRoute(fetched.id, fetched.name, fetched.points) ?? undefined;
+                    trace = adoptServerRoute(fetched.id, fetched.name, fetched.points, undefined, fetched) ?? undefined;
                     if (!trace) {
                         setFollowBlockNotice('Could not store this route on this device.');
                         return;
@@ -767,7 +807,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         setFollowBlockNotice(fetched.reason);
                         return;
                     }
-                    if (!adoptServerRoute(fetched.id, fetched.name, fetched.points)) {
+                    if (!adoptServerRoute(fetched.id, fetched.name, fetched.points, undefined, fetched)) {
                         setFollowBlockNotice('Could not store this route on this device. Free up space and try again.');
                         return;
                     }
@@ -878,6 +918,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     setFollowPromptLoadingId(null);
                     setFollowPromptVoyageId(null);
                 };
+                // Picked on behalf of the passage another device is recording:
+                // publish against THAT voyage, not one this device tracks.
+                const forVoyageId =
+                    promptVid !== null && remoteSheetVoyageRef.current === promptVid ? promptVid : undefined;
+                if (forVoyageId) remoteSheetVoyageRef.current = null;
 
                 const started = await followPlannedRouteLocally(s);
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
@@ -887,12 +932,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     // this point may either the cockpit or public page
                     // advertise the line; racing publication before this gate
                     // let a legacy unverified trace bypass MapHub.
-                    const publishPromise = Promise.resolve(publishFollowedRoute(s.voyageId)).catch((error) => {
+                    const publishPromise = Promise.resolve(
+                        publishFollowedRouteDetailed(s.voyageId, { forVoyageId }),
+                    ).catch((error) => {
                         log.warn('publish followed route failed:', error);
-                        return 'error' as const;
+                        return {
+                            result: 'error',
+                        } as import('../services/shiplog/publishFollowedRoute').PublishFollowOutcome;
                     });
                     answered();
-                    void publishPromise.then((result) => {
+                    void publishPromise.then(({ result, hold }) => {
                         if (!isAuthIdentityScopeCurrent(actionScope)) return;
                         if (result === 'linked') {
                             toast.success('Your public page now follows this route');
@@ -900,6 +949,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             toast.info('Following — your public page will update when signal returns');
                         } else if (result === 'not-tracking') {
                             toast.info('Following locally — start tracking to update your public page');
+                        } else if (result === 'held-elsewhere' && hold) {
+                            // Another device's route stands — ask, naming it
+                            // (authorship 2026-09-08). The chart line is
+                            // already this route; only the public page waits.
+                            requestRouteReplaceRef.current({ planVoyageId: s.voyageId, forVoyageId, hold });
                         } else {
                             toast.error('Following locally — couldn’t update your public page');
                         }
@@ -915,6 +969,141 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         },
         [identityScope, followPlannedRouteLocally, toast],
     );
+
+    // ── Replacing a route ANOTHER device published (authorship 2026-09-08) ──
+    /** Display name for a planned-route voyage id, from the sheet's own rows. */
+    const routeLabelFor = React.useCallback(
+        (planVoyageId: string | null | undefined): string | null => {
+            if (!planVoyageId) return null;
+            const choice = followSheetChoices.find((c) => c.summary.voyageId === planVoyageId);
+            return choice?.legName ?? choice?.tripName ?? null;
+        },
+        [followSheetChoices],
+    );
+    const performRouteReplace = React.useCallback(
+        async (req: { planVoyageId: string; forVoyageId?: string }) => {
+            const actionScope = identityScope;
+            const result = await Promise.resolve(
+                publishFollowedRoute(req.planVoyageId, { replace: true, forVoyageId: req.forVoyageId }),
+            ).catch(() => 'error' as const);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (result === 'linked') toast.success('Your public page now follows this route');
+            else if (result === 'queued') toast.info('Following — your public page will update when signal returns');
+            else toast.error('Following locally — couldn’t update your public page');
+            refreshRemotePassage();
+        },
+        [identityScope, refreshRemotePassage, toast],
+    );
+    const requestRouteReplace = React.useCallback(
+        (req: { planVoyageId: string; forVoyageId?: string; hold: PublishFollowHold }) => {
+            // Dark gate (services/shiplog/routeAuthority.ts): default asks;
+            // 'skipper' lets the claim holder through and tells the rest.
+            const decision = currentRouteReplaceDecision();
+            if (decision === 'refuse') {
+                setFollowBlockNotice(ROUTE_AUTHORITY_REFUSAL);
+                return;
+            }
+            if (decision === 'replace') {
+                void performRouteReplace(req);
+                return;
+            }
+            setReplaceRequest(req);
+        },
+        [performRouteReplace],
+    );
+    const requestRouteReplaceRef = React.useRef(requestRouteReplace);
+    requestRouteReplaceRef.current = requestRouteReplace;
+    const confirmRouteReplace = React.useCallback(() => {
+        const req = replaceRequest;
+        setReplaceRequest(null);
+        if (req) void performRouteReplace(req);
+    }, [performRouteReplace, replaceRequest]);
+    const cancelRouteReplace = React.useCallback(() => {
+        const req = replaceRequest;
+        setReplaceRequest(null);
+        if (req) {
+            setFollowBlockNotice(
+                `Following on your chart only — ${req.hold.deviceName}'s route stays on your public page.`,
+            );
+        }
+    }, [replaceRequest]);
+
+    // Other doors report the same two facts through events: the planned-route
+    // card's Follow button (held elsewhere) and the intent ledger's flush (a
+    // queued link dropped because another device set a different route).
+    React.useEffect(() => {
+        const onHeld = (event: Event) => {
+            const detail = (event as CustomEvent<{ planVoyageId?: string; hold?: PublishFollowHold }>).detail;
+            if (!detail?.planVoyageId || !detail.hold) return;
+            requestRouteReplaceRef.current({ planVoyageId: detail.planVoyageId, hold: detail.hold });
+        };
+        const onDropped = (event: Event) => {
+            const detail = (event as CustomEvent<PlanLinkIntentDropped>).detail;
+            if (!detail?.holderName) return;
+            setFollowBlockNotice(
+                `Route not published — ${detail.holderName} set a different route while you were offline. Your public page shows theirs.`,
+            );
+        };
+        window.addEventListener('thalassa:follow-held-elsewhere', onHeld);
+        window.addEventListener(PLAN_LINK_INTENT_DROPPED_EVENT, onDropped);
+        return () => {
+            window.removeEventListener('thalassa:follow-held-elsewhere', onHeld);
+            window.removeEventListener(PLAN_LINK_INTENT_DROPPED_EVENT, onDropped);
+        };
+    }, []);
+
+    // Draw the route the other device follows, once per (voyage, route). The
+    // planned rows arrive with the summaries sync; until they do, wait.
+    const remoteHydratedRef = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        const link = remotePassage?.link;
+        if (!remotePassage || !link) return;
+        const key = `${remotePassage.voyageId}:${link.planVoyageId}`;
+        if (remoteHydratedRef.current === key) return;
+        const follow = useFollowRouteStore.getState();
+        if (follow.isFollowing && follow.voyageId === link.planVoyageId) {
+            remoteHydratedRef.current = key;
+            return;
+        }
+        const summary = plannedSummaries.find((s) => s.voyageId === link.planVoyageId);
+        if (!summary) return;
+        remoteHydratedRef.current = key;
+        confirmedFollowVoyages.add(remotePassage.voyageId);
+        void followPlannedRouteLocally(summary).catch((error) => {
+            log.warn('Could not draw the route the other device follows:', error);
+        });
+    }, [remotePassage, plannedSummaries, followPlannedRouteLocally]);
+
+    /** "Record here too": join the account's active passage on this device —
+     *  the same door Open Ship's Log uses after Cast Off. */
+    const recordRemoteHere = React.useCallback(async () => {
+        const remote = remotePassageRef.current;
+        if (!remote || remoteJoinBusy) return;
+        const actionScope = identityScope;
+        setRemoteJoinBusy(true);
+        triggerHaptic('medium');
+        try {
+            await ensureActiveVoyageLogging({
+                id: remote.voyageId,
+                voyage_name: remote.voyageName,
+                saved_route_id: remote.savedRouteId,
+            });
+        } finally {
+            if (isAuthIdentityScopeCurrent(actionScope)) {
+                setRemoteJoinBusy(false);
+                refreshRemotePassage();
+            }
+        }
+    }, [identityScope, refreshRemotePassage, remoteJoinBusy]);
+    /** "Change the route": the same sheet, on behalf of the remote voyage. */
+    const changeRemoteRoute = React.useCallback(() => {
+        const remote = remotePassageRef.current;
+        if (!remote) return;
+        setFollowBlockNotice(null);
+        setFollowPromptChoices(followSheetChoices);
+        remoteSheetVoyageRef.current = remote.voyageId;
+        setFollowPromptVoyageId(remote.voyageId);
+    }, [followSheetChoices]);
 
     React.useEffect(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
@@ -1723,6 +1912,26 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         chain published nothing for a whole day, twice. */}
                     <SkipperClaimNotice isTracking={state.isTracking} onOpenVessel={() => _setPage('vessel')} />
 
+                    {/* The account's passage, under way on ANOTHER device
+                        (2026-09-08). Who records, which route is published and
+                        who set it; join here, or change the route through the
+                        confirm that names the other device. */}
+                    {remotePassage && (
+                        <RemotePassageCard
+                            passage={remotePassage}
+                            routeLabel={routeLabelFor(remotePassage.link?.planVoyageId)}
+                            busy={remoteJoinBusy}
+                            onRecordHere={() => void recordRemoteHere()}
+                            onChangeRoute={changeRemoteRoute}
+                        />
+                    )}
+                    {!isTracking && followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
+                        <FollowBlockNoticeCard
+                            followBlockNotice={followBlockNotice}
+                            setFollowBlockNotice={setFollowBlockNotice}
+                        />
+                    )}
+
                     {/* ── Voyage Totals — three hero gauge tiles ──
                         Polished 2026-05-17 — gradient backdrops per
                         accent colour, icon glyph in the upper-right
@@ -2164,6 +2373,32 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 onUndo={handleUndoDeleteVoyage}
                 onDismiss={handleDismissDeleteVoyage}
                 duration={5000}
+            />
+
+            {/* Another device's published route stands — replace it? Centred,
+                names the device and the time, and only after this does
+                anything get written (authorship 2026-09-08). */}
+            <ConfirmDialog
+                isOpen={!!replaceRequest}
+                title="Replace the published route?"
+                message={
+                    replaceRequest
+                        ? `${replaceRequest.hold.deviceName} set ${routeLabelFor(replaceRequest.hold.planVoyageId) ?? 'a different route'}${
+                              replaceRequest.hold.updatedAt &&
+                              Number.isFinite(Date.parse(replaceRequest.hold.updatedAt))
+                                  ? ` at ${new Date(replaceRequest.hold.updatedAt).toLocaleTimeString('en-AU', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: false,
+                                    })}`
+                                  : ''
+                          }. Your public page will switch to ${routeLabelFor(replaceRequest.planVoyageId) ?? 'this route'}.`
+                        : ''
+                }
+                confirmLabel="Replace"
+                cancelLabel="Keep theirs"
+                onConfirm={confirmRouteReplace}
+                onCancel={cancelRouteReplace}
             />
 
             {/* Shared voyage warning confirm dialog */}
