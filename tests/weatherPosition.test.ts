@@ -9,10 +9,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const chain = vi.hoisted(() => ({
     busFix: vi.fn<() => import('../services/boatPositionChain').BoatFix | null>(() => null),
     piFix: vi.fn<() => Promise<import('../services/boatPositionChain').BoatFix | null>>(async () => null),
+    cloudFix: vi.fn<() => Promise<import('../services/boatPositionChain').BoatFix | null>>(async () => null),
 }));
 vi.mock('../services/boatPositionChain', () => ({
     busFix: chain.busFix,
     piFix: chain.piFix,
+    cloudFix: chain.cloudFix,
 }));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
@@ -20,6 +22,7 @@ vi.mock('../utils/createLogger', () => ({
 
 import {
     ASK_DISTANCE_NM,
+    CLOUD_POLL_MS,
     PI_POLL_MS,
     __resetWeatherPositionForTests,
     boatOrHeldFix,
@@ -36,6 +39,7 @@ const SCARBOROUGH = { latitude: -27.2, longitude: 153.11 };
 const DAUGHTERS = { lat: -27.47, lon: 153.02 }; // ~17 NM away
 const bus = (timestamp = T0) => ({ ...SCARBOROUGH, timestamp, rung: 'bus' as const, source: 'nmea-gateway' });
 const pi = (source = 'ydwg-tcp.YD', timestamp = T0) => ({ ...SCARBOROUGH, timestamp, rung: 'pi' as const, source });
+const cloud = (timestamp = T0) => ({ ...SCARBOROUGH, timestamp, rung: 'cloud' as const, source: 'pi-cloud' });
 const phoneAt = (lat: number, lon: number, timestamp = T0) => vi.fn(async () => ({ lat, lon, timestamp }));
 const noPhone = () => vi.fn(async () => null);
 
@@ -45,6 +49,7 @@ describe('where the weather is for', () => {
         vi.clearAllMocks();
         chain.busFix.mockImplementation(() => null);
         chain.piFix.mockImplementation(async () => null);
+        chain.cloudFix.mockImplementation(async () => null);
         __resetWeatherPositionForTests();
     });
 
@@ -72,6 +77,33 @@ describe('where the weather is for', () => {
         const r = await resolveWeatherPosition(noPhone(), { now: T0 });
         expect(r.fix).toMatchObject({ kind: 'pi', source: 'ublox-gps.GP' });
         expect(describeWeatherFix(r.fix, T0)).toBe('USB GPS (Pi) · live');
+    });
+
+    it('then the Pi’s cloud row — the boat from a distance — before her held fix, and before the phone', async () => {
+        // Shane 2026-09-07: the Glass read PHONE at Newport while the Pi was
+        // publishing from the hardstand. The weather is for the boat.
+        chain.cloudFix.mockImplementation(async () => cloud());
+        const phone = phoneAt(DAUGHTERS.lat, DAUGHTERS.lon);
+        const r = await resolveWeatherPosition(phone, { now: T0 });
+        expect(r.fix?.kind).toBe('cloud');
+        expect(r.fix?.lat).toBe(SCARBOROUGH.latitude);
+        expect(r.ask).toBe(false);
+        expect(phone).not.toHaveBeenCalled();
+        // …and she is remembered, so the hold has her when the cloud goes quiet too.
+        expect(heldBoatFix()?.rung).toBe('cloud');
+        expect(describeWeatherFix(r.fix!)).toBe('Boat GPS (via cloud) · live');
+    });
+
+    it('asks the cloud at most once per poll window, and never when the Pi answered direct', async () => {
+        chain.cloudFix.mockImplementation(async () => cloud());
+        await boatOrHeldFix(T0);
+        await boatOrHeldFix(T0 + 1_000);
+        expect(chain.cloudFix).toHaveBeenCalledTimes(1);
+        await boatOrHeldFix(T0 + CLOUD_POLL_MS);
+        expect(chain.cloudFix).toHaveBeenCalledTimes(2);
+        chain.piFix.mockImplementation(async () => pi());
+        await boatOrHeldFix(T0 + CLOUD_POLL_MS * 3);
+        expect(chain.cloudFix).toHaveBeenCalledTimes(2);
     });
 
     it('asks the Pi at most once per poll window, whatever the tick rate', async () => {
