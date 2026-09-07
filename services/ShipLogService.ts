@@ -50,7 +50,7 @@ import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
 import { ShoreZoneResolver } from './shiplog/ShoreZoneResolver';
 import type { WaterCheckResult } from './shiplog/waterDetection';
 import { AdaptiveScheduler } from './shiplog/AdaptiveScheduler';
-import { GpsSubscriptionManager } from './shiplog/GpsSubscriptionManager';
+import { GpsSubscriptionManager, type PhoneHold } from './shiplog/GpsSubscriptionManager';
 import {
     captureImmediate as _captureImmediate,
     captureLog as _captureLog,
@@ -246,6 +246,8 @@ class ShipLogServiceClass {
     // GPS subscriptions, fix-acceptance gate, speed-tier debounce, and
     // heartbeat all live in GpsSubscriptionManager.
     private gpsSubs = new GpsSubscriptionManager();
+    /** Why the phone's fixes are refused for the track right now (the log follows the boat). */
+    private phoneHold: PhoneHold | null = null;
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
     /** Exact auth generation that owns the visible/armed voyage. */
     private trackingOwnerScope: AuthIdentityScope | null = null;
@@ -1544,6 +1546,9 @@ class ShipLogServiceClass {
             // fix-acceptance gate. The timer decides WHEN to log; the
             // subscription manager ensures GPS is ALWAYS fresh.
             this.gpsSubs.start({
+                onPhoneHeld: (hold) => {
+                    this.phoneHold = hold;
+                },
                 isNative: this.isNative,
                 trackBuffer: this.trackBuffer,
                 isActive: () =>
@@ -1709,6 +1714,11 @@ class ShipLogServiceClass {
     // calls getBestPosition() directly; the orchestrator only exposes the
     // two read-only convenience views (status + nav data) since the
     // Dashboard / SystemStatus components want them as instance methods.
+
+    /** Why the phone is refused for the track, or null — only meaningful while tracking. */
+    getPhoneHold(): PhoneHold | null {
+        return this.trackingState.isTracking ? this.phoneHold : null;
+    }
 
     getGpsStatus(): 'locked' | 'stale' | 'none' {
         return _getGpsStatus(this.lastBgLocation, this.isNative);

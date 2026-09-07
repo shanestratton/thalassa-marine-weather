@@ -36,13 +36,13 @@ const DWELL_MS = 180_000;
 const UNAVAILABLE_AFTER_MS = 13_000; // NMEA_USABLE_MAX_AGE_MS
 
 /** The decision, restated independently of the manager. */
-function makeArbiter({ gatewayConfigured }: { gatewayConfigured: boolean }) {
+function makeArbiter({ gatewayConfigured, piPaired = false }: { gatewayConfigured: boolean; piPaired?: boolean }) {
     let deadSince: number | null = null;
     return {
-        /** feedStatus: 'live' | 'stale' | 'unavailable' */
-        vesselGpsDead(now: number, feedStatus: string): boolean {
-            if (!gatewayConfigured) return true;
-            if (feedStatus !== 'unavailable') {
+        /** feedStatus: 'live' | 'stale' | 'unavailable'; remoteFresh: the Pi (direct or cloud) reported her within the minute */
+        vesselGpsDead(now: number, feedStatus: string, remoteFresh = false): boolean {
+            if (!gatewayConfigured && !piPaired) return true;
+            if (feedStatus !== 'unavailable' || remoteFresh) {
                 deadSince = null;
                 return false;
             }
@@ -105,6 +105,24 @@ describe('phone cut-in requires a dead vessel GPS', () => {
         expect(a.vesselGpsDead(1, 'unavailable')).toBe(true);
     });
 
+    it('a Pi paired IS a vessel GPS to wait for, gateway or not (Shane 2026-09-07)', () => {
+        const a = makeArbiter({ gatewayConfigured: false, piPaired: true });
+        expect(a.vesselGpsDead(0, 'unavailable')).toBe(false);
+        expect(a.vesselGpsDead(DWELL_MS, 'unavailable')).toBe(true);
+    });
+
+    it('the boat reporting remotely — the Pi direct or its cloud row — is alive, not dead', () => {
+        // 2026-09-07: the vessel on the hard, the phone in the car, 13.3 NM
+        // of car in the log. From the phone the bus looked dead for three
+        // minutes; the Pi had been publishing her the whole time.
+        const a = makeArbiter({ gatewayConfigured: true });
+        expect(a.vesselGpsDead(0, 'unavailable', true)).toBe(false);
+        expect(a.vesselGpsDead(DWELL_MS * 2, 'unavailable', true)).toBe(false);
+        // The remote lane going quiet starts the dwell from THEN, not from the socket.
+        expect(a.vesselGpsDead(DWELL_MS * 2 + 1_000, 'unavailable', false)).toBe(false);
+        expect(a.vesselGpsDead(DWELL_MS * 3 + 1_000, 'unavailable', false)).toBe(true);
+    });
+
     it('is longer than any hiccup and shorter than losing a passage', () => {
         expect(DWELL_MS).toBeGreaterThan(UNAVAILABLE_AFTER_MS * 10);
         expect(DWELL_MS).toBeLessThanOrEqual(5 * 60_000);
@@ -113,8 +131,18 @@ describe('phone cut-in requires a dead vessel GPS', () => {
     it('the manager wires exactly this, and resets it per session', () => {
         expect(code).toMatch(/const VESSEL_GPS_DEAD_DWELL_MS = 180_000;/);
         expect(code).toMatch(/private vesselGpsDeadSince: number \| null = null;/);
-        expect(code).toMatch(/if \(!NmeaListenerService\.getSavedConfig\(\)\) return true;/);
+        expect(code).toMatch(/if \(!NmeaListenerService\.getSavedConfig\(\) && !this\.piPaired\) return true;/);
         expect(code).toMatch(/NmeaGpsProvider\.getFeedStatus\(now\) !== 'unavailable'/);
+        // The remote lanes count as alive, and the phone must be aboard her.
+        expect(code).toMatch(/const REMOTE_BOAT_POLL_MS = 10_000;/);
+        expect(code).toMatch(/const REMOTE_BOAT_MAX_AGE_MS = 60_000;/);
+        expect(code).toMatch(/const PHONE_ABOARD_MAX_M = 300;/);
+        expect(code).toMatch(/now - this\.lastBoatFix\.at <= REMOTE_BOAT_MAX_AGE_MS/);
+        expect(code).toMatch(/this\.holdPhone\('not-aboard', pos, apartM\);/);
+        // Her remote fix is a track source below the bus: it yields to a bus that spoke within the window.
+        expect(code).toMatch(
+            /if \(source === 'remote'\) return Date\.now\(\) - this\.lastNmeaAcceptedAt >= SOURCE_FALLBACK_MAX_SILENCE_MS;/,
+        );
         // A stale dead-clock must not survive into the next voyage.
         const reset = code.slice(code.indexOf('this.selectedTrackSource = null;'));
         expect(reset.slice(0, 200)).toContain('this.vesselGpsDeadSince = null;');

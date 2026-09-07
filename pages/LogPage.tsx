@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import { describePhoneHold } from '../services/shiplog/phoneHoldText';
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
 import { triggerHaptic } from '../utils/system';
@@ -1708,6 +1709,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         loggedVoyages={loggedVoyages}
                         loggedEntries={loggedEntries}
                     />
+
+                    {/* Shane 2026-09-07: the log follows the boat, not the phone —
+                        and says so, instead of looking broken while a phone in
+                        the car is refused and she is recorded from the Pi. */}
+                    {state.phoneHold &&
+                        (state.phoneHold.reason === 'not-aboard' || state.phoneHold.boatLane !== 'nmea') && (
+                            <p
+                                data-testid="log-phone-hold"
+                                className="mx-4 mt-1 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-200"
+                            >
+                                {describePhoneHold(state.phoneHold)}
+                            </p>
+                        )}
 
                     {/* The trickle's single-publisher veto, said out loud. It
                         used to be console-only, which is how a healthy-looking

@@ -49,8 +49,11 @@ export type GpsStatus = 'locked' | 'stale' | 'none';
 /**
  * Get the best available GPS position for a log entry.
  *
- * Priority order:
- *   1. NMEA / external GPS (highest accuracy when present)
+ * Priority order (Shane 2026-09-07: "vessel primary gps, vessel secondary
+ * gps, and lastly phone gps" — an entry stamped while the phone is off the
+ * boat must still say where SHE is):
+ *   1. NMEA / external GPS — the bus (a socket, or the Pi over the LAN)
+ *   1b. The Pi direct (bus or u-blox), then her cloud row
  *   2. Cached BgGeo position if < 60s old
  *   3. Native: BgGeoManager.getFreshPosition (15s timeout)
  *      Web:    GpsService.getCurrentPosition (15s timeout)
@@ -75,6 +78,27 @@ export async function getBestPosition(
             receivedAt: Date.now(),
             altitude: null,
         } as CachedPosition;
+    }
+
+    // 1b. The boat's other lanes — the Pi direct, then her cloud row. A rung
+    //     that cannot answer is the next rung's turn, never a thrown entry.
+    try {
+        const { piFix, cloudFix } = await import('../boatPositionChain');
+        const boat = (await piFix()) ?? (await cloudFix());
+        if (boat && isPlausibleLatLon(boat.latitude, boat.longitude)) {
+            return {
+                latitude: boat.latitude,
+                longitude: boat.longitude,
+                accuracy: 10,
+                heading: boat.cogDeg ?? null,
+                speed: boat.sogKts != null ? boat.sogKts / MS_TO_KTS : 0,
+                timestamp: boat.timestamp,
+                receivedAt: Date.now(),
+                altitude: null,
+            } as CachedPosition;
+        }
+    } catch {
+        /* the phone rungs below */
     }
 
     // 2. Cached phone GPS (battery-friendly; the onLocation stream keeps

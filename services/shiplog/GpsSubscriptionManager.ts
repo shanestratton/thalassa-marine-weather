@@ -134,6 +134,28 @@ const SOURCE_FALLBACK_MAX_SILENCE_MS = 15_000;
  * dies. Getting it wrong costs a voyage track that drove home in the car.
  */
 const VESSEL_GPS_DEAD_DWELL_MS = 180_000;
+/**
+ * The boat, remotely.
+ *
+ * Shane, 2026-09-07: the vessel on the hard, the phone in the car, and the
+ * log took the car — 13.3 NM of it. The dwell above did its job and it was
+ * not enough, because from the phone her GPS merely LOOKED dead: no socket,
+ * no LAN, three minutes of 'unavailable'. But the Pi publishes her every few
+ * seconds, so while tracking the manager now asks for her — the Pi direct,
+ * then its cloud row — and "dead" can mean dead: while ANY lane reports her,
+ * the phone may not stand in; and her remote fix is itself a track source,
+ * below the bus and above the phone. His order: "vessel primary gps, vessel
+ * secondary gps, and lastly phone gps."
+ */
+const REMOTE_BOAT_POLL_MS = 10_000;
+/** A remote boat fix older than this is where she WAS, not where she is. */
+const REMOTE_BOAT_MAX_AGE_MS = 60_000;
+/** A phone this far from a recent boat fix is not aboard her. */
+const PHONE_ABOARD_MAX_M = 300;
+/** How recent a boat fix must be to judge the phone aboard or not. */
+const PHONE_ABOARD_REFERENCE_MAX_MS = 10 * 60_000;
+/** Nominal accuracy for a fix the boat's receivers produced and a lane relayed. */
+const REMOTE_FIX_ACCURACY_M = 10;
 // Five minutes is a useful offshore storage baseline, but a single 5-minute
 // chord can hide a meaningful turn at speed. Keep a safety vertex when the
 // vessel has covered one nautical mile or made a material change of course.
@@ -141,7 +163,19 @@ const OFFSHORE_MAX_SEGMENT_M = 1_852;
 const TURN_CAPTURE_DEGREES = 25;
 const TURN_CAPTURE_MIN_SPEED_MS = 0.5; // ≈1 kt
 
-type TrackSource = 'phone' | 'nmea';
+export type TrackSource = 'phone' | 'nmea' | 'remote';
+
+/** Why the phone's fixes are being refused for the track right now. */
+export type PhoneHoldReason = 'vessel-alive' | 'not-aboard';
+export interface PhoneHold {
+    reason: PhoneHoldReason;
+    /** Which lane last reported the boat. */
+    boatLane: 'nmea' | 'pi' | 'cloud';
+    /** Age of that boat fix when the phone was refused. */
+    boatFixAgeMs: number;
+    /** Metres between the phone and the boat's fix, when a phone fix was offered. */
+    distanceM: number | null;
+}
 
 export interface GpsSubscriptionOptions {
     isNative: boolean;
@@ -194,6 +228,12 @@ export interface GpsSubscriptionOptions {
      * uses this to leave its short high-frequency GPS acquisition mode.
      */
     onTrackOpened?: () => void;
+    /**
+     * Called when the phone's fixes start or stop being refused for the
+     * track, with why — so the Log page can say "the log follows the boat"
+     * instead of looking broken.
+     */
+    onPhoneHeld?: (hold: PhoneHold | null) => void;
 }
 
 export class GpsSubscriptionManager {
@@ -229,6 +269,17 @@ export class GpsSubscriptionManager {
 
     /** Epoch-ms of the last accepted phone-GPS fix (whether or not it was retained). */
     private lastPhoneAcceptedAt = 0;
+
+    /** Epoch-ms of the last accepted remote boat fix (the Pi direct, or its cloud row). */
+    private lastRemoteAcceptedAt = 0;
+
+    /** The boat's latest fix from ANY lane — the reference for "is the phone aboard her". */
+    private lastBoatFix: { lat: number; lon: number; at: number; lane: 'nmea' | 'pi' | 'cloud' } | null = null;
+    private remotePollTimer: ReturnType<typeof setInterval> | null = null;
+    private remotePollInFlight = false;
+    /** A Pi is paired on this phone: there IS a vessel GPS to wait for, gateway or not. */
+    private piPaired = false;
+    private phoneHold: PhoneHold | null = null;
 
     /**
      * Plot-point sampler memory. This deliberately survives buffer drains:
@@ -280,6 +331,10 @@ export class GpsSubscriptionManager {
         this.vesselGpsDeadSince = null;
         this.lastNmeaAcceptedAt = 0;
         this.lastPhoneAcceptedAt = 0;
+        this.lastRemoteAcceptedAt = 0;
+        this.lastBoatFix = null;
+        this.phoneHold = null;
+        this.piPaired = false;
         this.lastBufferedAt = 0;
         this.lastBufferedFix = null;
         this.lastBufferedZone = null;
@@ -338,6 +393,7 @@ export class GpsSubscriptionManager {
             // Always publish for the UI (precision tracker + lastBgLocation).
             opts.onFix(cached);
             GpsPrecision.feed(nmeaPos.accuracy);
+            this.lastBoatFix = { lat: nmeaPos.latitude, lon: nmeaPos.longitude, at: nmeaPos.timestamp, lane: 'nmea' };
 
             // Apply the same fix-acceptance gate as phone GPS.
             // (Previously NMEA bypassed all filters — historical biggest
@@ -364,6 +420,25 @@ export class GpsSubscriptionManager {
             }
         });
         this.unsubscribers.push(unsubNmea);
+
+        // ── 2b. The boat, remotely — the Pi direct, then its cloud row ──
+        // See REMOTE_BOAT_POLL_MS. Asked only while the bus is silent, and
+        // only when there is a boat to ask for (a gateway saved or a Pi
+        // paired); a phone-only punter's log never waits on a network.
+        void import('../PiPairingService')
+            .then(({ getPairing }) => {
+                this.piPaired = getPairing() !== null;
+            })
+            .catch(() => undefined);
+        const pollRemote = () => void this.pollRemoteBoat(opts);
+        pollRemote();
+        this.remotePollTimer = setInterval(pollRemote, REMOTE_BOAT_POLL_MS);
+        this.unsubscribers.push(() => {
+            if (this.remotePollTimer) {
+                clearInterval(this.remotePollTimer);
+                this.remotePollTimer = null;
+            }
+        });
 
         // ── 3. Heartbeat — flush owed entries on a steady cadence ──
         const heartbeatTick = () => {
@@ -553,6 +628,91 @@ export class GpsSubscriptionManager {
         }
     }
 
+    /**
+     * Ask the Pi for the boat while the bus is silent: direct first (its
+     * Signal K has already chosen between the Garmin and the u-blox), then
+     * the row it keeps in the cloud. A fresh answer is the boat's position
+     * for every purpose here — the aboard test, the dead test, and the track.
+     */
+    private async pollRemoteBoat(opts: GpsSubscriptionOptions): Promise<void> {
+        if (this.remotePollInFlight) return;
+        this.remotePollInFlight = true;
+        try {
+            if (!NmeaListenerService.getSavedConfig() && !this.piPaired) return;
+            const now = Date.now();
+            // The bus — a socket, or the Pi over the boat LAN — is streaming: nothing to ask.
+            if (NmeaGpsProvider.getFeedStatus(now) !== 'unavailable') return;
+            const { piFix, cloudFix } = await import('../boatPositionChain');
+            const fix = (await piFix()) ?? (await cloudFix(now));
+            if (!fix || now - fix.timestamp > REMOTE_BOAT_MAX_AGE_MS) return;
+            const lane: 'pi' | 'cloud' = fix.rung === 'cloud' ? 'cloud' : 'pi';
+            this.lastBoatFix = { lat: fix.latitude, lon: fix.longitude, at: fix.timestamp, lane };
+            const cached: CachedPosition = {
+                latitude: fix.latitude,
+                longitude: fix.longitude,
+                accuracy: REMOTE_FIX_ACCURACY_M,
+                altitude: null,
+                heading: fix.cogDeg ?? null,
+                speed: fix.sogKts != null ? fix.sogKts / MS_TO_KTS : 0,
+                timestamp: fix.timestamp,
+                receivedAt: now,
+            };
+            // Publish for the UI like any receiver, then offer it to the track
+            // through the same gate as the bus.
+            opts.onFix(cached);
+            if (!opts.isActive()) return;
+            if (!this.sourceCanContribute('remote', cached, opts)) return;
+            if (!this.acceptFix(cached, opts.trackBuffer, 'remote')) return;
+            this.lastAcceptedFix = cached;
+            this.noteAcceptedSource('remote');
+            opts.onAcceptedFix?.(cached);
+            const opensTrack = !this.hasBufferedThisSession;
+            this.hasBufferedThisSession = true;
+            this.pendingFirstFix = null;
+            this.firstFixNonMonotonicCount = 0;
+            if (opensTrack) this.notifyTrackOpened(opts);
+            this.bufferPlotPoint(cached, opts, opensTrack);
+        } catch (error) {
+            log.warn('remote boat poll failed', error);
+        } finally {
+            this.remotePollInFlight = false;
+        }
+    }
+
+    /** Why the phone is refused right now, or null while it is not. */
+    getPhoneHold(): PhoneHold | null {
+        return this.phoneHold;
+    }
+
+    /** Record why the phone is refused; tell the owner only when the reason changes. */
+    private holdPhone(reason: PhoneHoldReason | null, pos?: CachedPosition, distanceM: number | null = null): void {
+        const ref = this.lastBoatFix;
+        let next: PhoneHold | null = null;
+        if (reason) {
+            next = {
+                reason,
+                boatLane: ref?.lane ?? 'nmea',
+                boatFixAgeMs: ref ? Math.max(0, Date.now() - ref.at) : 0,
+                distanceM:
+                    distanceM ?? (ref && pos ? haversineMeters(ref.lat, ref.lon, pos.latitude, pos.longitude) : null),
+            };
+        }
+        const changed = (this.phoneHold?.reason ?? null) !== (next?.reason ?? null);
+        this.phoneHold = next;
+        if (!changed) return;
+        if (next) {
+            log.warn(
+                `GPS phone held (${next.reason}): the boat via ${next.boatLane} ${Math.round(next.boatFixAgeMs / 1000)} s ago` +
+                    (next.distanceM !== null ? `, phone ${Math.round(next.distanceM)} m from her` : ''),
+            );
+        }
+        try {
+            this.activeOptions?.onPhoneHeld?.(next);
+        } catch (error) {
+            log.warn('phone-hold listener threw', error);
+        }
+    }
+
     /** Notify the owner exactly once when a vetted initial fix opens the track. */
     private notifyTrackOpened(opts: GpsSubscriptionOptions): void {
         if (this.trackOpenedNotified) return;
@@ -572,6 +732,11 @@ export class GpsSubscriptionManager {
         // vessel is not. Nothing it says needs to wait out a grace window.
         if (source === 'nmea') return true;
 
+        // Her remote fix — the Pi direct, or its cloud row — is the boat too,
+        // seconds behind the bus: it yields to a bus that has spoken within
+        // the sawtooth window and takes the track the moment it has not.
+        if (source === 'remote') return Date.now() - this.lastNmeaAcceptedAt >= SOURCE_FALLBACK_MAX_SILENCE_MS;
+
         // From here down, `source` is the phone.
         //
         // ASYMMETRY IS THE POINT. The old rule was the same in both
@@ -579,14 +744,37 @@ export class GpsSubscriptionManager {
         // track. That is right for two receivers on one boat and wrong for the
         // only receiver that can walk off it — a gateway hiccup was all it took
         // to hand the voyage to a phone in a car park.
-        if (!this.isVesselGpsDead()) return false;
+        if (!this.isVesselGpsDead()) {
+            this.holdPhone('vessel-alive', pos);
+            return false;
+        }
 
-        // The vessel's GPS is dead. The phone may open the track, or take it
-        // over — but a stale selection still gets the sawtooth guard, so two
-        // phone-side receivers cannot alternate either.
+        // THE PHONE MUST BE ABOARD. Her GPS may have just gone quiet, but if
+        // its last fix is hundreds of metres from this phone, this phone has
+        // left her — and a phone that left cannot stand in for her (Shane
+        // 2026-09-07: the car in the log while she sat on the hard).
+        const ref = this.lastBoatFix;
+        if (ref && Date.now() - ref.at <= PHONE_ABOARD_REFERENCE_MAX_MS) {
+            const apartM = haversineMeters(ref.lat, ref.lon, pos.latitude, pos.longitude);
+            if (apartM > PHONE_ABOARD_MAX_M) {
+                this.holdPhone('not-aboard', pos, apartM);
+                return false;
+            }
+        }
+        this.holdPhone(null);
+
+        // The vessel's GPS is dead and the phone is aboard her, or she was
+        // never seen. The phone may open the track, or take it over — but a
+        // stale selection still gets the sawtooth guard, so two phone-side
+        // receivers cannot alternate either.
         if (!this.selectedTrackSource || this.selectedTrackSource === source) return true;
 
-        const selectedAt = this.selectedTrackSource === 'nmea' ? this.lastNmeaAcceptedAt : this.lastPhoneAcceptedAt;
+        const selectedAt =
+            this.selectedTrackSource === 'nmea'
+                ? this.lastNmeaAcceptedAt
+                : this.selectedTrackSource === 'remote'
+                  ? this.lastRemoteAcceptedAt
+                  : this.lastPhoneAcceptedAt;
         const profile = this.resolvePlottingProfile(pos, opts);
         const fallbackAfterMs = Math.min(
             Math.max(profile.intervalMs, NEARSHORE_INTERVAL_MS),
@@ -604,9 +792,17 @@ export class GpsSubscriptionManager {
      * punter without a boat lives in that branch.
      */
     private isVesselGpsDead(now = Date.now()): boolean {
-        if (!NmeaListenerService.getSavedConfig()) return true;
+        // No gateway configured AND no Pi paired: no vessel GPS to wait for.
+        if (!NmeaListenerService.getSavedConfig() && !this.piPaired) return true;
 
-        if (NmeaGpsProvider.getFeedStatus(now) !== 'unavailable') {
+        // Alive on the bus (a socket, or the Pi over the LAN), or alive
+        // remotely (the Pi direct, or its cloud row, within the minute).
+        const busAlive = NmeaGpsProvider.getFeedStatus(now) !== 'unavailable';
+        const remoteAlive =
+            this.lastBoatFix !== null &&
+            this.lastBoatFix.lane !== 'nmea' &&
+            now - this.lastBoatFix.at <= REMOTE_BOAT_MAX_AGE_MS;
+        if (busAlive || remoteAlive) {
             this.vesselGpsDeadSince = null;
             return false;
         }
@@ -617,8 +813,13 @@ export class GpsSubscriptionManager {
     /** Record an accepted-source handover only after the common GPS gate passes. */
     private noteAcceptedSource(source: TrackSource): void {
         this.selectedTrackSource = source;
-        if (source === 'nmea') this.lastNmeaAcceptedAt = Date.now();
-        else this.lastPhoneAcceptedAt = Date.now();
+        const now = Date.now();
+        if (source === 'nmea') this.lastNmeaAcceptedAt = now;
+        else if (source === 'remote') this.lastRemoteAcceptedAt = now;
+        else {
+            this.lastPhoneAcceptedAt = now;
+            this.holdPhone(null);
+        }
     }
 
     /**
