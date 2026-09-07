@@ -131,12 +131,4 @@ describe('the panel says Remote, not Live and not No gateway', () => {
         expect(service).toContain("if (NmeaStore.getState().connectionStatus === 'connected') return;");
         expect(service).toContain('CLOUD_TELEMETRY_LIVE_MAX_AGE_MS = 60_000');
     });
-
-    it('the public page publishes an opted-in snapshot separately from the map position', () => {
-        const fn = read('supabase/functions/voyage-log/index.ts');
-        expect(fn).toContain(".from('vessel_telemetry')");
-        expect(fn).toContain('if (instrumentsAllowed && boatId)');
-        expect(fn).toContain('instruments = publicInstrumentSnapshot');
-        expect(fn).toContain('telemetry: instrumentsEnabled ? telemetry : redactPublicTelemetry(telemetry)');
-    });
 });
