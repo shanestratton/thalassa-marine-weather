@@ -28,6 +28,20 @@ const Reading: React.FC<{ label: string; value: number | null; unit: string; dig
     </div>
 );
 
+/** Public explanation only: no readings, inferred consent, or sharing controls. */
+export const InstrumentsNotShared: React.FC = () => (
+    <section
+        aria-label="Instrument sharing status"
+        className="shrink-0 border-b border-teal-200/15 bg-linear-to-br from-teal-950/60 via-slate-900 to-slate-950 p-4 sm:p-5"
+    >
+        <h2 className="text-xl font-semibold tracking-tight text-white">Onboard instruments</h2>
+        <p className="mt-2 text-sm text-slate-300">Instruments aren’t currently being shared.</p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            Skipper: open the main Thalassa app → Settings → Voyage Log → Share my instruments.
+        </p>
+    </section>
+);
+
 /** Only mounted after server-confirmed consent; never substitutes forecast or GPS data. */
 export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
     instruments: t,

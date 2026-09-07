@@ -2,24 +2,32 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { destinationBounds, publicMapDestination } from '../src/publicMapDestination';
+import { installMusgraveImagery, MUSGRAVE_IMAGERY } from '../src/publicSatelliteCoverage';
 
-const camera = vi.hoisted(() => ({ fitBounds: vi.fn(), flyTo: vi.fn(), resize: vi.fn() }));
+const camera = vi.hoisted(() => ({
+    fitBounds: vi.fn(),
+    flyTo: vi.fn(),
+    resize: vi.fn(),
+    onStyleData: undefined as undefined | ((event: { target: Parameters<typeof installMusgraveImagery>[0] }) => void),
+}));
 vi.mock('../src/voyageLogApi', async (original) => ({
     ...(await original<typeof import('../src/voyageLogApi')>()),
     MAPBOX_TOKEN: 'pk.test',
 }));
 vi.mock('react-map-gl/mapbox', async () => {
     const ReactModule = await import('react');
-    const Map = ReactModule.forwardRef<unknown, { children?: React.ReactNode; mapStyle: string }>(
-        ({ children, mapStyle }, ref) => {
-            ReactModule.useImperativeHandle(ref, () => camera);
-            return (
-                <div data-testid="map" data-style={mapStyle}>
-                    {children}
-                </div>
-            );
-        },
-    );
+    const Map = ReactModule.forwardRef<
+        unknown,
+        { children?: React.ReactNode; mapStyle: string; onStyleData: typeof camera.onStyleData }
+    >(({ children, mapStyle, onStyleData }, ref) => {
+        camera.onStyleData = onStyleData;
+        ReactModule.useImperativeHandle(ref, () => camera);
+        return (
+            <div data-testid="map" data-style={mapStyle}>
+                {children}
+            </div>
+        );
+    });
     Map.displayName = 'MockMap';
     return {
         default: Map,
@@ -54,6 +62,71 @@ describe('public destination exploration', () => {
         vi.clearAllMocks();
     });
     afterEach(() => vi.useRealTimers());
+
+    it('fills the Musgrave imagery gap below labels and keeps it off the ordinary Map style', () => {
+        const layers = new Set<string>();
+        const sources = new Set<string>();
+        const map = {
+            getLayer: vi.fn((id: string) => (layers.has(id) ? { id } : undefined)),
+            getSource: vi.fn((id: string) => (sources.has(id) ? { id } : undefined)),
+            addSource: vi.fn((id: string) => {
+                sources.add(id);
+            }),
+            addLayer: vi.fn((layer: { id: string }, beforeId: string) => {
+                if (!layers.has(beforeId)) throw new Error('Insertion target is not loaded');
+                layers.add(layer.id);
+            }),
+        };
+        const fireStyleData = () =>
+            camera.onStyleData?.({ target: map as unknown as Parameters<typeof installMusgraveImagery>[0] });
+        render(<MapContainer {...props} />);
+        fireStyleData(); // Style still downloading: do not add before a missing layer.
+        expect(map.addSource).not.toHaveBeenCalled();
+        layers.add(MUSGRAVE_IMAGERY.beforeId);
+        fireStyleData();
+        expect(map.addSource).toHaveBeenCalledWith(
+            'musgrave-satellite',
+            expect.objectContaining({
+                type: 'raster',
+                bounds: MUSGRAVE_IMAGERY.bounds,
+                tileSize: 512,
+                minzoom: 10,
+                maxzoom: 18,
+                tiles: [expect.stringContaining('api.maptiler.com/tiles/satellite-v2/')],
+                attribution: expect.stringContaining('https://www.maptiler.com/copyright/'),
+            }),
+        );
+        expect(map.addLayer).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'musgrave-satellite-layer' }),
+            MUSGRAVE_IMAGERY.beforeId,
+        );
+        fireStyleData();
+        expect(map.addLayer).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByRole('button', { name: 'Map basemap' }));
+        layers.clear(); // setStyle removes the old style's additions.
+        sources.clear();
+        fireStyleData();
+        expect(map.addLayer).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByRole('button', { name: 'Satellite basemap' }));
+        fireStyleData(); // React selected Satellite, but Mapbox still has dark-v11.
+        expect(map.addLayer).toHaveBeenCalledTimes(1);
+        layers.add(MUSGRAVE_IMAGERY.beforeId);
+        fireStyleData();
+        expect(map.addLayer).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the repair local to Musgrave and never requests its tiles over Lady Elliot', () => {
+        const [west, south, east, north] = MUSGRAVE_IMAGERY.bounds;
+        expect(west).toBeLessThan(152.3896667);
+        expect(east).toBeGreaterThan(152.4324);
+        expect(south).toBeLessThan(-23.9149833);
+        expect(north).toBeGreaterThan(-23.9);
+        const tileX = (lon: number, zoom: number) => Math.floor(((lon + 180) / 360) * 2 ** zoom);
+        for (let zoom = MUSGRAVE_IMAGERY.minzoom; zoom <= MUSGRAVE_IMAGERY.maxzoom; zoom++) {
+            // Even the entire easternmost boundary tile excludes Elliot.
+            expect(tileX(152.715, zoom)).toBeGreaterThan(tileX(east, zoom));
+        }
+    });
 
     it('uses the selected route endpoint, never a contradictory destination name or coordinate', () => {
         expect(publicMapDestination(line, destination)).toEqual({ center: end, name: 'Lady Musgrave' });
