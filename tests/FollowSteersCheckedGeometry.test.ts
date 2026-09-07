@@ -63,7 +63,11 @@ describe('Log follow steers the geometry it verified', () => {
         // the row: null = pickable, a reason = visible but disabled. The
         // FollowRouteChoiceBlocked suite pins the row behaviour itself.
         expect(code).not.toContain('traceLinkedVoyageIds');
-        expect(code).toContain('savedTraceFollowBlockReason(sid)');
+        // Since the cast-off sheet learned trip legs (2026-09-08) the row builder
+        // takes the gate through its deps so tests can seed it — the live deps
+        // still wire the real gate, and every row still carries its verdict.
+        expect(code).toContain('blockReason: savedTraceFollowBlockReason');
+        expect(code).toContain('deps.blockReason(sid)');
         expect(code).toContain('setFollowPromptChoices(followSheetChoices);');
         expect(code).toContain('blockReason={blockReason}');
     });

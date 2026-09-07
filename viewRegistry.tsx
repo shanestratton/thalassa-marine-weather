@@ -255,9 +255,12 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: VoyagePlanner,
         boundaryName: 'VoyagePlanner',
         group: 'standalone',
+        // No onBack: the Route Planner is a top-level page with nowhere to go
+        // back to, so the header arrow only ever bounced to the dashboard
+        // (Shane 2026-09-08: "remove that as it is a top level page"). The
+        // prop stays on RoutePlanner for the embedded/sub-page uses.
         getProps: (ctx) => ({
             onTriggerUpgrade: () => ctx.setIsUpgradeOpen(true),
-            onBack: () => ctx.setPage('dashboard'),
         }),
     },
     settings: {
