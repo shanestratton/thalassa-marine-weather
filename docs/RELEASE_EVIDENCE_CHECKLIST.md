@@ -126,7 +126,7 @@ Pi / NMEA (aboard):
 
 Cloud telemetry (off the boat, no VPN):
 
-- [ ] Tailscale OFF on the phone, away from the boat LAN: Vessel → NMEA Gateway reads "Away · reading her via calypso"; the Instrument Panel header reads "Remote · calypso reported N s ago" and wind / depth / SOG move. Tailscale back ON → the gateway socket wins and the header returns to it.
+- [x] Tailscale OFF on the phone, away from the boat LAN: the Instrument Panel reads the Pi through the cloud — **PASSED 2026-09-07 ≈13:30 on 103** (Shane: "the nmea instruments work with tailnet off, whoo hoo"). On 103 the row and header still name the hostname (calypso); 104 says "the Pi". Still to try: Tailscale back ON aboard → the gateway socket wins and the header returns to it.
 - [ ] Marta's phone, invited as crew, opens the Instrument Panel off the boat and sees the same — no VPN, no configuration.
 - [ ] Ship's clock on "Ship's position" shows the boat's zone and stays there when the phone's zone is changed (Settings → General → Date & Time, Set Automatically off).
 
