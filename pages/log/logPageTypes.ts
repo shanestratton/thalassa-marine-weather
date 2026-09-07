@@ -51,7 +51,22 @@ export type FollowPromptOrderedRow = {
     stamp: number;
 };
 
-/** The sheet's running order: a passage heading, or one route choice. */
+/**
+ * A leg of a trip the sheet shows that has no planned-route row to offer —
+ * saved in Route Tracer, never mirrored into the log (an offline save, a
+ * timed-out mirror). Shane 2026-09-08: "it is not showing me the last leg?"
+ * The row is shown disabled, in its ordinal place, with the fix named.
+ */
+export interface MissingTripLeg {
+    tripId: string;
+    legOrdinal: number;
+    name: string;
+    savedRouteId: string;
+    stamp: number;
+}
+
+/** The sheet's running order: a passage heading, one route choice, or a leg the log has not got yet. */
 export type FollowPromptRow =
     | { type: 'passage'; key: string; name: string }
-    | { type: 'choice'; key: string; row: FollowPromptOrderedRow };
+    | { type: 'choice'; key: string; row: FollowPromptOrderedRow }
+    | { type: 'missing-leg'; key: string; leg: MissingTripLeg };

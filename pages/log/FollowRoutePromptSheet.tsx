@@ -134,6 +134,39 @@ export const FollowRoutePromptSheet: React.FC<{
                                 />
                             );
                         }
+                        if (item.type === 'missing-leg') {
+                            // A leg the Plan page knows and the log does not (Shane
+                            // 2026-09-08). Named in its place, disabled, fix one tap away.
+                            return (
+                                <div
+                                    key={item.key}
+                                    data-testid="follow-missing-leg"
+                                    className="rounded-xl border border-dashed border-amber-400/25 bg-amber-500/5 px-3 py-2.5"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span aria-hidden="true" className="text-amber-300/70">
+                                            ↳
+                                        </span>
+                                        <p className="min-w-0 flex-1 truncate text-[13px] font-bold text-white/90">
+                                            {item.leg.name}{' '}
+                                            <span className="font-black text-white/60">
+                                                ({ordinalLegLabel(item.leg.legOrdinal)})
+                                            </span>
+                                        </p>
+                                    </div>
+                                    <p className="mt-1 text-[11px] leading-snug text-amber-200/90">
+                                        Not in the log yet — this leg is saved in Route Tracer only.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => void openRouteInTracer(item.leg.savedRouteId)}
+                                        className="mt-1 text-[11px] font-black uppercase tracking-wider text-sky-300 underline-offset-2 hover:underline"
+                                    >
+                                        Open it in Route Tracer and save it →
+                                    </button>
+                                </div>
+                            );
+                        }
                         const { summary: s, reversible, blockReason, savedRouteId } = item.row.choice;
                         return (
                             <FollowRouteChoice

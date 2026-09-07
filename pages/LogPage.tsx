@@ -55,7 +55,6 @@ import { acquireFreshOwnshipPosition, resolveOwnshipPosition } from '../services
 import { NmeaStore } from '../services/NmeaStore';
 import { LocationStore } from '../stores/LocationStore';
 import { VoyageLogService } from '../services/VoyageLogService';
-import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
 import { requestTracerOpen } from '../services/deepLink';
 import { useUIStore } from '../stores/uiStore';
@@ -91,6 +90,8 @@ import {
 } from './log/logPageHelpers';
 import {
     buildFollowPromptRows,
+    collapseOutsideTrips,
+    missingTripLegs,
     buildFollowSheetChoices,
     deriveCurrentFix,
     deriveEntriesByVoyage,
@@ -411,7 +412,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  row carries the follow gate's verdict: null = pickable, a string =
      *  shown disabled with that reason. */
     const [followPromptChoices, setFollowPromptChoices] = React.useState<FollowSheetChoice[]>([]);
-    const followPromptRows = React.useMemo(() => buildFollowPromptRows(followPromptChoices), [followPromptChoices]);
+    // Legs saved in Route Tracer but never mirrored into the log still appear
+    // under their passage, disabled, with the fix one line away.
+    const followPromptRows = React.useMemo(
+        () => buildFollowPromptRows(followPromptChoices, missingTripLegs(followPromptChoices)),
+        [followPromptChoices],
+    );
 
     const followSelectionGenerationRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
@@ -538,14 +544,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // collapseReversedRoutes (it can HIDE a route if wrong, which does not look
     // like a bug from the cockpit — it looks like a route you saved simply not
     // being offered).
-    const plannedChoices = React.useMemo(
-        () => collapseReversedRoutes(plannedSummaries, currentFix),
-        [plannedSummaries, currentFix],
-    );
-
     /** voyageId → savedRouteId, read off the resident plan entries (the link
      *  lives on entries, not summaries). */
     const plannedRouteLinkIds = React.useMemo(() => derivePlannedRouteLinkIds(state.entries), [state.entries]);
+
+    // There-and-back day sails fold into one choice; a trip's legs never do
+    // (Shane 2026-09-08: the fold ate the last leg of Newport → Whitsundays
+    // under its own homeward twin).
+    const plannedChoices = React.useMemo(
+        () => collapseOutsideTrips(plannedSummaries, plannedRouteLinkIds, currentFix),
+        [plannedSummaries, plannedRouteLinkIds, currentFix],
+    );
 
     /**
      * EVERY planned route reaches the sheet; ones the follow gate refuses
