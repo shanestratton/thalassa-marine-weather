@@ -18,11 +18,11 @@ const arcPath = (cx: number, cy: number, r: number, a0: number, a1: number): str
 };
 
 const DialFrame: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-    <div className="flex flex-col items-center gap-0.5">
-        <svg viewBox="0 0 88 88" className="w-[66px] h-[66px]">
+    <div className="flex min-w-0 flex-col items-center gap-1">
+        <svg viewBox="0 0 88 88" className="aspect-square w-full max-w-[100px]" role="img" aria-label={label}>
             {children}
         </svg>
-        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em]">{label}</span>
+        <span className="text-center text-xs font-medium text-slate-300">{label}</span>
     </div>
 );
 

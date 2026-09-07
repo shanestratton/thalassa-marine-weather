@@ -26,7 +26,7 @@ const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 describe('public map framing', () => {
     it('comes back when there is finally something to frame', () => {
         expect(code).toMatch(/const framable = allCoords\.length > 1;/);
-        const effect = code.slice(code.indexOf('if (!MAPBOX_TOKEN || focusKey === undefined'));
+        const effect = code.slice(code.indexOf('const framable ='));
         const deps = effect.slice(effect.indexOf('}, ['), effect.indexOf('}, [') + 40);
         expect(deps).toContain('framable');
     });

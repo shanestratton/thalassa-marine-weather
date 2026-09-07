@@ -428,11 +428,12 @@ export default function ThalassaDashboard() {
             >
                 <main
                     className={`${
-                        diaryHidden ? 'flex-1 min-h-0' : 'shrink-0 h-[45dvh] min-h-[280px]'
+                        diaryHidden ? 'flex-1 min-h-0' : 'shrink-0 h-[52dvh] min-h-[360px]'
                     } md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative`}
                 >
                     <MapContainer
                         telemetry={scopedTelemetry}
+                        destination={destination}
                         track={track}
                         entries={entries}
                         passageLine={passage?.plan_line ?? null}
@@ -479,11 +480,12 @@ export default function ThalassaDashboard() {
                         </span>
                     </button>
                     {!diaryHidden && (
-                        <div className="w-full md:w-96 flex flex-col min-h-0 md:h-full">
+                        <div className="w-full md:w-96 lg:w-[420px] flex flex-col min-h-0 md:h-full">
                             <DiarySidebar
                                 entries={entries}
                                 telemetry={scopedTelemetry}
-                                showTelemetry={isActiveTrackView}
+                                instruments={state.data.instruments ?? null}
+                                showTelemetry={requestedTrip === 'latest' && state.data.instruments_shared === true}
                                 title={diaryTitle}
                                 context={diaryContext}
                                 emptyMessage={diaryEmptyMessage}

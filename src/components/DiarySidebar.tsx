@@ -1,10 +1,11 @@
 import React from 'react';
-import { MOOD, type VoyageLogEntry, type VoyageLogTelemetry } from '../voyageLogApi';
+import { MOOD, type VoyageLogEntry, type VoyageLogTelemetry, type VoyageLogInstruments } from '../voyageLogApi';
 import { TelemetryPanel } from './TelemetryPanel';
 
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
     telemetry: VoyageLogTelemetry | null;
+    instruments?: VoyageLogInstruments | null;
     nowMs: number;
     connectionLost: boolean;
     lastSuccessfulAt: number | null;
@@ -124,7 +125,7 @@ const EntryDetail: React.FC<{
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="shrink-0 p-4 space-y-4">
                 {/* Video — preload metadata only: a follower on a phone must
                     not pull 200MB per entry just to draw a poster frame. */}
                 {entry.video_url && <EntryVideo url={entry.video_url} />}
@@ -223,7 +224,7 @@ const EntryList: React.FC<{
             </div>
 
             {entries.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-2">
+                <div className="shrink-0 flex flex-col items-center justify-center text-center px-8 py-8 gap-2">
                     <span className="text-3xl">🧭</span>
                     <p className="text-sm text-slate-400">{emptyMessage}</p>
                     <p className="text-xs text-slate-500">
@@ -233,7 +234,7 @@ const EntryList: React.FC<{
                     </p>
                 </div>
             ) : (
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="shrink-0 p-3 space-y-3">
                     {entries.map((entry) => {
                         const mood = MOOD[entry.mood];
                         return (
@@ -300,11 +301,11 @@ const EntryList: React.FC<{
 
 export default function DiarySidebar({
     entries,
-    telemetry,
+    instruments,
     nowMs,
     connectionLost,
     lastSuccessfulAt,
-    showTelemetry = true,
+    showTelemetry = false,
     title,
     context,
     emptyMessage,
@@ -313,14 +314,18 @@ export default function DiarySidebar({
     onClearSelection,
     onPhotoClick,
 }: DiarySidebarProps) {
+    const scrollRef = React.useRef<HTMLDivElement>(null);
+    React.useEffect(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    }, [selectedEntry?.id, title]);
     return (
-        <div className="flex flex-col h-full bg-slate-800">
-            {/* Present-tense instruments only belong beside an active trip.
-                A historical passage and the catch-all diary view must not
-                imply that those readings describe the selected record. */}
+        <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col bg-slate-900 md:overflow-y-auto">
+            {/* Current readings require explicit consent in latest mode.
+                They can be live at the berth without an active voyage; a
+                deliberately selected historical trip never receives them. */}
             {showTelemetry && (
                 <TelemetryPanel
-                    telemetry={telemetry}
+                    instruments={instruments ?? null}
                     nowMs={nowMs}
                     connectionLost={connectionLost}
                     lastSuccessfulAt={lastSuccessfulAt}

@@ -35,6 +35,8 @@ export interface VoyageLogConfig {
     /** Publish nearby AIS traffic on the public page. Absent on an app build
      *  that predates the column; treated as ON, matching the DB default. */
     public_ais_enabled?: boolean;
+    /** Explicit opt-in; absent/false means readings stay private. */
+    public_instruments_enabled?: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -539,6 +541,45 @@ class VoyageLogServiceClass {
         }
     }
 
+    async setPublicInstrumentsEnabled(
+        enabled: boolean,
+        target: Pick<VoyageLogConfig, 'id' | 'boat_id'>,
+    ): Promise<VoyageLogConfig | null> {
+        const scope = getAuthIdentityScope();
+        const boatId = target.boat_id;
+        const configId = target.id;
+        this.setError(scope, null);
+        try {
+            const operation = await this.authenticate(scope, true);
+            if (!operation || !supabase || !boatId || !configId) return null;
+            // Consent belongs to the boat displayed on screen, not whichever
+            // boat a second device may have made active while this tab is open.
+            const { data: boat, error } = await supabase
+                .from('boats')
+                .select('id, owner_id')
+                .eq('id', boatId)
+                .eq('owner_id', operation.userId)
+                .maybeSingle();
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            if (error || boat?.id !== boatId || boat?.owner_id !== operation.userId) {
+                this.setError(scope, 'Could not verify ownership of this vessel.');
+                return null;
+            }
+            return await this.updateConfigForOperation(
+                operation,
+                boatId,
+                { public_instruments_enabled: enabled },
+                configId,
+            );
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) {
+                log.warn('setPublicInstrumentsEnabled failed:', error);
+                this.setError(scope, 'Instrument sharing update failed — check signal.');
+            }
+            return null;
+        }
+    }
+
     private async setEnabledForOperation(
         operation: VoyageLogOperation,
         boatId: string,
@@ -581,17 +622,18 @@ class VoyageLogServiceClass {
     private async updateConfigForOperation(
         operation: VoyageLogOperation,
         boatId: string,
-        patch: Partial<Pick<VoyageLogConfig, 'public_ais_enabled'>>,
+        patch: Partial<Pick<VoyageLogConfig, 'public_ais_enabled' | 'public_instruments_enabled'>>,
+        configId?: string,
     ): Promise<VoyageLogConfig | null> {
         if (!supabase || !isAuthIdentityScopeCurrent(operation.scope)) return null;
-        const { data, error } = await supabase
+        const query = supabase
             .from('voyage_log_configs')
             .update(patch)
             .eq('owner_id', operation.userId)
             .eq('boat_id', boatId)
-            .eq('scope', 'combined')
-            .select()
-            .single();
+            .eq('scope', 'combined');
+        if (configId) query.eq('id', configId);
+        const { data, error } = await query.select().single();
         if (!isAuthIdentityScopeCurrent(operation.scope)) return null;
         if (error) {
             log.warn('voyage log config update failed:', error.message);
@@ -599,7 +641,13 @@ class VoyageLogServiceClass {
             return null;
         }
         const config = data as VoyageLogConfig | null;
-        if (!config || config.owner_id !== operation.userId || config.boat_id !== boatId) {
+        if (
+            !config ||
+            config.owner_id !== operation.userId ||
+            config.boat_id !== boatId ||
+            config.scope !== 'combined' ||
+            (configId && config.id !== configId)
+        ) {
             this.setError(operation.scope, "Couldn't verify the updated Voyage Log config owner.");
             return null;
         }
