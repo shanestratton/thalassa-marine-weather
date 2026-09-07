@@ -1,8 +1,8 @@
 # Thalassa public-beta release dossier
 
-- Status: **NO-GO for external public beta — the local candidate is refrozen and green; backend deployment, hosted, distribution, legal, and physical-device gates remain**
-- As of: **2026-08-06**
-- Candidate: **1.2.0 (103)** — 102 went to TestFlight internal on 2026-09-06 and failed the upgrade check (the vessel database move); 103 carries that fix, the day's matrix findings, and the Pi-as-primary work built that night and on 2026-09-07 (the Pi publishes the whole bus to the cloud every 5 s; the Instrument Panel reads it when no gateway is wired; the ship's clock keeps the boat's time; the Skipper Device and NMEA Gateway cards say who is primary and how she is being read). Packaged 2026-09-07 12:31 from 231e58d3, bundle main-BkgZEbDP.js. 101 and 102 were uploaded once each and can never be reused.
+- Status: **NO-GO for external public beta — preparing build 104 does not clear the outstanding hosted, distribution, legal, and physical-device gates**
+- Candidate metadata updated: **2026-09-07**; historical release-gate audit below: **2026-08-06**.
+- Candidate: **1.2.0 (104)** — includes the committed post-103 vessel-position, Pi-first instrument, sharing-control and public-instrument changes. Build 103 was uploaded to internal TestFlight on 2026-09-07; its archive and upgrade evidence remain in `RELEASE_EVIDENCE_CHECKLIST.md`. Build 104 preparation covers tests, production packaging, Capacitor sync and release checks; a signed archive, validation, upload and device verification are separate steps. Builds 101, 102 and 103 have already been uploaded and must not be reused.
 - Intended channel: **TestFlight external testing**
 - Minimum OS: **iOS 17** (no watchOS target ships in this beta — the Watch companion was cut on 2026-09-05)
 - Enabled sign-in: **email one-time code, Sign in with Apple (native and web), Google** — per `config/public-beta-features.json` (`VITE_APPLE_SIGN_IN_ENABLED`, `VITE_APPLE_WEB_SIGN_IN_ENABLED`, `VITE_GOOGLE_SIGN_IN_ENABLED` all `true`). This line said "email one-time code only" until 2026-09-05 while line 45 below already recorded native Apple sign-in as enabled in the committed profile; the profile is the build's truth and this dossier follows it.

@@ -73,6 +73,8 @@ Planned and written up as 104; the 103 bundle was rebuilt after each of these la
 
 ### Next build (104) — what is actually left
 
+- [x] **104 build preparation** (2026-09-07): build number 103 → 104 on all four configurations, marketing version remains 1.2.0, source commit 566aa1a4. Initial `ship:beta` completed under Node 24.19.0 at ≈16:36 with `VITE_APP_BUILD=104`: 132 preflight + 140 artifact contracts, production routes, bundle budgets, secret scan and Capacitor sync all passed. Bundle total 13.20/18 MB, JS 9.76/9.90 MB; copied iOS web assets match `dist`. The public-status tests now exercise the Barometer selector and actual sharing/expiry withdrawal. The nested sign-in test now checks the intended email-field autofocus and verifies both Close and Escape restore the outer action. No production focus behavior was changed or test quarantined. These are packaging/test checks, not a signed archive or device evidence; rerun validation against the final source commit before archiving.
+- [ ] Archive, validate and upload **104** after its final checks pass; leave Beta Skippers and its public link unchanged until authorised.
 - [ ] The Pi records the Ship's Log track itself (today the phone still records; the Pi only publishes the live snapshot).
 - [ ] Verify a claimed phone that leaves the boat while tracking cannot publish the skipper's position as the boat's.
 - [ ] Realtime subscription on `vessel_telemetry` instead of the 5 s poll (the table is already in the publication).

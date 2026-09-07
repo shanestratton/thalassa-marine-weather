@@ -108,7 +108,8 @@ describe('SignInScreen accessibility', () => {
     });
 
     it('keeps the outer trap mounted beneath the nested email dialog and restores its action', () => {
-        render(<SignInScreen isOpen onClose={vi.fn()} />);
+        const onClose = vi.fn();
+        render(<SignInScreen isOpen onClose={onClose} />);
 
         const primaryAction = screen.getByRole('button', { name: 'Sign in with email' });
         fireEvent.click(primaryAction);
@@ -121,7 +122,8 @@ describe('SignInScreen accessibility', () => {
         expect(nestedOverlay).toHaveStyle({ zIndex: '1200' });
         expect(outerDialog).toHaveAttribute('aria-hidden', 'true');
         expect(outerDialog).not.toHaveAttribute('aria-modal');
-        expect(screen.getByRole('button', { name: 'Close authentication dialog' })).toHaveFocus();
+        // Editing dialogs preserve autofocus and start in the first entry field.
+        expect(screen.getByRole('textbox', { name: 'Email Address' })).toHaveFocus();
 
         fireEvent.click(screen.getByRole('button', { name: 'Close authentication dialog' }));
 
@@ -129,6 +131,16 @@ describe('SignInScreen accessibility', () => {
         expect(outerDialog).not.toHaveAttribute('aria-hidden');
         expect(outerDialog).toHaveAttribute('aria-modal', 'true');
         expect(primaryAction).toHaveFocus();
+
+        fireEvent.click(primaryAction);
+        const emailField = screen.getByRole('textbox', { name: 'Email Address' });
+        expect(emailField).toHaveFocus();
+        fireEvent.keyDown(emailField, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: 'Sync Your Logs' })).not.toBeInTheDocument();
+        expect(outerDialog).not.toHaveAttribute('aria-hidden');
+        expect(outerDialog).toHaveAttribute('aria-modal', 'true');
+        expect(primaryAction).toHaveFocus();
+        expect(onClose).not.toHaveBeenCalled();
     });
 
     it('renders its portal fallback safely during SSR', () => {
