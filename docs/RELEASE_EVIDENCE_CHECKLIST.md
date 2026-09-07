@@ -25,6 +25,11 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] Organizer → Validate App passed 2026-09-06 ≈09:15 — "Thalassa Marine Weather 1.2.0 (102) validated. Your app successfully passed all validation checks." First attempt hit Xcode's stale app-record cache (it created the App Store record itself, then could not see it); a relaunch fixed it. App Store record: `com.thalassa.weather`, SKU `com.thalassa.weather`, primary language English (Australia), created by Xcode at 09:04.
 - [x] Archive verified: no Watch folder, no PlugIns; background modes = audio, location, fetch (2026-09-06).
 - [x] Uploaded 2026-09-06 ≈09:20 — "Thalassa Marine Weather 1.2.0 (102) uploaded". ITSAppUsesNonExemptEncryption=false, so no export-compliance prompt. App Store Connect now holds two records: **Thalassa Marine Weather** (`com.thalassa.weather`, this one) and the older **Thalassa** (`com.thalassa.weather-2025`, never had a build — it is what made the name "Thalassa" look taken).
+- [x] Build number bumped 102 → 103 on all four configurations, commit c9fbd246 (2026-09-06).
+- [x] `npm run ship:beta` green under Node 24 (24.19.0) on 231e58d3, 2026-09-07 12:31: 132 release + 140 artifact contracts; bundle 13.17/18 MB, JS 9.73/9.90 MB (98%); iOS bundle main-BkgZEbDP.js, byte-identical to `dist`. 103 carries everything committed to that point — the matrix fixes below **and** the Pi-as-primary section that follows; nothing was held back for 104.
+- [ ] Archive 1.2.0 (103) in Xcode 26.6 (scheme App, Any iOS Device); confirm main-BkgZEbDP.js in the archive's `public/assets`, no Watch folder, no PlugIns, dSYMs present.
+- [ ] Organizer → Validate App passes for 1.2.0 (103).
+- [ ] Upload 1.2.0 (103); TestFlight processes it; internal group Skipper receives it (Shane's tester has been INSTALLED since 102, so the build should appear in the TestFlight app on its own). **Beta Skippers stays untouched and the public link stays OFF** until the matrix passes.
 
 ### TestFlight (2026-09-06)
 
@@ -47,14 +52,22 @@ Process: reproduce → find the cause in code or production → fix with a test 
 
 - [x] **Skipper Device card was hard to read.** Re-laid 2026-09-06: vessel name on top, the GPS order beneath (Boat GPS › This device, or just This device), the button says "Press to make this the Primary Device" / "Release — this is not the Primary Device", a faint emerald/cyan edge; same 120 px footprint. Ships in 103.
 
-### Next build (104) — agreed 2026-09-06 evening
+### Also in 103 — the Pi as primary device (agreed 2026-09-06 evening, built that night and 2026-09-07)
 
-- [x] **The Pi is the primary device when she's aboard** (built 2026-09-06 evening, ships in 104). The Pi posts a live snapshot of the whole bus every 5 s to `telemetry-relay` (pairing credential, skipper's internet policy, five-minute backoff) → one row per skipper in `vessel_telemetry`. While that row is under a minute old the Skipper Device card reads "Primary: the Pi" and replaces the claim button with "calypso publishes the boat · phones stand down"; the public page's live marker prefers the Pi's snapshot when it is fresher than the phone's last track point. Ship's log track recording stays on the phone for now. **Deploy:** `supabase db push` (20260906170000), `supabase functions deploy telemetry-relay voyage-log`, then on the Pi `cd ~/thalassa-marine-weather && git pull && cd pi-cache && ./redeploy.sh`. Verify: the row appears in `vessel_telemetry`; `THALASSA_TELEMETRY_PUBLISH=0` in pi.env switches it off.
-- [x] **Crew see the Instrument Panel anywhere, no VPN** (built 2026-09-06 evening, ships in 104). Shane's order for the phone: a) the gateway socket — boat LAN, or the same LAN over Tailscale — always wins; b) the cloud row, read every 5 s (60 s on a satellite link) while the panel or the Skipper card is open and fed into the same instrument store, the header saying "Remote · calypso reported 6 s ago"; c) nothing older than a minute is shown. RLS: the skipper, `boat_members` and accepted `vessel_crew` read; only the relay writes. Re-test: Marta's phone, invited as crew, opens the Instrument Panel off the boat.
-- [x] **The Pi keeps its internet gate open across restarts when the operator says so** (built 2026-09-07). `THALASSA_PI_WAN_UPLINK=ordinary` in the Pi's `.env` declares a 4G/ordinary uplink and the diary + telemetry relays no longer stand down after a reboot until a phone reconnects; `satellite` pins the gate shut; undeclared keeps the fail-closed default. The app's own policy pushes still apply. Serene Summer's `.env` carries the line; takes effect at the next Pi restart (redeploy).
-- [x] **NMEA Gateway card and page say how the boat is being read** (built 2026-09-07): "Connected · instruments & AIS" aboard, "Away · reading her via calypso" when the cloud feeds the panel, "connect when aboard" otherwise. The socket remains the best source aboard; nothing connects to the Pi directly for instruments any more.
+Planned and written up as 104; the 103 bundle was rebuilt after each of these landed, so they ship in 103 and the matrix below covers them too.
+
+- [x] **The Pi is the primary device when she's aboard** (built 2026-09-06 evening, ships in 103). The Pi posts a live snapshot of the whole bus every 5 s to `telemetry-relay` (pairing credential, skipper's internet policy, five-minute backoff) → one row per skipper in `vessel_telemetry`. While that row is under a minute old the Skipper Device card reads "Primary: the Pi" and replaces the claim button with "calypso publishes the boat · phones stand down"; the public page's live marker prefers the Pi's snapshot when it is fresher than the phone's last track point. Ship's log track recording stays on the phone for now. **Deploy:** `supabase db push` (20260906170000), `supabase functions deploy telemetry-relay voyage-log`, then on the Pi `cd ~/thalassa-marine-weather && git pull && cd pi-cache && ./redeploy.sh`. Verify: the row appears in `vessel_telemetry`; `THALASSA_TELEMETRY_PUBLISH=0` in pi.env switches it off.
+- [x] **Crew see the Instrument Panel anywhere, no VPN** (built 2026-09-06 evening, ships in 103). Shane's order for the phone: a) the gateway socket — boat LAN, or the same LAN over Tailscale — always wins; b) the cloud row, read every 5 s (60 s on a satellite link) while the panel or the Skipper card is open and fed into the same instrument store, the header saying "Remote · calypso reported 6 s ago"; c) nothing older than a minute is shown. RLS: the skipper, `boat_members` and accepted `vessel_crew` read; only the relay writes. Re-test: Marta's phone, invited as crew, opens the Instrument Panel off the boat.
+- [x] **The Pi keeps its internet gate open across restarts when the operator says so** (built 2026-09-07). `THALASSA_PI_WAN_UPLINK=ordinary` in the Pi's `.env` declares a 4G/ordinary uplink and the diary + telemetry relays no longer stand down after a reboot until a phone reconnects; `satellite` pins the gate shut; undeclared keeps the fail-closed default. The app's own policy pushes still apply. Serene Summer's `.env` carries the line. Verified 2026-09-07: the Pi was redeployed at 07:13 and again at 12:24; each boot banner reads "WAN uplink: ordinary (declared) — internet gate stays open across restarts" and the publisher logged `sent` one second later with no phone on the LAN.
+- [x] **NMEA Gateway card and page say how the boat is being read** (built 2026-09-07, ships in 103): "Connected · instruments & AIS" aboard, "Away · reading her via calypso" when the cloud feeds the panel, "connect when aboard" otherwise. The socket remains the best source aboard; nothing connects to the Pi directly for instruments any more.
+- [x] **Ship's clock keeps the boat's time** (39c090dd, ships in 103): the zone picker defaults to "Ship's position", following the weather's boat position; the phone only while none has been seen.
+
+### Next build (104) — what is actually left
+
+- [ ] The Pi records the Ship's Log track itself (today the phone still records; the Pi only publishes the live snapshot).
 - [ ] Verify a claimed phone that leaves the boat while tracking cannot publish the skipper's position as the boat's.
-- [x] **Ship's clock keeps the boat's time** (39c090dd): the zone picker defaults to "Ship's position", following the weather's boat position; the phone only while none has been seen.
+- [ ] Realtime subscription on `vessel_telemetry` instead of the 5 s poll (the table is already in the publication).
+- [ ] Whatever the 103 matrix finds.
 
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
 
@@ -77,6 +90,7 @@ iPhone:
       anything edited offline since the last sync was lost. Fixed in
       LocalDatabase (`Directory.Library` + a same-folder guard that refuses to
       delete) for build 103 — re-run this check on the 102 → 103 upgrade.*
+- [ ] 103 first look, straight after the upgrade check: Account shows 1.2.0 (103); the Ship's Log no longer lists the on-the-hard 0.1 NM track (150 m footprint prune at load); Vessel → Skipper Device reads "Primary: the Pi" while calypso is publishing; the Glass status strip names its position source ("Boat GPS · live", or "Boat's last fix · … · tap to change").
 - [ ] Anchor Watch controlled ashore test (audible check, arm, lock screen,
       background, acknowledge) — do not rely on it as the only alarm.
 - [ ] MOB tile: "OVERBOARD" fully legible at Display Zoom → Larger Text.
@@ -97,6 +111,12 @@ Pi / NMEA (aboard):
       dashboard's own toggle text recommends verify_jwt **OFF** with auth in
       the function; all four Pi-called functions guard themselves and stay
       off. Nothing to check aboard.
+
+Cloud telemetry (off the boat, no VPN):
+
+- [ ] Tailscale OFF on the phone, away from the boat LAN: Vessel → NMEA Gateway reads "Away · reading her via calypso"; the Instrument Panel header reads "Remote · calypso reported N s ago" and wind / depth / SOG move. Tailscale back ON → the gateway socket wins and the header returns to it.
+- [ ] Marta's phone, invited as crew, opens the Instrument Panel off the boat and sees the same — no VPN, no configuration.
+- [ ] Ship's clock on "Ship's position" shows the boat's zone and stays there when the phone's zone is changed (Settings → General → Date & Time, Set Automatically off).
 
 Offline / reconnect:
 
@@ -238,3 +258,4 @@ Reconcile against what the app actually collects. Ground truth per data type:
 
 - [x] `CURRENT_PROJECT_VERSION` = 102 on every configuration (0606365b), uploaded as 1.2.0 (102). `VITE_APP_BUILD = 102` in CI vars still to set (§21).
 - [x] Bumped to 103 on every configuration, 2026-09-06 afternoon, for the matrix fixes (vessel database, boat-first weather, tides, STOP, Radio Console, Ship's Log, Skipper card, In irons / wing and wing). `VITE_APP_BUILD = 103` in CI vars still to set.
+- [ ] Uploaded as 1.2.0 (103) — tick after the upload. As packaged on 2026-09-07 the 103 bundle also carries the Pi-as-primary section (§18). Next bump is 104.
