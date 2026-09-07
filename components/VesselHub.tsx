@@ -22,7 +22,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useSettings } from '../context/SettingsContext';
-import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
+import { buildClaim, claimAgeLabel, getDeviceId, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
 import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
@@ -2004,7 +2004,19 @@ const NavStationHero: React.FC<{
                     aria-label="Open passage planning"
                     className="w-full flex items-center gap-2 px-4 py-1 active:opacity-70 transition-opacity text-left"
                 >
-                    <p className="text-[12px] font-semibold text-white/80 truncate flex-1">{state.route}</p>
+                    <p className="text-[12px] font-semibold text-white/80 truncate flex-1">
+                        {state.route}
+                        {/* Which phone holds the Ship's Log for this passage
+                            (authorship 2026-09-08) — only when it is not this one. */}
+                        {voyage?.status === 'active' &&
+                            voyage.recording_device_id &&
+                            voyage.recording_device_id !== getDeviceId() && (
+                                <span className="text-white/50" data-testid="hero-recording-elsewhere">
+                                    {' · recording on '}
+                                    {voyage.recording_device_name?.trim() || 'another device'}
+                                </span>
+                            )}
+                    </p>
                     {etaRemaining && (
                         <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 shrink-0 tabular-nums">
                             ETA {etaRemaining}

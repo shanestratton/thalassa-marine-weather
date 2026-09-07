@@ -209,7 +209,15 @@ export async function startHandoffGps(retry = false): Promise<void> {
                     const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
                     const outcome = await publishFollowedRoute(planShiplogVoyageId);
                     updateCastOffHandoff({
-                        publishState: outcome === 'linked' ? 'linked' : outcome === 'queued' ? 'queued' : 'failed',
+                        // 'held-elsewhere': another device already publishes
+                        // a route for this passage — it IS published, just
+                        // not by this phone (authorship, 2026-09-08).
+                        publishState:
+                            outcome === 'linked' || outcome === 'held-elsewhere'
+                                ? 'linked'
+                                : outcome === 'queued'
+                                  ? 'queued'
+                                  : 'failed',
                     });
                 } else {
                     // Nothing the public page could draw — an old trace
@@ -416,7 +424,12 @@ export async function retryPublicPublish(): Promise<void> {
         const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
         const outcome = await publishFollowedRoute(mirror);
         updateCastOffHandoff({
-            publishState: outcome === 'linked' ? 'linked' : outcome === 'queued' ? 'queued' : 'failed',
+            publishState:
+                outcome === 'linked' || outcome === 'held-elsewhere'
+                    ? 'linked'
+                    : outcome === 'queued'
+                      ? 'queued'
+                      : 'failed',
         });
     } catch {
         updateCastOffHandoff({ publishState: 'failed' });

@@ -2291,16 +2291,38 @@ export function adoptServerRoute(
     name: string,
     points: readonly TracePoint[],
     scope: AuthIdentityScope = getAuthIdentityScope(),
+    extras: {
+        tripId?: string;
+        legOrdinal?: number;
+        destName?: string;
+        plannedRouteId?: string;
+        passageVoyageId?: string;
+        updatedAt?: string;
+    } = {},
 ): SavedTrace | null {
     if (!id.trim() || points.length < 2) return null;
     const now = new Date().toISOString();
     const existing = loadSavedTraces(scope);
+    const prior = existing.find((t) => t.id === id);
+    // Trip chain + mirror ride along (2026-09-08): an adopted leg used to
+    // arrive bare, so the second device's follow sheet listed a passage's
+    // legs as unrelated day sails and its publish could not find the mirror.
+    const tripId = extras.tripId ?? prior?.tripId;
+    const legOrdinal = extras.legOrdinal ?? prior?.legOrdinal;
+    const destName = extras.destName ?? prior?.destName;
+    const plannedRouteId = extras.plannedRouteId ?? prior?.plannedRouteId;
+    const passageVoyageId = extras.passageVoyageId ?? prior?.passageVoyageId;
     const trace: SavedTrace = {
         id,
         name: name.trim() || 'Saved route',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: prior?.createdAt ?? now,
+        updatedAt: extras.updatedAt ?? now,
         points: points.map((p) => ({ ...p })),
+        ...(tripId ? { tripId } : {}),
+        ...(legOrdinal ? { legOrdinal } : {}),
+        ...(destName ? { destName } : {}),
+        ...(plannedRouteId ? { plannedRouteId } : {}),
+        ...(passageVoyageId ? { passageVoyageId } : {}),
     };
     const next = [trace, ...existing.filter((t) => t.id !== id)];
     try {

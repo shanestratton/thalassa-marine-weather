@@ -121,6 +121,13 @@ vi.mock('../services/routeTracer', async (importOriginal) => ({
 
 vi.mock('../services/shiplog/publishFollowedRoute', () => ({
     publishFollowedRoute: publishFollowedRouteMock,
+    // The page publishes through the detailed form (authorship 2026-09-08);
+    // these tests drive the same result strings through the plain mock.
+    publishFollowedRouteDetailed: async (planVoyageId: string, opts?: { forVoyageId?: string; replace?: boolean }) => ({
+        result: await (opts?.forVoyageId || opts?.replace
+            ? publishFollowedRouteMock(planVoyageId, opts)
+            : publishFollowedRouteMock(planVoyageId)),
+    }),
     clearFollowedRoute: clearFollowedRouteMock,
 }));
 
