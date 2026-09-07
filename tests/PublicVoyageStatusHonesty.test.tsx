@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TopNav from '../src/components/TopNav';
 import { TelemetryPanel } from '../src/components/TelemetryPanel';
 import DiarySidebar from '../src/components/DiarySidebar';
@@ -8,6 +8,20 @@ import { PUBLIC_POSITION_FRESH_MS } from '../src/publicVoyageFreshness';
 import type { VoyageLogTelemetry, VoyageLogInstruments } from '../src/voyageLogApi';
 
 const NOW = Date.parse('2026-08-04T10:00:00.000Z');
+
+beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+});
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
+
+function showBarometer() {
+    fireEvent.click(screen.getByRole('button', { name: 'Barometer' }));
+    expect(within(screen.getByRole('img', { name: 'Barometer' })).getByText('1012.0')).toBeInTheDocument();
+}
 
 function telemetry(updatedAt = new Date(NOW).toISOString()): VoyageLogTelemetry & VoyageLogInstruments {
     return {
@@ -61,7 +75,8 @@ describe('instrument sharing visibility', () => {
             'Instruments aren’t currently being shared.',
         );
         expect(screen.getByText(/open the main Thalassa app/)).toBeInTheDocument();
-        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Onboard instruments' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
         expect(screen.queryByText('Live')).not.toBeInTheDocument();
     });
 
@@ -69,13 +84,28 @@ describe('instrument sharing visibility', () => {
         const { rerender } = render(<DiarySidebar {...sidebarProps} showTelemetry={false} showSharingNotice />);
         rerender(<DiarySidebar {...sidebarProps} showTelemetry showSharingNotice={false} />);
         expect(screen.queryByRole('region', { name: 'Instrument sharing status' })).not.toBeInTheDocument();
-        expect(screen.getByText('1012.0')).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
+        expect(screen.getByRole('group', { name: 'Choose instrument' })).toBeInTheDocument();
+        showBarometer();
+    });
+
+    it('withdraws previously displayed readings immediately when sharing is revoked', () => {
+        const { rerender } = render(<DiarySidebar {...sidebarProps} showTelemetry showSharingNotice={false} />);
+        showBarometer();
+        // The retained snapshot is unchanged: consent, not data arrival, must hide it.
+        rerender(<DiarySidebar {...sidebarProps} showTelemetry={false} showSharingNotice />);
+        expect(screen.getByRole('region', { name: 'Instrument sharing status' })).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Onboard instruments' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
+        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+        expect(screen.queryByText('Live')).not.toBeInTheDocument();
     });
 
     it('keeps historical views free of present-tense sharing notices and readings', () => {
         render(<DiarySidebar {...sidebarProps} showTelemetry={false} showSharingNotice={false} />);
-        expect(screen.queryByText('Onboard instruments')).not.toBeInTheDocument();
-        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Onboard instruments' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Instrument sharing status' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
     });
 });
 
@@ -130,12 +160,17 @@ describe('public voyage status honesty', () => {
         );
         expect(screen.getByText('Live')).toBeInTheDocument();
 
+        showBarometer();
+
         rerender(
             <TelemetryPanel instruments={telemetry()} nowMs={NOW + 2 * 60_000} connectionLost lastSuccessfulAt={NOW} />,
         );
         expect(screen.getByRole('status')).toHaveTextContent('Connection lost');
         expect(screen.getByRole('status')).toHaveTextContent('Last successful update 2 min ago');
         expect(screen.queryByText('Live')).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('img', { name: 'Barometer' })).not.toBeInTheDocument();
+        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
     });
 });
 
@@ -148,8 +183,9 @@ describe('champagne card honesty — idle is told truthfully, two ways', () => {
         render(<TelemetryPanel instruments={t} nowMs={NOW} connectionLost={false} lastSuccessfulAt={NOW} />);
         expect(screen.getByText(/No way on/)).toBeInTheDocument();
         expect(screen.getByText('Live')).toBeInTheDocument();
-        expect(screen.getByText('Pressure')).toBeInTheDocument();
-        expect(screen.getByText('1012.0')).toBeInTheDocument();
+        showBarometer();
+        fireEvent.click(screen.getByText('More instruments'));
+        expect(screen.getByText('Battery voltage')).toBeVisible();
         expect(screen.getByText('12.8')).toBeInTheDocument();
         expect(screen.queryByText(/under way/i)).toBeNull();
     });
@@ -160,6 +196,29 @@ describe('champagne card honesty — idle is told truthfully, two ways', () => {
         expect(screen.getByText(/Waiting for the next report/)).toBeInTheDocument();
         expect(screen.getByText(/Last report/)).toBeInTheDocument();
         expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
+        expect(screen.queryByText('Live')).not.toBeInTheDocument();
         expect(screen.queryByText(/under way/i)).toBeNull();
+    });
+
+    it('withdraws a selected dial when the report expires without another payload', () => {
+        const t = telemetry();
+        const { rerender } = render(
+            <TelemetryPanel instruments={t} nowMs={NOW} connectionLost={false} lastSuccessfulAt={NOW} />,
+        );
+        showBarometer();
+        rerender(
+            <TelemetryPanel
+                instruments={t}
+                nowMs={NOW + PUBLIC_POSITION_FRESH_MS}
+                connectionLost={false}
+                lastSuccessfulAt={NOW}
+            />,
+        );
+        expect(screen.getByRole('status')).toHaveTextContent('Waiting for the next report');
+        expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('img', { name: 'Barometer' })).not.toBeInTheDocument();
+        expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
+        expect(screen.queryByText('Live')).not.toBeInTheDocument();
     });
 });
