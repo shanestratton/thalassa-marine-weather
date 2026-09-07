@@ -22,7 +22,10 @@ describe('the gateway surfaces say how the boat is being read', () => {
     it('the Vessel hub row reads Connected, Away via the Pi, or connect-when-aboard', () => {
         const hub = read('components/VesselHub.tsx');
         expect(hub).toContain("? 'Connected · instruments & AIS'");
-        expect(hub).toContain("`Away · reading her via ${nmeaLink.remote?.deviceLabel ?? 'the Pi'}`");
+        // Shane 2026-09-07: "calypso is not the boat name. it is the internal pi
+        // name" — the hostname never reaches a user-facing string.
+        expect(hub).toContain("'Away · reading her via the Pi'");
+        expect(hub).not.toContain('reading her via ${');
         expect(hub).toContain("'Instruments & AIS · connect when aboard'");
         expect(hub).toContain('status={gatewayStatus}');
     });
@@ -30,7 +33,8 @@ describe('the gateway surfaces say how the boat is being read', () => {
     it('the gateway page shows an Away badge instead of a fault while the cloud feeds the panel', () => {
         const page = read('components/vessel/NmeaPage.tsx');
         expect(page).toContain("const readingViaCloud = storeLink.status === 'remote';");
-        expect(page).toContain('Away · via {storeLink.remote?.deviceLabel ?? ');
+        expect(page).toContain('Away · via the Pi');
+        expect(page).not.toContain('Away · via {storeLink.remote?.deviceLabel');
         expect(page).toContain('readingViaCloud && !isConnected && !isConnecting');
     });
 });
