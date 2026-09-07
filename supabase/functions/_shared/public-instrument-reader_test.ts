@@ -7,7 +7,14 @@ function equal(actual: unknown, expected: unknown) {
 }
 const config = { owner_id: 'owner-a', boat_id: 'boat-a', public_instruments_enabled: true };
 function database(
-    options: { hiddenError?: boolean; activeError?: boolean; activeId?: string; hidden?: string[]; boat?: string } = {},
+    options: {
+        hiddenError?: boolean;
+        activeError?: boolean;
+        activeId?: string;
+        hidden?: string[];
+        boat?: string;
+        positionAgeMs?: number;
+    } = {},
 ) {
     const calls: Array<[string, string, unknown]> = [];
     const now = Date.now();
@@ -28,7 +35,13 @@ function database(
                 lon: 153,
                 heel_deg: 0.5,
                 pitch_deg: 2.75,
-                extra: { heel_at: now, pitch_at: now, position_at: now, private: 'secret' },
+                extra: {
+                    heel_at: now,
+                    pitch_at: now,
+                    position_at: now - (options.positionAgeMs ?? 0),
+                    ship_time_zone: 'Pacific/Efate',
+                    private: 'secret',
+                },
             },
             error: null,
         },
@@ -128,4 +141,52 @@ Deno.test('a mismatched boat row is never published', async () => {
         () => 'Australia/Brisbane',
     );
     equal(result.instruments, null);
+});
+
+Deno.test('both reader modes use the fresh boat position, not a Pi zone or different published fix', async () => {
+    for (const publishedPosition of [null, { lat: -22.27, lon: 166.45, updated_at: new Date().toISOString() }]) {
+        const { db } = database();
+        const lookups: number[][] = [];
+        const result = await readPublicInstruments(
+            db,
+            config,
+            'latest',
+            await readPublicInstrumentAuthority(db, 'owner-a'),
+            (lat, lon) => {
+                lookups.push([lat, lon]);
+                return 'Australia/Brisbane';
+            },
+            publishedPosition,
+        );
+        equal(lookups, [[-27, 153]]);
+        equal(result.instruments?.ship_time_zone, 'Australia/Brisbane');
+        for (const key of ['lat', 'lon', 'extra', 'position_at']) equal(key in result.instruments!, false);
+    }
+});
+
+Deno.test('a fresh report cannot revive old GPS; only the full reader can use its recent published fix', async () => {
+    const { db } = database({ positionAgeMs: 601_000 });
+    const authority = await readPublicInstrumentAuthority(db, 'owner-a');
+    const lookups: number[][] = [];
+    const lookup = (lat: number, lon: number) => {
+        lookups.push([lat, lon]);
+        return 'Pacific/Noumea';
+    };
+    const fast = await readPublicInstruments(db, config, 'latest', authority, lookup);
+    equal(fast.instruments?.ship_time_zone, null);
+    equal(lookups, []);
+    const full = await readPublicInstruments(db, config, 'latest', authority, lookup, {
+        lat: -22.27,
+        lon: 166.45,
+        updated_at: new Date().toISOString(),
+    });
+    equal(full.instruments?.ship_time_zone, 'Pacific/Noumea');
+    equal(lookups, [[-22.27, 166.45]]);
+    const staleFallback = await readPublicInstruments(db, config, 'latest', authority, lookup, {
+        lat: -22.27,
+        lon: 166.45,
+        updated_at: new Date(Date.now() - 601_000).toISOString(),
+    });
+    equal(staleFallback.instruments?.ship_time_zone, null);
+    equal(lookups, [[-22.27, 166.45]]);
 });
