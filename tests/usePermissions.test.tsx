@@ -149,14 +149,18 @@ describe('usePermissions', () => {
     it('a cache written before a permission existed still loads, with the new permission not granted', () => {
         // 103 cached permissions without can_view_instruments; 104 must not
         // throw every crew member back to "restricted" until the network answers.
-        const entry = cacheEntry('account-a', true);
-        delete (entry.permissions as Record<string, unknown>).can_view_instruments;
-        localStorage.setItem('thalassa_permissions:account-a', JSON.stringify(entry));
+        // A crew entry, not a skipper's — a skipper holds every permission by role.
+        const permissions: Record<string, unknown> = { ...noPermissions, can_view_stores: true };
+        delete permissions.can_view_instruments;
+        localStorage.setItem(
+            'thalassa_permissions:account-a',
+            JSON.stringify({ version: 1, userId: 'account-a', role: 'deckhand', permissions }),
+        );
         mocks.getUser.mockReturnValue(new Promise(() => undefined));
 
         const { result } = renderHook(() => usePermissions());
         expect(result.current.loaded).toBe(true);
-        expect(result.current.canEditStores).toBe(true);
+        expect(checkPermission('can_view_stores')).toBe(true);
         expect(checkPermission('can_view_instruments')).toBe(false);
     });
 
