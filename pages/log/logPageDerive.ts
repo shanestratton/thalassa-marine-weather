@@ -6,14 +6,47 @@
 
 import type { ShipLogEntry } from '../../types';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
-import type { CollapsedRoute } from '../../services/shiplog/collapseReversedRoutes';
-import { orderSavedRouteRows } from '../../services/savedRouteOrder';
+import {
+    collapseReversedRoutes,
+    type CollapsedRoute,
+    type ReversibleRoute,
+} from '../../services/shiplog/collapseReversedRoutes';
+import { orderSavedRouteRows, type SavedRouteOrderable } from '../../services/savedRouteOrder';
 import {
     localTraceLinkByVoyageId,
     savedTraceFollowBlockReason,
     tripIdentityByTraceId,
+    type TraceTripIdentity,
 } from '../../services/traceDirectUseGate';
-import { NO_ENTRIES, type FollowPromptOrderedRow, type FollowPromptRow, type FollowSheetChoice } from './logPageTypes';
+import {
+    groupTracesByTrip,
+    legBadgeOrdinal,
+    loadSavedTraces,
+    stripLegBadge,
+    type SavedTrace,
+} from '../../services/routeTracer';
+import {
+    NO_ENTRIES,
+    type FollowPromptOrderedRow,
+    type FollowPromptRow,
+    type FollowSheetChoice,
+    type MissingTripLeg,
+} from './logPageTypes';
+
+/** What the sheet reads off the trace store — injectable so the pure parts are testable. */
+export interface FollowSheetDeps {
+    tripByTraceId: () => ReadonlyMap<string, TraceTripIdentity>;
+    traceLinkByVoyageId: () => ReadonlyMap<string, string>;
+    blockReason: (savedRouteId: string) => string | null;
+    traces: () => readonly SavedTrace[];
+}
+
+const liveDeps: FollowSheetDeps = {
+    tripByTraceId: tripIdentityByTraceId,
+    traceLinkByVoyageId: localTraceLinkByVoyageId,
+    blockReason: savedTraceFollowBlockReason,
+    traces: () => loadSavedTraces(),
+};
 
 /**
  * The Log is the factual record of where the boat has actually been.
@@ -78,14 +111,15 @@ export function derivePlannedRouteLinkIds(entries: readonly ShipLogEntry[]): Map
 export function buildFollowSheetChoices(
     plannedChoices: readonly CollapsedRoute<VoyageSummary>[],
     plannedRouteLinkIds: ReadonlyMap<string, string>,
+    deps: FollowSheetDeps = liveDeps,
 ): FollowSheetChoice[] {
-    const traceLinks = localTraceLinkByVoyageId();
+    const traceLinks = deps.traceLinkByVoyageId();
     /* The sheet's rows are VoyageSummary, which carries no trip or leg
        identity — which is why this list was flat while the Plan page showed
        the same routes grouped. The trace store knows, and the row already
        resolves to a trace id, so the grouping costs one lookup and no
        guesswork (Shane 2026-08-30). */
-    const trips = tripIdentityByTraceId();
+    const trips = deps.tripByTraceId();
     return plannedChoices.map((choice) => {
         const vid = choice.summary.voyageId;
         const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
@@ -93,10 +127,93 @@ export function buildFollowSheetChoices(
         return {
             ...choice,
             savedRouteId: sid ?? null,
-            blockReason: sid ? savedTraceFollowBlockReason(sid) : null,
+            blockReason: sid ? deps.blockReason(sid) : null,
             ...(trip ?? {}),
         };
     });
+}
+
+/** The planned routes that are legs of a trip, by the same trace link the sheet resolves. */
+function tripLegVoyageIds(
+    summaries: readonly { voyageId: string }[],
+    plannedRouteLinkIds: ReadonlyMap<string, string>,
+    deps: FollowSheetDeps,
+): Set<string> {
+    const traceLinks = deps.traceLinkByVoyageId();
+    const trips = deps.tripByTraceId();
+    const out = new Set<string>();
+    for (const s of summaries) {
+        const sid = plannedRouteLinkIds.get(s.voyageId) ?? traceLinks.get(s.voyageId);
+        if (sid && trips.has(sid)) out.add(s.voyageId);
+    }
+    return out;
+}
+
+/**
+ * Fold there-and-back pairs into one choice — but never a leg of a trip.
+ *
+ * A passage's legs chain end-to-start, so a homeward leg is the exact reverse
+ * of an outbound one, and the fold that was written for day sails ate the
+ * last leg of Newport → Whitsundays under its own return (Shane 2026-09-08:
+ * "it is not showing me the last leg?"). Legs stay where they are, unfolded;
+ * everything else folds as before. Input order is preserved.
+ */
+export function collapseOutsideTrips<T extends ReversibleRoute>(
+    summaries: readonly T[],
+    plannedRouteLinkIds: ReadonlyMap<string, string>,
+    fix: { lat: number; lon: number } | null,
+    deps: FollowSheetDeps = liveDeps,
+): CollapsedRoute<T>[] {
+    const legIds = tripLegVoyageIds(summaries, plannedRouteLinkIds, deps);
+    const folded = new Map(
+        collapseReversedRoutes(
+            summaries.filter((s) => !legIds.has(s.voyageId)),
+            fix,
+        ).map((c) => [c.summary.voyageId, c] as const),
+    );
+    const out: CollapsedRoute<T>[] = [];
+    for (const s of summaries) {
+        if (legIds.has(s.voyageId)) {
+            out.push({ summary: s, reversible: false });
+            continue;
+        }
+        const survivor = folded.get(s.voyageId);
+        if (survivor) out.push(survivor);
+    }
+    return out;
+}
+
+/**
+ * Legs of a trip the sheet shows that have no planned-route row to offer —
+ * saved in Route Tracer, never mirrored into the log. Named in ordinal place
+ * so the passage reads whole, with the fix one line away.
+ */
+export function missingTripLegs(
+    choices: readonly FollowSheetChoice[],
+    deps: FollowSheetDeps = liveDeps,
+): MissingTripLeg[] {
+    const tripIds = new Set<string>();
+    const present = new Set<string>();
+    for (const c of choices) {
+        if (c.tripId) tripIds.add(c.tripId);
+        if (c.savedRouteId) present.add(c.savedRouteId);
+    }
+    if (tripIds.size === 0) return [];
+    const out: MissingTripLeg[] = [];
+    for (const group of groupTracesByTrip(deps.traces())) {
+        if (!tripIds.has(group.key)) continue;
+        group.legs.forEach((leg, index) => {
+            if (present.has(leg.id)) return;
+            out.push({
+                tripId: group.key,
+                legOrdinal: leg.legOrdinal ?? legBadgeOrdinal(leg.name) ?? index + 1,
+                name: stripLegBadge(leg.name),
+                savedRouteId: leg.id,
+                stamp: Date.parse(leg.updatedAt ?? leg.createdAt) || 0,
+            });
+        });
+    }
+    return out;
 }
 
 /**
@@ -108,24 +225,47 @@ export function buildFollowSheetChoices(
  * has no name resolved were already demoted to standalone upstream, so a
  * dog-leg arrow can never sit under nothing.
  */
-export function buildFollowPromptRows(followPromptChoices: readonly FollowSheetChoice[]): FollowPromptRow[] {
-    const ordered = orderSavedRouteRows<FollowPromptOrderedRow>(
-        followPromptChoices.map((choice) => ({
-            choice,
-            kind: choice.tripName ? ('leg' as const) : ('standalone' as const),
-            groupKey: choice.tripId ?? choice.summary.voyageId,
-            legOrdinal: choice.legOrdinal,
-            stamp: Date.parse(choice.summary.startedAt) || 0,
-        })),
-    );
+export function buildFollowPromptRows(
+    followPromptChoices: readonly FollowSheetChoice[],
+    missing: readonly MissingTripLeg[] = [],
+): FollowPromptRow[] {
+    type ChoiceRow = FollowPromptOrderedRow & { missing?: undefined };
+    type MissingRow = SavedRouteOrderable & { missing: MissingTripLeg; choice?: undefined };
+    const tripNameByGroup = new Map<string, string>();
+    for (const choice of followPromptChoices) {
+        if (choice.tripId && choice.tripName) tripNameByGroup.set(choice.tripId, choice.tripName);
+    }
+    const ordered = orderSavedRouteRows<ChoiceRow | MissingRow>([
+        ...followPromptChoices.map(
+            (choice): ChoiceRow => ({
+                choice,
+                kind: choice.tripName ? ('leg' as const) : ('standalone' as const),
+                groupKey: choice.tripId ?? choice.summary.voyageId,
+                legOrdinal: choice.legOrdinal,
+                stamp: Date.parse(choice.summary.startedAt) || 0,
+            }),
+        ),
+        ...missing.map(
+            (leg): MissingRow => ({
+                missing: leg,
+                kind: 'leg' as const,
+                groupKey: leg.tripId,
+                legOrdinal: leg.legOrdinal,
+                stamp: leg.stamp,
+            }),
+        ),
+    ]);
     const rows: FollowPromptRow[] = [];
     let openGroup: string | null = null;
     for (const row of ordered) {
         if (row.kind === 'leg' && row.groupKey !== openGroup) {
-            rows.push({ type: 'passage', key: `passage:${row.groupKey}`, name: row.choice.tripName as string });
+            const name = row.missing ? tripNameByGroup.get(row.groupKey) : row.choice.tripName;
+            rows.push({ type: 'passage', key: `passage:${row.groupKey}`, name: name ?? row.missing?.name ?? '' });
         }
         openGroup = row.groupKey;
-        rows.push({ type: 'choice', key: row.choice.summary.voyageId, row });
+        if (row.missing)
+            rows.push({ type: 'missing-leg', key: `missing:${row.missing.savedRouteId}`, leg: row.missing });
+        else rows.push({ type: 'choice', key: row.choice.summary.voyageId, row });
     }
     return rows;
 }
