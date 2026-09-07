@@ -1,8 +1,13 @@
 /**
- * Where the weather is FOR — Shane, 2026-09-06, after driving to his
- * daughter's with the forecast following his phone: "boat GPS followed by
- * u-blox GPS and finally phone gps", and when she goes quiet, "hold her last
- * fix. with a message of course."
+ * Where the weather is FOR.
+ *
+ * 2026-09-06 (Shane, after driving to his daughter's with the forecast
+ * following his phone): "boat GPS followed by u-blox GPS and finally phone
+ * gps", and when she goes quiet, "hold her last fix. with a message of course."
+ * 2026-09-08: "the weather should always be the punters location, BUT in the
+ * saved locations, there should be one that has the vessel name as a special
+ * saved location." So the PHONE is the default and the boat's order applies
+ * when her row is picked — and nothing asks any more.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,9 +34,11 @@ import {
     describeWeatherFix,
     formatFixAge,
     getHeldChoice,
+    getWeatherFollowTarget,
     heldBoatFix,
     resolveWeatherPosition,
     setHeldChoice,
+    setWeatherFollowTarget,
 } from '../services/weatherPosition';
 
 const T0 = Date.UTC(2026, 8, 6, 0, 30, 0); // 10:30 AEST, the boat on the hard at Scarborough
@@ -51,6 +58,51 @@ describe('where the weather is for', () => {
         chain.piFix.mockImplementation(async () => null);
         chain.cloudFix.mockImplementation(async () => null);
         __resetWeatherPositionForTests();
+        // Most of this suite is about the BOAT's order — the skipper has picked
+        // her row. The default is tested on its own below.
+        setWeatherFollowTarget('boat');
+    });
+
+    describe('the default is the punter — the phone (Shane 2026-09-08)', () => {
+        beforeEach(() => localStorage.clear());
+
+        it('a fresh device follows the phone', () => {
+            expect(getWeatherFollowTarget()).toBe('phone');
+        });
+
+        it('the phone answers even with the boat reporting — her receivers are not consulted', async () => {
+            chain.busFix.mockImplementation(() => bus());
+            const phone = phoneAt(DAUGHTERS.lat, DAUGHTERS.lon);
+            const r = await resolveWeatherPosition(phone, { now: T0 });
+            expect(r.fix).toMatchObject({ kind: 'phone', lat: DAUGHTERS.lat });
+            expect(r.ask).toBe(false);
+            expect(chain.busFix).not.toHaveBeenCalled();
+            expect(chain.piFix).not.toHaveBeenCalled();
+        });
+
+        it('a phone that cannot answer falls back to the boat — live, then her held fix', async () => {
+            chain.busFix.mockImplementation(() => bus());
+            const live = await resolveWeatherPosition(noPhone(), { now: T0 });
+            expect(live.fix?.kind).toBe('bus');
+            chain.busFix.mockImplementation(() => null);
+            const held = await resolveWeatherPosition(noPhone(), { now: T0 + 3600_000 });
+            expect(held.fix?.kind).toBe('held');
+            expect(held.held?.timestamp).toBe(T0);
+            expect(held.ask).toBe(false);
+        });
+
+        it('picking the boat is remembered per account; picking the phone puts it back', () => {
+            setWeatherFollowTarget('boat');
+            expect(getWeatherFollowTarget()).toBe('boat');
+            setWeatherFollowTarget('phone');
+            expect(getWeatherFollowTarget()).toBe('phone');
+        });
+
+        it('a caller may name the target outright', async () => {
+            chain.busFix.mockImplementation(() => bus());
+            const r = await resolveWeatherPosition(phoneAt(DAUGHTERS.lat, DAUGHTERS.lon), { now: T0, target: 'boat' });
+            expect(r.fix?.kind).toBe('bus');
+        });
     });
 
     it('the bus first — and the phone is not even asked', async () => {
@@ -149,15 +201,16 @@ describe('where the weather is for', () => {
             expect(describeWeatherFix(r.fix, later)).toBe("Boat's last fix · 3h ago");
         });
 
-        it('still holds her, but asks once the phone is clearly somewhere else', async () => {
-            const r = await resolveWeatherPosition(phoneAt(DAUGHTERS.lat, DAUGHTERS.lon, later), { now: later });
+        it('still holds her when the phone is clearly somewhere else — and does not ask (the choice is her row)', async () => {
+            const phone = phoneAt(DAUGHTERS.lat, DAUGHTERS.lon, later);
+            const r = await resolveWeatherPosition(phone, { now: later });
             expect(r.fix?.kind).toBe('held');
             expect(r.held?.timestamp).toBe(T0);
-            expect(r.phone).toMatchObject({ kind: 'phone', lat: DAUGHTERS.lat });
-            expect(r.ask).toBe(true);
+            expect(r.ask).toBe(false);
+            expect(phone).not.toHaveBeenCalled();
         });
 
-        it('the asking distance is a couple of miles, not a car park', () => {
+        it('the asking distance survives for the dialog copy, a couple of miles not a car park', () => {
             expect(ASK_DISTANCE_NM).toBe(2);
         });
 
@@ -171,9 +224,8 @@ describe('where the weather is for', () => {
             expect(phone).not.toHaveBeenCalled();
         });
 
-        it('"follow my phone" follows the phone, and falls back to her fix if the phone cannot answer', async () => {
-            const held = heldBoatFix()!;
-            setHeldChoice(held, 'phone');
+        it('"follow my phone" (the dialog answer sets the target) follows the phone, and falls back to her fix if the phone cannot answer', async () => {
+            setWeatherFollowTarget('phone');
             const r = await resolveWeatherPosition(phoneAt(DAUGHTERS.lat, DAUGHTERS.lon, later), { now: later });
             expect(r.fix).toMatchObject({ kind: 'phone', lat: DAUGHTERS.lat });
             expect(r.ask).toBe(false);
@@ -196,13 +248,13 @@ describe('where the weather is for', () => {
             const live = await resolveWeatherPosition(noPhone(), { now: later });
             expect(live.fix?.kind).toBe('bus');
             expect(getHeldChoice(heldBoatFix()!)).toBeNull();
-            // Quiet again, a new fix on record → the question is fresh.
+            // Quiet again, a new fix on record → she is held at the newer fix, no question.
             chain.busFix.mockImplementation(() => null);
             const again = await resolveWeatherPosition(phoneAt(DAUGHTERS.lat, DAUGHTERS.lon, later + 1), {
                 now: later + 1,
             });
             expect(again.held?.timestamp).toBe(later);
-            expect(again.ask).toBe(true);
+            expect(again.ask).toBe(false);
         });
     });
 

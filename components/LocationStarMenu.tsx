@@ -42,6 +42,30 @@ import { triggerHaptic } from '../utils/system';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
 import { GpsService } from '../services/GpsService';
 import { toast } from './Toast';
+import {
+    boatOrHeldFix,
+    getWeatherFollowTarget,
+    setWeatherFollowTarget,
+    type WeatherFollowTarget,
+} from '../services/weatherPosition';
+
+/** The boat, drawn as the ℹ panel's GPS glyph draws her. */
+const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+    >
+        <path d="M11 4v11" />
+        <path d="M11 5l6 9h-6z" fill="currentColor" fillOpacity={0.35} />
+        <path d="M3 17h17l-2.5 3.5H5.5z" />
+    </svg>
+);
 
 const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 8;
@@ -65,6 +89,19 @@ export const LocationStarMenu: React.FC = () => {
     );
 
     const inGpsMode = settings.defaultLocation === 'Current Location';
+    // What 'Current Location' follows — the phone by default, the boat when her
+    // row below is picked (Shane 2026-09-08: "the weather should always be the
+    // punters location, BUT in the saved locations, there should be one that
+    // has the vessel name as a special saved location"). Read when the menu
+    // opens so the tick sits on the right row.
+    const [followTarget, setFollowTargetState] = useState<WeatherFollowTarget>(() => getWeatherFollowTarget());
+    const [boatNotice, setBoatNotice] = useState<string | null>(null);
+    useEffect(() => {
+        if (!open) return;
+        setFollowTargetState(getWeatherFollowTarget());
+        setBoatNotice(null);
+    }, [open]);
+    const vesselName = settings.vessel?.name?.trim() ?? '';
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
     const currentSaved = isRealCurrent && saved.some((s) => s.name.toLowerCase() === currentName.toLowerCase());
@@ -113,10 +150,32 @@ export const LocationStarMenu: React.FC = () => {
         requestAnimationFrame(() => buttonRef.current?.focus({ preventScroll: true }));
     };
 
+    /** The vessel's row: the weather goes to her and stays with her. */
+    const goToBoat = () => {
+        triggerHaptic('light');
+        setWeatherFollowTarget('boat');
+        setFollowTargetState('boat');
+        void boatOrHeldFix().then((fix) => {
+            if (!fix) {
+                // Stay open and say so — no toast for a two-line answer. The
+                // follower moves the weather to her the moment she reports.
+                setBoatNotice(
+                    `No position from ${vesselName} yet. The weather will move to her when she reports — through the Pi or the gateway.`,
+                );
+                return;
+            }
+            closeAndRestore();
+            void selectLocation('Current Location', { lat: fix.lat, lon: fix.lon });
+        });
+    };
+
     const goTo = (loc: SavedLocation | 'current') => {
         triggerHaptic('light');
         closeAndRestore();
         if (loc === 'current') {
+            // Back to the punter: 'Current Location' follows the phone again.
+            setWeatherFollowTarget('phone');
+            setFollowTargetState('phone');
             void GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 12 }).then((pos) => {
                 if (!pos) {
                     toast.error('Location unavailable. Check Location access or choose a saved place.');
@@ -227,7 +286,39 @@ export const LocationStarMenu: React.FC = () => {
                                 </button>
                             )}
 
-                            {/* Current Location — back to live GPS-follow */}
+                            {/* The boat — a special saved location named after her
+                                (2026-09-08). Moves the weather to her position — her
+                                receivers, the Pi, her cloud row, or her last fix — and
+                                keeps it there until Current Location is picked again. */}
+                            {vesselName && (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={goToBoat}
+                                    data-testid="location-star-vessel"
+                                    className={`${rowBase} w-full`}
+                                >
+                                    <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                                    <span className="flex-1 font-semibold text-emerald-100 truncate">{vesselName}</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">
+                                        Boat
+                                    </span>
+                                    {inGpsMode && followTarget === 'boat' && (
+                                        <CheckIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                                    )}
+                                </button>
+                            )}
+                            {boatNotice && (
+                                <div
+                                    role="status"
+                                    data-testid="location-star-boat-notice"
+                                    className="px-3 pb-2 text-[11px] leading-snug text-amber-200/90"
+                                >
+                                    {boatNotice}
+                                </div>
+                            )}
+
+                            {/* Current Location — back to live GPS-follow of the phone */}
                             <button
                                 type="button"
                                 role="menuitem"
@@ -236,7 +327,9 @@ export const LocationStarMenu: React.FC = () => {
                             >
                                 <CrosshairIcon className="w-4 h-4 text-sky-400 shrink-0" />
                                 <span className="flex-1 font-medium text-white truncate">Current Location</span>
-                                {inGpsMode && <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />}
+                                {inGpsMode && followTarget === 'phone' && (
+                                    <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
+                                )}
                             </button>
 
                             {otherSaved.length > 0 && <div role="separator" className="my-1 mx-3 h-px bg-white/10" />}

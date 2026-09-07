@@ -1,25 +1,27 @@
 /**
  * weatherPosition — where the weather is FOR.
  *
- * Shane, 2026-09-06, after driving to his daughter's: "the weather location
- * came with me … boat GPS followed by u-blox GPS and finally phone gps", and
- * for when the boat goes quiet: "hold her last fix. with a message of course."
+ * Shane, 2026-09-08: "the weather should always be the punters location, BUT
+ * in the saved locations, there should be one that has the vessel name as a
+ * special saved location." So 'Current Location' FOLLOWS one of two things:
  *
- * The Glass and the Obs weather layers used to follow the PHONE — the GPS
- * follower in WeatherContext, the boot path in useAppController and the
- * orchestrator's "Current Location" all went straight to the phone. A boat
- * app's weather is for the boat, so the order is now:
+ *   • the PHONE — the default. The punter's weather is where the punter is.
+ *     The boat's receivers are only a fallback for a phone that cannot answer
+ *     (no permission, no fix yet).
+ *   • the BOAT — when the skipper picks her row (named after the vessel) in
+ *     the saved-locations menu. Then the order is the boat's own: the bus (a
+ *     gateway socket, or the Pi over the boat LAN), the Pi direct (its Signal K
+ *     already ranks the bus above its u-blox stick), the Pi's cloud row (the
+ *     boat seen from a distance — good for a forecast, nothing that steers),
+ *     and failing all of those her LAST fix this device saw, held with its age
+ *     on screen. The phone only when no boat has ever answered here.
  *
- *   1. the boat, through services/boatPositionChain — the bus (a gateway
- *      socket, or the Pi over the boat LAN), then the Pi direct, whose Signal K
- *      already ranks the bus above its u-blox USB stick, then the Pi's cloud
- *      row — the boat seen from a distance, good for a forecast and nothing
- *      that steers (Shane 2026-09-07: "a: vpn, b: supabase, c: dont know");
- *   2. failing that, the boat's LAST fix this device saw, held with its age on
- *      screen; when the phone is clearly somewhere else the skipper is asked
- *      once, per hold, whether they meant the boat or the phone;
- *   3. the phone, only when no boat has ever answered on this device, or when
- *      the skipper chose it for this hold.
+ * History: 2026-09-06 made the boat the default after the forecast drove to
+ * Shane's daughter's with his phone ("hold her last fix. with a message of
+ * course"); 2026-09-08 turned that into a choice the skipper makes in the
+ * menu instead of a question the app asks. Nothing here asks any more — the
+ * boat-or-phone dialog survives only as a way to switch from the ℹ panel
+ * while a held fix is on screen, and its answer sets the same follow target.
  *
  * The phone is never read here. Whether a phone fix is acceptable is the
  * caller's decision (the same doctrine as boatFix()), so the caller passes a
@@ -35,6 +37,8 @@ const log = createLogger('WeatherPosition');
 
 export type WeatherFixKind = 'bus' | 'pi' | 'cloud' | 'held' | 'phone';
 export type HeldChoice = 'boat' | 'phone';
+/** What 'Current Location' follows: the punter's phone (default) or the boat. */
+export type WeatherFollowTarget = 'phone' | 'boat';
 
 export interface WeatherFix {
     lat: number;
@@ -80,6 +84,9 @@ export const REMEMBER_MIN_MOVE_NM = 0.02;
 
 const LAST_BOAT_FIX_KEY = 'thalassa_weather_last_boat_fix';
 const HELD_CHOICE_KEY = 'thalassa_weather_held_choice';
+const FOLLOW_TARGET_KEY = 'thalassa_weather_follow_target';
+/** Fired on this window when the follow target changes; detail: { target }. */
+export const WEATHER_FOLLOW_TARGET_EVENT = 'thalassa:weather-follow-target-changed';
 
 interface StoredBoatFix {
     lat: number;
@@ -281,41 +288,59 @@ async function phoneFix(provider: PhoneFixProvider): Promise<WeatherFix | null> 
     }
 }
 
+/** The follow target for this account on this device. The phone until the skipper picks the boat. */
+export function getWeatherFollowTarget(): WeatherFollowTarget {
+    try {
+        return storage()?.getItem(authScopedStorageKey(FOLLOW_TARGET_KEY)) === 'boat' ? 'boat' : 'phone';
+    } catch {
+        return 'phone';
+    }
+}
+
+export function setWeatherFollowTarget(target: WeatherFollowTarget): void {
+    try {
+        storage()?.setItem(authScopedStorageKey(FOLLOW_TARGET_KEY), target);
+    } catch {
+        /* storage unavailable — the in-session follower still honours the next tick's read */
+    }
+    log.info(`Weather follows the ${target}`);
+    try {
+        window.dispatchEvent(new CustomEvent(WEATHER_FOLLOW_TARGET_EVENT, { detail: { target } }));
+    } catch {
+        /* non-DOM host */
+    }
+}
+
 /**
- * Where the weather should be for, and whether to ask.
+ * Where the weather should be for. Never asks (`ask` is always false since
+ * 2026-09-08 — the choice is the vessel's row in the saved-locations menu).
  *
- * `mayAsk: false` is for boot and fetch paths that have no UI to ask with:
- * they hold the boat without consulting the phone, and leave the question to
- * the follower's next tick.
+ * `mayAsk` is kept on the options for the boot and fetch callers that still
+ * pass it; it no longer changes anything. `target` overrides the stored one
+ * (tests, and a caller that already knows what the skipper just picked).
  */
 export async function resolveWeatherPosition(
     phone: PhoneFixProvider,
-    options: { now?: number; mayAsk?: boolean } = {},
+    options: { now?: number; mayAsk?: boolean; target?: WeatherFollowTarget } = {},
 ): Promise<WeatherPositionResolution> {
     const now = options.now ?? Date.now();
-    const mayAsk = options.mayAsk ?? true;
+    const target = options.target ?? getWeatherFollowTarget();
 
+    if (target === 'phone') {
+        // The punter's weather is where the punter is. Her receivers are only
+        // a fallback for a phone that cannot answer.
+        const fix = await phoneFix(phone);
+        if (fix) return { fix, held: null, phone: fix, ask: false };
+        const boat = await boatOrHeldFix(now);
+        return { fix: boat, held: boat?.kind === 'held' ? boat : null, phone: null, ask: false };
+    }
+
+    // The skipper picked the boat: her receivers, her cloud row, then her held
+    // last fix with its age. The phone only when no boat has ever answered here.
     const boat = await boatOrHeldFix(now);
-    if (boat && boat.kind !== 'held') return { fix: boat, held: null, phone: null, ask: false };
-
-    if (!boat) {
-        const fix = await phoneFix(phone);
-        return { fix, held: null, phone: fix, ask: false };
-    }
-
-    const held = boat;
-    const choice = getHeldChoice(held);
-    if (choice === 'boat') return { fix: held, held, phone: null, ask: false };
-    if (choice === 'phone') {
-        const fix = await phoneFix(phone);
-        return { fix: fix ?? held, held, phone: fix, ask: false };
-    }
-
-    // No choice yet: hold the boat, and ask only when the phone is clearly elsewhere.
-    const phoneNow = mayAsk ? await phoneFix(phone) : null;
-    const apart = phoneNow ? haversineNM(held.lat, held.lon, phoneNow.lat, phoneNow.lon) >= ASK_DISTANCE_NM : false;
-    if (apart) log.info(`Boat quiet since ${new Date(held.timestamp).toISOString()}; phone is elsewhere — asking`);
-    return { fix: held, held, phone: phoneNow, ask: apart };
+    if (boat) return { fix: boat, held: boat.kind === 'held' ? boat : null, phone: null, ask: false };
+    const fix = await phoneFix(phone);
+    return { fix, held: null, phone: fix, ask: false };
 }
 
 /** 'just now', '5m ago', '3h ago', '2d ago' — the same words the forecast-age pill uses. */
