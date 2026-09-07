@@ -185,8 +185,13 @@ describe('champagne card honesty — idle is told truthfully, two ways', () => {
         expect(screen.getByText('Live')).toBeInTheDocument();
         showBarometer();
         fireEvent.click(screen.getByText('More instruments'));
-        expect(screen.getByText('Battery voltage')).toBeVisible();
-        expect(screen.getByText('12.8')).toBeInTheDocument();
+        expect(screen.queryByText('Battery voltage')).not.toBeInTheDocument();
+        expect(screen.queryByText('True wind direction')).not.toBeInTheDocument();
+        for (const label of ['Port fuel', 'Starboard fuel']) {
+            const card = screen.getByText(label).parentElement!;
+            expect(within(card).getByText('Not connected')).toBeInTheDocument();
+            expect(within(card).queryByText('%')).not.toBeInTheDocument();
+        }
         expect(screen.queryByText(/under way/i)).toBeNull();
     });
 

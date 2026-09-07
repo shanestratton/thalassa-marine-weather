@@ -147,10 +147,12 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                             More instruments
                         </summary>
                         <dl className="mt-1 grid grid-cols-2 gap-2">
+                            {/* Fuel senders are not connected to this feed yet.
+                                Never turn their absence into an empty/full tank. */}
+                            <Reading label="Port fuel" value={null} unit="%" status="Not connected" />
+                            <Reading label="Starboard fuel" value={null} unit="%" status="Not connected" />
                             <Reading label="Through water" value={t.stw} unit="kt" />
-                            <Reading label="Battery voltage" value={t.voltage} unit="V" />
                             <Reading label="Course over ground" value={t.cog} unit="°" digits={0} />
-                            <Reading label="True wind direction" value={t.twd} unit="°" digits={0} />
                             <Reading label="True wind angle" value={t.twa} unit="°" digits={0} />
                             <Reading label="Heel" value={t.heel} unit="°" />
                             <Reading label="Pitch" value={t.pitch} unit="°" />
