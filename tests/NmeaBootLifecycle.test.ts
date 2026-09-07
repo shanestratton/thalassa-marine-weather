@@ -16,17 +16,29 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const bootstrap = readFileSync(resolve(process.cwd(), 'hooks/useAppBootstrap.ts'), 'utf8');
+const policy = readFileSync(resolve(process.cwd(), 'services/InstrumentSourcePolicy.ts'), 'utf8');
 const listener = readFileSync(resolve(process.cwd(), 'services/NmeaListenerService.ts'), 'utf8');
 const panel = readFileSync(resolve(process.cwd(), 'components/nmea/TheGlassPage.tsx'), 'utf8');
 
-/** The boot effect that restores the saved gateway. */
+/**
+ * The boot path that restores the saved gateway. Since 2026-09-07 it lives in
+ * InstrumentSourcePolicy.boot() (Shane: "no more signal k or ydwg-02 on the
+ * actual phone unless there is no pi available") — the hook only delegates.
+ */
 const bootBlock = (() => {
-    const start = bootstrap.indexOf("import('../services/NmeaListenerService')");
-    expect(start, 'NMEA boot effect not found').toBeGreaterThan(-1);
-    return bootstrap.slice(start, start + 900);
+    const start = policy.indexOf('boot(now = Date.now()): InstrumentBoot {');
+    expect(start, 'instrument boot not found').toBeGreaterThan(-1);
+    const end = policy.indexOf("this.booted = 'direct';", start);
+    expect(end, 'direct boot path not found').toBeGreaterThan(start);
+    return policy.slice(start, end);
 })();
 
 describe('NMEA boot lifecycle', () => {
+    it('is what useAppBootstrap runs — the hook delegates, it does not decide', () => {
+        expect(bootstrap).toContain('InstrumentSourcePolicy.boot()');
+        expect(bootstrap).not.toContain('NmeaListenerService.autoStart()');
+    });
+
     it('starts the store as well as the socket', () => {
         expect(bootBlock).toMatch(/NmeaStore\.start\(\)/);
         expect(bootBlock).toMatch(/NmeaListenerService\.autoStart\(\)/);
@@ -46,7 +58,14 @@ describe('NMEA boot lifecycle', () => {
     it('does neither when no gateway was ever configured', () => {
         // A punter with no gateway must not have AIS, the GPS bridge and a
         // 1 Hz watchdog started on their behalf.
-        expect(bootBlock).toMatch(/if\s*\(!NmeaListenerService\.getSavedConfig\(\)\)\s*return;/);
+        expect(bootBlock).toMatch(
+            /const saved = NmeaListenerService\.getSavedConfig\(\);\s*if \(!saved\) \{\s*this\.booted = 'idle';/,
+        );
+        // …and with a Pi paired the socket is not opened at all.
+        expect(bootBlock).toMatch(
+            /if \(getPairing\(\)\) \{[\s\S]*PiTelemetryService\.start\(\);[\s\S]*return this\.booted;/,
+        );
+        expect(bootBlock.slice(0, bootBlock.indexOf('const saved'))).not.toMatch(/autoStart/);
     });
 });
 

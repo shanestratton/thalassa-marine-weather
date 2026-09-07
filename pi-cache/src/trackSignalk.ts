@@ -43,7 +43,7 @@ const KELVIN_OFFSET = 273.15;
  * Caught by testing against Calypso's real document rather than a handwritten
  * one (2026-08-30).
  */
-function valueAt(doc: unknown, path: string): unknown {
+export function valueAt(doc: unknown, path: string): unknown {
     let cur: unknown = doc;
     for (const key of path.split('.')) {
         if (typeof cur !== 'object' || cur === null) return undefined;
@@ -60,15 +60,15 @@ function valueAt(doc: unknown, path: string): unknown {
     return cur;
 }
 
-function num(doc: unknown, path: string): number | null {
+export function num(doc: unknown, path: string): number | null {
     const v = valueAt(doc, path);
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-const knots = (msValue: number | null): number | null => (msValue === null ? null : msValue * MS_TO_KNOTS);
+export const knots = (msValue: number | null): number | null => (msValue === null ? null : msValue * MS_TO_KNOTS);
 
 /** Radians to a compass bearing, normalised so nothing downstream sees -3°. */
-function degrees(rad: number | null): number | null {
+export function degrees(rad: number | null): number | null {
     if (rad === null) return null;
     return (((rad * RAD_TO_DEG) % 360) + 360) % 360;
 }

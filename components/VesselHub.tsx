@@ -184,10 +184,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         nmeaLink.status === 'connected'
             ? 'Connected · instruments & AIS'
             : nmeaLink.status === 'remote'
-              ? 'Away · reading her via the Pi'
+              ? nmeaLink.remote?.via === 'lan'
+                  ? 'Aboard · reading her via the Pi'
+                  : 'Away · reading her via the Pi'
               : 'Instruments & AIS · connect when aboard';
     const gatewayStatusColor =
-        nmeaLink.status === 'connected' ? '#6ee7b7' : nmeaLink.status === 'remote' ? '#7dd3fc' : '#94a3b8';
+        nmeaLink.status === 'connected' || nmeaLink.remote?.via === 'lan'
+            ? '#6ee7b7'
+            : nmeaLink.status === 'remote'
+              ? '#7dd3fc'
+              : '#94a3b8';
     const vesselNameSet = !!rawVesselName && rawVesselName.trim().length > 0;
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
     const [position, setPosition] = useState<GpsPosition | null>(null);

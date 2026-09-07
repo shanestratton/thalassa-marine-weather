@@ -5,6 +5,8 @@
  * The "Instrument Panel" CTA navigates to the full multimeter dashboard.
  */
 import React, { useState, useCallback, useEffect } from 'react';
+import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
+import { getPairing } from '../../services/PiPairingService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
@@ -172,6 +174,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // the socket, so it says so rather than reading as a fault.
     const storeLink = useNmeaConnectionStatus();
     const readingViaCloud = storeLink.status === 'remote';
+    // Shane 2026-09-07: "no more signal k or ydwg-02 on the actual phone unless
+    // there is no pi available." With a Pi paired the policy keeps this socket
+    // shut and the phone reads her through the Pi; Connect here is the
+    // skipper's override for a Pi that is down.
+    const piPaired = getPairing() !== null;
     const [reconnectAttempts, setReconnectAttempts] = useState(0);
     const [lastError, setLastError] = useState<string | null>(null);
     const [aisCount, setAisCount] = useState(0);
@@ -286,6 +293,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
         }
         try {
             // Always stop first so re-tapping Connect restarts cleanly
+            InstrumentSourcePolicy.noteManualConnect();
             NmeaListenerService.stop();
             NmeaStore.stop();
             // Save config
@@ -305,6 +313,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
         triggerHaptic('medium');
         // IMPORTANT: Stop listener FIRST so the 'disconnected' status fires
         // while the store is still subscribed and can relay it to the UI.
+        InstrumentSourcePolicy.noteManualDisconnect();
         NmeaListenerService.stop();
         NmeaStore.stop();
     }, []);
@@ -392,7 +401,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             </h3>
                             {readingViaCloud && !isConnected && !isConnecting && (
                                 <span className="ml-auto rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-sky-300">
-                                    Away · via the Pi
+                                    {storeLink.remote?.via === 'lan' ? 'Aboard · via the Pi' : 'Away · via the Pi'}
                                 </span>
                             )}
                             {/* Show host:port when connected or connecting */}
@@ -436,6 +445,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                          * it is standing right now.
                          */}
                         <GatewayRouteNote host={host} />
+
+                        {piPaired && !isConnected && !isConnecting && (
+                            <p className="mb-3 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/15 text-xs leading-snug text-sky-200">
+                                A Pi is paired, so this phone reads her through the Pi and leaves the gateway’s three
+                                TCP slots alone. Connect here only if the Pi is down.
+                            </p>
+                        )}
 
                         {/* Why it failed — shown on the FIRST failure, not
                             withheld until a retry, and never truncated.

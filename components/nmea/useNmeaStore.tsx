@@ -43,7 +43,8 @@ export function useNmeaConnectionStatus(): {
                 setValue((prev) =>
                     prev.status === next.status &&
                     prev.remote?.source === next.remote?.source &&
-                    prev.remote?.deviceLabel === next.remote?.deviceLabel
+                    prev.remote?.deviceLabel === next.remote?.deviceLabel &&
+                    prev.remote?.via === next.remote?.via
                         ? prev
                         : next,
                 );
@@ -69,7 +70,10 @@ export const NmeaStatusDot: React.FC<{ className?: string }> = ({ className = ''
         remote: { color: 'bg-sky-400', label: 'Remote via cloud' },
     };
 
-    const c = config[state.connectionStatus];
+    const c =
+        state.connectionStatus === 'remote' && state.remote?.via === 'lan'
+            ? { color: 'bg-emerald-400', label: 'Live via the Pi' }
+            : config[state.connectionStatus];
 
     return (
         <div className={`flex items-center gap-1.5 ${className}`} title={c.label}>

@@ -297,6 +297,15 @@ export type BroadcastOutcome = 'sent' | 'no-fix' | 'stale-fix' | 'not-authorised
  * vessel document yet.
  */
 export async function fetchSelfDocument(deps: BroadcastDeps): Promise<unknown | null> {
+    return fetchSignalkDocument(deps, SELF_PATH);
+}
+
+/**
+ * Any document under Signal K's REST root, e.g. `vessels` (every AIS target the
+ * server has decoded) or `self` (the boat's own URN). Same discovery, same
+ * timeouts, same null-for-anything-unusable contract as the self document.
+ */
+export async function fetchSignalkDocument(deps: BroadcastDeps, path: string): Promise<unknown | null> {
     let base: string;
     try {
         const discovery = await deps.fetchImpl(`${deps.signalkOrigin}${SIGNALK_DISCOVERY_PATH}`, {
@@ -313,7 +322,7 @@ export async function fetchSelfDocument(deps: BroadcastDeps): Promise<unknown | 
     }
 
     try {
-        const response = await deps.fetchImpl(`${base}${SELF_PATH}`, {
+        const response = await deps.fetchImpl(`${base}${path}`, {
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         if (!response.ok) return null;

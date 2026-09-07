@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string): string => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 const bootstrap = read('hooks/useAppBootstrap.ts');
+const policy = read('services/InstrumentSourcePolicy.ts');
 const hub = read('components/VesselHub.tsx');
 const musicSwift = read('ios/App/App/AppleMusicPlugin.swift');
 const musicObjc = read('ios/App/App/AppleMusicPlugin.m');
@@ -16,7 +17,10 @@ const musicPage = read('components/music/MusicPage.tsx');
 
 describe('NMEA gateway reconnects on launch', () => {
     it('actually calls autoStart — it existed for months and nothing did', () => {
-        expect(bootstrap).toContain('NmeaListenerService.autoStart()');
+        // Since 2026-09-07 the call lives in InstrumentSourcePolicy (Pi first;
+        // the socket only when there is no Pi) and the hook boots the policy.
+        expect(policy).toContain('NmeaListenerService.autoStart()');
+        expect(bootstrap).toContain('InstrumentSourcePolicy.boot()');
     });
 
     it('is not gated behind the Pi integration flag', () => {
@@ -31,6 +35,7 @@ describe('NMEA gateway reconnects on launch', () => {
         // why the flag is deliberately absent, so a bare substring check was
         // testing its own prose.
         expect(block).not.toMatch(/if\s*\(!PI_INTEGRATION_ENABLED\)/);
+        expect(policy).not.toMatch(/PI_INTEGRATION_ENABLED/);
     });
 });
 

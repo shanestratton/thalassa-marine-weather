@@ -59,7 +59,13 @@ export function diagnosePanel(params: {
     /** Seconds since the socket connected, when known. */
     secondsSinceConnect?: number | null;
     /** Who is feeding the store from the cloud, when nothing is wired. */
-    remote?: { source: 'pi' | 'device'; deviceLabel: string | null; ageSeconds: number } | null;
+    remote?: {
+        source: 'pi' | 'device';
+        deviceLabel: string | null;
+        /** The Pi over the boat LAN, or its cloud row; absent means the cloud. */
+        via?: 'lan' | 'cloud';
+        ageSeconds: number;
+    } | null;
 }): PanelDiagnosis {
     const { gatewayConfigured, connectionStatus, metrics, secondsSinceConnect = null, remote = null } = params;
 
@@ -71,6 +77,16 @@ export function diagnosePanel(params: {
         // Shane 2026-09-07: it is the internal Pi name, not the boat's.
         const who = remote?.source === 'device' ? 'the skipper’s phone' : 'the Pi';
         const age = remote ? Math.max(0, Math.round(remote.ageSeconds)) : null;
+        // Over the boat LAN the Pi IS the boat at bus latency: that is live,
+        // and the gateway's TCP slots stay the Pi's (Shane 2026-09-07).
+        if (remote?.via === 'lan') {
+            return {
+                state: 'live',
+                label: 'Live · Pi',
+                detail: `Reading the boat through the Pi on the boat network — reported ${age === null ? 'moments' : `${age} s`} ago.`,
+                actionable: false,
+            };
+        }
         return {
             state: 'remote',
             label: 'Remote',

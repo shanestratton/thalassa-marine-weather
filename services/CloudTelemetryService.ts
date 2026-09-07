@@ -2,20 +2,28 @@
  * CloudTelemetryService — the boat's instrument snapshot from the cloud.
  *
  * Shane 2026-09-06, on the order the phone should read the boat in: "a: vpn,
- * b: supabase, c: dont know". The gateway socket (boat LAN, or the same LAN
- * over Tailscale) is (a) and always wins. When it is not connected, this
- * service reads the row the Pi keeps in vessel_telemetry (b) and feeds it
- * into the same NmeaStore the Instrument Panel already draws from, marked
- * REMOTE so the panel says so. When there is no row, or it is older than a
- * minute, the panel says nothing rather than something stale (c).
+ * b: supabase, c: dont know" — and 2026-09-07: "no more signal k or ydwg-02 on
+ * the actual phone unless there is no pi available." So on the phone:
+ *
+ *   a — the boat itself: the Pi over the boat LAN (PiTelemetryService), or a
+ *       gateway socket where there is no Pi. Always wins.
+ *   b — THIS SERVICE: the row the Pi keeps in vessel_telemetry, fed into the
+ *       same NmeaStore the Instrument Panel already draws from, marked REMOTE
+ *       via 'cloud' so the panel says so. The store refuses it while the LAN
+ *       lane is arriving, and this lane clears only its own feed.
+ *   c — nothing: when there is no row, or it is older than a minute, the
+ *       panel says so rather than something stale.
  *
  * Reads only. Row-level security decides what this account may see: the
- * skipper's own boat, and the boats they crew on. Polling, not realtime, for
- * the first cut — five seconds on ordinary internet, a minute on a satellite
- * link — and only while a screen that wants it is mounted.
+ * skipper's own boat, and the boats they crew on whose skipper has shared the
+ * instruments. Polling, not realtime, for the first cut — five seconds on
+ * ordinary internet, a minute on a satellite link — and only while a screen
+ * that wants it is mounted.
  */
 import { supabase, getCurrentUserId } from './supabase';
 import { NmeaStore, type RemoteInstrumentSnapshot } from './NmeaStore';
+import { PiTelemetryService } from './PiTelemetryService';
+import { snapshotFromWire } from './telemetryWire';
 import { satelliteModeActive } from './networkPolicy';
 import { subscribeAuthIdentityScope } from './authIdentityScope';
 import { createLogger } from '../utils/createLogger';
@@ -45,47 +53,19 @@ type Listener = (latest: CloudTelemetry | null) => void;
 
 type TelemetryRow = Record<string, unknown> & { owner_id: string };
 
-function num(value: unknown): number | null {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
 /** The cloud row as the store wants it. Exported for the unit test. */
 export function rowToTelemetry(row: TelemetryRow, receivedAt = Date.now()): CloudTelemetry | null {
-    const reportedAt = typeof row.reported_at === 'string' ? Date.parse(row.reported_at) : Number.NaN;
-    if (!Number.isFinite(reportedAt) || typeof row.owner_id !== 'string') return null;
-    const source = row.source === 'device' ? 'device' : 'pi';
-    const deviceLabel =
-        typeof row.device_label === 'string' && row.device_label.trim() ? row.device_label.trim() : null;
+    if (typeof row.owner_id !== 'string') return null;
+    const reading = snapshotFromWire(row, 'cloud');
+    if (!reading) return null;
     return {
         ownerId: row.owner_id,
         boatId: typeof row.boat_id === 'string' ? row.boat_id : null,
-        source,
-        deviceLabel,
-        reportedAt,
+        source: reading.source,
+        deviceLabel: reading.deviceLabel,
+        reportedAt: reading.reportedAt,
         receivedAt,
-        snapshot: {
-            source,
-            deviceLabel,
-            reportedAt,
-            lat: num(row.lat),
-            lon: num(row.lon),
-            sogKts: num(row.sog_kts),
-            cogDeg: num(row.cog_deg),
-            headingDeg: num(row.heading_deg),
-            stwKts: num(row.stw_kts),
-            twsKts: num(row.tws_kts),
-            twaDeg: num(row.twa_deg),
-            twdDeg: num(row.twd_deg),
-            awsKts: num(row.aws_kts),
-            awaDeg: num(row.awa_deg),
-            depthM: num(row.depth_m),
-            heelDeg: num(row.heel_deg),
-            pitchDeg: num(row.pitch_deg),
-            waterTempC: num(row.water_temp_c),
-            rudderDeg: num(row.rudder_deg),
-            rpm: num(row.rpm),
-            voltageV: num(row.voltage_v),
-        },
+        snapshot: reading.snapshot,
     };
 }
 
@@ -110,9 +90,10 @@ class CloudTelemetryServiceClass {
 
     constructor() {
         subscribeAuthIdentityScope(() => {
-            // Another account must never see the previous one's boat.
+            // Another account must never see the previous one's boat. The LAN
+            // lane is the paired Pi's, not the account's, and stays.
             this.setLatest(null);
-            NmeaStore.clearRemote();
+            NmeaStore.clearRemote('cloud');
         });
     }
 
@@ -136,10 +117,35 @@ class CloudTelemetryServiceClass {
         return () => this.listeners.delete(cb);
     }
 
-    /** The Pi is publishing the boat right now, so phones stand down. */
+    /**
+     * The Pi is publishing the boat right now, so phones stand down. Over the
+     * boat LAN that is known without any internet at all.
+     */
     piIsPrimary(now = Date.now()): boolean {
+        if (PiTelemetryService.isPresent(now)) return true;
         const t = this.latest;
         return t !== null && t.source === 'pi' && now - t.reportedAt <= PI_PRIMARY_MAX_AGE_MS;
+    }
+
+    /**
+     * One read of the row, without feeding the store — for a caller that
+     * wants the boat's position once (the weather chain), not a lane.
+     */
+    async readOnce(): Promise<CloudTelemetry | null> {
+        if (!supabase) return null;
+        const userId = await getCurrentUserId();
+        if (!userId) return null;
+        const { data, error } = await supabase
+            .from('vessel_telemetry')
+            .select('*')
+            .order('reported_at', { ascending: false })
+            .limit(5);
+        if (error) {
+            log.warn('vessel_telemetry read failed:', error.message);
+            return null;
+        }
+        const row = pickRow((data ?? []) as TelemetryRow[], userId);
+        return row ? rowToTelemetry(row) : null;
     }
 
     private start(): void {
@@ -153,7 +159,7 @@ class CloudTelemetryServiceClass {
             clearInterval(this.timer);
             this.timer = null;
         }
-        NmeaStore.clearRemote();
+        NmeaStore.clearRemote('cloud');
         this.setLatest(null);
     }
 
@@ -168,14 +174,17 @@ class CloudTelemetryServiceClass {
 
     private async poll(): Promise<void> {
         if (this.polling || !supabase) return;
-        // (a) beats (b): a connected gateway socket is the boat itself.
+        // (a) beats (b): a connected gateway socket is the boat itself. (The
+        // LAN lane is handled by the store, which refuses a cloud snapshot
+        // while the LAN is arriving; the row is still read so the Skipper
+        // Device card knows the Pi is publishing.)
         if (NmeaStore.getState().connectionStatus === 'connected') return;
         this.polling = true;
         try {
             const userId = await getCurrentUserId();
             if (!userId) {
                 this.setLatest(null);
-                NmeaStore.clearRemote();
+                NmeaStore.clearRemote('cloud');
                 return;
             }
             const { data, error } = await supabase
@@ -193,7 +202,7 @@ class CloudTelemetryServiceClass {
             if (telemetry && Date.now() - telemetry.reportedAt <= CLOUD_TELEMETRY_LIVE_MAX_AGE_MS) {
                 NmeaStore.ingestRemote(telemetry.snapshot);
             } else {
-                NmeaStore.clearRemote();
+                NmeaStore.clearRemote('cloud');
             }
         } catch (error) {
             log.warn('vessel_telemetry poll failed:', error);

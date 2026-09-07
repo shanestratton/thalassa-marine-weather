@@ -47,6 +47,7 @@ import {
     DiaryRelayValidationError,
 } from './diaryRelayOutbox.js';
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
+import { readLanTelemetry } from './lanTelemetry.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
@@ -600,6 +601,30 @@ app.get('/api/gps', requireAppApi, async (_req, res) => {
         });
     } catch {
         return res.json({ available: false, reason: 'Signal K did not answer' });
+    }
+});
+
+/**
+ * The whole bus for a phone on the boat LAN — the same snapshot the publisher
+ * sends to the cloud, plus every AIS target Signal K has decoded. Shane
+ * 2026-09-07: "no more signal k or ydwg-02 on the actual phone unless there is
+ * no pi available" — phones read the Pi, and the gateway's three TCP slots stay
+ * the Pi's. Always 200: ashore with a quiet bus, `available: false` is the
+ * honest answer, and an empty `ais` list is not an error.
+ */
+app.get('/api/telemetry', requireAppApi, async (_req, res) => {
+    try {
+        return res.json(
+            await readLanTelemetry({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, deviceLabel: os.hostname() }),
+        );
+    } catch {
+        return res.json({
+            available: false,
+            telemetry: null,
+            ais: [],
+            served_at: new Date().toISOString(),
+            reason: 'Signal K did not answer',
+        });
     }
 });
 

@@ -100,9 +100,19 @@ export interface NmeaStoreState {
     lastAnyUpdate: number; // Epoch ms — last time ANY metric was updated
 }
 
-/** Who is feeding the store from the cloud, and how old the reading is. */
+/** How a remote feed reached this phone: the Pi over the boat LAN, or the Pi's cloud row. */
+export type RemoteVia = 'lan' | 'cloud';
+
+/**
+ * While a LAN snapshot has arrived this recently, the cloud may not overwrite
+ * it: same numbers, seconds fresher, and no internet in the loop.
+ */
+export const LAN_REMOTE_HOLD_MS = 15_000;
+
+/** Who is feeding the store without a socket, by which lane, and how old the reading is. */
 export interface RemoteFeed {
     source: 'pi' | 'device';
+    via: RemoteVia;
     deviceLabel: string | null;
     /** Epoch ms of the instrument reading, as the Pi reported it. */
     reportedAt: number;
@@ -113,6 +123,8 @@ export interface RemoteFeed {
 /** One cloud snapshot, in the units the store keeps (knots, degrees, metres, °C). */
 export interface RemoteInstrumentSnapshot {
     source: 'pi' | 'device';
+    /** Which lane it came down; absent means the cloud row. */
+    via?: RemoteVia;
     deviceLabel: string | null;
     reportedAt: number;
     lat: number | null;
@@ -230,6 +242,15 @@ class NmeaStoreClass {
         if (NmeaListenerService.getStatus() === 'connected' || this.state.connectionStatus === 'connected')
             return false;
         const now = Date.now();
+        const via: RemoteVia = snapshot.via ?? 'cloud';
+        // The Pi over the boat LAN outranks its own cloud row (Shane
+        // 2026-09-07: phones read the Pi; the socket only when there is no Pi).
+        if (
+            via === 'cloud' &&
+            this.state.remote?.via === 'lan' &&
+            now - this.state.remote.receivedAt <= LAN_REMOTE_HOLD_MS
+        )
+            return false;
         const put = (metric: TimestampedMetric, value: number | null) => {
             if (value !== null && Number.isFinite(value)) this.updateMetric(metric, value, now);
         };
@@ -254,6 +275,7 @@ class NmeaStoreClass {
         put(this.state.longitude, snapshot.lon);
         this.state.remote = {
             source: snapshot.source,
+            via,
             deviceLabel: snapshot.deviceLabel,
             reportedAt: snapshot.reportedAt,
             receivedAt: now,
@@ -264,20 +286,38 @@ class NmeaStoreClass {
         return true;
     }
 
-    /** The cloud feed has stopped or gone stale: back to whatever the socket says. */
-    clearRemote(): void {
+    /**
+     * A remote feed has stopped or gone stale: back to whatever the socket says.
+     * A lane names itself so it clears only its own feed — the cloud poller
+     * going stale must not empty gauges the LAN is still filling, and vice
+     * versa. No lane given clears whatever is there.
+     */
+    clearRemote(via?: RemoteVia): void {
         if (!this.state.remote && this.state.connectionStatus !== 'remote') return;
+        if (via && this.state.remote && this.state.remote.via !== via) return;
         this.state.remote = null;
         this.retireAllMetrics();
         this.state.connectionStatus = NmeaListenerService.getStatus();
         this.notify();
     }
 
-    /** Whether external GPS has a live fix (lat/lon updated within 3s) */
+    /**
+     * Is the store fed by a receiver ON THE BOAT — the gateway socket, or the
+     * Pi over the boat LAN? Both are the boat's own GPS at bus latency and may
+     * steer Anchor Watch and the Ship's Log. The Pi's cloud row is not: it is
+     * the boat seen from a distance, up to a minute old, read by a phone that
+     * may be a hundred miles from her.
+     */
+    isBoatFeed(): boolean {
+        if (this.state.connectionStatus === 'connected') return true;
+        return this.state.connectionStatus === 'remote' && this.state.remote?.via === 'lan';
+    }
+
+    /** Whether the boat's GPS has a live fix (lat/lon updated within the live budget) */
     hasGpsFix(): boolean {
-        // A cloud snapshot is the boat's position, but it is not a receiver
-        // this phone is wired to — the GPS chain has its own Pi rung for that.
-        if (this.state.connectionStatus !== 'connected') return false;
+        // The Pi over the boat LAN is a receiver on the boat; the Pi's cloud
+        // row is not — the GPS chain has its own rungs for the distance.
+        if (!this.isBoatFeed()) return false;
         return (
             this.state.latitude.freshness === 'live' &&
             this.state.longitude.freshness === 'live' &&

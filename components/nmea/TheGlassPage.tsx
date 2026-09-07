@@ -1191,6 +1191,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
             ? {
                   source: state.remote.source,
                   deviceLabel: state.remote.deviceLabel,
+                  via: state.remote.via,
                   ageSeconds: (nowMs - state.remote.reportedAt) / 1000,
               }
             : null,
