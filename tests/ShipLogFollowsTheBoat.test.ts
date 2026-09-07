@@ -11,8 +11,8 @@
  *   - her remote fix is itself a track source, below the bus, above the phone;
  *   - a phone hundreds of metres from her recent fix is not aboard, and a
  *     phone that left cannot stand in for her even once she goes quiet;
- *   - and the page is told why, so it says "the log follows the boat" rather
- *     than looking broken.
+ *   - and the owner is told why (the reason logs; the page shows a boat glyph,
+ *     not a sentence — Shane 2026-09-08).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CachedPosition } from '../services/BgGeoManager';
@@ -63,7 +63,6 @@ import {
     type PhoneHold,
 } from '../services/shiplog/GpsSubscriptionManager';
 import { GpsTrackBuffer } from '../services/shiplog/GpsTrackBuffer';
-import { describePhoneHold } from '../services/shiplog/phoneHoldText';
 
 const SCARBOROUGH = { latitude: -27.195, longitude: 153.1056 }; // on the hard
 const NEWPORT = { latitude: -27.215, longitude: 153.085 }; // ~3 km away, in the car
@@ -151,9 +150,6 @@ describe('the Ship’s Log follows the boat, not the phone', () => {
         expect(hold?.reason).toBe('vessel-alive');
         expect(hold?.boatLane).toBe('cloud');
         expect(hold?.distanceM).toBeGreaterThan(2_500);
-        expect(describePhoneHold(hold!)).toContain('her GPS is alive through the cloud');
-        expect(describePhoneHold(hold!)).toContain('NM from her');
-        expect(describePhoneHold(hold!)).toContain('The log follows the boat.');
     });
 
     it('once she goes quiet the phone still has to be aboard her: 3 km away is refused; only a phone with no recent boat fix may stand in', async () => {
@@ -175,7 +171,6 @@ describe('the Ship’s Log follows the boat, not the phone', () => {
         world.locationHandler!(phoneFix(NEWPORT));
         expect(buffered).toHaveLength(1);
         expect(holds.at(-1)?.reason).toBe('not-aboard');
-        expect(describePhoneHold(holds.at(-1)!)).toContain('not aboard');
 
         // Her fix is now older than the aboard reference: nothing left to
         // compare the phone against, and the boat has been dead for minutes.

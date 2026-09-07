@@ -9,7 +9,6 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
-import type { PhoneHold } from '../services/shiplog/GpsSubscriptionManager';
 import { createLogger } from '../utils/createLogger';
 import { maxOf } from '../utils/extremes';
 
@@ -118,8 +117,6 @@ interface LogPageState {
     lastVoyageId: string | null;
     expandedVoyages: Set<string>;
     gpsStatus: 'locked' | 'stale' | 'none';
-    /** Why the phone is refused for the track, when it is (the log follows the boat). */
-    phoneHold: PhoneHold | null;
 
     // Filters
     filters: LogFilters;
@@ -172,7 +169,6 @@ export type LogPageAction =
     | { type: 'SET_RAPID_MODE'; isRapidMode: boolean }
     | { type: 'SET_PRECISION_MODE'; isPrecisionMode: boolean }
     | { type: 'SET_GPS_STATUS'; status: 'locked' | 'stale' | 'none' }
-    | { type: 'SET_PHONE_HOLD'; hold: PhoneHold | null }
     | { type: 'SHOW_ADD_MODAL'; show: boolean }
     | { type: 'SHOW_TRACK_MAP'; show: boolean }
     | { type: 'SHOW_STATS'; show: boolean }
@@ -212,7 +208,6 @@ const initialState: LogPageState = {
     lastVoyageId: null,
     expandedVoyages: new Set(),
     gpsStatus: 'none',
-    phoneHold: null,
     filters: { types: ['auto', 'manual', 'waypoint'], searchQuery: '' },
 };
 
@@ -395,8 +390,6 @@ function logPageReducerInner(state: LogPageState, action: LogPageAction): LogPag
             return { ...state, isRapidMode: action.isRapidMode };
         case 'SET_GPS_STATUS':
             return { ...state, gpsStatus: action.status };
-        case 'SET_PHONE_HOLD':
-            return state.phoneHold === action.hold ? state : { ...state, phoneHold: action.hold };
         case 'SHOW_ADD_MODAL':
             return { ...state, showAddModal: action.show };
         case 'SHOW_TRACK_MAP':
@@ -954,15 +947,10 @@ export function useLogPageState() {
     useEffect(() => {
         if (!state.isTracking) {
             dispatch({ type: 'SET_GPS_STATUS', status: 'none' });
-            dispatch({ type: 'SET_PHONE_HOLD', hold: null });
             return;
         }
         const poll = () => {
-            if (document.hidden) return;
-            dispatch({ type: 'SET_GPS_STATUS', status: ShipLogService.getGpsStatus() });
-            // Guarded: test doubles of the service predate this getter.
-            const hold = typeof ShipLogService.getPhoneHold === 'function' ? ShipLogService.getPhoneHold() : null;
-            dispatch({ type: 'SET_PHONE_HOLD', hold });
+            if (!document.hidden) dispatch({ type: 'SET_GPS_STATUS', status: ShipLogService.getGpsStatus() });
         };
         poll();
         const id = setInterval(poll, 5000);
