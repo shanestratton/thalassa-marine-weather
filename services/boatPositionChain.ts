@@ -36,6 +36,9 @@ export interface BoatFix {
     rung: BoatFixRung;
     /** Signal K's own source id when the Pi answered, e.g. 'ydwg-tcp.YD'. */
     source?: string | null;
+    /** Speed and course when the lane carries them (the cloud row does). */
+    sogKts?: number | null;
+    cogDeg?: number | null;
 }
 
 /** Rung a: the bus, straight off the gateway. */
@@ -102,6 +105,8 @@ export async function cloudFix(now = Date.now()): Promise<BoatFix | null> {
             timestamp: t.reportedAt,
             rung: 'cloud',
             source: t.source === 'device' ? 'skipper-phone' : 'pi-cloud',
+            sogKts: t.snapshot.sogKts,
+            cogDeg: t.snapshot.cogDeg,
         };
     } catch {
         return null;
