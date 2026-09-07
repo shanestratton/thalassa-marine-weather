@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -27,6 +27,16 @@ function makeRelay(
 
 function sha(buffer: Buffer): string {
     return createHash('sha256').update(buffer).digest('hex');
+}
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: Error) => void;
+    const promise = new Promise<T>((accept, fail) => {
+        resolve = accept;
+        reject = fail;
+    });
+    return { promise, resolve, reject };
 }
 
 const CLIP = Buffer.from('not really a video, but 40 bytes of bytes!!');
@@ -103,6 +113,77 @@ test('cancelling the diary operation kills the parked clip', async () => {
     assert.equal(await relay.status('op-5'), null);
 });
 
+test('cancellation waits for local finalization before removing the clip and ledger', async () => {
+    const { dir, relay } = makeRelay();
+    const { id } = (await relay.begin({
+        operationId: 'cancel-finishing',
+        path: PATH,
+        totalBytes: CLIP.length,
+        sha256: sha(CLIP),
+    })) as { id: string };
+    await relay.chunk(id, 0, CLIP);
+    // The final ledger write and cancellation run concurrently. A partially
+    // written JSON file must not make cancellation overlook this operation.
+    const finishing = relay.finish(id);
+    const cancelling = relay.cancelOperation('cancel-finishing');
+    await Promise.all([finishing, cancelling]);
+    await relay.drainSoon();
+    assert.equal(await relay.status('cancel-finishing'), null);
+    assert.deepEqual(await readdir(join(dir, 'diary-video-outbox')), []);
+});
+
+for (const phase of ['grant', 'put'] as const) {
+    for (const outcome of ['success', 'failure'] as const) {
+        test(`cancellation survives a delayed ${phase} ${outcome} without recreating the clip`, async () => {
+            const entered = deferred<void>();
+            const response = deferred<Response>();
+            const calls: string[] = [];
+            let pendingSignal: AbortSignal | null | undefined;
+            const grant = () =>
+                new Response(
+                    JSON.stringify({
+                        url: `https://project.supabase.co/storage/v1/object/upload/sign/diary-video/${PATH}?token=t`,
+                    }),
+                    { status: 200 },
+                );
+            const fetchImpl = (async (_url: string | URL, init?: RequestInit) => {
+                const method = init?.method ?? 'GET';
+                calls.push(method);
+                if (phase === 'put' && method === 'POST') return grant();
+                pendingSignal = init?.signal;
+                entered.resolve();
+                // Deliberately ignore abort until the test resolves/rejects:
+                // a late transport result must not revive canceled work.
+                return response.promise;
+            }) as unknown as typeof fetch;
+            const { dir, relay } = makeRelay(fetchImpl);
+            const operationId = `cancel-${phase}-${outcome}`;
+            const { id } = (await relay.begin({
+                operationId,
+                path: PATH,
+                totalBytes: CLIP.length,
+                sha256: sha(CLIP),
+            })) as { id: string };
+            await relay.chunk(id, 0, CLIP);
+            await relay.finish(id);
+            await entered.promise;
+            const draining = relay.drainSoon();
+            await relay.cancelOperation(operationId);
+            const aborted = pendingSignal?.aborted;
+            const afterCancel = await relay.status(operationId);
+            if (outcome === 'failure') response.reject(new Error('controlled late network failure'));
+            else response.resolve(phase === 'grant' ? grant() : new Response('{}', { status: 200 }));
+            await draining;
+
+            assert.equal(aborted, true, 'cancellation must abort the active request');
+            assert.equal(afterCancel, null);
+            assert.equal(await relay.status(operationId), null);
+            assert.deepEqual(await readdir(join(dir, 'diary-video-outbox')), []);
+            assert.deepEqual(calls, phase === 'grant' ? ['POST'] : ['POST', 'PUT']);
+        });
+    }
+}
+
 test('the drain redeems a signed URL and uploads exactly the parked bytes', async () => {
     const calls: Array<{ url: string; method?: string; body?: unknown }> = [];
     const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
@@ -127,13 +208,8 @@ test('the drain redeems a signed URL and uploads exactly the parked bytes', asyn
     })) as { id: string };
     await relay.chunk(id, 0, CLIP);
     await relay.finish(id);
-    // finish() fires its own background drain; an explicit call can find the
-    // lock held and return having done nothing. Production wants exactly that
-    // (no double upload); the test polls for the outcome instead.
-    for (let i = 0; i < 50 && (await relay.status('op-6'))?.state !== 'done'; i++) {
-        await new Promise((r) => setTimeout(r, 20));
-        await relay.drainSoon();
-    }
+    // Join finish()'s background drain without starting a second upload.
+    await relay.drainSoon();
 
     assert.deepEqual(await relay.status('op-6'), { state: 'done' });
     assert.equal(calls.length, 2);

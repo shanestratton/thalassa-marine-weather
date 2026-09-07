@@ -18,6 +18,8 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 
 ### Archive
 
+**104 candidate supersession (2026-09-07):** the b36dcc57 packaging and main-D7cZs-UC.js references below are preliminary evidence, not the final archive fingerprint. CI subsequently exposed a diary-video cancellation race in the independently deployed Pi cache. The follow-up fix serializes local file operations, aborts active requests and prevents late responses from recreating a cancelled clip; all 223 Pi tests pass locally, including five new race regressions. The main app suite also passed (9,261 tests, five existing skips). Build and sync again from the final committed source, require that commit's CI to pass, and compare the archive against the freshly gated `ios/App/App/public` rather than an earlier hardcoded asset filename. No yacht deployment, signed archive or TestFlight upload was performed during this preparation.
+
 - [x] Xcode 26.6 selected (2026-09-06; `xcode-select` had been on the 27.0 beta).
 - [x] Build number bumped 101 → 102 on all four configurations, commit 0606365b (2026-09-06).
 - [x] `npm run ship:beta` green under Node 24 (Homebrew node@24): 132 release + 140 artifact contracts; bundle 13.15/18 MB, JS 9.71/9.90 MB — 98% of the JS budget, watch it (2026-09-06).
