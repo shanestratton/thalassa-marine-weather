@@ -624,7 +624,10 @@ function MapContainer({
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
-                onStyleData={(event) => installMusgraveImagery(event.target)}
+                onStyleData={() => {
+                    const map = mapRef.current?.getMap();
+                    if (map) installMusgraveImagery(map);
+                }}
                 /* Flat, by request (Shane 2026-09-02: "i prefer flat earth
                    claude, you know like it really is"). The globe was tried
                    here for one afternoon; a chart is a chart. Its atmosphere

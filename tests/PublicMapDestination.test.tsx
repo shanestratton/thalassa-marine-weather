@@ -8,6 +8,7 @@ const camera = vi.hoisted(() => ({
     fitBounds: vi.fn(),
     flyTo: vi.fn(),
     resize: vi.fn(),
+    getMap: vi.fn(),
     onStyleData: undefined as undefined | ((event: { target: Parameters<typeof installMusgraveImagery>[0] }) => void),
 }));
 vi.mock('../src/voyageLogApi', async (original) => ({
@@ -77,6 +78,7 @@ describe('public destination exploration', () => {
                 layers.add(layer.id);
             }),
         };
+        camera.getMap.mockReturnValue(map);
         const fireStyleData = () =>
             camera.onStyleData?.({ target: map as unknown as Parameters<typeof installMusgraveImagery>[0] });
         render(<MapContainer {...props} />);
