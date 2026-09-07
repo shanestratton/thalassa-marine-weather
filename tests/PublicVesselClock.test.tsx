@@ -64,8 +64,22 @@ describe('ship clock follows the vessel position', () => {
         )!;
         expect(snapshot.ship_time_zone).toBe('Pacific/Noumea');
         expect(snapshot).not.toHaveProperty('lat');
+    });
+    it('routes both public response modes through the shared instrument reader', () => {
         const api = readFileSync('supabase/functions/voyage-log/index.ts', 'utf8');
-        expect(api).toContain('publicInstrumentTimeZone(cloud, boatId, telemetry, tzLookup, snapshotNow)');
+        // The clock lookup moved to the shared reader when instruments gained
+        // their lightweight refresh. Check both callers, independent of line
+        // wrapping: only the full voyage has an already-public GPS fallback.
+        const calls = Array.from(api.matchAll(/\breadPublicInstruments\(([^()]*)\)/g), ([, args]) =>
+            args
+                .split(',')
+                .map((arg) => arg.trim())
+                .filter(Boolean),
+        );
+        expect(calls).toEqual([
+            ['supabase', 'config', 'requestedTrip', 'authority', 'tzLookup'],
+            ['supabase', 'config', 'requestedTrip', 'authority', 'tzLookup', 'telemetry'],
+        ]);
     });
     it('works at the berth without publishing the boat coordinates', () => {
         const row = {
