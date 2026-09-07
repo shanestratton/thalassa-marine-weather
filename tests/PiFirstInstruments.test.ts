@@ -21,6 +21,7 @@ const pairing = vi.hoisted(() => ({
     respond: (() => Promise.resolve({ status: 200, data: '{}' })) as () => Promise<{ status: number; data: string }>,
 }));
 const ais = vi.hoisted(() => ({ update: vi.fn() }));
+const cloud = vi.hoisted(() => ({ row: null as null | { source: 'pi' | 'device'; reportedAt: number } }));
 
 vi.mock('../services/NmeaListenerService', () => ({
     NmeaListenerService: {
@@ -42,6 +43,9 @@ vi.mock('../services/AisHubService', () => ({ AisHubService: { init: vi.fn(), de
 vi.mock('../services/PiPairingService', () => ({
     getPairing: () => pairing.record,
     pinnedPiRequest: () => pairing.respond(),
+}));
+vi.mock('../services/CloudTelemetryService', () => ({
+    CloudTelemetryService: { readOnce: async () => cloud.row },
 }));
 vi.mock('../services/PiCacheService', () => ({
     piCache: { getBaseUrl: () => 'https://192.168.1.50:3001', getStatus: () => ({ reachable: true }) },
@@ -263,6 +267,11 @@ describe('PiTelemetryService: the boat off the Pi, over the LAN', () => {
 describe('InstrumentSourcePolicy: the socket opens only when there is no Pi', () => {
     const T0 = Date.parse('2026-09-07T03:00:00Z');
     let lastSeen: number | null = null;
+    /** Let the policy's cloud check (a dynamic import and one read) settle. */
+    const settle = async () => {
+        // A dynamic import plus one read: give it a few macrotasks, not one.
+        for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    };
 
     beforeEach(() => {
         InstrumentSourcePolicy.resetForTests();
@@ -272,6 +281,7 @@ describe('InstrumentSourcePolicy: the socket opens only when there is no Pi', ()
         listener.order.length = 0;
         listener.saved = { host: '192.168.1.151', port: 1456 };
         lastSeen = null;
+        cloud.row = null;
         vi.spyOn(NmeaStore, 'start').mockImplementation(() => listener.order.push('store') && undefined);
         vi.spyOn(PiTelemetryService, 'start').mockImplementation(() => listener.order.push('lan') && undefined);
         vi.spyOn(PiTelemetryService, 'lastSeenAt').mockImplementation(() => lastSeen);
@@ -307,28 +317,70 @@ describe('InstrumentSourcePolicy: the socket opens only when there is no Pi', ()
         expect(InstrumentSourcePolicy.mode()).toBe('none');
     });
 
-    it('a Pi silent for a minute opens the gateway once; back for thirty seconds gives the slot back; never inside the flap guard', () => {
+    it('a Pi silent for a minute — and absent from the cloud — opens the gateway once; back for thirty seconds gives the slot back; never inside the flap guard', async () => {
         pairing.record = { deviceId: 'pi' };
         InstrumentSourcePolicy.boot(T0);
+        // Half way to the threshold the policy has already asked the cloud once.
         InstrumentSourcePolicy.tick(T0 + 30_000);
         expect(listener.autoStart).not.toHaveBeenCalled();
-        InstrumentSourcePolicy.tick(T0 + PI_SILENT_MS);
+        await settle();
+        // At the threshold, with the cloud's "not there" in hand, the socket opens.
+        const opened = T0 + PI_SILENT_MS;
+        InstrumentSourcePolicy.tick(opened);
         expect(listener.autoStart).toHaveBeenCalledTimes(1);
         expect(InstrumentSourcePolicy.mode()).toBe('pi-silent-direct');
-        InstrumentSourcePolicy.tick(T0 + PI_SILENT_MS + 5_000);
+        await settle();
+        InstrumentSourcePolicy.tick(opened + 5_000);
         expect(listener.autoStart).toHaveBeenCalledTimes(1);
 
-        // The Pi comes back and keeps answering.
-        const back = T0 + PI_SILENT_MS + 10_000;
+        // The Pi comes back on the LAN and keeps answering.
+        const back = opened + 10_000;
         for (let t = back; t <= back + PI_BACK_MS; t += 5_000) {
             lastSeen = t;
             InstrumentSourcePolicy.tick(t);
         }
         // Back long enough, but inside the flap guard from the open — not yet.
         expect(listener.stop).not.toHaveBeenCalled();
-        const afterGuard = T0 + PI_SILENT_MS + FLAP_GUARD_MS;
+        const afterGuard = opened + FLAP_GUARD_MS;
         lastSeen = afterGuard;
         InstrumentSourcePolicy.tick(afterGuard);
+        expect(listener.stop).toHaveBeenCalledTimes(1);
+        expect(InstrumentSourcePolicy.mode()).toBe('pi');
+    });
+
+    it('the cloud says she is alive: this phone is merely not aboard, and no socket ever opens', async () => {
+        // Shane 2026-09-08, from the kitchen table: "nmea error in red, and
+        // connection failed … if we have a pi at the vessel, then nothing
+        // should try to connect."
+        pairing.record = { deviceId: 'pi' };
+        cloud.row = { source: 'pi', reportedAt: Date.now() - 5_000 };
+        InstrumentSourcePolicy.boot(T0);
+        for (let t = T0 + PI_SILENT_MS; t <= T0 + PI_SILENT_MS * 6; t += 5_000) {
+            InstrumentSourcePolicy.tick(t);
+            await settle();
+        }
+        expect(listener.autoStart).not.toHaveBeenCalled();
+        expect(InstrumentSourcePolicy.mode()).toBe('pi');
+    });
+
+    it('a fallback socket closes once the cloud shows her publishing again', async () => {
+        pairing.record = { deviceId: 'pi' };
+        InstrumentSourcePolicy.boot(T0);
+        InstrumentSourcePolicy.tick(T0 + 30_000);
+        await settle();
+        const opened = T0 + PI_SILENT_MS;
+        InstrumentSourcePolicy.tick(opened);
+        expect(listener.autoStart).toHaveBeenCalledTimes(1);
+        await settle();
+
+        // She reappears in the cloud; still nothing on the LAN.
+        cloud.row = { source: 'pi', reportedAt: Date.now() - 3_000 };
+        const t1 = opened + FLAP_GUARD_MS;
+        InstrumentSourcePolicy.tick(t1); // cloud check due → she is seen
+        await settle();
+        InstrumentSourcePolicy.tick(t1 + 35_000); // seen again; back since now
+        await settle();
+        InstrumentSourcePolicy.tick(t1 + 65_000); // back for thirty seconds, past the guard
         expect(listener.stop).toHaveBeenCalledTimes(1);
         expect(InstrumentSourcePolicy.mode()).toBe('pi');
     });

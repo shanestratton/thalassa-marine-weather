@@ -12,6 +12,7 @@
  * Yacht database selection has moved to VesselTab (Settings → Vessel Profile).
  */
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import type { PolarData } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { PolarChart } from './PolarChart';
@@ -162,9 +163,12 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     const toggleSmartPolars = (enabled: boolean) => {
         setSmartEnabled(enabled);
         if (enabled) {
-            NmeaListenerService.configure(settings?.nmeaHost || '192.168.1.1', settings?.nmeaPort || 10110);
-            NmeaListenerService.start();
-            NmeaStore.start();
+            // The policy decides the feed: with a Pi paired this is the LAN
+            // lane, and no socket opens (Shane 2026-09-08).
+            InstrumentSourcePolicy.ensureFeed({
+                host: settings?.nmeaHost || '192.168.1.1',
+                port: settings?.nmeaPort || 10110,
+            });
             SmartPolarService.start();
         } else {
             SmartPolarService.stop();

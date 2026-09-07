@@ -36,6 +36,10 @@ export const PI_BACK_MS = 30_000;
 /** At most one open-or-close per this interval, so a flapping Pi cannot churn the gateway's slots. */
 export const FLAP_GUARD_MS = 120_000;
 export const POLICY_TICK_MS = 5_000;
+/** How often the policy asks the cloud whether the Pi is publishing, while the LAN cannot see it. */
+export const CLOUD_PRESENCE_POLL_MS = 30_000;
+/** A cloud row this fresh means the Pi is alive — this phone is merely not aboard. */
+export const CLOUD_PRESENCE_MAX_AGE_MS = 60_000;
 
 export type InstrumentBoot = 'pi-first' | 'direct' | 'idle';
 export type InstrumentSourceMode = 'pi' | 'pi-silent-direct' | 'direct' | 'manual' | 'none';
@@ -50,6 +54,31 @@ class InstrumentSourcePolicyClass {
     private manual = false;
     private lastSwitchAt = 0;
     private piBackSince: number | null = null;
+    /** The cloud row showed the Pi publishing, as of this tick clock. */
+    private lastCloudSeenAt: number | null = null;
+    private lastCloudCheckAt = 0;
+    private cloudCheckInFlight = false;
+    /** At least one cloud check has completed: decisions may use its answer while the next one runs. */
+    private cloudAnswered = false;
+
+    /**
+     * A page that needs the instruments up (AvNav, Smart Polars): the store,
+     * and — only when no Pi is paired — a gateway socket. With a Pi paired the
+     * LAN lane is the feed and nothing here may open a socket (Shane
+     * 2026-09-08: "if we have a pi at the vessel, then nothing should try to
+     * connect").
+     */
+    ensureFeed(direct?: { host: string; port: number }): 'pi' | 'direct' | 'none' {
+        NmeaStore.start();
+        if (getPairing()) {
+            PiTelemetryService.start();
+            return 'pi';
+        }
+        if (direct) NmeaListenerService.configure(direct.host, direct.port);
+        else if (!NmeaListenerService.getSavedConfig()) return 'none';
+        NmeaListenerService.start();
+        return 'direct';
+    }
 
     /** Called once from useAppBootstrap. Idempotent. */
     boot(now = Date.now()): InstrumentBoot {
@@ -101,20 +130,61 @@ class InstrumentSourcePolicyClass {
         return this.socketOwned ? 'pi-silent-direct' : 'pi';
     }
 
+    /**
+     * Is the Pi publishing to the cloud right now? The LAN lane cannot see a
+     * Pi from the kitchen table, but the cloud can — and a Pi that is alive
+     * anywhere means this phone is merely not aboard, which is no reason to
+     * open a gateway socket that will fail and flash red (Shane 2026-09-08).
+     */
+    private async checkCloudPresence(now: number): Promise<void> {
+        if (this.cloudCheckInFlight) return;
+        this.cloudCheckInFlight = true;
+        this.lastCloudCheckAt = now;
+        try {
+            const { CloudTelemetryService } = await import('./CloudTelemetryService');
+            const latest = await CloudTelemetryService.readOnce();
+            const fresh =
+                latest !== null &&
+                latest.source === 'pi' &&
+                Date.now() - latest.reportedAt <= CLOUD_PRESENCE_MAX_AGE_MS;
+            if (fresh) this.lastCloudSeenAt = now;
+        } catch {
+            /* offline: the cloud has no opinion, the LAN clock decides */
+        } finally {
+            this.cloudCheckInFlight = false;
+            this.cloudAnswered = true;
+        }
+    }
+
     /** One arbitration step. Exposed for tests; the interval calls it every POLICY_TICK_MS. */
     tick(now = Date.now()): void {
         if (this.booted !== 'pi-first' || this.manual) return;
-        const lastSeen = PiTelemetryService.lastSeenAt();
+        const lanSeen = PiTelemetryService.lastSeenAt();
+        const cloudSeen = this.lastCloudSeenAt;
+        const lastSeen = lanSeen === null && cloudSeen === null ? null : Math.max(lanSeen ?? 0, cloudSeen ?? 0);
         const silentForMs = now - (lastSeen ?? this.startedAt);
-        const piHere = lastSeen !== null && now - lastSeen <= POLICY_TICK_MS * 2;
+        const piHere =
+            (lanSeen !== null && now - lanSeen <= POLICY_TICK_MS * 2) ||
+            (cloudSeen !== null && now - cloudSeen <= CLOUD_PRESENCE_POLL_MS + POLICY_TICK_MS);
         if (piHere) {
             if (this.piBackSince === null) this.piBackSince = now;
         } else {
             this.piBackSince = null;
         }
 
+        // While the LAN cannot see the Pi, ask the cloud on its own cadence —
+        // before ever opening the socket, and while a fallback socket is open.
+        const lanSilent = lanSeen === null || now - lanSeen > POLICY_TICK_MS * 2;
+        if (lanSilent && now - this.lastCloudCheckAt >= CLOUD_PRESENCE_POLL_MS) {
+            void this.checkCloudPresence(now);
+            // Never open a socket without having heard from the cloud once;
+            // after that, the last answer stands while the next check runs.
+            if (!this.socketOwned && !this.cloudAnswered) return;
+        }
+
         if (!this.socketOwned) {
             if (silentForMs < PI_SILENT_MS) return;
+            if (this.cloudCheckInFlight && !this.cloudAnswered) return;
             if (now - this.lastSwitchAt < FLAP_GUARD_MS) return;
             if (!NmeaListenerService.getSavedConfig()) return;
             log.warn(`the Pi has not answered for ${Math.round(silentForMs / 1000)} s — reading the gateway direct`);
@@ -142,6 +212,10 @@ class InstrumentSourcePolicyClass {
         this.manual = false;
         this.lastSwitchAt = 0;
         this.piBackSince = null;
+        this.lastCloudSeenAt = null;
+        this.lastCloudCheckAt = 0;
+        this.cloudCheckInFlight = false;
+        this.cloudAnswered = false;
     }
 }
 

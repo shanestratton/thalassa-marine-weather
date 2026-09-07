@@ -353,6 +353,9 @@ describe('groupTracesByTrip (shared by PLAN Trip box + card list)', () => {
         const trip = groups.find((g) => g.key === root.id)!;
         expect(trip.legs.map((l) => l.legOrdinal)).toEqual([1, 2]); // ordinal-sorted
         expect(trip.label).toContain('2 legs');
+        // First origin – FINAL destination, not leg 1's name (Shane 2026-09-08:
+        // a Newport → Whitsundays passage was headed "Newport - Mackay").
+        expect(trip.label).toBe('newport - mooloolaba (2 legs)');
         const standalone = groups.find((g) => g.key === solo.id)!;
         expect(standalone.legs).toHaveLength(1);
         expect(standalone.label).toBe('bay run');
