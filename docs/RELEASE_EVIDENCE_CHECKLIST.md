@@ -78,6 +78,8 @@ Process: reproduce → find the cause in code or production → fix with a test 
 - [x] **"I do not like the messages that are popping up about what gps we are using."** The PHONE/VESSEL word on the Glass strip and the amber "Phone GPS held" sentence on the Log page are gone (13dea7b1). In their place one glyph in the page header beside the ℹ button: a little boat or a phone with a GPS dot — emerald live, sky through the cloud, amber for her held last fix (tap it to choose boat or phone). The words survive only as accessibility labels. Ships in 105.
 - [x] **The cast-off "Following a route?" sheet showed two of the passage's three legs.** Two causes closed in 453135a6: the there-and-back fold treated a homeward leg as the reverse of the outbound one and folded the last leg into its own return (trip legs are never folded now); and a leg saved in Route Tracer but never mirrored into the log had no row at all (it now appears under its passage, disabled, "Not in the log yet — open it in Route Tracer and save it"). Ships in 105. Re-test: slide Start Tracking → the Newport – Whitsundays passage lists all three legs; if the third reads "Not in the log yet", open it in Route Tracer and save it once.
 
+- [x] **Skipper Device card still confusing with the Pi primary: "Primary: the Pi" on the top line, then "This device" on the next.** Fix f879b712: the GPS-order row shows only when no Pi is primary (empty row, same height, so the 120 px card never moves); the pill reads "The Pi is the Primary Device". Ships in 105.
+
 ### Also in 103 — the Pi as primary device (agreed 2026-09-06 evening, built that night and 2026-09-07)
 
 Planned and written up as 104; the 103 bundle was rebuilt after each of these landed, so they ship in 103 and the matrix below covers them too.
