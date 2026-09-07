@@ -29,7 +29,7 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] `npm run ship:beta` green under Node 24 (24.19.0) on 231e58d3, 2026-09-07 12:31: 132 release + 140 artifact contracts; bundle 13.17/18 MB, JS 9.73/9.90 MB (98%); iOS bundle main-BkgZEbDP.js, byte-identical to `dist`. 103 carries everything committed to that point — the matrix fixes below **and** the Pi-as-primary section that follows; nothing was held back for 104.
 - [x] Archived 2026-09-07 12:43 in Xcode 26.6: 1.2.0 (103), `com.thalassa.weather`, product `Thalassa Marine Weather.app`. Verified from the shell: `public/` byte-identical to the gated `ios/App/App/public` (bundle main-BkgZEbDP.js), 0 source maps, no Watch folder, no PlugIns, dSYMs present, background modes audio / location / fetch, ITSAppUsesNonExemptEncryption=false. Signed Apple Development as normal; the Distribution re-sign happens at export.
 - [x] Organizer → Validate App passed 2026-09-07 ≈12:55 — "Thalassa Marine Weather 1.2.0 (103) validated. Your app successfully passed all validation checks." No stale-record retry needed this time.
-- [ ] Upload 1.2.0 (103); TestFlight processes it; internal group Skipper receives it (Shane's tester has been INSTALLED since 102, so the build should appear in the TestFlight app on its own). **Beta Skippers stays untouched and the public link stays OFF** until the matrix passes.
+- [x] Uploaded 2026-09-07 ≈13:00 — "Thalassa Marine Weather 1.2.0 (103) uploaded"; no export-compliance prompt. Processing → internal group Skipper (tester INSTALLED since 102, so the build should appear in the TestFlight app on its own). **Beta Skippers stays untouched and the public link stays OFF** until the matrix passes.
 
 ### TestFlight (2026-09-06)
 
@@ -258,4 +258,4 @@ Reconcile against what the app actually collects. Ground truth per data type:
 
 - [x] `CURRENT_PROJECT_VERSION` = 102 on every configuration (0606365b), uploaded as 1.2.0 (102). `VITE_APP_BUILD = 102` in CI vars still to set (§21).
 - [x] Bumped to 103 on every configuration, 2026-09-06 afternoon, for the matrix fixes (vessel database, boat-first weather, tides, STOP, Radio Console, Ship's Log, Skipper card, In irons / wing and wing). `VITE_APP_BUILD = 103` in CI vars still to set.
-- [ ] Uploaded as 1.2.0 (103) — tick after the upload. As packaged on 2026-09-07 the 103 bundle also carries the Pi-as-primary section (§18). Next bump is 104.
+- [x] Uploaded as 1.2.0 (103) on 2026-09-07 ≈13:00. As packaged, the 103 bundle also carries the Pi-as-primary section (§18). 103 can never be reused; next bump is 104.
