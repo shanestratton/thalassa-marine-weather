@@ -249,14 +249,19 @@ export function useAppBootstrap() {
     //
     // Store first, socket second — the store must be subscribed in time to
     // catch the initial 'connecting' status.
+    //
+    // 2026-09-07 (Shane: "no more signal k or ydwg-02 on the actual phone
+    // unless there is no pi available"): the decision moved into
+    // InstrumentSourcePolicy. With a Pi paired the phone reads her through
+    // the Pi — LAN first, cloud second — and the gateway socket stays shut
+    // unless the Pi goes quiet. With no Pi, exactly the boot above: store,
+    // then autoStart the saved gateway, and still not behind the Pi flag.
     useEffect(() => {
-        Promise.all([import('../services/NmeaListenerService'), import('../services/NmeaStore')])
-            .then(([{ NmeaListenerService }, { NmeaStore }]) => {
-                if (!NmeaListenerService.getSavedConfig()) return;
-                NmeaStore.start();
-                NmeaListenerService.autoStart();
+        import('../services/InstrumentSourcePolicy')
+            .then(({ InstrumentSourcePolicy }) => {
+                InstrumentSourcePolicy.boot();
             })
-            .catch((err) => console.error('[Boot] NMEA autoStart failed:', err?.message || err));
+            .catch((err) => console.error('[Boot] instrument source boot failed:', err?.message || err));
     }, []);
 
     // ── Did the web layer die under us last time? ──────────────────

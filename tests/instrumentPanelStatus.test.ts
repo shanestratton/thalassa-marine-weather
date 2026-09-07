@@ -115,3 +115,29 @@ describe('missingInstruments', () => {
         ).toEqual([]);
     });
 });
+
+describe('the Pi over the boat LAN is live, not remote', () => {
+    it('names the Pi and the boat network, with the age, and never the hostname', () => {
+        const d = diagnose({
+            gatewayConfigured: false,
+            connectionStatus: 'remote',
+            remote: { source: 'pi', deviceLabel: 'calypso', via: 'lan', ageSeconds: 2.2 },
+        });
+        expect(d.state).toBe('live');
+        expect(d.label).toBe('Live · Pi');
+        expect(d.detail).toContain('boat network');
+        expect(d.detail).toContain('2 s ago');
+        expect(d.detail).not.toContain('calypso');
+    });
+
+    it('the cloud row stays Remote', () => {
+        const d = diagnose({
+            gatewayConfigured: false,
+            connectionStatus: 'remote',
+            remote: { source: 'pi', deviceLabel: 'calypso', via: 'cloud', ageSeconds: 7 },
+        });
+        expect(d.state).toBe('remote');
+        expect(d.label).toBe('Remote');
+        expect(d.detail).toContain('through the cloud');
+    });
+});

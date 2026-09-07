@@ -67,6 +67,7 @@ vi.mock('../services/AnchorWatchService', () => ({
 }));
 vi.mock('../services/internetProbe', () => ({ startInternetProbe: boot.startInternetProbe }));
 vi.mock('../services/AvNavService', () => ({ AvNavService: { autoStart: boot.autoStart } }));
+vi.mock('../services/InstrumentSourcePolicy', () => ({ InstrumentSourcePolicy: { boot: vi.fn() } }));
 vi.mock('../services/vessel', () => ({
     initLocalDatabase: boot.initLocalDatabase,
     startSyncEngine: boot.startSyncEngine,

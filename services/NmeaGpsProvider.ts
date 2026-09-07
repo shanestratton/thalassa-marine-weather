@@ -71,7 +71,8 @@ class NmeaGpsProviderClass {
         const state = NmeaStore.getState();
         const { latitude, longitude } = state;
         if (
-            state.connectionStatus !== 'connected' ||
+            // The socket, or the Pi over the boat LAN — never the cloud row.
+            !NmeaStore.isBoatFeed() ||
             latitude.value === null ||
             longitude.value === null ||
             latitude.lastUpdated <= 0 ||
