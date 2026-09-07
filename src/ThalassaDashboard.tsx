@@ -302,6 +302,9 @@ export default function ThalassaDashboard() {
         // A deliberately-chosen historical trip is a record; only the latest
         // view is a statement about where the boat is.
         requestedTrip === 'latest' &&
+        // While a picker request is in flight, the rendered data may still
+        // belong to the historical trip we just left.
+        (!selectedTrip || selectedTrip.id === latestTrip?.id) &&
         newestTrackAt !== null &&
         newestTrackAt <= nowMs + 60_000 &&
         nowMs - newestTrackAt < AIS_POSITION_FRESH_MS;
