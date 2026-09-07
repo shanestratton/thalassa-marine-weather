@@ -73,6 +73,7 @@ vi.mock('../services/supabase', () => {
 });
 
 const defaultPermissions: CrewPermissions = {
+    can_view_instruments: false,
     can_view_stores: false,
     can_edit_stores: false,
     can_view_galley: false,

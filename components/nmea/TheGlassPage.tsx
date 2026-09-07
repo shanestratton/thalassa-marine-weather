@@ -17,6 +17,7 @@
  * values when no live NMEA data is connected so the panel remains testable.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useCrewInstrumentShare } from '../../hooks/useCrewInstrumentShare';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
 import { ShipsBellReference } from './gauges/ShipsBellReference';
@@ -601,6 +602,8 @@ const SectionPlate = React.memo(SectionPlateComponent);
 
 export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const state = useNmeaStore();
+    // Crew only: whether the skipper has shared the panel (invite-only, 2026-09-07).
+    const crewShare = useCrewInstrumentShare();
     const deviceClass = useDeviceClass();
 
     // The panel owns its own data source rather than trusting that some other
@@ -1187,6 +1190,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         connectionStatus: state.connectionStatus,
         metrics: panelMetrics,
         secondsSinceConnect: connectedAt === null ? null : (nowMs - connectedAt) / 1000,
+        crewShare,
         remote: state.remote
             ? {
                   source: state.remote.source,

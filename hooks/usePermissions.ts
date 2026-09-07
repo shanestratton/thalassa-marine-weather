@@ -62,6 +62,7 @@ const SKIPPER_PERMISSIONS: PermissionsState = {
     isSkipper: true,
     role: 'skipper',
     permissions: {
+        can_view_instruments: true,
         can_view_stores: true,
         can_edit_stores: true,
         can_view_galley: true,

@@ -140,6 +140,7 @@ const crewMember = (overrides: Partial<CrewMember> = {}): CrewMember => ({
     owner_email: 'owner@example.com',
     shared_registers: ['passage_checklist'],
     permissions: {
+        can_view_instruments: false,
         can_view_stores: false,
         can_edit_stores: false,
         can_view_galley: false,

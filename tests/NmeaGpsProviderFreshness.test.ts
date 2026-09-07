@@ -7,6 +7,8 @@ vi.mock('../services/NmeaStore', () => ({
     NMEA_USABLE_MAX_AGE_MS: 13_000,
     NmeaStore: {
         getState,
+        // The provider asks the store whether the feed is the boat's (socket or Pi over the LAN).
+        isBoatFeed: () => getState()?.connectionStatus === 'connected',
         subscribe: vi.fn(() => () => {}),
     },
 }));

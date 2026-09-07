@@ -141,3 +141,42 @@ describe('the Pi over the boat LAN is live, not remote', () => {
         expect(d.detail).toContain('through the cloud');
     });
 });
+
+describe('crew without a gateway of their own (the panel is invite-only, Shane 2026-09-07)', () => {
+    it('not shared: says so, and names where the skipper switches it on', () => {
+        const d = diagnose({
+            gatewayConfigured: false,
+            connectionStatus: 'disconnected',
+            metrics: [],
+            crewShare: 'not-shared',
+        });
+        expect(d.state).toBe('no-gateway');
+        expect(d.label).toBe('Not shared');
+        expect(d.detail).toMatch(/skipper/);
+        expect(d.detail).toMatch(/Crew/);
+        expect(d.actionable).toBe(false);
+    });
+
+    it('shared but nothing arriving: the boat is quiet, not a missing gateway', () => {
+        const d = diagnose({
+            gatewayConfigured: false,
+            connectionStatus: 'disconnected',
+            metrics: [],
+            crewShare: 'shared',
+        });
+        expect(d.label).toBe('Boat quiet');
+        expect(d.detail).toMatch(/not reporting/);
+        expect(d.detail).not.toMatch(/NMEA Gateway page/);
+    });
+
+    it('a skipper with no gateway still gets the gateway sentence', () => {
+        const d = diagnose({
+            gatewayConfigured: false,
+            connectionStatus: 'disconnected',
+            metrics: [],
+            crewShare: 'none',
+        });
+        expect(d.label).toBe('No gateway');
+        expect(d.detail).toMatch(/NMEA Gateway page/);
+    });
+});

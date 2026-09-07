@@ -18,7 +18,7 @@ const { getState, subscribe, subscribers } = vi.hoisted(() => {
 vi.mock('../services/NmeaStore', () => ({
     NMEA_LIVE_MAX_AGE_MS: 6_500,
     NMEA_USABLE_MAX_AGE_MS: 13_000,
-    NmeaStore: { getState, subscribe },
+    NmeaStore: { getState, subscribe, isBoatFeed: () => getState()?.connectionStatus === 'connected' },
 }));
 
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
