@@ -13,11 +13,10 @@
  *            headingMagnetic, environment.wind.speedTrue,
  *            environment.wind.directionTrue, environment.water.temperature
  *   ABSENT   navigation.attitude — Signal K does not map Yacht Devices' XDR
- *            form, which is the same reason the app can only show heel by
- *            parsing the raw passthrough. Heel is therefore null here until
- *            either Signal K learns the mapping or this reader also listens to
- *            10110. The column exists and the code handles it, so the day it
- *            appears nothing else changes.
+ *            form. On this yacht the EV-1 supplies heel/trim (skipper-confirmed),
+ *            carried as XDR Roll/Pitch on the existing localhost passthrough.
+ *            onboardSensors supplements this reader from the existing decoder's
+ *            timestamped export, without opening another gateway connection.
  *   ABSENT   environment.depth.* — the transducer is dry with the boat on the
  *            hard. This one fills itself in the moment she floats.
  *   ABSENT   environment.outside.pressure — Serene Summer's MDA carries empty
@@ -66,13 +65,14 @@ export function num(doc: unknown, path: string): number | null {
 }
 
 /** Closest Signal K envelope timestamp, including parent attitude.value objects. */
-export function timestampAt(doc: unknown, path: string): number | null {
+export function timestampAt(doc: unknown, path: string, inherit = true): number | null {
     let node: unknown = doc;
     let stamp: number | null = null;
     for (const key of [...path.split('.'), '']) {
         if (!node || typeof node !== 'object') break;
         let record = node as Record<string, unknown>;
-        if ('timestamp' in record) stamp = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN;
+        if ('timestamp' in record && (inherit || !key))
+            stamp = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN;
         if (!key) break;
         if (!(key in record) && record.value && typeof record.value === 'object')
             record = record.value as Record<string, unknown>;
@@ -230,6 +230,13 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
         Math.abs(latRaw) <= 90 &&
         Math.abs(lonRaw) <= 180 &&
         !(latRaw === 0 && lonRaw === 0);
+
+    // A current ZDA clock does not prove the cached GPS position is current.
+    // The public vessel clock may use this fix only with its own source time.
+    const positionAt = timestampAt(selfDocument, 'navigation.position', false);
+    if (hasPosition && positionAt !== null && positionAt <= nowMs + 5_000 && nowMs - positionAt < 600_000) {
+        extra.position_at = positionAt;
+    }
 
     const iso = valueAt(selfDocument, 'navigation.datetime');
     const gpsMs = typeof iso === 'string' ? Date.parse(iso) : Number.NaN;

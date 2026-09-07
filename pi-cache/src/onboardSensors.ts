@@ -12,7 +12,6 @@ export interface OnboardSensorSources {
     barometer: BarometerState;
     wind?: Json | null;
     house?: Json | null;
-    shipTimeZone?: string;
 }
 
 /** Pure merge for tests. Only a named house SmartShunt with a source timestamp is accepted. */
@@ -91,14 +90,6 @@ export function mergeOnboardSensors(
             }
         }
     }
-    if (sources.shipTimeZone) {
-        try {
-            new Intl.DateTimeFormat('en', { timeZone: sources.shipTimeZone }).format(now);
-            extra.ship_time_zone = sources.shipTimeZone;
-        } catch {
-            /* Do not use an implicit machine/visitor time zone. */
-        }
-    }
     if (
         !bus &&
         !Object.entries(result).some(([k, v]) => k !== 'reportedAt' && v !== null) &&
@@ -130,7 +121,6 @@ export function createOnboardSupplement(options: {
     barometer: () => BarometerState;
     windFile?: string;
     houseBatteryFile?: string;
-    shipTimeZone?: string;
     now?: () => number;
 }) {
     return async (bus: TelemetrySnapshot | null): Promise<TelemetrySnapshot | null> => {
@@ -138,10 +128,6 @@ export function createOnboardSupplement(options: {
             readSensorFile(options.windFile),
             readSensorFile(options.houseBatteryFile),
         ]);
-        return mergeOnboardSensors(
-            bus,
-            { barometer: options.barometer(), wind, house, shipTimeZone: options.shipTimeZone },
-            (options.now ?? Date.now)(),
-        );
+        return mergeOnboardSensors(bus, { barometer: options.barometer(), wind, house }, (options.now ?? Date.now)());
     };
 }

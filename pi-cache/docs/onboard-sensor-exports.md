@@ -4,12 +4,12 @@ This uses the existing yacht feeds. It does not open another gateway, MQTT or BL
 
 - BMP390: the running cache service's own `barometer.state()`. Publish only available samples younger than 180 seconds. The optional set hand is the same sensor's sample nearest three hours earlier, within five minutes.
 - House SOC: the explicitly selected whole-bank SmartShunt. `house_battery_sample.py` timestamps actual non-retained MQTT messages, expires them after 90 seconds, and exports `house_battery.json`. Do not substitute an individual bank, voltage curve, cached CSV value, or HTTP receipt time.
-- Attitude: existing `wind.py` decoder of Signal K's localhost NMEA passthrough. Its per-field 30-second expiry is retained; the patch adds original receipt timestamps. The cache rejects disconnected/stale files and explicit attitude-invalid status. XDR values are already signed degrees.
-- Clock: `THALASSA_SHIP_TIME_ZONE` is an explicitly configured IANA zone. It is **not** automatically synced with the app's device-local clock preference. The public clock uses the existing traditional Royal Navy bell table, not a crew-duty rota. Crew names and assignments are never published.
+- Attitude: the skipper identifies the EV-1 as the yacht's source. Its data arrives through the Yacht Devices gateway as XDR `Roll` (heel) and `Pitch` (trim), decoded by existing `wind.py` from Signal K's localhost NMEA passthrough. Its per-field 30-second expiry is retained; the patch adds original receipt timestamps. The cache rejects disconnected/stale files and explicit attitude-invalid status. XDR values are already signed degrees.
+- Clock: the public API resolves local civil time from the consented vessel's GPS position with its own fresh `extra.position_at` timestamp, including daylight saving for that location. This also works at the berth without a published voyage; only the timezone is exposed, not private coordinates. A recent already-public fix is the fallback. A newly received report/GPS clock cannot freshen a cached position. It never uses the Pi's configured timezone, the viewer's location, or the planned destination. No Pi clock setting is required. The public clock uses the existing traditional Royal Navy bell table, not a crew-duty rota. Crew names and assignments are never published.
 
 ## Deployment hold / continuity
 
-On 7 September 2026 the yacht's anchor relay was active. **Do not restart `thalassa-cache` until the skipper authorises a safe interruption and anchor-watch reassignment is arranged.** Its assignment is in memory; ordinary renewal may take an hour. Do not silently replay an old assignment. The app must confirm current anchor state after the restart.
+On 7 September 2026 the skipper authorised a safe interruption. The immediate pre-update status showed the anchor relay was already off; the deployment left it off. The skipper must re-enable and verify it from the app before relying on anchor monitoring. For future updates, **do not restart `thalassa-cache` until the skipper authorises a safe interruption and anchor-watch reassignment is arranged.** Its assignment is in memory; ordinary renewal may take an hour. Do not silently replay an old assignment. The app must confirm current anchor state after the restart.
 
 Prepare a separate staging directory; back up exact installed files before replacement. Build the cache there and preserve its existing environment, pairing credentials, history and TLS certificates. Do not use a broad repository pull/redeploy to introduce unrelated changes.
 
@@ -23,7 +23,6 @@ For this yacht's existing BMS producers:
     ```dotenv
     THALASSA_WIND_FILE=/home/shanes/bms/wind.json
     THALASSA_HOUSE_BATTERY_FILE=/home/shanes/bms/house_battery.json
-    THALASSA_SHIP_TIME_ZONE=Australia/Brisbane
     ```
 
 5. In the approved window, install the validated cache artifacts and restart its service. Verify the producer source timestamps, LAN payload, successful cloud publisher, matching public snapshot, and anchor-watch reassignment. Stop and report any failure; never label an absent reading as zero or a replay as live.

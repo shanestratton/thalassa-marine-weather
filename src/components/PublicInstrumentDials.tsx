@@ -10,12 +10,12 @@ import { watchAt } from '../../utils/shipsBells';
 import { clockInZone } from '../../utils/timeZones';
 import { observedTendency } from '../../utils/barometerTendency';
 
-const MODES = ['Apparent', 'True wind', 'COG', 'Barometer', 'Heel', 'Pitch', 'Helm', 'Ship’s bell'] as const;
+const MODES = ['Apparent', 'True wind', 'COG', 'Barometer', 'Heel', 'Trim', 'Helm', 'Ship’s bell'] as const;
 type Mode = (typeof MODES)[number];
 const valid = (value: number | null | undefined): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? value : null;
 
-/** A configured ship zone only. Never quietly falls back to the visitor's clock. */
+/** The vessel-position zone supplied by the public API, never the visitor's clock. */
 export function publicShipClock(now: number, zone: string | null | undefined) {
     if (!zone) return null;
     try {
@@ -36,13 +36,13 @@ const Bell: React.FC<{ zone: string | null | undefined }> = ({ zone }) => {
     if (!clock)
         return (
             <p role="status" className="py-16 text-center text-sm text-slate-400">
-                Waiting for the boat’s clock setting.
+                Waiting for a recent vessel position to set local time.
             </p>
         );
     return (
         <>
             <ShipsBellClock hour={clock.hour} minute={clock.minute} second={clock.second} zoneLabel={clock.label} />
-            <p className="mt-2 text-center text-sm text-amber-200">Ship time · {zone?.replaceAll('_', ' ')}</p>
+            <p className="mt-2 text-center text-sm text-amber-200">Vessel local time · {zone?.replaceAll('_', ' ')}</p>
             <details className="mt-3 border-t border-white/10">
                 <summary className="min-h-11 cursor-pointer content-center text-sm text-amber-200">
                     Traditional bell watches
@@ -109,9 +109,11 @@ export const PublicInstrumentDials: React.FC<{ instruments: VoyageLogInstruments
                     ? 'Course over ground'
                     : mode === 'Heel'
                       ? 'Heel / roll'
-                      : mode === 'Apparent'
-                        ? 'Apparent wind'
-                        : mode}
+                      : mode === 'Trim'
+                        ? 'Trim / pitch'
+                        : mode === 'Apparent'
+                          ? 'Apparent wind'
+                          : mode}
             </h3>
             {mode === 'Apparent' && (
                 <SereneWindRose
@@ -189,7 +191,7 @@ export const PublicInstrumentDials: React.FC<{ instruments: VoyageLogInstruments
                 </>
             )}
             {mode === 'Heel' && <AttitudeGauge angle={valid(t.heel)} axis="heel" />}
-            {mode === 'Pitch' && <AttitudeGauge angle={valid(t.pitch)} axis="pitch" />}
+            {mode === 'Trim' && <AttitudeGauge angle={valid(t.pitch)} axis="pitch" />}
             {mode === 'Helm' && <RudderGauge angle={valid(t.rudder)} />}
             {mode === 'Ship’s bell' && <Bell zone={t.ship_time_zone} />}
         </div>

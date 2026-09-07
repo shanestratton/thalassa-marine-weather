@@ -1,8 +1,57 @@
+/** Local civil time at a timestamped vessel position, never a planned destination. */
+export function publicVesselTimeZone(
+    position: Record<string, unknown> | null,
+    lookup: (lat: number, lon: number) => string,
+    nowMs = Date.now(),
+): string | null {
+    if (!position) return null;
+    const { lat, lon, updated_at } = position;
+    if (
+        typeof lat !== 'number' || typeof lon !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lon) ||
+        Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)
+    ) return null;
+    const at = typeof updated_at === 'string' ? Date.parse(updated_at) : NaN;
+    if (!Number.isFinite(at) || at > nowMs + 60_000 || nowMs - at >= 600_000) return null;
+    try {
+        const zone = lookup(lat, lon);
+        new Intl.DateTimeFormat('en', { timeZone: zone }).format(nowMs);
+        return zone;
+    } catch {
+        return null;
+    }
+}
+
+/** Call only after public-instrument consent/visibility checks. No coordinates are returned. */
+export function publicInstrumentTimeZone(
+    row: Record<string, unknown> | null,
+    boatId: string,
+    publishedPosition: Record<string, unknown> | null,
+    lookup: (lat: number, lon: number) => string,
+    nowMs = Date.now(),
+): string | null {
+    if (!row || row.boat_id !== boatId) return null;
+    const extra = row.extra && typeof row.extra === 'object' && !Array.isArray(row.extra)
+        ? row.extra as Record<string, unknown>
+        : {};
+    const at = extra.position_at;
+    // An independently refreshed report/GPS clock must not revive a cached fix.
+    if (typeof at === 'number' && Number.isFinite(at) && at <= nowMs + 5_000 && nowMs - at < 600_000) {
+        const zone = publicVesselTimeZone(
+            { lat: row.lat, lon: row.lon, updated_at: new Date(at).toISOString() },
+            lookup,
+            nowMs,
+        );
+        if (zone) return zone;
+    }
+    return publicVesselTimeZone(publishedPosition, lookup, nowMs);
+}
+
 /** Public instruments never carry location, device identifiers or arbitrary extra fields. */
 export function publicInstrumentSnapshot(
     row: Record<string, unknown> | null,
     boatId: string,
     nowMs = Date.now(),
+    vesselTimeZone: string | null = null,
 ) {
     if (!row || row.boat_id !== boatId) return null;
     const reportedAt = typeof row.reported_at === 'string' ? Date.parse(row.reported_at) : NaN;
@@ -26,10 +75,10 @@ export function publicInstrumentSnapshot(
         : bounded('pressure_3h_at', pressureAt - 185 * 60_000, pressureAt - 175 * 60_000);
     const timestamp = (at: number | null): string | null => at === null ? null : new Date(at).toISOString();
     let shipZone: string | null = null;
-    if (typeof extra.ship_time_zone === 'string' && extra.ship_time_zone.length <= 80) {
+    if (typeof vesselTimeZone === 'string' && vesselTimeZone.length <= 80) {
         try {
-            new Intl.DateTimeFormat('en', { timeZone: extra.ship_time_zone }).format(nowMs);
-            shipZone = extra.ship_time_zone;
+            new Intl.DateTimeFormat('en', { timeZone: vesselTimeZone }).format(nowMs);
+            shipZone = vesselTimeZone;
         } catch { /* Invalid is unavailable, not the visitor's zone. */ }
     }
     return {

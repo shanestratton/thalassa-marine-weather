@@ -135,7 +135,6 @@ const onboardSupplement = createOnboardSupplement({
     barometer: () => barometer.state(),
     windFile: process.env.THALASSA_WIND_FILE,
     houseBatteryFile: process.env.THALASSA_HOUSE_BATTERY_FILE,
-    shipTimeZone: process.env.THALASSA_SHIP_TIME_ZONE,
 });
 const WAN_UPLINK = declaredWanUplink(process.env);
 const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, {
