@@ -13,17 +13,24 @@ interface TelemetryPanelProps {
 const finite = (value: number | null | undefined): value is number =>
     typeof value === 'number' && Number.isFinite(value);
 
-const Reading: React.FC<{ label: string; value: number | null; unit: string; digits?: number }> = ({
+const Reading: React.FC<{ label: string; value: number | null; unit: string; digits?: number; status?: string }> = ({
     label,
     value,
     unit,
     digits = 1,
+    status,
 }) => (
     <div className="min-w-0 rounded-xl border border-white/8 bg-slate-950/45 px-3 py-2.5">
         <dt className="text-sm text-slate-400">{label}</dt>
         <dd className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-xl font-semibold tabular-nums text-slate-100">
-            {finite(value) ? value.toFixed(digits) : <span aria-label="Unavailable">—</span>}
-            <span className="text-xs font-medium text-teal-200">{unit}</span>
+            {status ? (
+                <span className="font-sans text-base font-medium">{status}</span>
+            ) : (
+                <>
+                    {finite(value) ? value.toFixed(digits) : <span aria-label="Unavailable">—</span>}
+                    <span className="text-xs font-medium text-teal-200">{unit}</span>
+                </>
+            )}
         </dd>
     </div>
 );
@@ -75,6 +82,9 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
         Object.entries(t).some(
             ([key, value]) => key !== 'pressure_3h' && typeof value === 'number' && Number.isFinite(value),
         );
+    // Missing RPM is not proof that the engine has stopped (or even has a sensor).
+    const engineRpm = finite(t?.rpm) && t.rpm >= 0 ? t.rpm : null;
+    const engineStatus = engineRpm === null ? 'No RPM signal' : engineRpm === 0 ? 'Engine off' : undefined;
 
     return (
         <section
@@ -128,7 +138,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                         <Reading label="House battery" value={t.house_battery_soc ?? null} unit="%" />
                         <Reading label="Sea temperature" value={t.water_temp} unit="°C" />
                         <Reading label="Heading" value={t.heading} unit="°" digits={0} />
-                        <Reading label="Engine" value={t.rpm} unit="RPM" digits={0} />
+                        <Reading label="Engine" value={engineRpm} unit="RPM" digits={0} status={engineStatus} />
                     </dl>
                     <details className="mt-3 border-t border-white/10 pt-1">
                         <summary className="min-h-11 cursor-pointer content-center text-sm font-medium text-teal-200 focus-visible:outline-2 focus-visible:outline-teal-300">
