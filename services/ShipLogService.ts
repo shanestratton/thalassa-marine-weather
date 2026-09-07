@@ -2108,8 +2108,12 @@ class ShipLogServiceClass {
             // later successful write. The ledger records the clear intent and
             // retries on reconnect; last-intent-per-voyage wins, so a queued
             // link write from cast-off can never resurrect after this.
+            //
+            // Only if THIS device set the link (2026-09-08): a second phone on
+            // the account stopping its own recording must not un-publish the
+            // route the phone that cast off is still following.
             void import('./shiplog/planLinkIntent')
-                .then(({ setPlanLinkWithRetry }) => setPlanLinkWithRetry(previousVoyageId, null))
+                .then(({ clearPlanLinkIfWrittenHere }) => clearPlanLinkIfWrittenHere(previousVoyageId))
                 .catch((error) => {
                     log.warn('[ShipLog] public followed-route link not cleared:', error);
                 });

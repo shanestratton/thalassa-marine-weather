@@ -127,11 +127,12 @@ export interface UserSettings {
     /** Which DEVICE speaks for this boat. Two devices signed into one account
      *  both published track points under the same user_id, so the public page
      *  drew both and the boat marker jumped between them (2026-07-19). Exclusive:
-     *  a second device must take it over deliberately. Absent = unclaimed, and
+     *  a second device must take it over deliberately. Absent or null = unclaimed
+     *  (a RELEASE writes null so the cloud patch carries the key), and
      *  an unclaimed boat publishes from any device, so shipping this cannot
      *  silently take an existing skipper off their own page.
      *  See services/skipperDevice.ts. */
-    skipperDevice?: { deviceId: string; deviceName: string; claimedAt: string };
+    skipperDevice?: { deviceId: string; deviceName: string; claimedAt: string } | null;
     vessel?: VesselProfile;
     vesselUnits?: VesselDimensionUnits;
     timeDisplay: 'location' | 'device';

@@ -13,6 +13,7 @@ import { supabase } from './supabase';
 
 import { createLogger } from '../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+import { getDeviceId } from './skipperDevice';
 
 const log = createLogger('CrewService');
 
@@ -792,24 +793,11 @@ function generateManifestCode(): string {
     return `${l1}${l2}-${num}`;
 }
 
-/**
- * Get the device ID for manifest code locking.
- */
-let fallbackDeviceId: string | null = null;
-
-function getDeviceId(): string {
-    try {
-        let id = localStorage.getItem('thalassa_device_id');
-        if (!id) {
-            id = `dev_${crypto.randomUUID()}`;
-            localStorage.setItem('thalassa_device_id', id);
-        }
-        return id;
-    } catch {
-        fallbackDeviceId ??= `dev_${crypto.randomUUID()}`;
-        return fallbackDeviceId;
-    }
-}
+// Manifest code locking uses the app's ONE per-install device id
+// (services/skipperDevice.ts). This file used to mint its own under the same
+// storage key, so whichever module ran first decided the id's shape — harmless
+// while nothing compared ids across modules, wrong once the followed-route
+// link and the recording-device stamp started naming devices (2026-09-08).
 
 /**
  * Create a manifest invite code (Skipper action).

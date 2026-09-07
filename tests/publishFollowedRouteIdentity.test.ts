@@ -20,6 +20,9 @@ vi.mock('../services/ShipLogService', () => ({
 vi.mock('../services/VoyageLogService', () => ({
     VoyageLogService: {
         setVoyagePlanLink: (...args: unknown[]) => mocks.setLink(...args),
+        // The author check reads the row before the first write (2026-09-08);
+        // no row stands, so the write follows as it always did.
+        getPlanLink: async () => ({ ok: true, row: null }),
     },
 }));
 
@@ -47,7 +50,7 @@ describe('publishFollowedRoute identity ownership', () => {
         const link = deferred<boolean>();
         mocks.setLink.mockReturnValueOnce(link.promise);
         const request = publishFollowedRoute('plan-a');
-        expect(mocks.setLink).toHaveBeenCalledWith('voyage-a', 'plan-a');
+        await vi.waitFor(() => expect(mocks.setLink).toHaveBeenCalledWith('voyage-a', 'plan-a'));
 
         mocks.currentVoyageId = 'voyage-b';
         setAuthIdentityScope('account-b');
@@ -61,7 +64,7 @@ describe('publishFollowedRoute identity ownership', () => {
         const clear = deferred<boolean>();
         mocks.setLink.mockReturnValueOnce(clear.promise);
         const request = clearFollowedRoute();
-        expect(mocks.setLink).toHaveBeenCalledWith('voyage-a', null);
+        await vi.waitFor(() => expect(mocks.setLink).toHaveBeenCalledWith('voyage-a', null));
 
         mocks.currentVoyageId = 'voyage-b';
         setAuthIdentityScope('account-b');

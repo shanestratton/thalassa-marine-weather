@@ -1420,7 +1420,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     );
 
     const applyClaim = useCallback(
-        (nextClaim: SkipperClaim | undefined) => {
+        (nextClaim: SkipperClaim | null) => {
             if (actionInFlight.current) return;
             actionInFlight.current = true;
             try {
@@ -1438,7 +1438,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         if (actionInFlight.current || takeoverRequest) return;
         triggerHaptic('medium');
         if (claimHeld) {
-            applyClaim(undefined);
+            // null, never undefined: the cloud patch is JSON, and an undefined
+            // key is dropped on the wire — the release never left this phone,
+            // so the other device kept seeing a claim nobody held (2026-09-08).
+            applyClaim(null);
             return;
         }
 
