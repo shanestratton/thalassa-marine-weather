@@ -12,9 +12,10 @@ Decisions already made (do not re-open here): **Watch is cut** from this beta
 
 ## 18 · Native release evidence
 
-Facts the audit found and that still hold: there is no XCTest/XCUITest target,
-`ship:beta` runs no native tests, and the last archive evidence is an unsigned
-Release archive from 2026-08-06 (with a Watch binary that must now be gone).
+There is no XCTest/XCUITest target, and `ship:beta` runs no native tests.
+The signed archives and Apple validation/upload receipts below supersede the
+original unsigned 2026-08-06 archive. Packaging does not replace the outstanding
+physical-device matrix.
 
 ### Archive
 
@@ -39,6 +40,15 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] Apple validation passed for **1.2.0 (104)** on 2026-09-07 at approximately 17:22 AEST: Xcode's `method=validation`, `destination=upload` workflow returned `Validated App` / `EXPORT SUCCEEDED`. Automatic version/build-number management was disabled, preserving 104.
 - [x] Uploaded **1.2.0 (104)** on 2026-09-07 at **17:24:30 AEST**: Xcode reported `Upload succeeded` / `Uploaded App` / `EXPORT SUCCEEDED`, and Apple confirmed the uploaded package is processing. This receipt confirms upload, not completed processing or tester availability. **No Beta Skippers, public-link or tester-group settings were changed.**
 - [x] 104 processed and reached the internal **Skipper** group: installed over 103 on Shane's phone (Shane, 2026-09-08 morning: "104 is on my phone right now"). External beta access unchanged.
+
+### Build 105 final candidate (2026-09-08)
+
+- [x] Exact source **153141e4** passed [CI run 34165267304](https://github.com/shanestratton/thalassa-marine-weather/actions/runs/34165267304): all four jobs green, including the full coverage suite, dependency/lint/format/type checks, Deno tests, production packaging, Lighthouse and CI browser tests. [CodeQL run 34165267291](https://github.com/shanestratton/thalassa-marine-weather/actions/runs/34165267291) also passed. Final result verified after 08:20 AEST, before the release-documentation-only commit.
+- [x] Rebuilt and Capacitor-synced from **153141e4** under Node 24 with `VITE_APP_BUILD=105`: **132 source/configuration + 140 artifact contracts** passed, including production routes, secret scans and bundle budgets. Bundle **main-DeeB8j8m.js**, total 13.21/18 MB, JavaScript 9.77/9.90 MB. All 410 `dist` files byte-match the native copy; 19 Capacitor plugins synced. No app source or parked vessel-claim work was changed.
+- [x] Local production-browser matrix: **79 passed, 7 existing profile/hosted-only skips** across Chromium and mobile Safari (2.6 minutes). The full app unit suite and shared-reader tests are recorded in the 105 follow-up test gates below.
+- [x] Signed archive completed **08:07:33 AEST**, Xcode **26.6 (17F113)**, scheme App / Release / generic iOS device: `/Users/shanestratton/Library/Developer/Xcode/Archives/2026-09-08/Thalassa-1.2.0-105-153141e4.xcarchive`. Verified **1.2.0 (105)**, `com.thalassa.weather`, iOS 17 minimum; all **412 archived public files** byte-match the gated native copy, **23 binaries have matching dSYMs**, zero source maps, no Watch or PlugIns, background modes audio/location/fetch and `ITSAppUsesNonExemptEncryption=false`. Strict/deep code-signature verification passed. Apple Development archive signing is normal before distribution re-signing.
+- [x] Apple validation passed **approximately 08:10 AEST**: `method=validation`, `destination=upload` returned **Validated App / EXPORT SUCCEEDED**. `manageAppVersionAndBuildNumber=false` preserves 105. This is validation, not a distribution upload or TestFlight processing receipt.
+- [x] Distribution export passed **approximately 08:11 AEST**: `/Users/shanestratton/Documents/Temporary Projects/Thalassa Releases/1.2.0-105-153141e4/Thalassa Marine Weather.ipa`, SHA-256 **99ed027e9a4973127c3773d49e494ca7ae7e03f42daf637a63f19f3e4ff0cbbe**. Verified Cloud Managed Apple Distribution signing, strict/deep signature, `get-task-allow=false`, production APNs and `beta-reports-active=true`; exported app remains 1.2.0 (105), with matching web files and dSYMs. Draft What to Test notes sit alongside the IPA. No distribution upload, tester-group changes, public-link changes or yacht deployment was performed.
 
 ### TestFlight (2026-09-06)
 
@@ -110,7 +120,7 @@ Planned and written up as 104; the 103 bundle was rebuilt after each of these la
 - [x] **105 build preparation** (2026-09-08 ≈07:50): build number 104 → 105 on all four configurations, marketing version 1.2.0, source commit 23149108. `ship:beta` under Node 24.19.0 with `VITE_APP_BUILD=105`: 132 preflight + 140 artifact contracts, production routes, bundle 13.21/18 MB (JS 9.77/9.90 MB), secret scans and Capacitor sync (19 plugins) all passed; iOS web assets match `dist`. Full Vitest run earlier on the route-authority commits: 9,347 passed, 2 red — `FollowSteersCheckedGeometry` (a stale source pin from 453135a6, repaired in 10c97a3c) and `PublicVesselClock` (pins `publicInstrumentTimeZone(cloud, boatI…` in the voyage-log edge function, which 9509aca0 from the other session changed today — theirs to settle). Packaging checks only; Shane archives, validates and uploads.
 - [x] **105 follow-up test gates** (2026-09-08): repaired the stale `PublicVesselClock` source pin after the clock lookup moved into the shared public instrument reader. The contract now checks both full and lightweight callers; two additional server behavior tests verify boat-position priority, private coordinates, stale-GPS rejection and the full response's already-public position fallback. `FollowSteersCheckedGeometry` also passes with its existing `10c97a3c` repair. Full Vitest under Node 24: **9,360 passed, 3 expected failures, 5 skipped; 1,067 files passed, 4 skipped**, no unexpected failures (232.44 s). Shared reader Deno tests: **6 passed**. TypeScript, focused lint and formatting checks passed. Tests/documentation only: no app or Pi behavior changes, and the prepared 105 bundle and Capacitor sync were not regenerated.
 - [ ] **PARKED, not in 105:** the vessel claim / invite role picker / Release + Undo build (design accepted from the 2026-09-08 judge panel: MMSI claim on `boats`, hard only at CREATE/onboarding, advisory on PATCH; `release_owned_vessel` / `undo_vessel_release` RPCs; crew land on the live hull; diary-relay pairs with `boat_id`; OfflineQueue 42501 retry). The implementation workflow was stopped mid-run for this build; its edits (18 files, three slices finished, the fleet store/UI unfinished) sit in `git stash` on master as "wip vessel-claim-release" — resume with `git stash pop`, finish the fleet + Vessel tab slices, then the adversarial verify, migration `20260908170000` and the `supabase functions deploy diary-relay`. Gates in that design that want Shane's yes are listed in the synthesis (`gatesNeedingShanesYes`).
-- [ ] **Shane:** `supabase db push` for 20260908150000 (voyage_plan_links author stamp + voyages recording device). Verify with `supabase migration list --linked`.
+- [x] **105 route-author migration verified live** (2026-09-08): read-only `supabase migration list --linked` confirms remote **20260908150000** (voyage_plan_links author stamp + voyages recording device), with no pending local migrations. No database writes were performed during release preparation; two-device behavior still requires the physical smoke above.
 - [ ] Whatever else the 103 matrix finds.
 
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
