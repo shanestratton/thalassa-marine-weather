@@ -52,9 +52,14 @@ describe('the weather is for the boat', () => {
         expect(service).toContain('export const PI_POLL_MS = 30_000;');
     });
 
-    it('the Glass says which receiver the weather is for, and a held fix can be changed by a tap', () => {
+    it('the Glass says which receiver the weather is for — one word in the SAME row as the age, never a new line', () => {
         expect(badges).toContain('describeWeatherFix(positionSource, ageTick)');
-        expect(badges).toContain("' · tap to change'");
+        expect(badges).toContain("positionSource.kind === 'phone' ? 'PHONE' : 'VESSEL'");
+        expect(badges).toContain('· tap to change');
+        // Shane, 2026-09-07 (103 matrix): "we have no spare real estate to add
+        // lines to the page" — the full-width receiver line under the row is gone
+        // for good; the word rides beside the forecast age instead.
+        expect(badges).not.toContain('mt-1 w-full text-center');
         expect(badges).toContain('<WeatherPositionChoiceDialog');
     });
 
