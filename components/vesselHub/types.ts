@@ -16,7 +16,8 @@ export interface VesselHubProps {
 export interface SkipperDeviceControlProps {
     claim: SkipperClaim | null;
     authenticatedUserId: string | null;
-    updateSettings: (patch: { skipperDevice?: SkipperClaim }) => void;
+    /** null releases the claim — undefined would serialise to nothing and the cloud would never hear it. */
+    updateSettings: (patch: { skipperDevice?: SkipperClaim | null }) => void;
     /**
      * The active fleet vessel this device publishes for. The claim is what
      * grants publishing authority, but authority alone never said WHICH boat

@@ -10,6 +10,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase, supabaseUrl } from './supabase';
+import { getDeviceId, getDeviceName } from './skipperDevice';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -68,6 +69,47 @@ interface VoyageLogOperation {
         prefix?: string;
         nickname?: string;
     };
+}
+
+/**
+ * A followed-route link row with its author stamp (migration 20260908150000).
+ * deviceId/deviceName/updatedAt are null on rows written before the stamp —
+ * those read as "nobody in particular", which is how the pre-stamp world
+ * behaved and keeps old links clearable from any device.
+ */
+export interface PlanLinkRow {
+    voyageId: string;
+    planVoyageId: string;
+    /** Per-install id of the device that wrote the row (skipperDevice.getDeviceId). */
+    deviceId: string | null;
+    /** Friendly label of that device, for "Set by Shane's iPhone" and confirm copy. */
+    deviceName: string | null;
+    /** Server-stamped ISO time of the last write. */
+    updatedAt: string | null;
+}
+
+/** `ok: false` = the read failed; never the same thing as "no link stands". */
+export type PlanLinkRead = { ok: true; row: PlanLinkRow | null } | { ok: false; reason: string };
+
+function toPlanLinkRow(raw: unknown, userId: string): PlanLinkRow | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const row = raw as Record<string, unknown>;
+    if (row.user_id !== userId) return null;
+    if (typeof row.voyage_id !== 'string' || typeof row.plan_voyage_id !== 'string') return null;
+    return {
+        voyageId: row.voyage_id,
+        planVoyageId: row.plan_voyage_id,
+        deviceId: typeof row.device_id === 'string' && row.device_id ? row.device_id : null,
+        deviceName: typeof row.device_name === 'string' && row.device_name ? row.device_name : null,
+        updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
+    };
+}
+
+/** PostgREST's "column does not exist" — the build shipped ahead of a migration. */
+function isUndefinedColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
+    if (!error) return false;
+    if (error.code === '42703') return true;
+    return /column .*(device_id|device_name|updated_at)/i.test(error.message ?? '');
 }
 
 class VoyageLogServiceClass {
@@ -690,36 +732,103 @@ class VoyageLogServiceClass {
     // A linked voyage drives the public page's DYNAMIC destination +
     // progress (the edge fn overrides the static config destination with
     // the linked plan's endpoint while the voyage is fresh).
+    //
+    // Author-stamped since 2026-09-08 (migration 20260908150000): every row
+    // carries the device that wrote it and a server updated_at, so a second
+    // device on the same account can SEE the route already followed and name
+    // the other device before replacing it. Reads select * so a build that
+    // lands ahead of the migration still hydrates — the stamp reads as null.
 
     /** voyage_id → plan_voyage_id for every linked voyage. */
     async getPlanLinks(): Promise<Map<string, string>> {
+        const rows = await this.getPlanLinkRows();
+        return new Map(Array.from(rows, ([voyageId, row]) => [voyageId, row.planVoyageId]));
+    }
+
+    /** voyage_id → full link row (plan + author stamp) for every linked voyage. */
+    async getPlanLinkRows(): Promise<Map<string, PlanLinkRow>> {
         const scope = getAuthIdentityScope();
         const operation = await this.authenticate(scope, false);
         if (!operation || !supabase) return new Map();
         try {
             const { data, error } = await supabase
                 .from('voyage_plan_links')
-                .select('user_id, voyage_id, plan_voyage_id')
+                .select('*')
                 .eq('user_id', operation.userId);
             if (!isAuthIdentityScopeCurrent(scope)) return new Map();
             if (error) {
-                log.warn('getPlanLinks failed:', error.message);
+                log.warn('getPlanLinkRows failed:', error.message);
                 return new Map();
             }
-            return new Map(
-                (data ?? [])
-                    .filter(
-                        (row) =>
-                            row.user_id === operation.userId &&
-                            typeof row.voyage_id === 'string' &&
-                            typeof row.plan_voyage_id === 'string',
-                    )
-                    .map((row) => [row.voyage_id as string, row.plan_voyage_id as string]),
-            );
+            const rows = new Map<string, PlanLinkRow>();
+            for (const raw of (data ?? []) as unknown[]) {
+                const row = toPlanLinkRow(raw, operation.userId);
+                if (row) rows.set(row.voyageId, row);
+            }
+            return rows;
         } catch (e) {
-            if (isAuthIdentityScopeCurrent(scope)) log.warn('getPlanLinks failed:', e);
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('getPlanLinkRows failed:', e);
             return new Map();
         }
+    }
+
+    /**
+     * One voyage's link row (null when none stands). `ok: false` is a FAILED
+     * read — offline, signed out, account changed — and callers must not read
+     * it as "no link": publishFollowedRoute queues instead of writing blind
+     * when it cannot see who holds the row.
+     */
+    async getPlanLink(voyageId: string): Promise<PlanLinkRead> {
+        const scope = getAuthIdentityScope();
+        const immutableVoyageId = voyageId.trim();
+        if (!immutableVoyageId) return { ok: false, reason: 'A voyage id is required.' };
+        const operation = await this.authenticate(scope, false);
+        if (!operation || !supabase) return { ok: false, reason: 'Not signed in.' };
+        try {
+            const { data, error } = await supabase
+                .from('voyage_plan_links')
+                .select('*')
+                .eq('user_id', operation.userId)
+                .eq('voyage_id', immutableVoyageId)
+                .maybeSingle();
+            if (!isAuthIdentityScopeCurrent(scope)) return { ok: false, reason: 'Account changed.' };
+            if (error) {
+                log.warn('getPlanLink failed:', error.message);
+                return { ok: false, reason: error.message };
+            }
+            return { ok: true, row: data ? toPlanLinkRow(data, operation.userId) : null };
+        } catch (e) {
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('getPlanLink failed:', e);
+            return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+        }
+    }
+
+    /**
+     * Author-stamped upsert. Falls back to the unstamped shape ONCE when the
+     * server does not know the stamp columns yet (a build shipped ahead of
+     * migration 20260908150000): a link must never fail to land over a
+     * column that only adds provenance.
+     */
+    private async upsertPlanLink(
+        userId: string,
+        voyageId: string,
+        planId: string,
+    ): Promise<{ error: { code?: string; message: string } | null }> {
+        if (!supabase) return { error: { message: 'Offline.' } };
+        const stamped = {
+            user_id: userId,
+            voyage_id: voyageId,
+            plan_voyage_id: planId,
+            device_id: getDeviceId(),
+            device_name: getDeviceName(),
+        };
+        const first = await supabase.from('voyage_plan_links').upsert(stamped, { onConflict: 'user_id,voyage_id' });
+        if (!first.error || !isUndefinedColumnError(first.error)) return { error: first.error };
+        log.warn('voyage_plan_links has no author columns yet (migration 20260908150000) — writing unstamped');
+        const { user_id, voyage_id, plan_voyage_id } = stamped;
+        return supabase
+            .from('voyage_plan_links')
+            .upsert({ user_id, voyage_id, plan_voyage_id }, { onConflict: 'user_id,voyage_id' });
     }
 
     /** Link a voyage to a plan (planId null = unlink). */
@@ -737,14 +846,7 @@ class VoyageLogServiceClass {
 
         try {
             const { error } = immutablePlanId
-                ? await supabase.from('voyage_plan_links').upsert(
-                      {
-                          user_id: operation.userId,
-                          voyage_id: immutableVoyageId,
-                          plan_voyage_id: immutablePlanId,
-                      },
-                      { onConflict: 'user_id,voyage_id' },
-                  )
+                ? await this.upsertPlanLink(operation.userId, immutableVoyageId, immutablePlanId)
                 : await supabase
                       .from('voyage_plan_links')
                       .delete()

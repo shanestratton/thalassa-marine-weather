@@ -12,10 +12,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
     setVoyagePlanLink: vi.fn<(voyageId: string, planId: string | null) => Promise<boolean>>(),
+    // The flush reads the row's author before it writes (2026-09-08). No row
+    // is the pre-authorship world these tests were written against.
+    getPlanLink: vi.fn<(voyageId: string) => Promise<unknown>>(),
 }));
 
 vi.mock('../services/VoyageLogService', () => ({
-    VoyageLogService: { setVoyagePlanLink: h.setVoyagePlanLink },
+    VoyageLogService: { setVoyagePlanLink: h.setVoyagePlanLink, getPlanLink: h.getPlanLink },
 }));
 
 import {
@@ -33,6 +36,7 @@ beforeEach(() => {
     resetPlanLinkIntentsForTest();
     setAuthIdentityScope('skipper');
     h.setVoyagePlanLink.mockResolvedValue(true);
+    h.getPlanLink.mockResolvedValue({ ok: true, row: null });
 });
 
 describe('planLinkIntent — durable retry for the public route link', () => {

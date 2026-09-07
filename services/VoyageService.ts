@@ -8,6 +8,7 @@
  */
 
 import { supabase } from './supabase';
+import { getDeviceId, getDeviceName } from './skipperDevice';
 import { startLeg, closeLeg, getActiveLeg, deleteLegsForVoyage } from './VoyageLegService';
 import {
     authScopedStorageKey,
@@ -47,6 +48,10 @@ export interface Voyage {
     manifest_locked_at?: string | null;
     /** Canonical Route Tracer record that created this planning row. */
     saved_route_id?: string | null;
+    /** Device that cast off and is recording the Ship's Log (skipperDevice id; migration 20260908150000). */
+    recording_device_id?: string | null;
+    /** Friendly label of that device — "Recording on Shane's iPhone". */
+    recording_device_name?: string | null;
 }
 
 // ── Local state (for offline access) ──────────────────────────────────────
@@ -97,7 +102,9 @@ function isVoyage(value: unknown): value is Voyage {
         typeof voyage.created_at === 'string' &&
         typeof voyage.updated_at === 'string' &&
         (voyage.manifest_locked_at === undefined || isNullableString(voyage.manifest_locked_at)) &&
-        (voyage.saved_route_id === undefined || isNullableString(voyage.saved_route_id))
+        (voyage.saved_route_id === undefined || isNullableString(voyage.saved_route_id)) &&
+        (voyage.recording_device_id === undefined || isNullableString(voyage.recording_device_id)) &&
+        (voyage.recording_device_name === undefined || isNullableString(voyage.recording_device_name))
     );
 }
 
@@ -726,7 +733,34 @@ async function activateVoyage(
 
     const voyage = cloneVoyage(data);
     cacheVoyage(voyage, identity);
+    if (candidate.status !== 'active') {
+        // THIS call activated the row, so this device is the one recording
+        // the passage. A response-loss retry — or a second device re-running
+        // Cast Off against the already-active voyage — leaves the stamp
+        // alone. Fire-and-forget: provenance never delays the cast-off state.
+        void stampRecordingDevice(voyageId, ownerId);
+    }
     return { voyage, caution };
+}
+
+/**
+ * Record which device is recording the Ship's Log for an active passage, so
+ * every OTHER device on the account can name it ("Recording on Shane's
+ * iPhone") before it ends, deletes or re-links the voyage. Advisory data —
+ * a failed stamp is logged, never surfaced as a cast-off failure.
+ */
+async function stampRecordingDevice(voyageId: string, ownerId: string): Promise<void> {
+    if (!supabase) return;
+    try {
+        const { error } = await supabase
+            .from('voyages')
+            .update({ recording_device_id: getDeviceId(), recording_device_name: getDeviceName() })
+            .eq('id', voyageId)
+            .eq('user_id', ownerId);
+        if (error) console.warn('[VoyageService] recording device not stamped:', error.message);
+    } catch (error) {
+        console.warn('[VoyageService] recording device not stamped:', error);
+    }
 }
 
 /**
