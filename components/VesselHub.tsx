@@ -1503,36 +1503,43 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 </div>
                 {/* The order the app believes GPS in: the boat's own receiver
                     (bus, or the Pi that holds it) when it is present, then this
-                    device — or just this device when there is no boat GPS. */}
+                    device — or just this device when there is no boat GPS.
+                    With the Pi primary this row says nothing (Shane 2026-09-08:
+                    "get rid of this device unless there is no pi") — the pill
+                    below says it all. The row keeps its height so the card
+                    never moves. */}
                 <div className="mb-2 flex h-4 items-center gap-2">
-                    <span
-                        data-testid="skipper-device-gps-source"
-                        title={
-                            vesselGpsLive
-                                ? 'The boat’s own GPS speaks first; this device stands in when it is quiet.'
-                                : 'No boat GPS present — this device is the only position source.'
-                        }
-                        className="flex min-w-0 shrink-0 items-center gap-1.5"
-                    >
-                        {vesselGpsLive && (
-                            <>
-                                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
-                                    Boat GPS
-                                </span>
-                                <span aria-hidden="true" className="text-[10px] font-black text-gray-500">
-                                    ›
-                                </span>
-                            </>
-                        )}
+                    {piPrimary && <p className="sr-only">{statusDescription}</p>}
+                    {!piPrimary && (
                         <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
-                                claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/8 text-gray-300'
-                            }`}
+                            data-testid="skipper-device-gps-source"
+                            title={
+                                vesselGpsLive
+                                    ? 'The boat’s own GPS speaks first; this device stands in when it is quiet.'
+                                    : 'No boat GPS present — this device is the only position source.'
+                            }
+                            className="flex min-w-0 shrink-0 items-center gap-1.5"
                         >
-                            This device
+                            {vesselGpsLive && (
+                                <>
+                                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                                        Boat GPS
+                                    </span>
+                                    <span aria-hidden="true" className="text-[10px] font-black text-gray-500">
+                                        ›
+                                    </span>
+                                </>
+                            )}
+                            <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                                    claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/8 text-gray-300'
+                                }`}
+                            >
+                                This device
+                            </span>
                         </span>
-                    </span>
-                    {claim && !claimHeld && (
+                    )}
+                    {!piPrimary && claim && !claimHeld && (
                         <span
                             title={statusDescription}
                             className="min-w-0 flex-1 truncate text-right text-[10px] font-bold text-amber-300"
@@ -1540,14 +1547,14 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                             {claim.deviceName} · {claimAgeLabel(claim)}
                         </span>
                     )}
-                    <p className="sr-only">{statusDescription}</p>
+                    {!piPrimary && <p className="sr-only">{statusDescription}</p>}
                 </div>
                 {piPrimary ? (
                     <p
                         data-testid="skipper-device-pi-primary"
                         className="flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.06em] text-emerald-300"
                     >
-                        The Pi publishes the boat · phones stand down
+                        The Pi is the Primary Device
                     </p>
                 ) : (
                     <button
