@@ -30,6 +30,67 @@ const row = {
 };
 
 describe('public instruments consent and provenance', () => {
+    it('exposes only fresh bounded house SOC and same-sensor three-hour pressure history', () => {
+        const snapshot = publicInstrumentSnapshot(
+            {
+                ...row,
+                extra: {
+                    house_battery_soc_pct: 0,
+                    house_battery_at: now,
+                    pressure_at: now,
+                    pressure_3h_hpa: 1017,
+                    pressure_3h_at: now - 10_800_000,
+                    ship_time_zone: 'Australia/Brisbane',
+                    crew_name: 'PRIVATE',
+                },
+            },
+            'boat-a',
+            now,
+        )!;
+        expect(snapshot).toMatchObject({
+            house_battery_soc: 0,
+            pressure_3h: 1017,
+            ship_time_zone: 'Australia/Brisbane',
+        });
+        expect(JSON.stringify(snapshot)).not.toContain('PRIVATE');
+        expect(
+            publicInstrumentSnapshot(
+                {
+                    ...row,
+                    extra: {
+                        house_battery_soc_pct: 100.1,
+                        house_battery_at: now,
+                        pressure_at: now,
+                        pressure_3h_hpa: 1017,
+                        pressure_3h_at: now - 3_600_000,
+                        ship_time_zone: 'bad-zone',
+                    },
+                },
+                'boat-a',
+                now,
+            ),
+        ).toMatchObject({ house_battery_soc: null, pressure_3h: null, ship_time_zone: null });
+    });
+    it('fresh GPS cannot revive stale extra sensors', () => {
+        expect(
+            publicInstrumentSnapshot(
+                {
+                    ...row,
+                    heel_deg: 4,
+                    pitch_deg: 2,
+                    extra: {
+                        house_battery_soc_pct: 94.6,
+                        house_battery_at: now - 180_001,
+                        pressure_at: now - 180_001,
+                        heel_at: now - 30_001,
+                        pitch_at: now + 5_001,
+                    },
+                },
+                'boat-a',
+                now,
+            ),
+        ).toMatchObject({ house_battery_soc: null, baro: null, heel: null, pitch: null });
+    });
     it.each([false, null, undefined, 'true', 1])('fails closed for consent %s', (enabled) => {
         expect(canPublishInstruments({ ...options, enabled })).toBe(false);
     });

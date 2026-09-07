@@ -27,6 +27,7 @@ interface HeadingGaugeProps {
     value: number | null;
     isLive: boolean;
     accentColor?: string;
+    label?: string;
 }
 
 const CX = 150;
@@ -52,7 +53,12 @@ export function compassPoint(deg: number): string {
     return POINTS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
 
-export const HeadingGauge: React.FC<HeadingGaugeProps> = ({ value, isLive, accentColor = '#22d3ee' }) => {
+export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
+    value,
+    isLive,
+    accentColor = '#22d3ee',
+    label = 'Heading compass',
+}) => {
     const rotation = useUnwrappedAngle(value === null ? null : -value);
     const dead = value === null;
     const opacity = dead ? 0.25 : isLive ? 1 : 0.45;
@@ -81,7 +87,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({ value, isLive, accen
 
     return (
         <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
-            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Heading compass">
+            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={label}>
                 <defs>
                     <radialGradient id="heading-face" cx="50%" cy="42%" r="72%">
                         <stop offset="0%" stopColor="#1e293b" />
@@ -198,11 +204,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({ value, isLive, accen
                     fontFamily="ui-monospace, monospace"
                     opacity={dead ? 0.35 : 1}
                 >
-                    {dead
-                        ? '---'
-                        : Math.round(value as number)
-                              .toString()
-                              .padStart(3, '0')}
+                    {dead ? '---' : (((Math.round(value as number) % 360) + 360) % 360).toString().padStart(3, '0')}
                 </text>
                 <text
                     x={CX}

@@ -37,6 +37,7 @@ export interface TelemetryPublisherDeps {
     deviceLabel: string;
     intervalMs?: number;
     now?: () => number;
+    supplement?: (snapshot: TelemetrySnapshot | null) => Promise<TelemetrySnapshot | null>;
 }
 
 export type PublishOutcome =
@@ -82,6 +83,7 @@ export function buildTelemetryBody(snapshot: TelemetrySnapshot, deviceLabel: str
         rudder_deg: snapshot.rudderDeg,
         rpm: snapshot.rpm,
         voltage_v: snapshot.voltageV,
+        ...(snapshot.extra ? { extra: snapshot.extra } : {}),
     };
 }
 
@@ -168,7 +170,8 @@ export class TelemetryPublisher {
         if (!anonKey) return 'no-anon-key';
 
         const doc = await fetchSelfDocument({ fetchImpl: this.deps.fetchImpl, signalkOrigin: this.deps.signalkOrigin });
-        const snapshot = doc === null ? null : readTelemetrySnapshot(doc, this.deps.now);
+        const bus = doc === null ? null : readTelemetrySnapshot(doc, this.deps.now);
+        const snapshot = this.deps.supplement ? await this.deps.supplement(bus) : bus;
         if (!snapshot) return 'no-data';
 
         let response: Awaited<ReturnType<FetchLike>>;

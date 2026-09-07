@@ -48,6 +48,7 @@ import {
 } from './diaryRelayOutbox.js';
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
 import { readLanTelemetry } from './lanTelemetry.js';
+import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
@@ -130,6 +131,12 @@ const cache = new Cache(CACHE_DIR);
 // reports unavailable, so a Pi without one behaves exactly as before.
 const barometer = new Barometer(CACHE_DIR);
 void barometer.start();
+const onboardSupplement = createOnboardSupplement({
+    barometer: () => barometer.state(),
+    windFile: process.env.THALASSA_WIND_FILE,
+    houseBatteryFile: process.env.THALASSA_HOUSE_BATTERY_FILE,
+    shipTimeZone: process.env.THALASSA_SHIP_TIME_ZONE,
+});
 const WAN_UPLINK = declaredWanUplink(process.env);
 const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, {
     trustedSupabaseOrigin: SUPABASE_ORIGIN,
@@ -167,6 +174,7 @@ const telemetryPublisher = new TelemetryPublisher({
     credentials: () => diaryRelayOutbox.lendTelemetryCredentials(),
     internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
     deviceLabel: os.hostname(),
+    supplement: onboardSupplement,
 });
 if (process.env.THALASSA_TELEMETRY_PUBLISH !== '0') telemetryPublisher.start();
 
@@ -615,7 +623,12 @@ app.get('/api/gps', requireAppApi, async (_req, res) => {
 app.get('/api/telemetry', requireAppApi, async (_req, res) => {
     try {
         return res.json(
-            await readLanTelemetry({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN, deviceLabel: os.hostname() }),
+            await readLanTelemetry({
+                fetchImpl: fetch,
+                signalkOrigin: SIGNALK_ORIGIN,
+                deviceLabel: os.hostname(),
+                supplement: onboardSupplement,
+            }),
         );
     } catch {
         return res.json({

@@ -1739,7 +1739,7 @@ Deno.serve(async (req: Request) => {
             const { data: cloud, error: instrumentError } = await supabase
                 .from('vessel_telemetry')
                 .select(
-                    'boat_id, reported_at, source, sog_kts, cog_deg, heading_deg, stw_kts, tws_kts, twa_deg, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, voltage_v, rpm, heel_deg, pitch_deg, rudder_deg',
+                    'boat_id, reported_at, source, sog_kts, cog_deg, heading_deg, stw_kts, tws_kts, twa_deg, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, voltage_v, rpm, heel_deg, pitch_deg, rudder_deg, extra',
                 )
                 .eq('owner_id', ownerId)
                 .eq('boat_id', boatId)

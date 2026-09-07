@@ -17,7 +17,7 @@ const SELF = {
         courseOverGroundTrue: { value: 45 * RAD },
         headingTrue: { value: 40 * RAD },
         speedThroughWater: { value: 2.8 },
-        attitude: { value: { roll: -8 * RAD, pitch: 1 * RAD } },
+        attitude: { value: { roll: -8 * RAD, pitch: 1 * RAD }, timestamp: new Date().toISOString() },
     },
     environment: {
         wind: {
