@@ -43,13 +43,8 @@ import tzLookup from 'npm:tz-lookup@6.1.25';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse } from '../_shared/http-security.ts';
 import { decimatePublicTrack } from '../_shared/track-decimation.ts';
-import {
-    canPublishInstruments,
-    publicInstrumentSnapshot,
-    publicInstrumentTimeZone,
-    redactPublicTelemetry,
-    redactPublicTrackPoint,
-} from '../_shared/public-instruments.ts';
+import { redactPublicTelemetry, redactPublicTrackPoint } from '../_shared/public-instruments.ts';
+import { readPublicInstrumentAuthority, readPublicInstruments } from '../_shared/public-instrument-reader.ts';
 import {
     allDiaryPublicTrip,
     buildPublicTripCatalogue,
@@ -60,6 +55,7 @@ const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Expose-Headers': 'Retry-After',
 };
 
 const MAX_ENTRIES = 200;
@@ -286,11 +282,16 @@ Deno.serve(async (req: Request) => {
     // the bucket and the family got "Request quota exceeded" while the boat
     // was at sea (audit 2026-08-02). 600 covers ~10 worst-case tabs behind
     // one IP while still bounding a scraper to 10 req/min sustained.
-    const caller = await requireAuthenticatedOrPublicQuota(req, 'voyage_log', 360, 600, 3600, true);
+    const url = new URL(req.url);
+    const instrumentsOnly = url.searchParams.get('view') === 'instruments';
+    // Independent, bounded quota: a visible instrument panel polls every 10 s.
+    // This path never downloads diary/media/track/AIS, even for invalid trips.
+    const caller = instrumentsOnly
+        ? await requireAuthenticatedOrPublicQuota(req, 'voyage_log_instruments', 3600, 6000, 3600, true)
+        : await requireAuthenticatedOrPublicQuota(req, 'voyage_log', 360, 600, 3600, true);
     if (caller instanceof Response) return withCors(caller, corsHeaders);
 
     try {
-        const url = new URL(req.url);
         const handle = (url.searchParams.get('handle') || '').trim().toLowerCase();
         // Omitted `trip` retains the long-standing full-feed API contract for
         // third-party consumers. The official public page explicitly asks for
@@ -344,6 +345,10 @@ Deno.serve(async (req: Request) => {
 
         const ownerId = config.owner_id as string;
         const boatId = config.boat_id as string | null;
+        const authority = await readPublicInstrumentAuthority(supabase, ownerId);
+        if (instrumentsOnly) {
+            return json(await readPublicInstruments(supabase, config, requestedTrip, authority, tzLookup));
+        }
 
         // A token-gated counts-only diagnostic lived here twice (2026-08-26
         // boat-pin audit, 2026-09-02 land-verdict hunt). Both were answered
@@ -403,9 +408,8 @@ Deno.serve(async (req: Request) => {
 
         // Owner's per-voyage exclusion list — voyages hidden from the public
         // page (the app's "Public tracks" list). Filters BOTH the durable
-        // track and the live tail. Fail-open on error: a transient read
-        // failure shouldn't blank a page the owner expects to be live.
-        const hiddenVoyageIds = new Set<string>();
+        // track and the live tail. Fail closed if this authority is unreadable.
+        const { hiddenVoyageIds, trackVisibilityReadable } = authority;
         // Voyages that are majority-LAND — a car drive, not a passage (Shane
         // 2026-07-19: "it also has some older test tracks there on land as
         // well"; his M1 run from Redcliffe to Logan City was drawing on the
@@ -418,20 +422,6 @@ Deno.serve(async (req: Request) => {
         // cosmetic enhancement. If that authority cannot be read, suppress
         // track-derived data rather than accidentally revealing a hidden trip
         // (diary visibility remains independently governed by is_public).
-        let trackVisibilityReadable = true;
-        {
-            const { data: hiddenRows, error: hiddenErr } = await supabase
-                .from('voyage_log_hidden_voyages')
-                .select('voyage_id')
-                .eq('user_id', ownerId);
-            if (hiddenErr) {
-                trackVisibilityReadable = false;
-                console.error('voyage-log: hidden-voyages read failed; suppressing track data:', hiddenErr.message);
-            }
-            for (const r of hiddenRows ?? []) {
-                if (typeof r.voyage_id === 'string') hiddenVoyageIds.add(r.voyage_id);
-            }
-        }
         const fetchTrack = async ({
             voyageId,
             since,
@@ -891,19 +881,12 @@ Deno.serve(async (req: Request) => {
         const ACTIVE_ROW_FRESH_MS = 7 * 24 * 3_600_000;
         let activeRowVoyageId: string | null = null;
         let activeRowStartedAtIso: string | null = null;
-        let instrumentActiveVoyageAllowed = false;
         {
-            const { data: activeRow, error: activeRowError } = await supabase
-                .from('voyages')
-                .select('id, departure_time, created_at')
-                .eq('user_id', ownerId)
-                .eq('status', 'active')
-                .maybeSingle();
+            const { activeRow, activeRowError } = authority;
             if (activeRowError) {
                 console.warn('voyage-log: active-voyage row fetch failed:', activeRowError.message);
             }
             const id = typeof activeRow?.id === 'string' ? activeRow.id : '';
-            instrumentActiveVoyageAllowed = !activeRowError && (!id || !hiddenVoyageIds.has(id));
             const startedIso = typeof activeRow?.departure_time === 'string'
                 ? activeRow.departure_time
                 : typeof activeRow?.created_at === 'string'
@@ -1729,36 +1712,14 @@ Deno.serve(async (req: Request) => {
         // smuggle the Pi's location into an unpublished track. Latest mode
         // also works at the berth, before the first voyage has been recorded.
         const instrumentsEnabled = config.public_instruments_enabled === true;
-        const instrumentsAllowed = canPublishInstruments({
-            enabled: config.public_instruments_enabled,
-            boatId,
+        const { instruments, instruments_shared: instrumentsAllowed } = await readPublicInstruments(
+            supabase,
+            config,
             requestedTrip,
-            visibilityReadable: trackVisibilityReadable,
-            activeVoyageAllowed: instrumentActiveVoyageAllowed,
-        });
-        let instruments: ReturnType<typeof publicInstrumentSnapshot> = null;
-        if (instrumentsAllowed && boatId) {
-            const { data: cloud, error: instrumentError } = await supabase
-                .from('vessel_telemetry')
-                .select(
-                    'boat_id, reported_at, source, lat, lon, sog_kts, cog_deg, heading_deg, stw_kts, tws_kts, twa_deg, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, voltage_v, rpm, heel_deg, pitch_deg, rudder_deg, extra',
-                )
-                .eq('owner_id', ownerId)
-                .eq('boat_id', boatId)
-                .maybeSingle();
-            if (!instrumentError) {
-                const snapshotNow = Date.now();
-                instruments = publicInstrumentSnapshot(
-                    cloud as Record<string, unknown> | null,
-                    boatId,
-                    snapshotNow,
-                    // At the berth there may be no public voyage fix. Resolve
-                    // only the timezone from the consented boat's independently
-                    // timestamped position; never publish its private coordinates.
-                    publicInstrumentTimeZone(cloud, boatId, telemetry, tzLookup, snapshotNow),
-                );
-            }
-        }
+            authority,
+            tzLookup,
+            telemetry,
+        );
 
         return json(
             {

@@ -16,6 +16,7 @@ import {
     type PublicVoyageTrip,
 } from './voyageLogApi';
 import { PUBLIC_POSITION_FRESH_MS } from './publicVoyageFreshness';
+import { usePublicInstrumentFeed } from './usePublicInstrumentFeed';
 
 // The lightbox (and the 74 KB tz-lookup chunk it drags in) is only needed
 // after a photo tap — keep it off the page's critical path.
@@ -97,64 +98,78 @@ export default function ThalassaDashboard() {
     // Keep the viewer's choice across polling and folding the panel. Historic
     // trips always show their diary, never today's live instrument feed.
     const [panelView, setPanelView] = useState<PublicVoyagePanel | null>(null);
+    const { handle } = parseVoyageLogParams();
+    const instrumentPanelOpen =
+        state.status === 'ready' && requestedTrip === 'latest' && !diaryHidden && panelView === 'instruments';
+    const instrumentFeed = usePublicInstrumentFeed(handle, instrumentPanelOpen);
+    const { beginRequest: beginInstrumentRequest, acceptResponse: acceptInstruments } = instrumentFeed;
 
-    const load = useCallback(async (showSpinner: boolean, trip: string) => {
-        // Polls and picker changes can overlap on a slow satellite link. Only
-        // the newest request is allowed to paint the page — otherwise an old
-        // "latest" result can overwrite a deliberate historical selection.
-        const requestId = ++requestSequence.current;
-        const { handle } = parseVoyageLogParams();
-        if (!handle) {
-            if (requestId === requestSequence.current) {
-                setState({
-                    status: 'error',
-                    message: 'This link is incomplete — it needs a vessel handle.',
-                });
-                setIsTripLoading(false);
-            }
-            return;
-        }
-        if (showSpinner) {
-            setIsTripLoading(true);
-            // Keep an already-rendered voyage visible while a picker change
-            // resolves. The compact spinner in the selector communicates the
-            // transition without making the map flash away.
-            setState((previous) => (previous.status === 'ready' ? previous : { status: 'loading' }));
-        }
-        try {
-            const data = await fetchVoyageLog(handle, trip);
-            if (requestId !== requestSequence.current) return;
-            const receivedAt = Date.now();
-            setState({ status: 'ready', data });
-            setLastSuccessfulAt(receivedAt);
-            setNowMs(receivedAt);
-            setPollFailed(false);
-        } catch (e) {
-            if (requestId !== requestSequence.current) return;
-            if (e instanceof VoyageLogError && e.status === 404 && trip !== 'latest') {
-                // A specifically selected trip may be deleted while the page
-                // is open. Return gracefully to the auto-following newest
-                // trip instead of leaving a stranded public link in error.
-                setPollFailed(false);
-                setRequestedTrip('latest');
+    const load = useCallback(
+        async (showSpinner: boolean, trip: string) => {
+            // Polls and picker changes can overlap on a slow satellite link. Only
+            // the newest request is allowed to paint the page — otherwise an old
+            // "latest" result can overwrite a deliberate historical selection.
+            const requestId = ++requestSequence.current;
+            const instrumentRequestId = beginInstrumentRequest();
+            const { handle } = parseVoyageLogParams();
+            if (!handle) {
+                if (requestId === requestSequence.current) {
+                    setState({
+                        status: 'error',
+                        message: 'This link is incomplete — it needs a vessel handle.',
+                    });
+                    setIsTripLoading(false);
+                }
                 return;
             }
-            const message = e instanceof VoyageLogError ? e.message : 'Something went wrong loading this voyage log.';
-            // Don't blow away good data on a failed background refresh.
-            // For 429 specifically, keep good data even on a foreground
-            // trip-switch: quota exhaustion is transient (shared-IP viewers
-            // draining the anon bucket), and the map already on screen beats
-            // a "quota exceeded" error card while the boat is at sea
-            // (audit 2026-08-02).
-            const isQuota = e instanceof VoyageLogError && e.status === 429;
-            setPollFailed(true);
-            setState((prev) =>
-                prev.status === 'ready' && (!showSpinner || isQuota) ? prev : { status: 'error', message },
-            );
-        } finally {
-            if (requestId === requestSequence.current) setIsTripLoading(false);
-        }
-    }, []);
+            if (showSpinner) {
+                setIsTripLoading(true);
+                // Keep an already-rendered voyage visible while a picker change
+                // resolves. The compact spinner in the selector communicates the
+                // transition without making the map flash away.
+                setState((previous) => (previous.status === 'ready' ? previous : { status: 'loading' }));
+            }
+            try {
+                const data = await fetchVoyageLog(handle, trip);
+                if (requestId !== requestSequence.current) return;
+                const receivedAt = Date.now();
+                setState({ status: 'ready', data });
+                acceptInstruments(instrumentRequestId, data);
+                // Pick a starting panel once. Late full responses cannot change
+                // the viewer's choice or stop a newer consent-checked fast feed.
+                setPanelView((previous) => previous ?? (data.instruments_shared === true ? 'instruments' : 'diary'));
+                setLastSuccessfulAt(receivedAt);
+                setNowMs(receivedAt);
+                setPollFailed(false);
+            } catch (e) {
+                if (requestId !== requestSequence.current) return;
+                if (e instanceof VoyageLogError && e.status === 404 && trip !== 'latest') {
+                    // A specifically selected trip may be deleted while the page
+                    // is open. Return gracefully to the auto-following newest
+                    // trip instead of leaving a stranded public link in error.
+                    setPollFailed(false);
+                    setRequestedTrip('latest');
+                    return;
+                }
+                const message =
+                    e instanceof VoyageLogError ? e.message : 'Something went wrong loading this voyage log.';
+                // Don't blow away good data on a failed background refresh.
+                // For 429 specifically, keep good data even on a foreground
+                // trip-switch: quota exhaustion is transient (shared-IP viewers
+                // draining the anon bucket), and the map already on screen beats
+                // a "quota exceeded" error card while the boat is at sea
+                // (audit 2026-08-02).
+                const isQuota = e instanceof VoyageLogError && e.status === 429;
+                setPollFailed(true);
+                setState((prev) =>
+                    prev.status === 'ready' && (!showSpinner || isQuota) ? prev : { status: 'error', message },
+                );
+            } finally {
+                if (requestId === requestSequence.current) setIsTripLoading(false);
+            }
+        },
+        [acceptInstruments, beginInstrumentRequest],
+    );
 
     // Poll results can stop arriving while the last successful payload remains
     // mounted. Re-render independently so relative ages and freshness labels
@@ -286,8 +301,9 @@ export default function ThalassaDashboard() {
         !isAllDiaryView &&
         // A deliberately-chosen historical trip is a record; only the latest
         // view is a statement about where the boat is.
-        (selectedTrip ? selectedTrip.id === latestTrip?.id : requestedTrip === 'latest') &&
+        requestedTrip === 'latest' &&
         newestTrackAt !== null &&
+        newestTrackAt <= nowMs + 60_000 &&
         nowMs - newestTrackAt < AIS_POSITION_FRESH_MS;
     const expectedRefreshMs = requestedTrip === 'latest' ? LATEST_REFRESH_MS : HISTORY_REFRESH_MS;
     const responseOverdue =
@@ -314,9 +330,7 @@ export default function ThalassaDashboard() {
     // With no started trip, the server can resolve "latest" to all-diary;
     // shared instruments must still work for a boat sitting at her berth.
     const canViewInstruments = requestedTrip === 'latest';
-    const visiblePanel = canViewInstruments
-        ? (panelView ?? (state.data.instruments_shared === true ? 'instruments' : 'diary'))
-        : 'diary';
+    const visiblePanel = canViewInstruments ? (panelView ?? 'diary') : 'diary';
     const panelLabel = visiblePanel === 'instruments' ? 'instruments' : 'log entries';
 
     return (
@@ -532,10 +546,14 @@ export default function ThalassaDashboard() {
                             <DiarySidebar
                                 entries={entries}
                                 telemetry={scopedTelemetry}
-                                instruments={state.data.instruments ?? null}
+                                instruments={instrumentFeed.snapshot?.instruments ?? null}
                                 view={visiblePanel}
-                                showTelemetry={canViewInstruments && state.data.instruments_shared === true}
-                                showSharingNotice={canViewInstruments && state.data.instruments_shared !== true}
+                                showTelemetry={
+                                    canViewInstruments && instrumentFeed.snapshot?.instruments_shared === true
+                                }
+                                showSharingNotice={
+                                    canViewInstruments && instrumentFeed.snapshot?.instruments_shared !== true
+                                }
                                 title={diaryTitle}
                                 context={diaryContext}
                                 emptyMessage={diaryEmptyMessage}
@@ -544,8 +562,16 @@ export default function ThalassaDashboard() {
                                 onClearSelection={handleClear}
                                 onPhotoClick={handlePhoto}
                                 nowMs={nowMs}
-                                connectionLost={connectionLost}
-                                lastSuccessfulAt={lastSuccessfulAt}
+                                connectionLost={
+                                    visiblePanel === 'instruments'
+                                        ? instrumentFeed.failed ||
+                                          instrumentFeed.lastSuccessfulAt === null ||
+                                          nowMs - instrumentFeed.lastSuccessfulAt >= 30_000
+                                        : connectionLost
+                                }
+                                lastSuccessfulAt={
+                                    visiblePanel === 'instruments' ? instrumentFeed.lastSuccessfulAt : lastSuccessfulAt
+                                }
                             />
                         </div>
                     )}

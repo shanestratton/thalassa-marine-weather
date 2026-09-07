@@ -222,11 +222,36 @@ export interface VoyageLogWaypoint {
 
 export class VoyageLogError extends Error {
     status: number;
-    constructor(status: number, message: string) {
+    retryAfterMs?: number;
+    constructor(status: number, message: string, retryAfterMs?: number) {
         super(message);
         this.status = status;
         this.name = 'VoyageLogError';
+        this.retryAfterMs = retryAfterMs;
     }
+}
+
+export type PublicInstrumentResponse = Pick<VoyageLogData, 'instruments_shared' | 'instruments' | 'generated_at'>;
+
+/** Lightweight, consent-checked refresh; never downloads the voyage or AIS again. */
+export async function fetchPublicInstruments(handle: string, signal: AbortSignal): Promise<PublicInstrumentResponse> {
+    if (!SUPABASE_URL) throw new VoyageLogError(0, 'Voyage Log API URL is not configured for this build.');
+    const params = new URLSearchParams({ handle, trip: 'latest', view: 'instruments' });
+    const response = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/voyage-log?${params}`, {
+        signal,
+        cache: 'no-store',
+    });
+    if (!response.ok) {
+        const retry = response.headers.get('Retry-After');
+        const seconds = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : NaN;
+        const delay = Number.isFinite(seconds) ? seconds : retry ? Date.parse(retry) - Date.now() : NaN;
+        throw new VoyageLogError(
+            response.status,
+            'Instrument refresh failed.',
+            Number.isFinite(delay) ? delay : undefined,
+        );
+    }
+    return (await response.json()) as PublicInstrumentResponse;
 }
 
 /** Fetch a vessel's published voyage log. `trip=latest` follows newly-started

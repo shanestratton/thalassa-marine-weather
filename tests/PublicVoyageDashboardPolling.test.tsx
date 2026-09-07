@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VoyageLogData, VoyageLogTelemetry } from '../src/voyageLogApi';
 
@@ -149,6 +149,29 @@ describe('public voyage dashboard polling honesty', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('hides current shipping on an explicitly selected trip, even the latest trip id', async () => {
+        mocks.fetchVoyageLog.mockResolvedValue(DATA);
+        render(<ThalassaDashboard />);
+        await flushReact();
+        expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 1');
+        await act(async () =>
+            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
+                target: { value: 'trip-1' },
+            }),
+        );
+        expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
+    });
+
+    it.each([NOW - 6 * 3_600_000, NOW + 60_001])('withholds ships around an unsafe boat fix %s', async (at) => {
+        mocks.fetchVoyageLog.mockResolvedValue({
+            ...DATA,
+            track: [{ ...DATA.track[0], timestamp: new Date(at).toISOString() }],
+        });
+        render(<ThalassaDashboard />);
+        await flushReact();
+        expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
     });
 
     it('retains map data but marks it last-known when a background poll fails, then recovers', async () => {

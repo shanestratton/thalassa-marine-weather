@@ -30,6 +30,19 @@ const row = {
 };
 
 describe('public instruments consent and provenance', () => {
+    it('uses a separately bounded fast lane that returns before expensive full voyage queries', () => {
+        const source = readFileSync('supabase/functions/voyage-log/index.ts', 'utf8');
+        expect(source).toContain("url.searchParams.get('view') === 'instruments'");
+        expect(source).toContain("'voyage_log_instruments', 3600, 6000, 3600, true");
+        expect(source).toContain("'voyage_log', 360, 600, 3600, true");
+        expect(source).toContain("'Access-Control-Expose-Headers': 'Retry-After'");
+        const fast = source.indexOf('if (instrumentsOnly)');
+        expect(fast).toBeGreaterThan(source.indexOf('if (!config.enabled)'));
+        expect(fast).toBeLessThan(source.indexOf('let combinedAuthors'));
+        expect(source.slice(fast, source.indexOf('let combinedAuthors'))).toContain(
+            'return json(await readPublicInstruments(',
+        );
+    });
     it('exposes only fresh bounded house SOC and same-sensor three-hour pressure history', () => {
         const snapshot = publicInstrumentSnapshot(
             {
@@ -153,9 +166,10 @@ describe('public instruments consent and provenance', () => {
         const migration = readFileSync('supabase/migrations/20260907120000_public_instruments_opt_in.sql', 'utf8');
         expect(migration).toContain('BOOLEAN NOT NULL DEFAULT FALSE');
         const source = readFileSync('supabase/functions/voyage-log/index.ts', 'utf8');
-        expect(source).toContain('if (instrumentsAllowed && boatId)');
+        const reader = readFileSync('supabase/functions/_shared/public-instrument-reader.ts', 'utf8');
+        expect(reader).toContain('if (instrumentsAllowed && boatId)');
         expect(
-            source.slice(source.indexOf(".from('vessel_telemetry')"), source.indexOf('if (!instrumentError)')),
+            reader.slice(reader.indexOf(".from('vessel_telemetry')"), reader.indexOf('if (!instrumentError)')),
         ).toContain(".eq('boat_id', boatId)");
         expect(source).toContain('track: instrumentsEnabled ? track : track.map(redactPublicTrackPoint)');
         expect(source).toContain('telemetry: instrumentsEnabled ? telemetry : redactPublicTelemetry(telemetry)');

@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NearbyVessel, VoyageLogTelemetry } from '../src/voyageLogApi';
 
@@ -86,7 +86,41 @@ describe('public voyage map freshness', () => {
     });
 
     afterEach(() => {
+        localStorage.removeItem('thalassa-public-ais');
         vi.useRealTimers();
+    });
+
+    it('automatically shows ships even with an old off preference, without the count button', () => {
+        localStorage.setItem('thalassa-public-ais', 'off');
+        const { rerender } = render(
+            <MapContainer
+                track={[]}
+                telemetry={TELEMETRY}
+                entries={[]}
+                passageLine={null}
+                waypoints={[]}
+                nearbyVessels={[NEARBY]}
+                connectionLost={false}
+                onEntryClick={vi.fn()}
+            />,
+        );
+        expect(screen.queryByRole('button', { name: /nearby shipping/i })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'AIS contact Nearby, updated just now' }));
+        expect(screen.getByText('Nearby')).toBeInTheDocument();
+        rerender(
+            <MapContainer
+                track={[]}
+                telemetry={TELEMETRY}
+                entries={[]}
+                passageLine={null}
+                waypoints={[]}
+                nearbyVessels={[]}
+                connectionLost={false}
+                onEntryClick={vi.fn()}
+            />,
+        );
+        expect(screen.queryByRole('button', { name: /AIS contact Nearby/ })).not.toBeInTheDocument();
+        expect(screen.queryByText('Nearby')).not.toBeInTheDocument();
     });
 
     it('stops the live pulse, marks AIS last-known, and expires unsafe frozen contacts', async () => {

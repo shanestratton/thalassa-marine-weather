@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { VoyageLogInstruments } from '../voyageLogApi';
 import { formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
-import { PublicInstrumentDials, publicShipClock } from './PublicInstrumentDials';
+import { PublicInstrumentDials, publicShipClock, type PublicInstrumentMode } from './PublicInstrumentDials';
 
 interface TelemetryPanelProps {
     instruments: VoyageLogInstruments | null;
@@ -56,6 +56,8 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
     connectionLost,
     lastSuccessfulAt,
 }) => {
+    // Keep the chosen face while a paused/stale feed temporarily hides its readings.
+    const [instrumentMode, setInstrumentMode] = useState<PublicInstrumentMode>('Apparent');
     // Reopening this panel must not rewind freshness to the parent's slower
     // clock tick and briefly revive an expired sensor reading.
     const [sensorClock, setSensorClock] = useState(() => Math.max(nowMs, Date.now()));
@@ -130,7 +132,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                         {t.source === 'pi' ? 'Pi instrument feed' : 'Device instrument feed'} ·{' '}
                         {formatPublicAge(t.updated_at, nowMs)}
                     </p>
-                    <PublicInstrumentDials instruments={t} />
+                    <PublicInstrumentDials instruments={t} mode={instrumentMode} onModeChange={setInstrumentMode} />
                     {finite(t.sog) && t.sog < 0.5 && (
                         <p className="mb-3 text-xs text-teal-200">No way on · Champagne &amp; good times 🥂</p>
                     )}
