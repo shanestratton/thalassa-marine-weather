@@ -192,8 +192,19 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // reading the number.
         const forecastAgeStale = Number.isFinite(generatedMs) && ageTick - generatedMs > 90 * 60 * 1000;
         // Which receiver the weather is for — the boat, her held last fix
-        // (with its age, off the same minute tick), or the phone.
+        // (with its age, off the same minute tick), or the phone. The full
+        // description is the accessible name; the row itself carries one
+        // word, because the Glass has no spare real estate (Shane, 103
+        // matrix, 2026-09-07: "it needs to go back to how it was").
         const positionLabel = positionSource ? describeWeatherFix(positionSource, ageTick) : '';
+        const positionWord = positionSource ? (positionSource.kind === 'phone' ? 'PHONE' : 'VESSEL') : null;
+        const positionHeld = positionSource?.kind === 'held';
+        const middleLabel = [
+            forecastAge ? `Forecast updated ${forecastAge}` : null,
+            positionSource ? `Weather position: ${positionLabel}` : null,
+        ]
+            .filter(Boolean)
+            .join(' · ');
 
         // What ACTUALLY served this data, when the publisher says so. The
         // pill's face stays the pinned selection (it is a picker, and must
@@ -233,7 +244,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         return (
             <>
                 <div className="px-0 shrink-0 relative z-20">
-                    <div className="flex items-center justify-between gap-2 w-full mb-0">
+                    <div
+                        data-testid="glass-status-strip"
+                        className="flex items-center justify-between gap-2 w-full mb-0"
+                    >
                         {/* Location-type Badge — informational only (no longer
                             tappable; the Data Sources modal was removed because
                             per-metric attribution wasn't reliable). Keeps the
@@ -255,17 +269,51 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                         </div>
 
                         {/* Forecast age — the primary staleness signal on the
-                            Glass. Silent when there is no timestamp rather
-                            than guessing at one. */}
-                        {forecastAge && (
-                            <span
-                                role="status"
-                                aria-label={`Forecast updated ${forecastAge}`}
-                                className={`text-xs font-semibold tabular-nums truncate ${forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}`}
-                            >
-                                {forecastAge}
-                            </span>
-                        )}
+                            Glass — with the receiver word beside it. ONE row.
+                            Shane, 2026-09-07 (103 matrix): "we have no spare
+                            real estate to add lines to the page … if you want
+                            to put just phone or vessel in between that is
+                            fine." The full-width receiver line that sat under
+                            this row is gone; VESSEL (live, or her held last
+                            fix) or PHONE rides with the age instead, and
+                            while a hold is in force the segment is a button
+                            that re-opens the boat-or-phone question. Silent
+                            when there is neither a timestamp nor a receiver. */}
+                        {(forecastAge || positionWord) &&
+                            (positionHeld ? (
+                                <button
+                                    type="button"
+                                    onClick={() => choice?.open()}
+                                    aria-label={`${middleLabel} · tap to change`}
+                                    className="min-w-0 truncate text-xs font-semibold tabular-nums"
+                                >
+                                    {forecastAge && (
+                                        <span className={forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}>
+                                            {forecastAge}
+                                        </span>
+                                    )}
+                                    <span className="text-amber-300/90">
+                                        {forecastAge ? ` · ${positionWord}` : positionWord}
+                                    </span>
+                                </button>
+                            ) : (
+                                <span
+                                    role="status"
+                                    aria-label={middleLabel}
+                                    className="min-w-0 truncate text-xs font-semibold tabular-nums"
+                                >
+                                    {forecastAge && (
+                                        <span className={forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}>
+                                            {forecastAge}
+                                        </span>
+                                    )}
+                                    {positionWord && (
+                                        <span className="text-slate-400">
+                                            {forecastAge ? ` · ${positionWord}` : positionWord}
+                                        </span>
+                                    )}
+                                </span>
+                            ))}
 
                         {/* Model Pill — opens the forecast-model picker sheet.
                             Shows the pinned model's name with its chart colour;
@@ -329,22 +377,6 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             </svg>
                         </button>
                     </div>
-                    {/* Shane 2026-09-06: "hold her last fix. with a message of
-                        course." Tapping while a hold is in force re-opens the
-                        boat-or-phone question. */}
-                    {positionSource && (
-                        <button
-                            type="button"
-                            onClick={() => choice?.open()}
-                            aria-label={`Weather position: ${positionLabel}`}
-                            className={`mt-1 w-full text-center text-[10px] font-semibold uppercase tracking-wider ${
-                                positionSource.kind === 'held' ? 'text-amber-300/90' : 'text-slate-400'
-                            }`}
-                        >
-                            {positionLabel}
-                            {positionSource.kind === 'held' ? ' · tap to change' : ''}
-                        </button>
-                    )}
                 </div>
 
                 <WeatherPositionChoiceDialog

@@ -53,6 +53,12 @@ Process: reproduce → find the cause in code or production → fix with a test 
 
 - [x] **Skipper Device card was hard to read.** Re-laid 2026-09-06: vessel name on top, the GPS order beneath (Boat GPS › This device, or just This device), the button says "Press to make this the Primary Device" / "Release — this is not the Primary Device", a faint emerald/cyan edge; same 120 px footprint. Ships in 103.
 
+### Matrix on 103 (2026-09-07)
+
+- [x] **Upgrade check 102 → 103 passed** (in-place update from the TestFlight app, ≈13:05; Shane: "upgrade is great"). The check 102 failed on 2026-09-06 now passes.
+- [x] **The Glass status strip grew a second line ("PHONE GPS").** The 2026-09-06 receiver line sat under the badge row; Shane: "we have no spare real estate to add lines to the page … if you want to put just phone or vessel in between that is fine. but it needs to go back to how it was." Fix (same day): the strip is one row again — badge · forecast age with a single word, PHONE or VESSEL · model pill; while a held fix is in force the middle is a button that re-opens the boat-or-phone question; the full description ("Boat's last fix · 3h ago") lives in the accessible name only. Tests: `tests/StatusBadgesOneRow.test.tsx` (render: three children, no sibling line, tap re-opens), and the source contract in `tests/BoatWeatherFollow.test.ts` now forbids the full-width line. Ships in 104. Re-test: the Glass footer reads `INSHORE · 1m ago · PHONE · ICON` on one line.
+- [ ] Observation, not yet a fix: the Glass read PHONE at Newport while the Pi was publishing. Two reasons — the phone had not seen the boat since the hold landed (nothing held yet), and the weather position chain does not read the Pi's cloud snapshot. Proposed order for 104: bus → Pi on the LAN → Pi's cloud row → held last fix → phone. Listed under 104.
+
 ### Also in 103 — the Pi as primary device (agreed 2026-09-06 evening, built that night and 2026-09-07)
 
 Planned and written up as 104; the 103 bundle was rebuilt after each of these landed, so they ship in 103 and the matrix below covers them too.
@@ -68,7 +74,10 @@ Planned and written up as 104; the 103 bundle was rebuilt after each of these la
 - [ ] The Pi records the Ship's Log track itself (today the phone still records; the Pi only publishes the live snapshot).
 - [ ] Verify a claimed phone that leaves the boat while tracking cannot publish the skipper's position as the boat's.
 - [ ] Realtime subscription on `vessel_telemetry` instead of the 5 s poll (the table is already in the publication).
-- [ ] Whatever the 103 matrix finds.
+- [x] **The Glass status strip is one row again** (2026-09-07; see Matrix on 103).
+- [ ] The weather position chain reads the Pi's cloud snapshot before the held fix and the phone (bus → Pi on the LAN → Pi's cloud row → held → phone) — from the PHONE-at-Newport observation on 103.
+- [ ] **Under discussion (Shane, 2026-09-07 ≈13:10):** the Instrument Panel becomes invite-only — a "Share instrument panel" toggle on the crew invite gates the `vessel_telemetry` read; and Pi-first instruments on the phone — the direct Signal K / YDWG-02 socket only when no Pi is available. Thoughts sent; awaiting Shane's call before anything is built.
+- [ ] Whatever else the 103 matrix finds.
 
 ### Physical-device matrix (Distribution-signed build, from TestFlight)
 
@@ -79,7 +88,7 @@ iPhone:
       fix: a returning account must never be walked through onboarding).
 - [ ] Airplane mode at cold boot with a signed-in account → no onboarding, no
       wizard; dashboard shows the empty-state card. Back online → nothing pops.
-- [ ] Upgrade path: install the previous TestFlight build, create data, upgrade
+- [x] Upgrade path: install the previous TestFlight build, create data, upgrade
       in place → vessel records, diary entries, ship log intact. **Item 10**: the
       vessel database moved out of Documents — after upgrade, open Files → On My
       iPhone → Thalassa: no `vessel_*.json` (the S-63 fingerprint and the
@@ -90,7 +99,7 @@ iPhone:
       deleted the only copy; the sync then re-pulled the server's records, and
       anything edited offline since the last sync was lost. Fixed in
       LocalDatabase (`Directory.Library` + a same-folder guard that refuses to
-      delete) for build 103 — re-run this check on the 102 → 103 upgrade.*
+      delete) for build 103 — re-run this check on the 102 → 103 upgrade.* **PASSED 2026-09-07 ≈13:05 on the in-place 102 → 103 update.**
 - [ ] 103 first look, straight after the upgrade check: Account shows 1.2.0 (103); the Ship's Log no longer lists the on-the-hard 0.1 NM track (150 m footprint prune at load); Vessel → Skipper Device reads "Primary: the Pi" while calypso is publishing; the Glass status strip names its position source ("Boat GPS · live", or "Boat's last fix · … · tap to change").
 - [ ] Anchor Watch controlled ashore test (audible check, arm, lock screen,
       background, acknowledge) — do not rely on it as the only alarm.
