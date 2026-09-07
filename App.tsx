@@ -1,4 +1,5 @@
 import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { GpsSourceGlyph } from './components/GpsSourceGlyph';
 import { NIGHT_SCRIM_Z_INDEX } from './components/ui/OverlayPortal';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
@@ -993,6 +994,10 @@ const App: React.FC = () => {
 
                             {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right */}
                             <div className="flex shrink-0 items-center gap-2 pointer-events-auto">
+                                {/* Which GPS: a boat or a phone with a fix dot, and no words
+                                    (Shane 2026-09-08). Tapping a held last fix re-opens the
+                                    boat-or-phone question. */}
+                                <GpsSourceGlyph />
                                 {canUseBosunVoice && (
                                     <button
                                         onClick={() => setPage('voice')}

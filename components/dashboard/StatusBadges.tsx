@@ -12,7 +12,6 @@ import { listPublishedModels } from '../../services/weather/wxPublished';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
 import { WeatherPositionChoiceDialog } from './WeatherPositionChoiceDialog';
-import { describeWeatherFix } from '../../services/weatherPosition';
 import type { WeatherPositionChoice } from '../../context/WeatherContext';
 
 interface StatusBadgesProps {
@@ -76,7 +75,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         isOffshore: isOffshoreProp,
     }) => {
         const env = useEnvironment();
-        const { refreshData, loading, backgroundUpdating, error, positionSource, positionChoice } = useWeather();
+        const { refreshData, loading, backgroundUpdating, error, positionChoice } = useWeather();
         // Widened on purpose: test harnesses mock useWeather() without these.
         const choice: WeatherPositionChoice | undefined = positionChoice;
         const isSyncing = loading || backgroundUpdating;
@@ -191,20 +190,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // Past ~90 min the age tints amber so staleness is visible without
         // reading the number.
         const forecastAgeStale = Number.isFinite(generatedMs) && ageTick - generatedMs > 90 * 60 * 1000;
-        // Which receiver the weather is for — the boat, her held last fix
-        // (with its age, off the same minute tick), or the phone. The full
-        // description is the accessible name; the row itself carries one
-        // word, because the Glass has no spare real estate (Shane, 103
-        // matrix, 2026-09-07: "it needs to go back to how it was").
-        const positionLabel = positionSource ? describeWeatherFix(positionSource, ageTick) : '';
-        const positionWord = positionSource ? (positionSource.kind === 'phone' ? 'PHONE' : 'VESSEL') : null;
-        const positionHeld = positionSource?.kind === 'held';
-        const middleLabel = [
-            forecastAge ? `Forecast updated ${forecastAge}` : null,
-            positionSource ? `Weather position: ${positionLabel}` : null,
-        ]
-            .filter(Boolean)
-            .join(' · ');
+        // Which receiver the weather is for is the header glyph's job
+        // (components/GpsSourceGlyph.tsx) — a boat or a phone with a GPS dot,
+        // and no words on the page (Shane 2026-09-08: "remove all of the
+        // references to which gps we are using"). This strip is the forecast
+        // age again, as it was.
 
         // What ACTUALLY served this data, when the publisher says so. The
         // pill's face stays the pinned selection (it is a picker, and must
@@ -269,51 +259,18 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                         </div>
 
                         {/* Forecast age — the primary staleness signal on the
-                            Glass — with the receiver word beside it. ONE row.
-                            Shane, 2026-09-07 (103 matrix): "we have no spare
-                            real estate to add lines to the page … if you want
-                            to put just phone or vessel in between that is
-                            fine." The full-width receiver line that sat under
-                            this row is gone; VESSEL (live, or her held last
-                            fix) or PHONE rides with the age instead, and
-                            while a hold is in force the segment is a button
-                            that re-opens the boat-or-phone question. Silent
-                            when there is neither a timestamp nor a receiver. */}
-                        {(forecastAge || positionWord) &&
-                            (positionHeld ? (
-                                <button
-                                    type="button"
-                                    onClick={() => choice?.open()}
-                                    aria-label={`${middleLabel} · tap to change`}
-                                    className="min-w-0 truncate text-xs font-semibold tabular-nums"
-                                >
-                                    {forecastAge && (
-                                        <span className={forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}>
-                                            {forecastAge}
-                                        </span>
-                                    )}
-                                    <span className="text-amber-300/90">
-                                        {forecastAge ? ` · ${positionWord}` : positionWord}
-                                    </span>
-                                </button>
-                            ) : (
-                                <span
-                                    role="status"
-                                    aria-label={middleLabel}
-                                    className="min-w-0 truncate text-xs font-semibold tabular-nums"
-                                >
-                                    {forecastAge && (
-                                        <span className={forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}>
-                                            {forecastAge}
-                                        </span>
-                                    )}
-                                    {positionWord && (
-                                        <span className="text-slate-400">
-                                            {forecastAge ? ` · ${positionWord}` : positionWord}
-                                        </span>
-                                    )}
-                                </span>
-                            ))}
+                            Glass. Silent when there is no timestamp rather
+                            than guessing at one. ONE row, no receiver word:
+                            the header glyph says boat or phone. */}
+                        {forecastAge && (
+                            <span
+                                role="status"
+                                aria-label={`Forecast updated ${forecastAge}`}
+                                className={`min-w-0 truncate text-xs font-semibold tabular-nums ${forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}`}
+                            >
+                                {forecastAge}
+                            </span>
+                        )}
 
                         {/* Model Pill — opens the forecast-model picker sheet.
                             Shows the pinned model's name with its chart colour;

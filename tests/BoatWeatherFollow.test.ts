@@ -16,6 +16,8 @@ const orchestrator = read('services/WeatherOrchestrator.ts');
 const controller = read('hooks/useAppController.ts');
 const service = read('services/weatherPosition.ts');
 const badges = read('components/dashboard/StatusBadges.tsx');
+const glyph = read('components/GpsSourceGlyph.tsx');
+const app = read('App.tsx');
 const dialog = read('components/dashboard/WeatherPositionChoiceDialog.tsx');
 
 describe('the weather is for the boat', () => {
@@ -52,13 +54,17 @@ describe('the weather is for the boat', () => {
         expect(service).toContain('export const PI_POLL_MS = 30_000;');
     });
 
-    it('the Glass says which receiver the weather is for — one word in the SAME row as the age, never a new line', () => {
-        expect(badges).toContain('describeWeatherFix(positionSource, ageTick)');
-        expect(badges).toContain("positionSource.kind === 'phone' ? 'PHONE' : 'VESSEL'");
-        expect(badges).toContain('· tap to change');
-        // Shane, 2026-09-07 (103 matrix): "we have no spare real estate to add
-        // lines to the page" — the full-width receiver line under the row is gone
-        // for good; the word rides beside the forecast age instead.
+    it('which receiver the weather is for is a boat or a phone in the header — never a word on the page', () => {
+        // Shane 2026-09-08: "just have a picture of a phone or a picture of a
+        // little boat … remove all of the references to which gps we are using."
+        expect(app).toContain('<GpsSourceGlyph />');
+        expect(glyph).toContain("weatherKind === 'held'");
+        expect(glyph).toContain('canChoose: true');
+        expect(glyph).toContain('tap to choose the boat or this phone');
+        expect(glyph).toContain('choice.open()');
+        // The strip is the forecast age again: no receiver word, no second line.
+        expect(badges).not.toContain("'PHONE'");
+        expect(badges).not.toContain("'VESSEL'");
         expect(badges).not.toContain('mt-1 w-full text-center');
         expect(badges).toContain('<WeatherPositionChoiceDialog');
     });
