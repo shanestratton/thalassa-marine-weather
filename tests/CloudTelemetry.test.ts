@@ -126,7 +126,7 @@ describe('the panel says Remote, not Live and not No gateway', () => {
         expect(page).toContain('return () => CloudTelemetryService.release();');
         const hub = read('components/VesselHub.tsx');
         expect(hub).toContain('data-testid="skipper-device-pi-primary"');
-        expect(hub).toContain('publishes the boat · phones stand down');
+        expect(hub).toContain('The Pi is the Primary Device');
         const service = read('services/CloudTelemetryService.ts');
         expect(service).toContain("if (NmeaStore.getState().connectionStatus === 'connected') return;");
         expect(service).toContain('CLOUD_TELEMETRY_LIVE_MAX_AGE_MS = 60_000');
