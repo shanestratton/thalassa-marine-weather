@@ -17,6 +17,7 @@
 import { fetchSignalkDocument, type BroadcastDeps } from './anchorBroadcaster.js';
 import { readTelemetrySnapshot, valueAt, num, knots, degrees } from './trackSignalk.js';
 import { buildTelemetryBody } from './telemetryPublisher.js';
+import type { TelemetrySnapshot } from './trackSignalk.js';
 
 /** A target whose position is older than this is history, not traffic. */
 export const AIS_TARGET_MAX_AGE_MS = 10 * 60_000;
@@ -155,6 +156,7 @@ export function readAisTargets(
 
 export interface LanTelemetryDeps extends BroadcastDeps {
     deviceLabel: string;
+    supplement?: (snapshot: TelemetrySnapshot | null) => Promise<TelemetrySnapshot | null>;
 }
 
 /** One answer for `GET /api/telemetry`: the bus and the traffic, as of now. */
@@ -165,7 +167,8 @@ export async function readLanTelemetry(deps: LanTelemetryDeps): Promise<LanTelem
         fetchSignalkDocument(deps, 'vessels'),
         fetchSignalkDocument(deps, 'self'),
     ]);
-    const snapshot = selfDoc === null ? null : readTelemetrySnapshot(selfDoc, now);
+    const bus = selfDoc === null ? null : readTelemetrySnapshot(selfDoc, now);
+    const snapshot = deps.supplement ? await deps.supplement(bus) : bus;
     const telemetry = snapshot ? buildTelemetryBody(snapshot, deps.deviceLabel) : null;
     const ais = vesselsDoc === null ? [] : readAisTargets(vesselsDoc, readSelfUrn(selfAnswer), now);
     return {

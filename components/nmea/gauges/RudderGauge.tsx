@@ -21,7 +21,7 @@ import { polarToCart, describeArc } from './gaugeGeometry';
 interface RudderGaugeProps {
     /** Degrees. Negative = port, positive = starboard, 0 = amidships. */
     angle: number | null;
-    /** Hard-over limit; the dial ends here and readings clamp to it. */
+    /** Dial limit. Only the needle clamps; the number keeps the actual angle. */
     maxAngle?: number;
     /** Dimmed when the reading is stale or the sensor is quiet. */
     freshness?: 'live' | 'stale' | 'dead';
@@ -41,10 +41,10 @@ const MID = '#e2e8f0';
 export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, freshness = 'live' }) => {
     const dead = angle === null || !Number.isFinite(angle) || freshness === 'dead';
     const opacity = dead ? 0.3 : freshness === 'stale' ? 0.65 : 1;
-    const value = dead ? 0 : Math.max(-maxAngle, Math.min(maxAngle, angle as number));
+    const value = dead ? 0 : (angle as number);
     /** Rudder degrees → dial degrees. */
     const dialFor = (deg: number): number => (deg / maxAngle) * HALF_SWEEP;
-    const needleAngle = dialFor(value);
+    const needleAngle = dialFor(Math.max(-maxAngle, Math.min(maxAngle, value)));
 
     // A dead band either side of centre: a rudder is never perfectly still,
     // and calling 0.2 "port" would flicker the label on every wave.

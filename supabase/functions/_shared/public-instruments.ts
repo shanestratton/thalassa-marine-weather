@@ -11,6 +11,27 @@ export function publicInstrumentSnapshot(
     }
     const number = (key: string): number | null =>
         typeof row[key] === 'number' && Number.isFinite(row[key]) ? row[key] as number : null;
+    const extra = row.extra && typeof row.extra === 'object' && !Array.isArray(row.extra)
+        ? row.extra as Record<string, unknown>
+        : {};
+    const bounded = (key: string, min: number, max: number): number | null =>
+        typeof extra[key] === 'number' && Number.isFinite(extra[key]) && extra[key] >= min && extra[key] <= max
+            ? extra[key] as number
+            : null;
+    const recent = (key: string, age: number): number | null => bounded(key, nowMs - age, nowMs + 5_000);
+    const socAt = recent('house_battery_at', 180_000);
+    const pressureAt = recent('pressure_at', 180_000);
+    const oldAt = pressureAt === null
+        ? null
+        : bounded('pressure_3h_at', pressureAt - 185 * 60_000, pressureAt - 175 * 60_000);
+    const timestamp = (at: number | null): string | null => at === null ? null : new Date(at).toISOString();
+    let shipZone: string | null = null;
+    if (typeof extra.ship_time_zone === 'string' && extra.ship_time_zone.length <= 80) {
+        try {
+            new Intl.DateTimeFormat('en', { timeZone: extra.ship_time_zone }).format(nowMs);
+            shipZone = extra.ship_time_zone;
+        } catch { /* Invalid is unavailable, not the visitor's zone. */ }
+    }
     return {
         updated_at: new Date(reportedAt).toISOString(),
         source: row.source === 'device' ? 'device' as const : 'pi' as const,
@@ -25,12 +46,20 @@ export function publicInstrumentSnapshot(
         awa: number('awa_deg'),
         depth: number('depth_m'),
         water_temp: number('water_temp_c'),
-        baro: number('pressure_hpa'),
+        baro: 'pressure_at' in extra && pressureAt === null ? null : number('pressure_hpa'),
         voltage: number('voltage_v'),
         rpm: number('rpm'),
-        heel: number('heel_deg'),
-        pitch: number('pitch_deg'),
+        heel: 'heel_at' in extra && recent('heel_at', 30_000) === null ? null : number('heel_deg'),
+        pitch: 'pitch_at' in extra && recent('pitch_at', 30_000) === null ? null : number('pitch_deg'),
         rudder: number('rudder_deg'),
+        house_battery_soc: socAt === null ? null : bounded('house_battery_soc_pct', 0, 100),
+        house_battery_at: timestamp(socAt),
+        pressure_3h: oldAt === null ? null : bounded('pressure_3h_hpa', 850, 1100),
+        pressure_3h_at: timestamp(oldAt),
+        pressure_at: timestamp(pressureAt),
+        heel_at: timestamp(recent('heel_at', 30_000)),
+        pitch_at: timestamp(recent('pitch_at', 30_000)),
+        ship_time_zone: shipZone,
     };
 }
 

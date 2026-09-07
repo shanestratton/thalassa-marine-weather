@@ -148,6 +148,14 @@ export interface VoyageLogInstruments {
     heel: number | null;
     pitch: number | null;
     rudder: number | null;
+    house_battery_soc?: number | null;
+    house_battery_at?: string | null;
+    heel_at?: string | null;
+    pitch_at?: string | null;
+    pressure_3h?: number | null;
+    pressure_3h_at?: string | null;
+    pressure_at?: string | null;
+    ship_time_zone?: string | null;
 }
 
 export interface NearbyVessel {

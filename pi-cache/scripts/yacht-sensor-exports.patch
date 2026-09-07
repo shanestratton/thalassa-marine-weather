@@ -1,0 +1,70 @@
+--- a/soc_logger2.py
++++ b/soc_logger2.py
+@@ -15,4 +15,5 @@
+ import signal
+ import time
++from house_battery_sample import HouseBatterySample
+ from datetime import datetime
+ 
+@@ -68,4 +69,5 @@
+ state = {key: {"buf": "", "rejected": 0, "rssi": None} for key, _, _ in BATTERIES}
+ mq = {}
++house_sample = HouseBatterySample()
+ running = True
+ 
+@@ -171,6 +173,15 @@
+ 
+ def on_connect(client, userdata, flags, rc, properties=None):
++    house_sample.clear()
+     client.subscribe(f"N/{PORTAL}/#")
+     client.publish(f"R/{PORTAL}/keepalive", "")
++
++
++def on_disconnect(client, userdata, disconnect_flags, reason_code, properties=None):
++    house_sample.clear()
++    try:
++        house_sample.save(os.path.join(os.path.dirname(OUT), "house_battery.json"))
++    except OSError:
++        pass
+ 
+ 
+@@ -182,5 +193,9 @@
+         v = json.loads(msg.payload.decode()).get("value")
+     except Exception:
++        if key == "shunt_soc":
++            house_sample.clear()
+         return
++    if key == "shunt_soc":
++        house_sample.record(v, retained=bool(msg.retain))
+     if v is not None:
+         mq[key] = v
+@@ -204,4 +219,8 @@
+ def write_row(w, fh):
+     now = time.time()
++    try:
++        house_sample.save(os.path.join(os.path.dirname(OUT), "house_battery.json"))
++    except OSError as exc:
++        print(f"House SOC export unavailable: {exc}", flush=True)
+     row = {"time": datetime.now().isoformat(timespec="seconds")}
+     summary = []
+@@ -307,4 +326,5 @@
+     c.ws_set_options(path=CERBO_PATH)
+     c.on_connect, c.on_message = on_connect, on_message
++    c.on_disconnect = on_disconnect
+     c.connect_async(CERBO_HOST, CERBO_PORT, 60)
+     c.loop_start()
+--- a/wind.py
++++ b/wind.py
+@@ -422,4 +422,12 @@
+     d["source"] = f"YDWG-02 {HOST}:{PORT}"
+     d["time"] = datetime.now().isoformat(timespec="seconds")
++    # Original per-metric receipt times, not the age of an unrelated sentence.
++    wall_ms, mono = int(time.time() * 1000), time.monotonic()
++    d["generated_at_ms"] = wall_ms
++    d["sensor_at_ms"] = {
++        k: wall_ms - round(max(0, mono - ts) * 1000)
++        for k, (_, ts) in st.v.items()
++        if k in d and d[k] is not None and 0 <= mono - ts <= STALE_AFTER
++    }
+     if err:
+         d["error"] = err

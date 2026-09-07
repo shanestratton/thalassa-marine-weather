@@ -65,6 +65,22 @@ export function num(doc: unknown, path: string): number | null {
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
+/** Closest Signal K envelope timestamp, including parent attitude.value objects. */
+export function timestampAt(doc: unknown, path: string): number | null {
+    let node: unknown = doc;
+    let stamp: number | null = null;
+    for (const key of [...path.split('.'), '']) {
+        if (!node || typeof node !== 'object') break;
+        let record = node as Record<string, unknown>;
+        if ('timestamp' in record) stamp = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN;
+        if (!key) break;
+        if (!(key in record) && record.value && typeof record.value === 'object')
+            record = record.value as Record<string, unknown>;
+        node = record[key];
+    }
+    return stamp !== null && Number.isFinite(stamp) ? stamp : null;
+}
+
 export const knots = (msValue: number | null): number | null => (msValue === null ? null : msValue * MS_TO_KNOTS);
 
 /** Radians to a compass bearing, normalised so nothing downstream sees -3°. */
@@ -164,6 +180,8 @@ export interface TelemetrySnapshot {
     rudderDeg: number | null;
     rpm: number | null;
     voltageV: number | null;
+    /** Explicitly named supplemental sensors; no guessed SOC or public device identifiers. */
+    extra?: Record<string, number | string>;
 }
 
 /** A signed angle in radians to degrees in -180..180, unlike `degrees()` which makes a bearing. */
@@ -191,6 +209,19 @@ function firstChildNumber(doc: unknown, collectionPath: string, leaf: string): n
  * the cloud). null when the document offers nothing at all.
  */
 export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
+    const nowMs = now();
+    const extra: Record<string, number | string> = {};
+    const attitude = (axis: 'roll' | 'pitch', key: 'heel_at' | 'pitch_at'): number | null => {
+        const path = `navigation.attitude.${axis}`;
+        const at = timestampAt(selfDocument, path);
+        if (at === null || at > nowMs + 5_000 || nowMs - at > 30_000) return null;
+        const value = signedDegrees(num(selfDocument, path));
+        if (value !== null && Math.abs(value) <= 90) {
+            extra[key] = at;
+            return value;
+        }
+        return null;
+    };
     const latRaw = num(selfDocument, 'navigation.position.latitude');
     const lonRaw = num(selfDocument, 'navigation.position.longitude');
     const hasPosition =
@@ -226,8 +257,8 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
         depthM:
             num(selfDocument, 'environment.depth.belowTransducer') ??
             num(selfDocument, 'environment.depth.belowSurface'),
-        heelDeg: signedDegrees(num(selfDocument, 'navigation.attitude.roll')),
-        pitchDeg: signedDegrees(num(selfDocument, 'navigation.attitude.pitch')),
+        heelDeg: attitude('roll', 'heel_at'),
+        pitchDeg: attitude('pitch', 'pitch_at'),
         waterTempC: waterK === null ? null : waterK - KELVIN_OFFSET,
         pressureHpa: pressurePa === null ? null : pressurePa / 100,
         rudderDeg: signedDegrees(num(selfDocument, 'steering.rudderAngle')),
@@ -235,5 +266,6 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
         voltageV: firstChildNumber(selfDocument, 'electrical.batteries', 'voltage'),
     };
     const anything = Object.entries(snapshot).some(([key, value]) => key !== 'reportedAt' && value !== null);
+    if (Object.keys(extra).length) snapshot.extra = extra;
     return anything ? snapshot : null;
 }

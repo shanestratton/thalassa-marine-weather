@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { VoyageLogInstruments } from '../voyageLogApi';
 import { formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
-import { ArcDial, CompassDial, WindDial } from './dials';
+import { PublicInstrumentDials, publicShipClock } from './PublicInstrumentDials';
 
 interface TelemetryPanelProps {
     instruments: VoyageLogInstruments | null;
@@ -44,17 +44,36 @@ export const InstrumentsNotShared: React.FC = () => (
 
 /** Only mounted after server-confirmed consent; never substitutes forecast or GPS data. */
 export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
-    instruments: t,
+    instruments: raw,
     nowMs,
     connectionLost,
     lastSuccessfulAt,
 }) => {
-    const fresh = !!t && isPublicPositionFresh(t.updated_at, nowMs);
+    const [sensorClock, setSensorClock] = useState(nowMs);
+    useEffect(() => {
+        const timer = setInterval(() => setSensorClock(Date.now()), 5_000);
+        return () => clearInterval(timer);
+    }, []);
+    const sensorNow = Math.max(nowMs, sensorClock);
+    // Let individual sensors expire between public-page polls as well.
+    const recent = (at: string | null | undefined, age: number) => {
+        const ms = at ? Date.parse(at) : NaN;
+        return Number.isFinite(ms) && ms <= sensorNow + 5_000 && sensorNow - ms <= age;
+    };
+    const t = raw
+        ? {
+              ...raw,
+              house_battery_soc: recent(raw.house_battery_at, 180_000) ? raw.house_battery_soc : null,
+              baro: raw.pressure_at && !recent(raw.pressure_at, 180_000) ? null : raw.baro,
+              heel: raw.heel_at && !recent(raw.heel_at, 30_000) ? null : raw.heel,
+              pitch: raw.pitch_at && !recent(raw.pitch_at, 30_000) ? null : raw.pitch,
+          }
+        : null;
+    const fresh = !!t && isPublicPositionFresh(t.updated_at, sensorNow);
     const available =
         t &&
         Object.entries(t).some(
-            ([key, value]) =>
-                key !== 'updated_at' && key !== 'source' && typeof value === 'number' && Number.isFinite(value),
+            ([key, value]) => key !== 'pressure_3h' && typeof value === 'number' && Number.isFinite(value),
         );
 
     return (
@@ -84,7 +103,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                         Last successful update {formatPublicAge(lastSuccessfulAt, nowMs)}. Readings paused.
                     </p>
                 </div>
-            ) : !fresh || !available ? (
+            ) : !fresh || (!available && !publicShipClock(sensorNow, t?.ship_time_zone)) ? (
                 <div role="status" className="mt-3 text-sm leading-relaxed text-slate-400">
                     <p>Waiting for the next report from the boat.</p>
                     <p className="mt-1 text-xs">
@@ -99,31 +118,16 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                         {t.source === 'pi' ? 'Pi instrument feed' : 'Device instrument feed'} ·{' '}
                         {formatPublicAge(t.updated_at, nowMs)}
                     </p>
-                    <div className="my-4 grid grid-cols-3 gap-2 rounded-2xl border border-white/8 bg-slate-950/35 px-1 py-3">
-                        <ArcDial
-                            value={finite(t.sog) ? t.sog : null}
-                            max={12}
-                            unit="kt"
-                            label="Speed"
-                            accent="#5eead4"
-                        />
-                        <CompassDial value={finite(t.heading) ? t.heading : null} label="Heading" accent="#fbbf24" />
-                        <WindDial
-                            awa={finite(t.awa) ? t.awa : null}
-                            aws={finite(t.aws) ? t.aws : null}
-                            label="App. wind · kt"
-                            accent="#7dd3fc"
-                        />
-                    </div>
+                    <PublicInstrumentDials instruments={t} />
                     {finite(t.sog) && t.sog < 0.5 && (
                         <p className="mb-3 text-xs text-teal-200">No way on · Champagne &amp; good times 🥂</p>
                     )}
                     <dl className="grid grid-cols-2 gap-2">
                         <Reading label="Depth" value={t.depth} unit="m" />
-                        <Reading label="Pressure" value={t.baro} unit="hPa" />
-                        <Reading label="True wind" value={t.tws} unit="kt" />
+                        <Reading label="Speed over ground" value={t.sog} unit="kt" />
+                        <Reading label="House battery" value={t.house_battery_soc ?? null} unit="%" />
                         <Reading label="Sea temperature" value={t.water_temp} unit="°C" />
-                        <Reading label="Battery voltage" value={t.voltage} unit="V" />
+                        <Reading label="Heading" value={t.heading} unit="°" digits={0} />
                         <Reading label="Engine" value={t.rpm} unit="RPM" digits={0} />
                     </dl>
                     <details className="mt-3 border-t border-white/10 pt-1">
@@ -132,6 +136,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                         </summary>
                         <dl className="mt-1 grid grid-cols-2 gap-2">
                             <Reading label="Through water" value={t.stw} unit="kt" />
+                            <Reading label="Battery voltage" value={t.voltage} unit="V" />
                             <Reading label="Course over ground" value={t.cog} unit="°" digits={0} />
                             <Reading label="True wind direction" value={t.twd} unit="°" digits={0} />
                             <Reading label="True wind angle" value={t.twa} unit="°" digits={0} />
