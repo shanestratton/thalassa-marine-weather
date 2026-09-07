@@ -26,6 +26,9 @@ import {
 
 // ── Data structures ──────────────────────────────────────────────
 
+/** The open layer menu rolls itself up after this long without a touch. */
+export const HELM_IDLE_FOLD_MS = 8_000;
+
 export interface HelmMenuItem {
     id: string;
     label: string;
@@ -585,6 +588,26 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         triggerHaptic('light');
     }, [closeMenu, isDragging, isOpen]);
 
+    // Shane 2026-09-08: "auto fold up the layer fab after say 10 seconds, or
+    // 5 seconds of no use." Any touch inside the menu restarts the clock, and
+    // a drag in progress never folds mid-gesture. Folding does not steal focus.
+    const lastTouchRef = useRef(Date.now());
+    const noteTouch = useCallback(() => {
+        lastTouchRef.current = Date.now();
+    }, []);
+    useEffect(() => {
+        if (!isOpen) return;
+        lastTouchRef.current = Date.now();
+        const id = setInterval(() => {
+            if (isDragging) return;
+            if (Date.now() - lastTouchRef.current >= HELM_IDLE_FOLD_MS) closeMenu(false);
+        }, 1_000);
+        return () => clearInterval(id);
+    }, [isOpen, isDragging, closeMenu]);
+    useEffect(() => {
+        lastTouchRef.current = Date.now();
+    }, [activeCategory, hoveredItem]);
+
     const handlePointerDown = useCallback((e: React.PointerEvent) => {
         if (holdTimer.current) clearTimeout(holdTimer.current);
         dragStartPos.current = { x: e.clientX, y: e.clientY };
@@ -860,6 +883,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         <div
             ref={containerRef}
             className={`radial-helm-menu absolute z-700 top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
+            onPointerDownCapture={noteTouch}
+            onPointerMoveCapture={noteTouch}
             onKeyDown={handleMenuKeyDown}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}

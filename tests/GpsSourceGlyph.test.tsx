@@ -16,7 +16,7 @@ const world = vi.hoisted(() => ({
 vi.mock('../context/WeatherContext', () => ({ useWeatherOptional: () => world.weather }));
 vi.mock('../components/nmea/useNmeaStore', () => ({ useNmeaConnectionStatus: () => world.link }));
 
-import { GpsSourceGlyph, resolveGpsSourceState } from '../components/GpsSourceGlyph';
+import { GpsSourceGlyph, GpsSourceRow, resolveGpsSourceState } from '../components/GpsSourceGlyph';
 
 describe('resolveGpsSourceState', () => {
     const at = (weatherKind: any, storeStatus: any = 'disconnected', remoteVia: any = null) =>
@@ -73,5 +73,18 @@ describe('<GpsSourceGlyph />', () => {
         world.link = { status: 'remote', remote: { via: 'lan' } };
         render(<GpsSourceGlyph />);
         expect(screen.getByTestId('gps-source-glyph').getAttribute('data-tone')).toBe('live');
+    });
+});
+
+describe('<GpsSourceRow /> — the System Status panel row', () => {
+    it('shows the glyph with the sentence beside it, minus the "Position:" prefix', () => {
+        world.weather = { positionSource: { kind: 'cloud' }, positionChoice: null };
+        world.link = { status: 'disconnected', remote: null };
+        render(<GpsSourceRow />);
+        const row = screen.getByTestId('gps-source-row');
+        expect(row.getAttribute('data-glyph')).toBe('boat');
+        expect(row.getAttribute('data-tone')).toBe('cloud');
+        expect(screen.getByText('Position')).toBeInTheDocument();
+        expect(screen.getByText('the boat’s GPS, through the cloud')).toBeInTheDocument();
     });
 });

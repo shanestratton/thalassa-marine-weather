@@ -18,6 +18,7 @@ const service = read('services/weatherPosition.ts');
 const badges = read('components/dashboard/StatusBadges.tsx');
 const glyph = read('components/GpsSourceGlyph.tsx');
 const app = read('App.tsx');
+const status = read('components/SystemStatusButton.tsx');
 const dialog = read('components/dashboard/WeatherPositionChoiceDialog.tsx');
 
 describe('the weather is for the boat', () => {
@@ -57,7 +58,11 @@ describe('the weather is for the boat', () => {
     it('which receiver the weather is for is a boat or a phone in the header — never a word on the page', () => {
         // Shane 2026-09-08: "just have a picture of a phone or a picture of a
         // little boat … remove all of the references to which gps we are using."
-        expect(app).toContain('<GpsSourceGlyph />');
+        // 2026-09-08 later: "lets move the phone or vessel gps icon into the i
+        // section, rather than sticking yet another fab on the already jam
+        // packed screen." The row lives in System Status; the header has no chip.
+        expect(status).toContain('<GpsSourceRow />');
+        expect(app).not.toContain('<GpsSourceGlyph />');
         expect(glyph).toContain("weatherKind === 'held'");
         expect(glyph).toContain('canChoose: true');
         expect(glyph).toContain('tap to choose the boat or this phone');

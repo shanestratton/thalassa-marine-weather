@@ -14,6 +14,11 @@
  * declares `dismissOnSelect`. That last one is for full-screen TAKEOVERS
  * rather than overlays — the storm view locks the camera on a cyclone and
  * fills the map, so the menu rolls up behind it (Shane 2026-08-24).
+ *
+ * One more since 2026-09-08: the idle fold. "can we auto fold up the layer fab
+ * after say 10 seconds, or 5 seconds of no use" — a menu left open with no
+ * touch for HELM_IDLE_FOLD_MS rolls itself up (tests/HelmMenuIdleFold.test.tsx).
+ * A touch inside restarts the clock, so stacking layers is unaffected.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -90,7 +95,7 @@ describe('the helm menu dismissal contract', () => {
         }
     });
 
-    it('still closes on the FAB, the scrim, Escape and MOB — and nothing else', () => {
+    it('still closes on the FAB, the scrim, Escape, MOB and the idle fold — and nothing else', () => {
         const sites = closeSites();
         // One per dismissal route, plus closeMenu's own declaration.
         for (const before of sites) {
@@ -103,6 +108,7 @@ describe('the helm menu dismissal contract', () => {
                 before.includes('onOpenMob') ||
                 before.includes('restoreFocus') ||
                 before.includes('dismissOnSelect') || // opted-in takeover item
+                before.includes('HELM_IDLE_FOLD_MS') || // the idle fold (Shane 2026-09-08)
                 before.includes('[activeCategory, closeMenu, isOpen]'); // keydown deps
             expect(legit, `unexpected closeMenu site: ...${before.slice(-140)}`).toBe(true);
         }
