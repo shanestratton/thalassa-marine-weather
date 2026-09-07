@@ -446,6 +446,28 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         [identityScope, operationIsCurrent],
     );
 
+    const handleTogglePublicInstruments = useCallback(
+        async (next: boolean) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            if (!operationIsCurrent(scope) || busy || !config) return;
+            setBusy(true);
+            const nextConfig = await VoyageLogService.setPublicInstrumentsEnabled(next, {
+                id: config.id,
+                boat_id: config.boat_id,
+            });
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+            setBusy(false);
+            if (nextConfig) {
+                setConfig(nextConfig);
+                triggerHaptic('light');
+            } else {
+                toast.error(VoyageLogService.lastError || 'Could not save instrument sharing. Please try again.');
+            }
+        },
+        [identityScope, operationIsCurrent, busy, config],
+    );
+
     // Create a personal voyage-log for a boat I'm crew on. Picks a sensible
     // default handle (<first>-on-<boat-slug>) and auto-suffixes on collision.
     const handleCreateCrewLog = useCallback(
@@ -803,65 +825,85 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             3
                         </span>
                         <span>
-                            <strong className="text-white">Track and telemetry sync automatically</strong> while
-                            you&apos;re sailing — position, speed, wind, barometer all show up on the public page in
-                            real time. No action needed.
+                            <strong className="text-white">Choose what to share</strong> below. Your track and onboard
+                            instruments have separate switches. Instrument readings stay private until you turn on Share
+                            my instruments.
                         </span>
                     </li>
                 </ol>
             </div>
 
-            <Section title="Voyage Log">
-                <Row>
-                    <div className="flex-1">
-                        <div className="text-sm text-white font-bold">Public Voyage Log</div>
-                        <div className="text-xs text-gray-400 mt-1">
-                            {config.enabled
-                                ? 'Your log is live. Published entries, track, and telemetry are publicly readable.'
-                                : 'Your log is switched off. The public page and API return nothing until you turn it back on.'}
-                        </div>
-                    </div>
-                    <Toggle
-                        checked={config.enabled}
-                        onChange={(v) => void handleToggle(v)}
-                        label="Public voyage log on/off"
-                    />
-                </Row>
-                {config.enabled && (
+            <fieldset disabled={busy} aria-busy={busy}>
+                <Section title="Voyage Log">
                     <Row>
                         <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Show my current track</div>
+                            <div className="text-sm text-white font-bold">Public Voyage Log</div>
                             <div className="text-xs text-gray-400 mt-1">
-                                Draw your voyage on the public page as it happens — the track grows every couple of
-                                minutes while you sail (when there&apos;s signal; gaps fill in as coverage returns).
-                                Off, and nothing appears until you end the track and it uploads.
+                                {config.enabled
+                                    ? 'Your log is public. Published entries and visible tracks can be read by anyone with the link; instrument sharing is controlled separately below.'
+                                    : 'Your log is switched off. The public page and API return nothing until you turn it back on.'}
                             </div>
                         </div>
                         <Toggle
-                            checked={settings.liveTrackShare === true}
-                            onChange={handleLiveTrackShare}
-                            label="Show my current track on/off"
+                            checked={config.enabled}
+                            onChange={(v) => void handleToggle(v)}
+                            label="Public voyage log on/off"
                         />
                     </Row>
-                )}
-                {config.enabled && (
-                    <Row>
-                        <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Show shipping around me</div>
-                            <div className="text-xs text-gray-400 mt-1">
-                                Draw nearby AIS traffic on your public page while you&apos;re under way, so people
-                                following along can see what&apos;s around you. These are OTHER vessels&apos; positions,
-                                published to anyone with your link — off, and the page shows only your own boat.
+                    {config.enabled && (
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Show my current track</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Draw your voyage on the public page as it happens — the track grows every couple of
+                                    minutes while you sail (when there&apos;s signal; gaps fill in as coverage returns).
+                                    Off, and nothing appears until you end the track and it uploads.
+                                </div>
                             </div>
-                        </div>
-                        <Toggle
-                            checked={config.public_ais_enabled !== false}
-                            onChange={(v) => void handleTogglePublicAis(v)}
-                            label="Show shipping around me on/off"
-                        />
-                    </Row>
-                )}
-            </Section>
+                            <Toggle
+                                checked={settings.liveTrackShare === true}
+                                onChange={handleLiveTrackShare}
+                                label="Show my current track on/off"
+                            />
+                        </Row>
+                    )}
+                    {config.enabled && (
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Share my instruments</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Show onboard speed, wind, depth, pressure, sea temperature, voltage and engine
+                                    readings on your public page, including while moored. Anyone with your link can see
+                                    them. Off keeps readings private; your published track and diary remain visible.
+                                </div>
+                            </div>
+                            <Toggle
+                                checked={config.public_instruments_enabled === true}
+                                onChange={(v) => void handleTogglePublicInstruments(v)}
+                                label="Share my instruments on/off"
+                            />
+                        </Row>
+                    )}
+                    {config.enabled && (
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Show shipping around me</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Draw nearby AIS traffic on your public page while you&apos;re under way, so people
+                                    following along can see what&apos;s around you. These are OTHER vessels&apos;
+                                    positions, published to anyone with your link — off, and the page shows only your
+                                    own boat.
+                                </div>
+                            </div>
+                            <Toggle
+                                checked={config.public_ais_enabled !== false}
+                                onChange={(v) => void handleTogglePublicAis(v)}
+                                label="Show shipping around me on/off"
+                            />
+                        </Row>
+                    )}
+                </Section>
+            </fieldset>
 
             <Section title="Your public page">
                 <Row>

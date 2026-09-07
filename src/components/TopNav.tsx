@@ -35,21 +35,20 @@ export default function TopNav({
         telemetry !== null && !telemetry.is_last_known && isPublicPositionFresh(telemetry.updated_at, nowMs);
 
     return (
-        <header className="h-16 shrink-0 bg-slate-900 border-b border-slate-700/80 flex items-center justify-between px-4 sm:px-6 shadow-md z-20 relative">
+        <header className="shrink-0 bg-linear-to-r from-slate-950 via-slate-900 to-teal-950/70 border-b border-teal-200/15 flex items-center justify-between gap-3 px-4 py-3 sm:px-6 shadow-md z-20 relative">
             {/* Brand & vessel */}
-            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                <h1 className="text-lg sm:text-xl font-bold tracking-[0.2em] text-blue-500 uppercase shrink-0">
-                    Thalassa
-                </h1>
-                <div className="h-7 w-px bg-slate-700 shrink-0" />
+            <div className="flex flex-1 flex-col gap-1 min-w-0">
+                <span className="text-xs font-semibold tracking-[0.18em] text-teal-300 uppercase">Thalassa</span>
                 <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-bold text-slate-100 truncate">{vessel.name}</span>
-                    <span className="text-[11px] text-slate-400 truncate">{specs}</span>
+                    <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-100 truncate">
+                        {vessel.name}
+                    </h1>
+                    <span className="text-xs text-slate-400 truncate">{specs}</span>
                 </div>
             </div>
 
             {/* Status */}
-            <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+            <div className="flex max-w-[45%] flex-wrap items-center justify-end gap-x-3 gap-y-1 sm:gap-x-4 text-right">
                 {/* Skipper door — the public log page's only outbound link.
                     RELATIVE /plan (Shane 2026-07-17: "it defaults back to
                     www.thalassawx.app/plan rather than boat-name.thalassawx.app

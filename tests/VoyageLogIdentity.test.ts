@@ -134,6 +134,33 @@ describe('VoyageLogService identity fencing', () => {
         VoyageLogService.lastError = null;
     });
 
+    it('saves instrument consent only on the authenticated owner’s active-boat combined config', async () => {
+        mocks.respond.mockImplementation((query: (typeof mocks.queries)[number]) => {
+            if (query.table === 'boats') return { data: { id: 'boat-a', owner_id: 'account-a' }, error: null };
+            return { data: { ...config(), public_instruments_enabled: true }, error: null };
+        });
+        await expect(VoyageLogService.setPublicInstrumentsEnabled(true, config())).resolves.toMatchObject({
+            public_instruments_enabled: true,
+        });
+        const update = mocks.queries.find((query) => query.action === 'update')!;
+        expect(update.payload).toEqual({ public_instruments_enabled: true });
+        for (const [column, value] of [
+            ['owner_id', 'account-a'],
+            ['boat_id', 'boat-a'],
+            ['scope', 'combined'],
+        ]) {
+            expect(hasFilter(update, column, value)).toBe(true);
+        }
+    });
+
+    it('rejects an instrument-toggle response with the wrong scope', async () => {
+        mocks.respond.mockImplementation((query: (typeof mocks.queries)[number]) => {
+            if (query.table === 'boats') return { data: { id: 'boat-a', owner_id: 'account-a' }, error: null };
+            return { data: { ...config(), scope: 'personal', public_instruments_enabled: true }, error: null };
+        });
+        await expect(VoyageLogService.setPublicInstrumentsEnabled(true, config())).resolves.toBeNull();
+    });
+
     it('authenticates once and explicitly scopes combined-config reads', async () => {
         await expect(VoyageLogService.getConfig()).resolves.toMatchObject({
             owner_id: 'account-a',

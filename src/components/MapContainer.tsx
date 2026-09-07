@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { destinationBounds, publicMapDestination } from '../publicMapDestination';
+import type { VoyageLogDestination } from '../voyageLogApi';
 import Map, { AttributionControl, Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -23,6 +25,7 @@ import { shipTypeLabel, vesselColor } from '../aisShipType';
 const PUBLIC_WIND_TOGGLE_VISIBLE = false;
 
 interface MapContainerProps {
+    destination?: VoyageLogDestination | null;
     track: VoyageLogTrackPoint[];
     /** Latest telemetry. Carries the boat's position, and when the track is
      *  empty it is the ONLY position available — the map centres and drops the
@@ -114,6 +117,7 @@ function simplifyTrack(coords: [number, number][]): [number, number][] {
 }
 
 function MapContainer({
+    destination,
     track,
     telemetry,
     entries,
@@ -127,10 +131,32 @@ function MapContainer({
     resizeSignal,
 }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
+    const [destinationDetail, setDestinationDetail] = useState(false);
+    const exploredFocusKey = useRef<string | null>(null);
+    const destinationTarget = publicMapDestination(passageLine, destination);
     // Explicit canvas resize on layout swings (diary fold/unfold). Two
     // kicks: one right after React commits the new layout, one after any
     // CSS transition settles — cheap no-ops when the size didn't change.
     const mapRef = useRef<import('react-map-gl/mapbox').MapRef | null>(null);
+    const exploreDestination = () => {
+        if (!destinationTarget) return;
+        exploredFocusKey.current = focusKey ?? '';
+        setDestinationDetail(true);
+        setStyleMode('satellite');
+        const container = mapRef.current?.getContainer?.();
+        const height = container?.clientHeight || 400;
+        const width = container?.clientWidth || 400;
+        mapRef.current?.fitBounds(destinationBounds(destinationTarget.center), {
+            padding: {
+                top: Math.min(60, height * 0.15),
+                bottom: Math.min(90, height * 0.22),
+                left: Math.min(24, width * 0.06),
+                right: Math.min(24, width * 0.06),
+            },
+            maxZoom: 15,
+            duration: 1000,
+        });
+    };
     useEffect(() => {
         if (resizeSignal === undefined) return;
         const t1 = setTimeout(() => mapRef.current?.resize(), 60);
@@ -367,6 +393,8 @@ function MapContainer({
      * stopping at the auto-frame's cautious 12.
      */
     const frameWholeVoyage = React.useCallback((): void => {
+        setDestinationDetail(false);
+        exploredFocusKey.current = null;
         const map = mapRef.current;
         if (!map) return;
         const { allCoords: coords, telemetryFix: fix } = focusTargetRef.current;
@@ -431,13 +459,19 @@ function MapContainer({
      */
     const framable = allCoords.length > 1;
     useEffect(() => {
-        if (!MAPBOX_TOKEN || focusKey === undefined || lastFocusKey.current === focusKey) return;
+        if (
+            !MAPBOX_TOKEN ||
+            focusKey === undefined ||
+            lastFocusKey.current === focusKey ||
+            exploredFocusKey.current === focusKey
+        )
+            return;
 
         let cancelled = false;
         let retriedForMapRef = false;
         let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const applyFocus = (): void => {
-            if (cancelled) return;
+            if (cancelled || exploredFocusKey.current === focusKey) return;
             const map = mapRef.current;
             if (!map) {
                 // A selector can resolve on the same commit as map creation.
@@ -595,6 +629,7 @@ function MapContainer({
                    went with it — with no curve to wrap, fog only added haze
                    to imagery we had just finished de-hazing. */
                 projection="mercator"
+                maxZoom={20}
                 attributionControl={false}
             >
                 <NavigationControl position="top-left" showCompass={false} />
@@ -624,7 +659,7 @@ function MapContainer({
                     <Layer
                         id="bathy-ocean-layer"
                         type="raster"
-                        layout={{ visibility: styleMode === 'satellite' ? 'visible' : 'none' }}
+                        layout={{ visibility: styleMode === 'satellite' && !destinationDetail ? 'visible' : 'none' }}
                         paint={{
                             // The MapTiler Ocean raster is a FULL basemap — it
                             // paints land as well as sea — so a flat tint at
@@ -660,7 +695,16 @@ function MapContainer({
 
                 {/* Day/night terminator — translucent shadow over the night side */}
                 <Source id="night-side" type="geojson" data={nightGeojson}>
-                    <Layer id="night-fill" type="fill" paint={{ 'fill-color': '#000814', 'fill-opacity': 0.32 }} />
+                    <Layer
+                        id="night-fill"
+                        type="fill"
+                        paint={{
+                            'fill-color': '#000814',
+                            'fill-opacity': destinationDetail
+                                ? 0
+                                : ['interpolate', ['linear'], ['zoom'], 6, 0.32, 10, 0.08, 12, 0],
+                        }}
+                    />
                 </Source>
 
                 {/* The followed route — the one route the boat is currently
@@ -782,6 +826,26 @@ function MapContainer({
                         <div className="pointer-events-none mt-1 select-none whitespace-nowrap rounded-sm bg-slate-900/80 px-1 text-[9px] font-bold leading-tight text-emerald-200">
                             Voyage Start
                         </div>
+                    </Marker>
+                )}
+
+                {destinationTarget && (
+                    <Marker
+                        longitude={destinationTarget.center[0]}
+                        latitude={destinationTarget.center[1]}
+                        anchor="bottom"
+                    >
+                        <button
+                            type="button"
+                            onClick={exploreDestination}
+                            aria-label={'Explore destination ' + destinationTarget.name + ' in satellite detail'}
+                            className="mb-2 flex min-h-11 max-w-56 flex-col items-start rounded-xl border border-teal-200/50 bg-slate-950/90 px-3 py-2 text-left shadow-lg shadow-black/40 backdrop-blur-md focus-visible:outline-2 focus-visible:outline-teal-200"
+                        >
+                            <span className="max-w-full truncate text-sm font-semibold text-white">
+                                {destinationTarget.name}
+                            </span>
+                            <span className="text-xs text-teal-200">Explore coast &amp; reef ↗</span>
+                        </button>
                     </Marker>
                 )}
 
@@ -1008,6 +1072,18 @@ function MapContainer({
                 )}
             </Map>
 
+            {destinationTarget && (
+                <button
+                    type="button"
+                    onClick={exploreDestination}
+                    aria-label={'Satellite close-up of ' + destinationTarget.name}
+                    className="absolute bottom-9 right-[72px] flex min-h-12 max-w-[calc(100%-100px)] items-center gap-2 rounded-full border border-teal-200/40 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-teal-200 shadow-lg backdrop-blur-md transition-colors hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-teal-200"
+                >
+                    <span aria-hidden="true">⌕</span>
+                    <span className="truncate">Explore {destinationTarget.name}</span>
+                </button>
+            )}
+
             {/* Locate FAB — one tap frames the whole voyage: the complete
                 route, the track sailed so far, and the boat's last known
                 position. Sits ABOVE the Mapbox attribution strip, which is
@@ -1068,12 +1144,13 @@ function MapContainer({
                     <button
                         key={m}
                         onClick={() => setStyleMode(m)}
-                        aria-label={`${m === 'dark' ? 'Chart' : 'Satellite'} basemap`}
+                        aria-label={`${m === 'dark' ? 'Map' : 'Satellite'} basemap`}
+                        aria-pressed={styleMode === m}
                         className={`min-h-[44px] px-3 py-1.5 transition-colors ${
                             styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
                         }`}
                     >
-                        {m === 'dark' ? 'Chart' : 'Satellite'}
+                        {m === 'dark' ? 'Map' : 'Satellite'}
                     </button>
                 ))}
             </div>
@@ -1112,7 +1189,7 @@ function MapContainer({
                     )}
                     {trackCoords.length >= 2 && (
                         <div className="flex items-center gap-2">
-                            <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#7dd3fc' }} />
+                            <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#5eead4' }} />
                             <span>Track sailed</span>
                         </div>
                     )}
@@ -1129,7 +1206,7 @@ function MapContainer({
             )}
 
             {/* Compass rose — chart-style decoration, bottom-left */}
-            <div className="absolute bottom-4 left-4 z-10">
+            <div className="absolute bottom-4 left-4 z-10 hidden lg:block pointer-events-none">
                 <CompassRose />
             </div>
         </div>

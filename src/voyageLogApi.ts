@@ -102,7 +102,7 @@ export interface VoyageLogTelemetry {
     cog: number | null;
     heading: number | null;
     baro: number | null;
-    baro_trend: 'rising' | 'falling' | 'steady';
+    baro_trend: 'rising' | 'falling' | 'steady' | null;
     aws: number | null;
     awa: number | null;
     tws: number | null;
@@ -125,6 +125,29 @@ export interface VoyageLogDestination {
     name: string | null;
     lat: number;
     lon: number;
+}
+
+/** Allowlisted onboard snapshot, intentionally separate from the public GPS fix. */
+export interface VoyageLogInstruments {
+    updated_at: string;
+    source: 'pi' | 'device';
+    sog: number | null;
+    cog: number | null;
+    heading: number | null;
+    stw: number | null;
+    tws: number | null;
+    twa: number | null;
+    twd: number | null;
+    aws: number | null;
+    awa: number | null;
+    depth: number | null;
+    water_temp: number | null;
+    baro: number | null;
+    voltage: number | null;
+    rpm: number | null;
+    heel: number | null;
+    pitch: number | null;
+    rudder: number | null;
 }
 
 export interface NearbyVessel {
@@ -169,6 +192,9 @@ export interface VoyageLogData {
     /** Named waypoints dropped under way — shown as labelled pins. */
     waypoints?: VoyageLogWaypoint[];
     telemetry: VoyageLogTelemetry | null;
+    /** Absent on older servers: fail closed, never infer consent from telemetry. */
+    instruments_shared?: boolean;
+    instruments?: VoyageLogInstruments | null;
     nearby_vessels: NearbyVessel[];
     /** The route the boat is CURRENTLY following — the linked passage plan for
      *  the fresh voyage, decimated to ≤200 [lon,lat] points server-side. null

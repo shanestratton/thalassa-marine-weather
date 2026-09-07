@@ -43,6 +43,12 @@ import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rat
 import { jsonResponse } from '../_shared/http-security.ts';
 import { decimatePublicTrack } from '../_shared/track-decimation.ts';
 import {
+    canPublishInstruments,
+    publicInstrumentSnapshot,
+    redactPublicTelemetry,
+    redactPublicTrackPoint,
+} from '../_shared/public-instruments.ts';
+import {
     allDiaryPublicTrip,
     buildPublicTripCatalogue,
     resolvePublicTripSelection,
@@ -306,6 +312,7 @@ Deno.serve(async (req: Request) => {
             owner_id: string;
             boat_id: string | null;
             public_ais_enabled?: boolean | null;
+            public_instruments_enabled?: boolean | null;
             scope: string | null;
             enabled: boolean | null;
             track_days: number | null;
@@ -316,7 +323,7 @@ Deno.serve(async (req: Request) => {
         const { data: config, error: configErr } = await supabase
             .from('voyage_log_configs')
             .select<string, VoyageLogConfigRow>(
-                'owner_id, boat_id, scope, enabled, track_days, public_ais_enabled, ' +
+                'owner_id, boat_id, scope, enabled, track_days, public_ais_enabled, public_instruments_enabled, ' +
                     'destination_name, destination_lat, destination_lon',
             )
             .eq('handle', handle)
@@ -882,6 +889,7 @@ Deno.serve(async (req: Request) => {
         const ACTIVE_ROW_FRESH_MS = 7 * 24 * 3_600_000;
         let activeRowVoyageId: string | null = null;
         let activeRowStartedAtIso: string | null = null;
+        let instrumentActiveVoyageAllowed = false;
         {
             const { data: activeRow, error: activeRowError } = await supabase
                 .from('voyages')
@@ -893,6 +901,7 @@ Deno.serve(async (req: Request) => {
                 console.warn('voyage-log: active-voyage row fetch failed:', activeRowError.message);
             }
             const id = typeof activeRow?.id === 'string' ? activeRow.id : '';
+            instrumentActiveVoyageAllowed = !activeRowError && (!id || !hiddenVoyageIds.has(id));
             const startedIso = typeof activeRow?.departure_time === 'string'
                 ? activeRow.departure_time
                 : typeof activeRow?.created_at === 'string'
@@ -1714,44 +1723,29 @@ Deno.serve(async (req: Request) => {
             }
             : null;
 
-        // The Pi's live snapshot (vessel_telemetry, build 104) beats the phone's
-        // last track point when it is fresher and under ten minutes old: the
-        // boat's own bus, published from the boat, whoever is aboard.
-        let liveTelemetry = telemetry;
-        if (telemetryBelongsToView) {
-            const { data: cloud } = await supabase
+        // A separate instrument snapshot cannot refresh an old GPS fix or
+        // smuggle the Pi's location into an unpublished track. Latest mode
+        // also works at the berth, before the first voyage has been recorded.
+        const instrumentsEnabled = config.public_instruments_enabled === true;
+        const instrumentsAllowed = canPublishInstruments({
+            enabled: config.public_instruments_enabled,
+            boatId,
+            requestedTrip,
+            visibilityReadable: trackVisibilityReadable,
+            activeVoyageAllowed: instrumentActiveVoyageAllowed,
+        });
+        let instruments: ReturnType<typeof publicInstrumentSnapshot> = null;
+        if (instrumentsAllowed && boatId) {
+            const { data: cloud, error: instrumentError } = await supabase
                 .from('vessel_telemetry')
                 .select(
-                    'reported_at, lat, lon, sog_kts, cog_deg, heading_deg, tws_kts, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, device_label, source',
+                    'boat_id, reported_at, source, sog_kts, cog_deg, heading_deg, stw_kts, tws_kts, twa_deg, twd_deg, aws_kts, awa_deg, depth_m, water_temp_c, pressure_hpa, voltage_v, rpm, heel_deg, pitch_deg, rudder_deg',
                 )
                 .eq('owner_id', ownerId)
+                .eq('boat_id', boatId)
                 .maybeSingle();
-            const row = (cloud ?? null) as Record<string, unknown> | null;
-            const cloudAt = row && typeof row.reported_at === 'string' ? Date.parse(row.reported_at) : Number.NaN;
-            const lastAt = last && typeof last.timestamp === 'string' ? Date.parse(last.timestamp) : Number.NaN;
-            const cloudFresh = Number.isFinite(cloudAt) && Date.now() - cloudAt < 10 * 60_000;
-            const cloudNewer = !Number.isFinite(lastAt) || cloudAt > lastAt;
-            const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-            if (row && cloudFresh && cloudNewer) {
-                liveTelemetry = {
-                    ...(telemetry ?? {}),
-                    sog: n(row.sog_kts),
-                    cog: n(row.cog_deg),
-                    heading: n(row.heading_deg),
-                    baro: n(row.pressure_hpa) ?? (telemetry?.baro ?? null),
-                    baro_trend: telemetry?.baro_trend ?? 'steady',
-                    aws: n(row.aws_kts),
-                    awa: n(row.awa_deg),
-                    tws: n(row.tws_kts),
-                    twd: n(row.twd_deg),
-                    depth: n(row.depth_m),
-                    water_temp: n(row.water_temp_c),
-                    lat: n(row.lat) ?? telemetry?.lat ?? null,
-                    lon: n(row.lon) ?? telemetry?.lon ?? null,
-                    updated_at: new Date(cloudAt).toISOString(),
-                    is_last_known: false,
-                    source: row.source === 'device' ? 'device' : 'pi',
-                } as typeof telemetry;
+            if (!instrumentError) {
+                instruments = publicInstrumentSnapshot(cloud as Record<string, unknown> | null, boatId);
             }
         }
 
@@ -1764,20 +1758,23 @@ Deno.serve(async (req: Request) => {
                 trips,
                 selected_trip: tripSelection.mode === 'legacy' ? null : (tripSelection.trip?.id ?? null),
                 entries,
-                track,
+                track: instrumentsEnabled ? track : track.map(redactPublicTrackPoint),
                 track_meta: {
                     total_points: selectedFullTrack.length,
                     returned_points: track.length,
                     decimated: track.length < selectedFullTrack.length,
                 },
                 waypoints,
-                telemetry: liveTelemetry,
+                telemetry: instrumentsEnabled ? telemetry : redactPublicTelemetry(telemetry),
+                instruments,
+                instruments_shared: instrumentsAllowed,
                 nearby_vessels: nearbyVessels,
                 generated_at: new Date().toISOString(),
             },
             200,
-            // Cheap to serve under load; data only moves every ~15 min anyway.
-            { 'Cache-Control': 'public, max-age=60' },
+            // Sharing revocation must be checked on every request, not served
+            // from a CDN's previously opted-in response.
+            { 'Cache-Control': 'no-store' },
         );
     } catch (e) {
         console.error('voyage-log: unhandled error:', e);

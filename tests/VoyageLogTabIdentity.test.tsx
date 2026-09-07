@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     ensureConfigured: vi.fn(),
     ensureEnabled: vi.fn(),
     setEnabled: vi.fn(),
+    setPublicInstrumentsEnabled: vi.fn(),
     getHiddenVoyageIds: vi.fn(),
     getPlanLinks: vi.fn(),
     setVoyageHidden: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('../services/VoyageLogService', () => ({
         ensureConfigured: mocks.ensureConfigured,
         ensureEnabled: mocks.ensureEnabled,
         setEnabled: mocks.setEnabled,
+        setPublicInstrumentsEnabled: mocks.setPublicInstrumentsEnabled,
         getHiddenVoyageIds: mocks.getHiddenVoyageIds,
         getPlanLinks: mocks.getPlanLinks,
         setVoyageHidden: mocks.setVoyageHidden,
@@ -234,6 +236,33 @@ describe('VoyageLogTab identity transitions', () => {
             }
             return { data: null, error: null };
         });
+    });
+
+    it('defaults instruments off and waits for a confirmed save before showing them as shared', async () => {
+        const save = deferred<VoyageLogConfig | null>();
+        mocks.setPublicInstrumentsEnabled.mockReturnValueOnce(save.promise);
+        renderTab();
+        const toggle = await screen.findByRole('switch', { name: 'Share my instruments on/off' });
+        expect(toggle).toHaveAttribute('aria-checked', 'false');
+        fireEvent.click(toggle);
+        expect(mocks.setPublicInstrumentsEnabled).toHaveBeenCalledWith(true, {
+            id: 'config-account-a',
+            boat_id: 'boat-a',
+        });
+        expect(toggle).toHaveAttribute('aria-checked', 'false');
+        expect(toggle).toBeDisabled();
+        await act(async () => save.resolve({ ...config('account-a', 'boat-a'), public_instruments_enabled: true }));
+        expect(toggle).toHaveAttribute('aria-checked', 'true');
+        expect(toggle).not.toBeDisabled();
+    });
+
+    it('does not claim consent was saved when the server rejects it', async () => {
+        mocks.setPublicInstrumentsEnabled.mockResolvedValueOnce(null);
+        renderTab();
+        const toggle = await screen.findByRole('switch', { name: 'Share my instruments on/off' });
+        fireEvent.click(toggle);
+        await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+        expect(toggle).toHaveAttribute('aria-checked', 'false');
     });
 
     it('synchronously hides A config, boats, tracks, picker, and copy state while B loads', async () => {
