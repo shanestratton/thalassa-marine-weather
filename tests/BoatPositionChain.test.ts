@@ -39,6 +39,18 @@ describe('the boat position chain', () => {
         expect(usePhone).toBeGreaterThan(usePi);
     });
 
+    it('the cloud row is a rung for the WEATHER only — boatFix() and the anchor watch never take it', () => {
+        expect(chain).toContain('export async function cloudFix(');
+        expect(chain).toContain('export const CLOUD_FIX_MAX_AGE_MS = 60_000;');
+        const boat = chain.slice(
+            chain.indexOf('export async function boatFix'),
+            chain.indexOf('export function describeRung'),
+        );
+        expect(boat).not.toContain('cloudFix(');
+        expect(anchor).not.toContain('cloudFix');
+        expect(describeRung({ latitude: 0, longitude: 0, timestamp: 0, rung: 'cloud' })).toBe('Boat GPS (via cloud)');
+    });
+
     it('never throws a rung into the caller', () => {
         // A Pi that is asleep or has no /api/gps must cost nothing.
         expect(chain).not.toMatch(/\bthrow new /);

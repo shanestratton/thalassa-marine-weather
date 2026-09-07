@@ -26,7 +26,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('BoatPosition');
 
-export type BoatFixRung = 'bus' | 'pi' | 'phone';
+export type BoatFixRung = 'bus' | 'pi' | 'cloud' | 'phone';
 
 export interface BoatFix {
     latitude: number;
@@ -78,6 +78,36 @@ export async function piFix(timeoutMs = 4_000): Promise<BoatFix | null> {
     }
 }
 
+/** The Pi's cloud row is the boat's position for this long; after that it is where she WAS. */
+export const CLOUD_FIX_MAX_AGE_MS = 60_000;
+
+/**
+ * Rung c — FOR THE WEATHER ONLY: the row the Pi keeps in the cloud, the boat
+ * seen from a distance. It is up to a minute old and the phone reading it may
+ * be a hundred miles from her, so it is deliberately NOT part of boatFix():
+ * Anchor Watch and the Ship's Log must never take it. The weather may — a
+ * forecast for where the boat is, read from the kitchen table, is exactly
+ * what Shane asked for (2026-09-07: the Glass read PHONE at Newport while the
+ * Pi was publishing from the hardstand).
+ */
+export async function cloudFix(now = Date.now()): Promise<BoatFix | null> {
+    try {
+        const { CloudTelemetryService } = await import('./CloudTelemetryService');
+        const t = await CloudTelemetryService.readOnce();
+        if (!t || t.snapshot.lat === null || t.snapshot.lon === null) return null;
+        if (now - t.reportedAt > CLOUD_FIX_MAX_AGE_MS) return null;
+        return {
+            latitude: t.snapshot.lat,
+            longitude: t.snapshot.lon,
+            timestamp: t.reportedAt,
+            rung: 'cloud',
+            source: t.source === 'device' ? 'skipper-phone' : 'pi-cloud',
+        };
+    } catch {
+        return null;
+    }
+}
+
 /**
  * The boat's position from the best source that will answer.
  *
@@ -102,5 +132,6 @@ export function describeRung(fix: BoatFix | null): string {
     if (!fix) return 'Phone GPS';
     if (fix.rung === 'bus') return 'Boat GPS';
     if (fix.rung === 'pi') return fix.source?.toLowerCase().includes('ublox') ? 'USB GPS (Pi)' : 'Boat GPS (via Pi)';
+    if (fix.rung === 'cloud') return 'Boat GPS (via cloud)';
     return 'Phone GPS';
 }

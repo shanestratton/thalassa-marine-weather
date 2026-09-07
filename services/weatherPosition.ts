@@ -10,8 +10,11 @@
  * orchestrator's "Current Location" all went straight to the phone. A boat
  * app's weather is for the boat, so the order is now:
  *
- *   1. the boat, through services/boatPositionChain — the bus, then the Pi,
- *      whose Signal K already ranks the bus above its u-blox USB stick;
+ *   1. the boat, through services/boatPositionChain — the bus (a gateway
+ *      socket, or the Pi over the boat LAN), then the Pi direct, whose Signal K
+ *      already ranks the bus above its u-blox USB stick, then the Pi's cloud
+ *      row — the boat seen from a distance, good for a forecast and nothing
+ *      that steers (Shane 2026-09-07: "a: vpn, b: supabase, c: dont know");
  *   2. failing that, the boat's LAST fix this device saw, held with its age on
  *      screen; when the phone is clearly somewhere else the skipper is asked
  *      once, per hold, whether they meant the boat or the phone;
@@ -23,14 +26,14 @@
  * function for it — which also keeps this module clear of every location
  * permission surface.
  */
-import { busFix, piFix, type BoatFix, type BoatFixRung } from './boatPositionChain';
+import { busFix, cloudFix, piFix, type BoatFix, type BoatFixRung } from './boatPositionChain';
 import { authScopedStorageKey } from './authIdentityScope';
 import { haversineNM } from '../utils/gpsFollow';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WeatherPosition');
 
-export type WeatherFixKind = 'bus' | 'pi' | 'held' | 'phone';
+export type WeatherFixKind = 'bus' | 'pi' | 'cloud' | 'held' | 'phone';
 export type HeldChoice = 'boat' | 'phone';
 
 export interface WeatherFix {
@@ -93,6 +96,11 @@ interface StoredChoice {
 }
 
 let piLastAskedAt = Number.NEGATIVE_INFINITY;
+/** The cloud row is asked at most this often; the boat does not move far in half a minute. */
+export const CLOUD_POLL_MS = 30_000;
+let cloudInFlight: Promise<BoatFix | null> | null = null;
+let cloudLastAnswer: BoatFix | null = null;
+let cloudLastAskedAt = 0;
 let piLastAnswer: BoatFix | null = null;
 let piInFlight: Promise<BoatFix | null> | null = null;
 let lastRememberedAt = Number.NEGATIVE_INFINITY;
@@ -134,7 +142,7 @@ function validCoordinates(lat: unknown, lon: unknown): lat is number {
     );
 }
 
-function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi'): WeatherFix {
+function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
     return {
         lat: fix.latitude,
         lon: fix.longitude,
@@ -213,8 +221,25 @@ async function throttledPiFix(now: number): Promise<BoatFix | null> {
     return piInFlight;
 }
 
+async function throttledCloudFix(now: number): Promise<BoatFix | null> {
+    if (cloudInFlight) return cloudLastAnswer;
+    if (now - cloudLastAskedAt < CLOUD_POLL_MS) return cloudLastAnswer;
+    cloudLastAskedAt = now;
+    cloudInFlight = Promise.resolve()
+        .then(() => cloudFix(now))
+        .then((fix) => {
+            cloudLastAnswer = fix;
+            return fix;
+        })
+        .catch(() => null)
+        .finally(() => {
+            cloudInFlight = null;
+        });
+    return cloudInFlight;
+}
+
 /**
- * Rungs 1 and 2, then the held fix. Never the phone.
+ * The boat's receivers, then her cloud row, then the held fix. Never the phone.
  *
  * A live boat answer also ends any standing boat-or-phone choice: she is
  * reporting again, so the weather goes back to her.
@@ -231,6 +256,12 @@ export async function boatOrHeldFix(now = Date.now()): Promise<WeatherFix | null
         rememberBoatFix(pi, now);
         clearHeldChoice();
         return toWeatherFix(pi, 'pi');
+    }
+    const cloud = await throttledCloudFix(now);
+    if (cloud) {
+        rememberBoatFix(cloud, now);
+        clearHeldChoice();
+        return toWeatherFix(cloud, 'cloud');
     }
     return heldBoatFix();
 }
@@ -309,6 +340,8 @@ export function describeWeatherFix(
             return 'Boat GPS · live';
         case 'pi':
             return `${fix.source?.toLowerCase().includes('ublox') ? 'USB GPS (Pi)' : 'Boat GPS (via Pi)'} · live`;
+        case 'cloud':
+            return 'Boat GPS (via cloud) · live';
         case 'held':
             return `Boat's last fix · ${formatFixAge(now - fix.timestamp)}`;
         case 'phone':
@@ -318,6 +351,9 @@ export function describeWeatherFix(
 
 /** Test seam: forget the Pi throttle and the remember throttle. */
 export function __resetWeatherPositionForTests(): void {
+    cloudInFlight = null;
+    cloudLastAnswer = null;
+    cloudLastAskedAt = 0;
     piLastAskedAt = Number.NEGATIVE_INFINITY;
     piLastAnswer = null;
     piInFlight = null;
