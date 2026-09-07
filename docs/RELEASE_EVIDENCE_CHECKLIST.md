@@ -31,6 +31,12 @@ Release archive from 2026-08-06 (with a Watch binary that must now be gone).
 - [x] Organizer → Validate App passed 2026-09-07 ≈12:55 — "Thalassa Marine Weather 1.2.0 (103) validated. Your app successfully passed all validation checks." No stale-record retry needed this time.
 - [x] Uploaded 2026-09-07 ≈13:00 — "Thalassa Marine Weather 1.2.0 (103) uploaded"; no export-compliance prompt. Processing → internal group Skipper (tester INSTALLED since 102, so the build should appear in the TestFlight app on its own). **Beta Skippers stays untouched and the public link stays OFF** until the matrix passes.
 
+- [x] Build number bumped 103 → 104 on all four configurations, commit 566aa1a4 (the other session, 2026-09-07 16:31).
+- [x] `npm run ship:beta` green under Node 24 (24.19.0) on b36dcc57, 2026-09-07 ≈16:55: 132 release + 140 artifact contracts; bundle 13.20/18 MB, JS 9.76/9.90 MB — **98.6% of the JS budget, 140 KB of headroom; the next feature trips it and the budget will need a deliberate decision**; iOS bundle main-D7cZs-UC.js, byte-identical to `dist`. 104 carries: Pi-first instruments (8a6a2ec3), the invite-only Instrument Panel (b6b6ef33), the weather's cloud rung (76bfface), the Ship's Log that follows the boat (e336bd05), the one-row Glass strip (d72303f6), "the Pi" wording (16ed590f), the permissions-cache tolerance (bdba223e), and the other session's public-page instrument faces and ship's-bell work.
+- [ ] Archive 1.2.0 (104) in Xcode 26.6 (scheme App, Any iOS Device); confirm main-D7cZs-UC.js in the archive's `public/assets`, no Watch folder, no PlugIns, dSYMs present.
+- [ ] Organizer → Validate App passes for 1.2.0 (104).
+- [ ] Upload 1.2.0 (104); processing → internal group Skipper. **Beta Skippers untouched, public link OFF** until the matrix passes.
+
 ### TestFlight (2026-09-06)
 
 - [x] Build 102 processed — _Ready to Submit_, expires in 90 days.
