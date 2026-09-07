@@ -59,6 +59,7 @@ const noPermissions = {
     can_view_nav: false,
     can_view_weather: false,
     can_edit_log: false,
+    can_view_instruments: false,
     can_view_passage: false,
     can_view_passage_meals: false,
     can_view_passage_chat: false,
@@ -143,6 +144,20 @@ describe('usePermissions', () => {
         expect(result.current.loaded).toBe(false);
         expect(result.current.canEditStores).toBe(false);
         expect(checkPermission('can_edit_stores')).toBe(false);
+    });
+
+    it('a cache written before a permission existed still loads, with the new permission not granted', () => {
+        // 103 cached permissions without can_view_instruments; 104 must not
+        // throw every crew member back to "restricted" until the network answers.
+        const entry = cacheEntry('account-a', true);
+        delete (entry.permissions as Record<string, unknown>).can_view_instruments;
+        localStorage.setItem('thalassa_permissions:account-a', JSON.stringify(entry));
+        mocks.getUser.mockReturnValue(new Promise(() => undefined));
+
+        const { result } = renderHook(() => usePermissions());
+        expect(result.current.loaded).toBe(true);
+        expect(result.current.canEditStores).toBe(true);
+        expect(checkPermission('can_view_instruments')).toBe(false);
     });
 
     it('rejects missing, malformed, generic, and mismatched-user cache grants', () => {

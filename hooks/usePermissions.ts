@@ -143,7 +143,13 @@ function isPermissionCacheEntry(value: unknown, expectedUserId: string): value i
         return false;
     }
 
-    return PERMISSION_KEYS.every((key) => typeof entry.permissions?.[key] === 'boolean');
+    // A key added after this entry was cached (can_view_instruments,
+    // 2026-09-07) is not corruption: absent reads as not granted. A key that
+    // is present but not a boolean is corruption.
+    return PERMISSION_KEYS.every((key) => {
+        const value = entry.permissions?.[key];
+        return value === undefined || typeof value === 'boolean';
+    });
 }
 
 function readCachedPermissions(userId: string): PermissionsState | null {
@@ -157,7 +163,8 @@ function readCachedPermissions(userId: string): PermissionsState | null {
             localStorage.removeItem(key);
             return null;
         }
-        return expandPermissions(parsed.role, parsed.permissions);
+        // Fill any permission the cache predates with "no": a missing grant is not a grant.
+        return expandPermissions(parsed.role, { ...DEFAULT_PERMISSIONS, ...parsed.permissions });
     } catch {
         return null;
     }
