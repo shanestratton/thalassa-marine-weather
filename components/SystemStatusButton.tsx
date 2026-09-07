@@ -24,7 +24,7 @@ import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
-import { getLastFlightReport } from '../utils/flightRecorder';
+import { GpsSourceRow } from './GpsSourceGlyph';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { appBuildLabel } from '../services/externalLinks';
 
@@ -174,46 +174,12 @@ const SystemStatusModal: React.FC<{
 
                 {/* Systems Grid */}
                 <div className="px-5 py-4 space-y-3">
-                    {/* ── Last flight — how the previous run ENDED ──
-                        Retired when the Musgrave hunt closed; un-retired for
-                        Mackay; retired again 2026-08-28; and back for the
-                        AIRLIE hunt (Shane 2026-09-02: "put that log in the i
-                        section — thats how we resolved it last time"). The
-                        tracer dies expanding the chart around the
-                        Whitsundays. Crash at sea, reopen the app, tap the
-                        i-FAB, screenshot — no Mac, no cable. Rendered only
-                        when there is something to confess; a clean start
-                        says nothing, so it costs no punter-facing space
-                        between hunts. */}
-                    {(() => {
-                        const flight = getLastFlightReport();
-                        if (!flight || flight.verdict === 'clean-start') return null;
-                        const died = flight.verdict === 'process-died';
-                        const trail = flight.trail
-                            .map((c) => `${c.tag}${c.info ? `(${c.info})` : ''}@${Math.round(c.t / 1000)}s`)
-                            .join(' → ');
-                        return (
-                            <div
-                                className={`rounded-xl border p-3 ${
-                                    died ? 'border-red-500/30 bg-red-500/[0.07]' : 'border-white/10 bg-white/3'
-                                }`}
-                            >
-                                <p
-                                    className={`text-[11px] font-black uppercase tracking-widest ${
-                                        died ? 'text-red-400' : 'text-slate-400'
-                                    }`}
-                                >
-                                    Last flight · {flight.verdict.replace(/-/g, ' ')}
-                                </p>
-                                <p className="mt-1 text-[11px] leading-relaxed text-slate-300">{flight.summary}</p>
-                                {trail && (
-                                    <p className="mt-2 select-all wrap-break-word font-mono text-[10px] leading-relaxed text-slate-400">
-                                        {trail}
-                                    </p>
-                                )}
-                            </div>
-                        );
-                    })()}
+                    {/* Which GPS the app is reading — a boat or a phone with a
+                        fix dot, and the sentence beside it. Shane 2026-09-08:
+                        "lets move the phone or vessel gps icon into the i
+                        section, rather than sticking yet another fab on the
+                        already jam packed screen." */}
+                    <GpsSourceRow />
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
                         icon={
@@ -861,10 +827,12 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
         systemState.n2k.active && systemState.n2k.health === 'green',
     ].filter(Boolean).length;
 
-    // Don't show if nothing is active — unless this surface asked for a
-    // permanent landmark. The button reads fine at zero: the count badge only
-    // appears above one, so it is just the circle-i with no numeral.
-    if (activeCount === 0 && !alwaysShow) return null;
+    // Always present. It used to hide at zero active systems (an info button
+    // reporting nothing was clutter), but since 2026-09-08 it is where the
+    // punter finds which GPS the app is reading, and that is never nothing
+    // (Shane: "once punters know where to look, they will find it"). The count
+    // badge still appears only above one, so at zero it is the circle-i alone.
+    void alwaysShow;
 
     // Has urgent status (anchor alarm, route changed)?
     const hasUrgent =

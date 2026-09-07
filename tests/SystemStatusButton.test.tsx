@@ -103,7 +103,9 @@ describe('SystemStatusButton', () => {
 
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
 
-        expect(screen.queryByRole('button', { name: /System status:/ })).not.toBeInTheDocument();
+        // Since 2026-09-08 the button is always present: it is where the punter
+        // finds which GPS the app is reading, and that is never nothing.
+        expect(screen.getByRole('button', { name: 'System status: 0 active' })).toBeInTheDocument();
     });
 
     it('keeps the controllable following-route status', () => {

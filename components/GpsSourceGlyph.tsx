@@ -102,7 +102,8 @@ const GlyphArt: React.FC<{ glyph: GpsGlyph; tone: GpsTone }> = ({ glyph, tone })
     </svg>
 );
 
-export const GpsSourceGlyph: React.FC<{ className?: string }> = ({ className = '' }) => {
+/** Shared by the chip and the status-panel row: what the app is reading right now. */
+function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => void } | null | undefined } {
     const weather = useWeatherOptional();
     const link = useNmeaConnectionStatus();
     const state = resolveGpsSourceState({
@@ -110,7 +111,38 @@ export const GpsSourceGlyph: React.FC<{ className?: string }> = ({ className = '
         storeStatus: link.status,
         remoteVia: link.remote?.via ?? null,
     });
-    const choice = weather?.positionChoice;
+    return { state, choice: weather?.positionChoice };
+}
+
+/**
+ * The row in the ℹ System Status panel (Shane 2026-09-08: "lets move the
+ * phone or vessel gps icon into the i section, rather than sticking yet
+ * another fab on the already jam packed screen"). Glyph plus the sentence —
+ * this is the one place the words are welcome.
+ */
+export const GpsSourceRow: React.FC = () => {
+    const { state } = useGpsSourceState();
+    const detail = state.label.replace(/^Position:\s*/, '');
+    return (
+        <div
+            data-testid="gps-source-row"
+            data-glyph={state.glyph}
+            data-tone={state.tone}
+            className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/3 p-3"
+        >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                <GlyphArt glyph={state.glyph} tone={state.tone} />
+            </span>
+            <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Position</p>
+                <p className="text-sm font-semibold text-white">{detail}</p>
+            </div>
+        </div>
+    );
+};
+
+export const GpsSourceGlyph: React.FC<{ className?: string }> = ({ className = '' }) => {
+    const { state, choice } = useGpsSourceState();
     const chip = `flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 backdrop-blur-md ${className}`;
     if (state.canChoose && choice) {
         return (

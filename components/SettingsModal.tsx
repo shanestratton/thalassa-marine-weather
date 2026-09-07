@@ -14,8 +14,6 @@ import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
-import { CalypsoIntegrationsTab } from './settings/CalypsoIntegrationsTab';
-import { CalypsoKnowledgeTab } from './settings/CalypsoKnowledgeTab';
 import { PiCacheTab } from './settings/PiCacheTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
@@ -75,23 +73,13 @@ const NavButton = React.memo(
 
 // Section, Row — imported from ./settings/SettingsPrimitives
 
-type SettingsTab =
-    | 'general'
-    | 'account'
-    | 'vessel'
-    | 'alerts'
-    | 'scenery'
-    | 'locations'
-    | 'calypso'
-    | 'calypsoKnowledge'
-    | 'boatNetwork'
-    | 'voyageLog';
+type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'boatNetwork' | 'voyageLog';
 
 /**
  * Section grouping for the Settings tab list.
  *
  * Scorecard fix 2026-05-17: the previous flat list of 10 tabs put
- * Pi Cache and Calypso (which 95 % of users will never touch — they
+ * Pi Cache (which 95 % of users will never touch — they
  * exist for the on-boat hardware integration story) on the same
  * shelf as Account and Notifications (which every user touches).
  * That dilutes discoverability for the items that matter and makes
@@ -202,37 +190,6 @@ const MENU_ITEMS: {
     },
 
     // ── ADVANCED — collapsed by default ─────────────────────────
-    {
-        id: 'calypso',
-        label: 'Calypso',
-        description: 'Music & email integrations',
-        icon: (c) => (
-            <svg className={c} viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-            </svg>
-        ),
-        iconBg: 'bg-cyan-500/15 text-cyan-400 shadow-cyan-500/10',
-        iconHoverBg: 'group-hover:bg-cyan-500/25',
-        group: 'advanced',
-    },
-    {
-        id: 'calypsoKnowledge',
-        label: "Calypso's Knowledge",
-        description: 'Teach Calypso about your boat',
-        icon: (c) => (
-            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                />
-            </svg>
-        ),
-        iconBg: 'bg-cyan-500/15 text-cyan-400 shadow-cyan-500/10',
-        iconHoverBg: 'group-hover:bg-cyan-500/25',
-        group: 'advanced',
-    },
     {
         id: 'boatNetwork',
         /* Was also "Boat Network", with the same description as the Vessel-hub
@@ -742,12 +699,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'scenery' && <AestheticsTab settings={settings} onSave={onSave} />}
-
-                        {activeTab === 'calypso' && <CalypsoIntegrationsTab settings={settings} onSave={onSave} />}
-
-                        {activeTab === 'calypsoKnowledge' && (
-                            <CalypsoKnowledgeTab settings={settings} onSave={onSave} />
-                        )}
 
                         {activeTab === 'boatNetwork' && <PiCacheTab settings={settings} onSave={onSave} />}
 
