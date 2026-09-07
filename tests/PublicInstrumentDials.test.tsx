@@ -1,6 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PublicInstrumentDials, publicShipClock } from '../src/components/PublicInstrumentDials';
 import { TelemetryPanel } from '../src/components/TelemetryPanel';
 import { publicInstrumentSnapshot } from '../supabase/functions/_shared/public-instruments';
@@ -27,7 +27,14 @@ const instruments = (extra: Partial<VoyageLogInstruments> = {}): VoyageLogInstru
     )!,
     ...extra,
 });
-afterEach(cleanup);
+beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+});
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
 
 describe('public native instrument faces', () => {
     it('uses signed bow-relative apparent and true angles, not direction or COG', () => {

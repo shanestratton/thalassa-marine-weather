@@ -1,6 +1,6 @@
 import React from 'react';
 import { cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TelemetryPanel } from '../src/components/TelemetryPanel';
 import { publicInstrumentSnapshot } from '../supabase/functions/_shared/public-instruments';
 
@@ -17,7 +17,14 @@ const data = (rpm: number | null) =>
         now,
     )!;
 const engineCard = () => within(screen.getByText('Engine').parentElement!);
-afterEach(cleanup);
+beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+});
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
 
 describe('public engine status', () => {
     it('shows Engine off for reported zero without a dangling RPM unit', () => {

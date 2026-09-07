@@ -2,6 +2,8 @@ import React from 'react';
 import { MOOD, type VoyageLogEntry, type VoyageLogTelemetry, type VoyageLogInstruments } from '../voyageLogApi';
 import { InstrumentsNotShared, TelemetryPanel } from './TelemetryPanel';
 
+export type PublicVoyagePanel = 'instruments' | 'diary';
+
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
     telemetry: VoyageLogTelemetry | null;
@@ -13,6 +15,8 @@ interface DiarySidebarProps {
     showTelemetry?: boolean;
     /** Latest view only: explain withheld sharing without exposing readings. */
     showSharingNotice?: boolean;
+    /** The public panel is instruments OR diary, never both. */
+    view?: PublicVoyagePanel;
     /** The selected trip's public-facing name. */
     title?: string;
     /** A short context line below the title. */
@@ -309,6 +313,7 @@ export default function DiarySidebar({
     lastSuccessfulAt,
     showTelemetry = false,
     showSharingNotice = false,
+    view = showTelemetry || showSharingNotice ? 'instruments' : 'diary',
     title,
     context,
     emptyMessage,
@@ -320,23 +325,28 @@ export default function DiarySidebar({
     const scrollRef = React.useRef<HTMLDivElement>(null);
     React.useEffect(() => {
         if (scrollRef.current) scrollRef.current.scrollTop = 0;
-    }, [selectedEntry?.id, title]);
+    }, [selectedEntry?.id, title, view]);
     return (
-        <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col bg-slate-900 md:overflow-y-auto">
+        <div
+            id="voyage-panel-content"
+            ref={scrollRef}
+            className="flex min-h-0 flex-1 flex-col bg-slate-900 md:overflow-y-auto"
+        >
             {/* Current readings require explicit consent in latest mode.
                 They can be live at the berth without an active voyage; a
                 deliberately selected historical trip never receives them. */}
-            {showTelemetry ? (
-                <TelemetryPanel
-                    instruments={instruments ?? null}
-                    nowMs={nowMs}
-                    connectionLost={connectionLost}
-                    lastSuccessfulAt={lastSuccessfulAt}
-                />
-            ) : showSharingNotice ? (
-                <InstrumentsNotShared />
-            ) : null}
-            {selectedEntry ? (
+            {view === 'instruments' ? (
+                showTelemetry ? (
+                    <TelemetryPanel
+                        instruments={instruments ?? null}
+                        nowMs={nowMs}
+                        connectionLost={connectionLost}
+                        lastSuccessfulAt={lastSuccessfulAt}
+                    />
+                ) : showSharingNotice ? (
+                    <InstrumentsNotShared />
+                ) : null
+            ) : selectedEntry ? (
                 <EntryDetail entry={selectedEntry} onBack={onClearSelection} onPhotoClick={onPhotoClick} />
             ) : (
                 <EntryList
