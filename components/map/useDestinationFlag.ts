@@ -35,13 +35,20 @@ function compass(bearing: number): string {
     return dirs[Math.round(bearing / 45) % 8];
 }
 
-function buildFlagElement(): HTMLDivElement {
+function buildFlagElement(destination: string): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'destination-flag-marker';
+    // Tappable (2026-09-09): a flag for a route you do not remember plugging in
+    // needs a way to ask what it is and to stop it — the chart is where you
+    // see it, so the chart is where you stop it.
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', `Following ${destination} — tap to stop following`);
     el.style.cssText = `
         position: relative;
         width: 36px; height: 44px;
-        pointer-events: none;
+        pointer-events: auto;
+        cursor: pointer;
         transform: translateY(-22px); /* anchor the flag pole base at lat/lon */
     `;
 
@@ -116,8 +123,15 @@ function buildChipElement(label: string): HTMLDivElement {
     return el;
 }
 
-export function useDestinationFlag(mapRef: React.MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
+export function useDestinationFlag(
+    mapRef: React.MutableRefObject<mapboxgl.Map | null>,
+    mapReady: boolean,
+    opts: { onTap?: () => void } = {},
+) {
     const markerRef = useRef<mapboxgl.Marker | null>(null);
+    // A ref, so a new callback identity never re-mounts the marker.
+    const onTapRef = useRef(opts.onTap);
+    onTapRef.current = opts.onTap;
     const labelChipRef = useRef<HTMLDivElement | null>(null);
 
     // Re-render when follow-route state changes — using selector so we
@@ -147,10 +161,23 @@ export function useDestinationFlag(mapRef: React.MutableRefObject<mapboxgl.Map |
 
         // Mount the flag marker.
         cleanup();
-        const flagEl = buildFlagElement();
+        const flagEl = buildFlagElement(voyagePlan.destination || 'Destination');
         const chipEl = buildChipElement(voyagePlan.destination || 'Destination');
+        // The chip is part of the tap target too — it is the readable part.
+        chipEl.style.pointerEvents = 'auto';
         flagEl.appendChild(chipEl);
         labelChipRef.current = chipEl;
+        const tap = (event: Event) => {
+            event.stopPropagation();
+            onTapRef.current?.();
+        };
+        flagEl.addEventListener('click', tap);
+        flagEl.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onTapRef.current?.();
+            }
+        });
 
         const marker = new mapboxgl.Marker({ element: flagEl, anchor: 'bottom' })
             .setLngLat([dest.lon, dest.lat])

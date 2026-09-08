@@ -185,6 +185,30 @@ function saveToStorage(state: FollowRouteState, scope: AuthIdentityScope = getAu
  *  bumps), so age off startedAt with a generous ceiling is safe. */
 const FOLLOW_RESUME_MAX_AGE_MS = 7 * 24 * 3600_000;
 
+/**
+ * A followed route with NO recording behind it is a leftover, not a passage.
+ * A "Sail it" from Route Tracer, or a follow picked on the Log page without
+ * ever starting the track, kept its green flag and line on the chart for up
+ * to a week (Shane 2026-09-09: a flag at Lady Musgrave "even though i do not
+ * have that particular route plugged in"). Under way the follow IS the
+ * passage and is never aged out here — that is the 7-day ceiling above.
+ */
+export const FOLLOW_IDLE_MAX_AGE_MS = 24 * 3600_000;
+
+/** True when a follow should be dropped at boot: following, not recording, and a day old. */
+export function isStaleLocalFollow(
+    state: Pick<FollowRouteState, 'isFollowing' | 'startedAt' | 'lastRefresh'>,
+    isTracking: boolean,
+    now = Date.now(),
+): boolean {
+    if (!state.isFollowing || isTracking) return false;
+    const stamps = [state.startedAt, state.lastRefresh]
+        .map((iso) => (iso ? new Date(iso).getTime() : Number.NaN))
+        .filter((ms) => Number.isFinite(ms));
+    if (stamps.length === 0) return true; // no honest age at all — a follow from nowhere
+    return now - Math.max(...stamps) > FOLLOW_IDLE_MAX_AGE_MS;
+}
+
 function loadFromStorage(scope: AuthIdentityScope = getAuthIdentityScope()): FollowRouteState | null {
     try {
         // The legacy unscoped value has no durable owner marker. Do not

@@ -105,7 +105,7 @@ import {
 // Both are safe as static imports — neither module imports this service, so
 // no cycle. (publishFollowedRoute DOES, which is why the public link is
 // cleared through VoyageLogService directly rather than through it.)
-import { useFollowRouteStore } from '../stores/followRouteStore';
+import { isStaleLocalFollow, useFollowRouteStore } from '../stores/followRouteStore';
 
 const log = createLogger('ShipLog');
 
@@ -890,6 +890,18 @@ class ShipLogServiceClass {
             // intents are single tiny writes and last-intent-wins, safe even
             // mid-voyage.
             void flushPlanLinkIntents().catch((e) => log.warn('plan-link intent flush failed (will retry):', e));
+
+            // A followed route with no recording behind it is a leftover, not
+            // a passage (Shane 2026-09-09: a green flag at Lady Musgrave for a
+            // route he had not plugged in — a day-old follow, no track). Under
+            // way, the follow is the passage and stays.
+            {
+                const follow = useFollowRouteStore.getState();
+                if (isStaleLocalFollow(follow, this.trackingState.isTracking)) {
+                    log.warn('[ShipLog] dropping a day-old followed route with no recording behind it');
+                    follow.stopFollowing();
+                }
+            }
 
             this.registerLifecycleHandlers();
             if (isAuthIdentityScopeCurrent(scope)) this.initializedGeneration = scope.generation;
