@@ -118,10 +118,20 @@ describe('the Vessel hero card at anchor', () => {
         //
         // The padding must be on the SCROLL CONTAINER. On a wrapper around it,
         // it only shrinks the port and moves the problem down a level.
-        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 stagger-in');
+        //
+        // 2026-09-09: the tab-bar reservation belongs to the ROOT (which ends
+        // 8px above the tab bar). Repeating it on the port gave a short page
+        // ~100px of dead scroll that parked the Diary/Scuttlebutt tiles under
+        // the fixed deck (Shane: "get stuck under the 4 cards"). The port keeps
+        // a small pb-4 so the last row never sits flush on its edge.
+        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in');
         expect(at, 'the vessel scroll area must be findable').toBeGreaterThan(-1);
-        const el = hub.slice(at, at + 400);
-        expect(el).toContain("paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)'");
+        const el = hub.slice(at, at + 900);
+        expect(el).not.toContain('4rem + env(safe-area-inset-bottom)');
+        const root = hub.indexOf('className="vessel-hub-surface w-full h-full flex flex-col');
+        expect(hub.slice(root, root + 600)).toContain(
+            "paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)'",
+        );
     });
 
     it('never truncates a safety status — least of all OVERBOARD', () => {
