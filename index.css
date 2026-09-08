@@ -4047,6 +4047,9 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-amber-200\/80 {
     color: rgb(180 83 9 / 0.9);
 }
+.display-light .text-amber-200\/85 {
+    color: rgb(180 83 9 / 0.9);
+}
 .display-light .text-amber-200\/90 {
     color: rgb(180 83 9 / 0.9);
 }
@@ -4292,6 +4295,12 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 .display-light .text-violet-200 {
     color: rgb(109 40 217);
+}
+.display-light .text-violet-200\/60 {
+    color: rgb(109 40 217 / 0.9);
+}
+.display-light .text-violet-200\/70 {
+    color: rgb(109 40 217 / 0.9);
 }
 .display-light .text-violet-200\/80 {
     color: rgb(109 40 217 / 0.9);
