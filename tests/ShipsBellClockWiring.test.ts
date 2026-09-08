@@ -21,6 +21,31 @@ describe("the ship's bell clock in the instrument panel", () => {
         expect((rail as RegExpMatchArray)[1]).toContain("'Clock'");
     });
 
+    it('has no Bells page any more — its switches live in Preferences and the panel follows them', () => {
+        // Shane 2026-09-09: "get rid of the bells page". The clock stays and
+        // still strikes; the on/off, Test and zone controls moved to Settings →
+        // Preferences (the home for toggles). The panel must follow a change
+        // made there while it is open, or the skipper flips a switch and hears
+        // nothing until a relaunch.
+        expect(page).not.toMatch(/── SECTION: BELLS ──/);
+        expect(page).not.toMatch(/ShipsBellReference/);
+        expect(page).toMatch(/window\.addEventListener\(SHIP_CLOCK_PREFS_EVENT, onPrefs\)/);
+        expect(page).toMatch(/setBellsOn\(prefs\.bellsOn\)/);
+        expect(page).toMatch(/setClockZone\(prefs\.zone\)/);
+        const general = readFileSync('components/settings/GeneralTab.tsx', 'utf8');
+        expect(general).toMatch(/<ShipClockSection \/>/);
+        const section = readFileSync('components/settings/ShipClockSection.tsx', 'utf8');
+        // Same keys the panel reads, so the two never disagree.
+        const prefs = readFileSync('services/shipClockPrefs.ts', 'utf8');
+        expect(prefs).toMatch(/CLOCK_ZONE_KEY = 'thalassa_clock_zone'/);
+        expect(prefs).toMatch(/CLOCK_BELLS_KEY = 'thalassa_clock_bells'/);
+        // Test strikes what the FACE shows (zone-aware), and unlocks audio on
+        // the tap — the two rules the Bells page used to carry.
+        expect(section).toMatch(/await ShipsBellChime\.unlock\(\)/);
+        expect(section).toMatch(/clockInZone\(new Date\(\), effectiveZone\)/);
+        expect(section).toMatch(/prefs\.zone === SHIP_ZONE_AUTO \? \(shipZone \?\? deviceTimeZone\(\)\) : prefs\.zone/);
+    });
+
     it('reads the phone and shows which zone it is keeping', () => {
         // A clock showing a time without saying WHICH time is the one thing a
         // clock must never do.
@@ -71,12 +96,11 @@ describe("the ship's bell clock in the instrument panel", () => {
         expect(service).toMatch(/if \(!Number\.isFinite\(when\) \|\| when <= Date\.now\(\)\)/);
     });
 
-    it('the zone select and the alarm controls meet the touch floor', () => {
-        // Scoped to BELLS, where the controls live since the clock was split
-        // onto its own page (2026-09-04). The old slice ran from CLOCK to SAIL
-        // PLAN, which after the split swallowed Wind, Barometer, Position and
-        // every other section between them.
-        const section = page.slice(page.indexOf('── SECTION: BELLS ──'), page.indexOf('── SECTION: WIND ──'));
+    it('the zone select and the bell controls meet the touch floor', () => {
+        // The controls lived on the panel's BELLS page from 2026-09-04 until
+        // Shane dropped that page (2026-09-09: "get rid of the bells page");
+        // they are now Settings → Preferences → Ship's clock. Same floor.
+        const section = readFileSync('components/settings/ShipClockSection.tsx', 'utf8');
         expect(section.length).toBeGreaterThan(0);
         // Every interactive control in the section carries the 44px floor.
         // Matched by WINDOW rather than by tag: a non-greedy tag pattern stops

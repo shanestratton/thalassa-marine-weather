@@ -14,6 +14,12 @@
  * bar used, so the meaning does not change with the shape. The needle takes
  * the side's colour: at a hard-over reading, the whole instrument says which
  * way without a word being read.
+ *
+ * THE DIAL HANGS FROM THE BOTTOM (Shane 2026-09-09: "flip it. so the data etc
+ * is at the bottom of the gauge instead of the top, because the rudder is at
+ * the back of the vessel"). Amidships is straight DOWN — astern — and the
+ * blade swings either side of it, port still to the left and starboard to the
+ * right as seen from the helm. The readout moved to the top half to make room.
  */
 import React, { useMemo } from 'react';
 import { polarToCart, describeArc } from './gaugeGeometry';
@@ -31,8 +37,10 @@ const CX = 150;
 const CY = 150;
 const RADIUS = 122;
 /** The dial spans 140 — enough to be read as an angle, tight enough that
- *  every degree of it is legible. Amidships is at 0 (straight up). */
+ *  every degree of it is legible. Amidships is at 180 (straight down, astern). */
 const HALF_SWEEP = 70;
+/** Dial degrees of amidships — the stern. */
+const ASTERN = 180;
 
 const PORT = '#fb7185';
 const STBD = '#34d399';
@@ -42,8 +50,10 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
     const dead = angle === null || !Number.isFinite(angle) || freshness === 'dead';
     const opacity = dead ? 0.3 : freshness === 'stale' ? 0.65 : 1;
     const value = dead ? 0 : (angle as number);
-    /** Rudder degrees → dial degrees. */
-    const dialFor = (deg: number): number => (deg / maxAngle) * HALF_SWEEP;
+    /** Rudder degrees → dial degrees. Port (negative) swings to the LEFT of
+     *  astern, which on a clockwise dial is a LARGER angle; starboard to the
+     *  right, a smaller one. */
+    const dialFor = (deg: number): number => ASTERN - (deg / maxAngle) * HALF_SWEEP;
     const needleAngle = dialFor(Math.max(-maxAngle, Math.min(maxAngle, value)));
 
     // A dead band either side of centre: a rudder is never perfectly still,
@@ -68,7 +78,7 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
         <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
             <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Rudder angle">
                 <defs>
-                    <radialGradient id="rudder-face" cx="50%" cy="42%" r="72%">
+                    <radialGradient id="rudder-face" cx="50%" cy="58%" r="72%">
                         <stop offset="0%" stopColor="#1e293b" />
                         <stop offset="70%" stopColor="#0f172a" />
                         <stop offset="100%" stopColor="#020617" />
@@ -88,16 +98,16 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
                 />
                 <circle cx={CX} cy={CY} r={RADIUS + 8} fill="url(#rudder-face)" stroke="rgba(255,255,255,0.06)" />
 
-                {/* Port and starboard halves */}
+                {/* Port and starboard halves — port hangs to the left of astern, starboard to the right */}
                 <path
-                    d={describeArc(CX, CY, RADIUS - 6, -HALF_SWEEP, 0)}
+                    d={describeArc(CX, CY, RADIUS - 6, ASTERN, ASTERN + HALF_SWEEP)}
                     stroke={PORT}
                     strokeWidth="7"
                     strokeOpacity={dead ? 0.15 : 0.5}
                     fill="none"
                 />
                 <path
-                    d={describeArc(CX, CY, RADIUS - 6, 0, HALF_SWEEP)}
+                    d={describeArc(CX, CY, RADIUS - 6, ASTERN - HALF_SWEEP, ASTERN)}
                     stroke={STBD}
                     strokeWidth="7"
                     strokeOpacity={dead ? 0.15 : 0.5}
@@ -132,10 +142,10 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
                 {/* AMIDSHIPS. The one reading a helmsman looks for, so it gets a
                     full-length white mark rather than another tick. */}
                 <line
-                    x1={polarToCart(CX, CY, RADIUS - 10, 0).x}
-                    y1={polarToCart(CX, CY, RADIUS - 10, 0).y}
-                    x2={polarToCart(CX, CY, RADIUS - 38, 0).x}
-                    y2={polarToCart(CX, CY, RADIUS - 38, 0).y}
+                    x1={polarToCart(CX, CY, RADIUS - 10, ASTERN).x}
+                    y1={polarToCart(CX, CY, RADIUS - 10, ASTERN).y}
+                    x2={polarToCart(CX, CY, RADIUS - 38, ASTERN).x}
+                    y2={polarToCart(CX, CY, RADIUS - 38, ASTERN).y}
                     stroke="#f8fafc"
                     strokeWidth="2.4"
                     strokeOpacity={dead ? 0.3 : 0.95}
@@ -177,10 +187,10 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
                     <circle cx={CX} cy={CY} r="2.6" fill={needleColor} />
                 </g>
 
-                {/* Reading, below the pivot and inside the numerals */}
+                {/* Reading, ABOVE the pivot now the dial hangs astern — side word first, then the angle */}
                 <text
                     x={CX}
-                    y={CY + 46}
+                    y={CY - 36}
                     textAnchor="middle"
                     fill="#f8fafc"
                     fontSize="30"
@@ -192,7 +202,7 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
                 </text>
                 <text
                     x={CX}
-                    y={CY + 64}
+                    y={CY - 74}
                     textAnchor="middle"
                     fill={dead ? '#64748b' : needleColor}
                     fontSize="10"

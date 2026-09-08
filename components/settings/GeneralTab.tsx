@@ -6,6 +6,7 @@ import React from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
 import { AestheticsSections } from './AestheticsTab';
+import { ShipClockSection } from './ShipClockSection';
 import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
 import type { LengthUnit, OffshoreModel } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
@@ -49,6 +50,10 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </Row>
             </Section>
+
+            {/* Ship's bells, test, clock zone — out of the Instrument Panel's
+                Bells page (Shane 2026-09-09). */}
+            <ShipClockSection />
 
             <Section title="Units">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">

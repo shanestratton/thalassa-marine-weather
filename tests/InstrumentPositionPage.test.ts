@@ -26,14 +26,15 @@ function railNames(): string[] {
     // TWO sections are conditional, and the rail must model both or its dots
     // point at the wrong instrument:
     //   - 'Watch' exists only for a crew member who has one on the passage
-    //     planner's watch bill, and is spliced in after Bells;
+    //     planner's watch bill, and is spliced in after the Clock (the Bells
+    //     page went on 2026-09-09; its switches live in Preferences);
     //   - 'Sail Plan' is Serene Summer's alone, appended last.
     // This builds the MAXIMAL rail — every section present — which is the
     // order the source file's markers are in.
     expect(source, 'the Watch splice moved').toMatch(
-        /hasMyWatch \? \['Clock', 'Bells', 'Watch', \.\.\.base\.slice\(2\)\] : base/,
+        /hasMyWatch \? \['Clock', 'Watch', \.\.\.base\.slice\(1\)\] : base/,
     );
-    return ['Clock', 'Bells', 'Watch', ...base.slice(2), 'Sail Plan'];
+    return ['Clock', 'Watch', ...base.slice(1), 'Sail Plan'];
 }
 
 describe('the dot rail matches the sections it jumps to', () => {
@@ -61,12 +62,12 @@ describe('the dot rail matches the sections it jumps to', () => {
         // Barometer stays immediately behind Wind where he put it.
         const sections = renderedSections();
         expect(sections[0]).toBe('CLOCK');
-        expect(sections[1]).toBe('BELLS');
+        expect(sections).not.toContain('BELLS'); // the Bells page went on 2026-09-09
         const wind = sections.indexOf('WIND');
         expect(sections[wind + 1]).toBe('BAROMETER');
-        // Six now, not five: the crew member's own Watch page sits after
-        // Bells when they have one, which pushes the trio down by one.
-        expect(sections.slice(0, 6)).toContain('POSITION');
+        // Clock, [Watch], Wind, Barometer, Position: the trio sits within the
+        // first five pages even for a crew member with a Watch page.
+        expect(sections.slice(0, 5)).toContain('POSITION');
     });
 });
 
