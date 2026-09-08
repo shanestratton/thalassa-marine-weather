@@ -1958,7 +1958,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             {crewRosterRows.map((person, index) => (
                                 <div
                                     key={index}
-                                    className="grid grid-cols-[minmax(0,1fr)_3.75rem_7rem] gap-2 items-center"
+                                    // Stacked, not three across (Shane 2026-09-09: "just stack
+                                    // them claude. never enough space"): the name gets the whole
+                                    // line, age and rank share the one below.
+                                    className="rounded-xl border border-white/6 bg-white/2 p-2 space-y-2"
+                                    data-testid={`vessel-crew-person-${index + 1}`}
                                 >
                                     <input
                                         type="text"
@@ -1966,40 +1970,42 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={person.name}
                                         onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
                                         placeholder={index === 0 ? 'Skipper’s name' : `Person ${index + 1}`}
-                                        className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                        className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
                                     />
-                                    <input
-                                        type="number"
-                                        inputMode="numeric"
-                                        min="0"
-                                        max="120"
-                                        aria-label={`Person ${index + 1} age`}
-                                        value={
-                                            typeof person.age === 'number' && Number.isFinite(person.age)
-                                                ? person.age
-                                                : ''
-                                        }
-                                        onChange={(e) => {
-                                            const n = parseInt(e.target.value, 10);
-                                            updateVesselRoster(index, {
-                                                age: Number.isFinite(n) && n > 0 ? n : undefined,
-                                            });
-                                        }}
-                                        placeholder="Age"
-                                        className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 tabular-nums"
-                                    />
-                                    <select
-                                        aria-label={`Person ${index + 1} rank`}
-                                        value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
-                                        onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
-                                        className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
-                                    >
-                                        {FLOAT_PLAN_ROLES.map((role) => (
-                                            <option key={role} value={role}>
-                                                {role}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+                                        <input
+                                            type="number"
+                                            inputMode="numeric"
+                                            min="0"
+                                            max="120"
+                                            aria-label={`Person ${index + 1} age`}
+                                            value={
+                                                typeof person.age === 'number' && Number.isFinite(person.age)
+                                                    ? person.age
+                                                    : ''
+                                            }
+                                            onChange={(e) => {
+                                                const n = parseInt(e.target.value, 10);
+                                                updateVesselRoster(index, {
+                                                    age: Number.isFinite(n) && n > 0 ? n : undefined,
+                                                });
+                                            }}
+                                            placeholder="Age"
+                                            className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 tabular-nums"
+                                        />
+                                        <select
+                                            aria-label={`Person ${index + 1} rank`}
+                                            value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
+                                            onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
+                                            className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                        >
+                                            {FLOAT_PLAN_ROLES.map((role) => (
+                                                <option key={role} value={role}>
+                                                    {role}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
                             ))}
                             <p className="text-[11px] text-gray-400">These names carry across to the Float Plan.</p>
