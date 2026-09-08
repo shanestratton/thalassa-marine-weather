@@ -29,6 +29,15 @@ export interface ActiveVoyageChartSync {
 export function useActiveVoyageChartSync(
     setActiveChartRoute: Dispatch<SetStateAction<RouteOrTrack | null>>,
     setActiveChartTrack: Dispatch<SetStateAction<RouteOrTrack | null>>,
+    /**
+     * The chart's "Passage" overlay switch (stores/chartPassageOverlay). OFF by
+     * default since 2026-09-09: the auto-selection below used to run whenever
+     * a voyage was active and re-applied the route and track on every routes
+     * change and every 60 s trail refresh — so a punter who cleared them in
+     * the picker watched them come back. Now nothing below runs unless the
+     * punter turned the overlay on from the layer FAB.
+     */
+    overlayEnabled = true,
 ): ActiveVoyageChartSync {
     /** Active Voyage Mode flag — mirrored from the voyages cache. When
      *  true, the chart auto-displays the boat's GPS position, the live
@@ -67,7 +76,7 @@ export function useActiveVoyageChartSync(
      *  voyage.id (ShipLogService.startTracking seeds entries.voyageId
      *  with the voyages-table UUID at Cast Off time). */
     useEffect(() => {
-        if (!activeVoyageMode || !activeVoyageId) return;
+        if (!overlayEnabled || !activeVoyageMode || !activeVoyageId) return;
         let cancelled = false;
         // FULL fetch — matches the planned route by name (routes need the
         // whole list) AND seeds the sailed track. Runs on mount and when a
@@ -125,7 +134,7 @@ export function useActiveVoyageChartSync(
             window.removeEventListener('thalassa:routes-and-tracks-changed', onRefresh);
             clearInterval(t);
         };
-    }, [activeVoyageMode, activeVoyageId, activeVoyageName, setActiveChartRoute, setActiveChartTrack]);
+    }, [overlayEnabled, activeVoyageMode, activeVoyageId, activeVoyageName, setActiveChartRoute, setActiveChartTrack]);
 
     return { activeVoyageMode, activeVoyageId, activeVoyageName };
 }

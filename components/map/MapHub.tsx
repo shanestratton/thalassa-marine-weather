@@ -199,6 +199,7 @@ import {
 } from './mapHubHelpers';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
+import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useMobMarker } from './useMobMarker';
 import { useAnchorSwingLayer } from './useAnchorSwingLayer';
@@ -2391,7 +2392,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // auto-selection of that voyage's planned route and sailed track, in
     // components/map/mapHub/useActiveVoyageChartSync.ts. Called exactly where
     // the state used to be declared so hook order at this position is unchanged.
-    const { activeVoyageMode } = useActiveVoyageChartSync(setActiveChartRoute, setActiveChartTrack);
+    // The "Passage" overlay switch — OFF by default (Shane 2026-09-09: the
+    // punter adds the current route from the layer FAB when he wants it).
+    const passageOverlay = usePassageOverlay();
+    const { activeVoyageMode } = useActiveVoyageChartSync(setActiveChartRoute, setActiveChartTrack, passageOverlay);
 
     /** Vessel position + trail are FORCED visible during Active Voyage
      *  Mode, regardless of the user's persisted toggle. The user can
@@ -2566,7 +2570,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // plugged in, and no way on the chart to ask what it was or drop it).
     const [stopFollowAsk, setStopFollowAsk] = useState(false);
     const followedPlan = useFollowRouteStore((s) => s.voyagePlan);
-    useDestinationFlag(mapRef, mapReady && !planningSurface, { onTap: () => setStopFollowAsk(true) });
+    // The followed route's flag is part of the same overlay: off until asked for.
+    useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) });
     // Active MOB fix — plain mapReady, NOT gated on planningSurface: an
     // active MOB must never vanish because the planner happens to be open.
     useMobMarker(mapRef, mapReady);
@@ -3489,6 +3494,29 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 // the ships log. Tap opens a sheet listing them;
                                 // selection draws the route as a violet dashed line
                                 // and fits the map to its bounds.
+                                // Passage — the voyage under way (its planned route,
+                                // sailed track and the followed route's flag). OFF by
+                                // default; the punter turns it on here when he wants
+                                // it (Shane 2026-09-09). Turning it off clears what it
+                                // drew and stops the auto-select, so it stays off.
+                                ...(activeVoyageMode || followedPlan
+                                    ? [
+                                          {
+                                              id: 'passage',
+                                              label: 'Passage',
+                                              iconKind: 'generic' as const,
+                                              enabled: passageOverlay,
+                                              onToggle: () => {
+                                                  const next = !passageOverlay;
+                                                  setPassageOverlay(next);
+                                                  if (!next) {
+                                                      setActiveChartRoute(null);
+                                                      setActiveChartTrack(null);
+                                                  }
+                                              },
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     id: 'routes',
                                     label: 'Routes',
@@ -4619,7 +4647,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                             visible
                             variant="route"
                             selectedId={activeChartRoute?.id ?? null}
-                            onSelect={(item) => setActiveChartRoute(item)}
+                            onSelect={(item) => {
+                                setActiveChartRoute(item);
+                                // "Clear selection" must stick: the passage overlay
+                                // would re-apply the active voyage's route, so a clear
+                                // turns it off (2026-09-09).
+                                if (item === null) setPassageOverlay(false);
+                            }}
                             onClose={() => setRoutePickerOpen(false)}
                         />
                     </Suspense>
@@ -4633,7 +4667,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                             visible
                             variant="track"
                             selectedId={activeChartTrack?.id ?? null}
-                            onSelect={(item) => setActiveChartTrack(item)}
+                            onSelect={(item) => {
+                                setActiveChartTrack(item);
+                                if (item === null) setPassageOverlay(false);
+                            }}
                             onClose={() => setTrackPickerOpen(false)}
                         />
                     </Suspense>
