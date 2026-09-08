@@ -20,13 +20,14 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useCrewInstrumentShare } from '../../hooks/useCrewInstrumentShare';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
-import { ShipsBellReference } from './gauges/ShipsBellReference';
 import { ShipsBellChime } from '../../services/ShipsBellChime';
 import { myWatches, type MyWatch } from '../../services/myWatches';
 import { MyWatchCard, type WatchLeadOption } from './gauges/MyWatchCard';
 import { ShipsBellAlarmService, type BellAlarm } from '../../services/ShipsBellAlarmService';
-import { clockInZone, deviceTimeZone, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
-import { bellsAt, bellsSpoken, nextBellFrom, watchAt } from '../../utils/shipsBells';
+import { clockInZone, deviceTimeZone } from '../../utils/timeZones';
+import { SHIP_CLOCK_PREFS_EVENT, readShipClockPrefs } from '../../services/shipClockPrefs';
+import { formatSeaTemp, formatSeaTempDelta, seaTempTrend } from './seaTemp';
+import { bellsAt, nextBellFrom, watchAt } from '../../utils/shipsBells';
 import { HeadingGauge } from './gauges/HeadingGauge';
 import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
@@ -705,6 +706,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const latitude = resolveMetric(state.latitude);
     const longitude = resolveMetric(state.longitude);
     const rudder = resolveMetric(state.rudder);
+    const waterTemp = resolveMetric(state.waterTemp);
     // The 30-60s helm window the serene advice demands — null while it fills.
     const helmWindow = NmeaStore.helmWindow();
 
@@ -815,10 +817,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
            the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
            here does not just lose a dot, it shifts every dot after it onto the
            wrong instrument. */
-        const base = ['Clock', 'Bells', 'Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm'];
+        const base = ['Clock', 'Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Sea temp', 'Heading', 'Helm'];
         // 'Watch' exists only for a crew member who has one. The rail and the
         // sections must agree, or the dots point at pages that are not there.
-        const withWatch = hasMyWatch ? ['Clock', 'Bells', 'Watch', ...base.slice(2)] : base;
+        const withWatch = hasMyWatch ? ['Clock', 'Watch', ...base.slice(1)] : base;
         return isSereneSummer ? [...withWatch, 'Sail Plan'] : withWatch;
     }, [isSereneSummer, hasMyWatch]);
     const onPanelScroll = useCallback(() => {
@@ -845,6 +847,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // Real-data sparkline histories.
     const sogReal = useMetricHistory(state.sog);
     const depthReal = useMetricHistory(state.depth);
+    const waterTempReal = useMetricHistory(state.waterTemp);
+    const tempUnit = useSettingsStore((store) => (store.settings.units?.temp === 'F' ? 'F' : 'C'));
+    const seaTrend = useMemo(() => seaTempTrend(waterTempReal.history, tempUnit), [waterTempReal.history, tempUnit]);
 
     // Chart configs — empty history when nothing's arrived yet, so
     // Sparkline renders its grey placeholder. No fabricated waveforms.
@@ -911,7 +916,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
             /* a clock that cannot remember its zone still keeps time */
         }
     }, [clockZone]);
-    const zoneOptions = useMemo(() => listTimeZones(), []);
     const shipZone = useWeatherOptional()?.weatherData?.timeZone ?? null;
     const effectiveZone = clockZone === SHIP_ZONE_AUTO ? (shipZone ?? deviceTimeZone()) : clockZone;
     const zoneClock = clockInZone(clockNow, effectiveZone);
@@ -935,20 +939,17 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
             /* private mode — the toggle still works for this session */
         }
     }, [bellsOn]);
-
-    // It strikes what the FACE shows, not what the device clock says. The two
-    // agree on the half hour in almost every zone, but not in the 30- and
-    // 45-minute-offset ones (India, Nepal, Chatham) — and a bell clock that
-    // rings at a time its own hands do not show is simply wrong.
-    // Lifted out of the JSX: inline, its body pushed the button's own touch
-    // target out of readable reach in the markup (and out of the window the
-    // touch-floor test reads).
-    const handleTestBell = useCallback(async () => {
-        await ShipsBellChime.unlock();
-        if (!ShipsBellChime.strike(bellsAt(zoneClock.hour, zoneClock.minute))) {
-            toast.error('The bell stayed quiet — an alarm is sounding, or this device has no audio.');
-        }
-    }, [zoneClock.hour, zoneClock.minute]);
+    // The switches live in Settings → Preferences → Ship's clock since the
+    // Bells page went (Shane 2026-09-09). Follow them while the panel is open.
+    useEffect(() => {
+        const onPrefs = () => {
+            const prefs = readShipClockPrefs();
+            setClockZone(prefs.zone);
+            setBellsOn(prefs.bellsOn);
+        };
+        window.addEventListener(SHIP_CLOCK_PREFS_EVENT, onPrefs);
+        return () => window.removeEventListener(SHIP_CLOCK_PREFS_EVENT, onPrefs);
+    }, []);
 
     const lastStruckRef = useRef<string | null>(null);
     useEffect(() => {
@@ -1325,79 +1326,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     second={zoneClock.second}
                                     zoneLabel={zoneClock.label}
                                 />
-                            </div>
-                        </section>
-
-                        {/* ── SECTION: BELLS ──
-                            One scroll down from the face: what the bells mean,
-                            which zone the clock keeps, and the watch alarms.
-                            These were crammed under the clock on a single page,
-                            which is what forced the face to be small. */}
-                        <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
-                        >
-                            <SectionPlate title="Bells" />
-                            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pb-2">
-                                {/* The printed watch table, live. Placed right
-                                    under the face so "what was that bell?" is
-                                    answered without leaving the clock. */}
-                                <ShipsBellReference hour={zoneClock.hour} minute={zoneClock.minute} />
-
-                                {/* ── Strike ──
-                                    The toggle and a Test beside it. Test does
-                                    not depend on the toggle: hearing the bell
-                                    is how a skipper decides whether to leave it
-                                    on, so making them try it by waiting for the
-                                    half hour would be backwards. It also does
-                                    the iOS unlock — a Web Audio context starts
-                                    suspended and only a real tap may resume it,
-                                    so the first strike has to be one. */}
-                                <div className="flex items-center gap-2 px-1">
-                                    <button
-                                        onClick={() => {
-                                            void ShipsBellChime.unlock();
-                                            setBellsOn((on) => !on);
-                                        }}
-                                        aria-pressed={bellsOn}
-                                        className={`min-h-[44px] flex-1 rounded-xl border px-3 text-sm font-black tracking-wide transition-all active:scale-[0.98] ${
-                                            bellsOn
-                                                ? 'border-amber-400/40 bg-amber-400/15 text-amber-200'
-                                                : 'border-white/10 bg-white/5 text-gray-400'
-                                        }`}
-                                    >
-                                        {bellsOn ? 'Bells on' : 'Bells off'}
-                                    </button>
-                                    <button
-                                        onClick={() => void handleTestBell()}
-                                        aria-label={`Test the bell — ${bellsSpoken(bellsAt(zoneClock.hour, zoneClock.minute))}`}
-                                        className="min-h-[44px] shrink-0 rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-black tracking-wide text-white transition-all active:scale-[0.98]"
-                                    >
-                                        Test
-                                    </button>
-                                </div>
-
-                                <label className="flex items-center gap-2 px-1">
-                                    <span className="text-xs font-black uppercase tracking-widest text-gray-400 shrink-0">
-                                        Zone
-                                    </span>
-                                    <select
-                                        value={clockZone}
-                                        onChange={(e) => setClockZone(e.target.value)}
-                                        aria-label="Clock time zone"
-                                        className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white"
-                                    >
-                                        <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
-                                            {shipZone
-                                                ? `Ship’s position · ${zoneDisplayName(shipZone)}`
-                                                : `Ship’s position · ${zoneDisplayName(deviceTimeZone())} (phone until she reports)`}
-                                        </option>
-                                        {zoneOptions.map((z) => (
-                                            <option key={z} value={z} className="bg-slate-900">
-                                                {zoneDisplayName(z)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
                             </div>
                         </section>
 
@@ -1968,6 +1896,114 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         showAxes
                                         axisUnit="m"
                                         label="depth"
+                                    />
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
+                                        15 min chart
+                                    </p>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: SEA TEMP ──
+                            Water temperature from the hull sensor ($--MTW on the
+                            bus, or the Pi's environment.water.temperature). Shane
+                            2026-09-09: "add a sea water temp page, with all of the
+                            beautiful trimmings as the other pages have." Same shape
+                            as Depth: the number, what it is doing, the 15-min chart —
+                            and an honest card when the bus carries no such sentence. */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                        >
+                            <SectionPlate title="Sea temp" />
+                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                <div className="text-center">
+                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
+                                        {formatSeaTemp(waterTemp.value, tempUnit)}
+                                        <span className="text-2xl text-gray-500"> °{tempUnit}</span>
+                                    </p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
+                                        {waterTemp.value === null
+                                            ? 'No water temperature on the bus'
+                                            : waterTemp.freshness === 'stale'
+                                              ? 'Hull sensor · last reading is getting old'
+                                              : 'Hull sensor · live'}
+                                    </p>
+                                    {seaTrend && (
+                                        <div
+                                            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${
+                                                seaTrend.direction === 'warming'
+                                                    ? 'border-orange-400/30 bg-orange-500/10 text-orange-200'
+                                                    : seaTrend.direction === 'cooling'
+                                                      ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200'
+                                                      : 'border-white/12 bg-white/5 text-gray-200'
+                                            }`}
+                                        >
+                                            <span aria-hidden="true" className="text-sm leading-none">
+                                                {seaTrend.direction === 'warming'
+                                                    ? '▲'
+                                                    : seaTrend.direction === 'cooling'
+                                                      ? '▼'
+                                                      : '▬'}
+                                            </span>
+                                            <span className="text-xs font-black uppercase tracking-wider">
+                                                {seaTrend.label}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
+                                    {waterTemp.value === null
+                                        ? 'This needs a water-temperature sentence ($--MTW) from the gateway, or the Pi reading it from Signal K. Nothing here is invented.'
+                                        : (seaTrend?.read ??
+                                          'Building a record — give it a few minutes before it can say what the water is doing.')}
+                                </p>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Low
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
+                                            {waterTempReal.history.length > 0
+                                                ? formatSeaTemp(waterTempReal.min, tempUnit)
+                                                : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> °{tempUnit}</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            High
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-orange-300">
+                                            {waterTempReal.history.length > 0
+                                                ? formatSeaTemp(waterTempReal.max, tempUnit)
+                                                : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> °{tempUnit}</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Change
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-white">
+                                            {seaTrend ? formatSeaTempDelta(seaTrend.deltaC, tempUnit) : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> °</span>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
+                                    <Sparkline
+                                        history={waterTempReal.history}
+                                        min={waterTempReal.min}
+                                        max={waterTempReal.max}
+                                        color="#fb923c"
+                                        width={sparklineWidth * 2}
+                                        height={sparklineHeight + 20}
+                                        showAxes
+                                        axisUnit="°"
+                                        label="sea temp"
                                     />
                                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
                                         15 min chart

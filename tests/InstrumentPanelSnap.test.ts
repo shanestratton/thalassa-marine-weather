@@ -15,12 +15,13 @@ describe('snap-scroll structure', () => {
         expect((source.match(/snap-start snap-always/g) ?? []).length).toBeGreaterThanOrEqual(5);
     });
 
-    it('sections run Wind → Position → Speed → Depth → Heading → Helm, sail plan LAST', () => {
+    it('sections run Wind → Position → Speed → Depth → Sea temp → Heading → Helm, sail plan LAST', () => {
         const order = [
             'SECTION: WIND',
             'SECTION: POSITION',
             'SECTION: SPEED',
             'SECTION: DEPTH',
+            'SECTION: SEA TEMP',
             'SECTION: HEADING',
             'SECTION: HELM',
             'SECTION: SAIL PLAN',
