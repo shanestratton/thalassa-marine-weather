@@ -750,13 +750,20 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 }
             />
 
-            {/* ── Scrollable Content ── */}
-            <div className="flex-1 overflow-y-auto px-4 space-y-5">
+            {/* ── Content ──
+                The zones above the feed keep their size; the ALERT FEED takes
+                whatever is left and scrolls inside itself; the arm slider is
+                docked below, 8px above the tab bar (Shane 2026-09-09: "move the
+                slide to arm vessel to the bottom of the screen … make sure that
+                the alert feed grows and shrinks to fit"). On a very short screen
+                this column scrolls as a whole rather than starving the feed
+                below its floor. */}
+            <div className="flex-1 min-h-0 flex flex-col px-4 space-y-5 overflow-y-auto">
                 {feedback && (
                     <div
                         role={feedback.tone === 'error' ? 'alert' : 'status'}
                         aria-live={feedback.tone === 'error' ? 'assertive' : 'polite'}
-                        className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-sm ${
+                        className={`shrink-0 flex items-start gap-3 rounded-xl border px-3 py-2.5 text-sm ${
                             feedback.tone === 'error'
                                 ? 'border-red-500/30 bg-red-500/10 text-red-200'
                                 : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
@@ -775,7 +782,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 )}
 
                 {/* ═══ ZONE 1: BAY PRESENCE HERO ═══ */}
-                <div className="relative bg-linear-to-br from-emerald-500/15 to-sky-500/15 border border-emerald-500/20 rounded-2xl p-5 overflow-hidden">
+                <div className="shrink-0 relative bg-linear-to-br from-emerald-500/15 to-sky-500/15 border border-emerald-500/20 rounded-2xl p-5 overflow-hidden">
                     {/* Animated radar pulse */}
                     <div className="absolute top-3 right-3 w-16 h-16">
                         <div
@@ -855,7 +862,195 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ═══ ZONE 2: ARM/DISARM BOLO SLIDER ═══ */}
+                {/* ═══ ZONE 3: QUICK ACTIONS ═══ */}
+                <div className="shrink-0 grid grid-cols-3 gap-3">
+                    {/* Report Suspicious */}
+                    <button
+                        aria-label="Report suspicious activity in your area"
+                        aria-disabled={!armed}
+                        onClick={() => {
+                            if (!armed) {
+                                setFeedback({
+                                    tone: 'error',
+                                    message: 'Arm Guardian before sending a location-based safety report.',
+                                });
+                                return;
+                            }
+                            triggerHaptic('medium');
+                            setShowReport(true);
+                        }}
+                        className={`bg-linear-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group transition-all ${
+                            armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
+                        }`}
+                    >
+                        <div className="mb-1.5 text-red-300">
+                            <SosIcon className="w-5 h-5" />
+                        </div>
+                        <div className="text-sm font-black text-white tracking-wide">Report</div>
+                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-widest">Suspicious</div>
+                    </button>
+
+                    {/* Weather Alert */}
+                    <button
+                        aria-label="Broadcast a weather alert to nearby boats"
+                        aria-disabled={!armed}
+                        onClick={() => {
+                            if (!armed) {
+                                setFeedback({
+                                    tone: 'error',
+                                    message: 'Arm Guardian before broadcasting a location-based weather alert.',
+                                });
+                                return;
+                            }
+                            triggerHaptic('medium');
+                            setShowWeather(true);
+                        }}
+                        className={`bg-linear-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group transition-all ${
+                            armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
+                        }`}
+                    >
+                        <div className="mb-1.5 text-sky-300">
+                            <ThunderstormIcon className="w-5 h-5" />
+                        </div>
+                        <div className="text-sm font-black text-white tracking-wide">Weather</div>
+                        <div className="text-[11px] text-sky-400 font-bold uppercase tracking-widest">Alert</div>
+                    </button>
+
+                    {/* Digital Tripwire */}
+                    <button
+                        aria-label="Set digital tripwire at current position"
+                        onClick={handleSetTripwire}
+                        className="bg-linear-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
+                    >
+                        <div className="mb-1.5 text-purple-300">
+                            <BellIcon className="w-5 h-5" />
+                        </div>
+                        <div className="text-sm font-black text-white tracking-wide">Tripwire</div>
+                        <div className="text-[11px] text-purple-400 font-bold uppercase tracking-widest">Set Home</div>
+                    </button>
+                </div>
+
+                {/* ═══ ZONE 4: NEARBY BOATS ═══ */}
+                {nearbyUsers.length > 0 && (
+                    <div className="shrink-0">
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-1 h-4 rounded-full bg-emerald-500" />
+                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                Nearby Boats
+                            </span>
+                        </div>
+                        <div className="max-h-52 space-y-2 overflow-y-auto">
+                            {nearbyUsers.map((user) => (
+                                <div
+                                    key={user.user_id}
+                                    className="bg-white/3 border border-white/6 rounded-xl p-3 flex items-center gap-3 group hover:bg-white/5 transition-all"
+                                >
+                                    {/* Avatar/Icon */}
+                                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-red-500/20 border border-red-500/30 text-red-300">
+                                        <SailBoatIcon className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-bold text-white truncate">
+                                            {user.vessel_name || 'Guardian vessel'}
+                                        </div>
+                                        <div className="text-[12px] text-gray-400 flex items-center gap-2">
+                                            <span>{user.distance_nm.toFixed(1)} NM</span>
+                                        </div>
+                                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
+                                            <LockIcon className="w-3 h-3" />
+                                            <span>Armed</span>
+                                        </div>
+                                    </div>
+                                    {/* Hail button */}
+                                    <button
+                                        aria-label="Hail nearby vessel"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            setShowHail(user);
+                                        }}
+                                        className="px-3 py-1.5 min-h-[44px] bg-emerald-500/15 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider hover:bg-emerald-500/25 transition-colors active:scale-[0.95]"
+                                    >
+                                        Hail
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══ ZONE 5: ALERT FEED ═══ */}
+                <div className="flex-1 min-h-[120px] flex flex-col" data-testid="guardian-alert-feed">
+                    <div className="shrink-0 flex items-center gap-2 mb-3">
+                        <div className="w-1 h-4 rounded-full bg-amber-500" />
+                        <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">
+                            Alert Feed
+                        </span>
+                        {alerts.length > 0 && (
+                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-full">
+                                {alerts.length}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                        {!armed ? (
+                            <div className="bg-white/2 border border-white/5 rounded-xl p-6 text-center">
+                                <LockIcon className="mx-auto h-7 w-7 text-slate-500" />
+                                <div className="mt-2 text-xs text-gray-300">Alert feed is paused</div>
+                                <div className="text-[12px] text-gray-500 mt-1">
+                                    Arm Guardian to share presence and poll your nearby safety feed.
+                                </div>
+                            </div>
+                        ) : alerts.length === 0 ? (
+                            <div className="bg-white/2 border border-white/5 rounded-xl p-6 text-center">
+                                <div className="mb-2 flex justify-center text-emerald-400/60">
+                                    <SailBoatIcon className="w-7 h-7" />
+                                </div>
+                                <div className="text-xs text-gray-400">No alerts in your area</div>
+                                <div className="text-[12px] text-gray-500 mt-1">All quiet on the waterfront</div>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {alerts.slice(0, 10).map((alert) => {
+                                    const style = alertStyle(alert.alert_type);
+                                    return (
+                                        <div
+                                            key={alert.id}
+                                            className={`${style.bg} border ${style.border} rounded-xl p-3 transition-all`}
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                <span className={`shrink-0 ${style.color}`}>{style.icon}</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className={`text-sm font-bold ${style.color}`}>
+                                                            {alert.title}
+                                                        </span>
+                                                        <span className="text-[11px] text-gray-500 shrink-0 ml-2">
+                                                            {timeAgo(alert.created_at)}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-sm text-gray-300 mt-0.5 line-clamp-2">
+                                                        {alert.body}
+                                                    </p>
+                                                    {alert.source_vessel_name && (
+                                                        <div className="text-[12px] text-gray-500 mt-1">
+                                                            from {alert.source_vessel_name}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* ═══ ZONE 2: ARM/DISARM — docked at the foot of the page. The page's
+                bottom padding is the tab bar + 8px, so this sits exactly 8px
+                above the menu bar (Shane 2026-09-09). ═══ */}
+            <div className="shrink-0 px-4 pt-3 space-y-2" data-testid="guardian-arm-slider-dock">
                 <div
                     className={`relative rounded-2xl border overflow-hidden transition-all duration-500 ${
                         armed
@@ -927,196 +1122,11 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </div>
-                <p className="-mt-3 px-1 text-[12px] leading-relaxed text-slate-400">
+                <p className="px-1 text-[12px] leading-relaxed text-slate-400">
                     {armed
                         ? 'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.'
                         : 'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'}
                 </p>
-
-                {/* ═══ ZONE 3: QUICK ACTIONS ═══ */}
-                <div className="grid grid-cols-3 gap-3">
-                    {/* Report Suspicious */}
-                    <button
-                        aria-label="Report suspicious activity in your area"
-                        aria-disabled={!armed}
-                        onClick={() => {
-                            if (!armed) {
-                                setFeedback({
-                                    tone: 'error',
-                                    message: 'Arm Guardian before sending a location-based safety report.',
-                                });
-                                return;
-                            }
-                            triggerHaptic('medium');
-                            setShowReport(true);
-                        }}
-                        className={`bg-linear-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group transition-all ${
-                            armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
-                        }`}
-                    >
-                        <div className="mb-1.5 text-red-300">
-                            <SosIcon className="w-5 h-5" />
-                        </div>
-                        <div className="text-sm font-black text-white tracking-wide">Report</div>
-                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-widest">Suspicious</div>
-                    </button>
-
-                    {/* Weather Alert */}
-                    <button
-                        aria-label="Broadcast a weather alert to nearby boats"
-                        aria-disabled={!armed}
-                        onClick={() => {
-                            if (!armed) {
-                                setFeedback({
-                                    tone: 'error',
-                                    message: 'Arm Guardian before broadcasting a location-based weather alert.',
-                                });
-                                return;
-                            }
-                            triggerHaptic('medium');
-                            setShowWeather(true);
-                        }}
-                        className={`bg-linear-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group transition-all ${
-                            armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
-                        }`}
-                    >
-                        <div className="mb-1.5 text-sky-300">
-                            <ThunderstormIcon className="w-5 h-5" />
-                        </div>
-                        <div className="text-sm font-black text-white tracking-wide">Weather</div>
-                        <div className="text-[11px] text-sky-400 font-bold uppercase tracking-widest">Alert</div>
-                    </button>
-
-                    {/* Digital Tripwire */}
-                    <button
-                        aria-label="Set digital tripwire at current position"
-                        onClick={handleSetTripwire}
-                        className="bg-linear-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
-                    >
-                        <div className="mb-1.5 text-purple-300">
-                            <BellIcon className="w-5 h-5" />
-                        </div>
-                        <div className="text-sm font-black text-white tracking-wide">Tripwire</div>
-                        <div className="text-[11px] text-purple-400 font-bold uppercase tracking-widest">Set Home</div>
-                    </button>
-                </div>
-
-                {/* ═══ ZONE 4: NEARBY BOATS ═══ */}
-                {nearbyUsers.length > 0 && (
-                    <div>
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
-                                Nearby Boats
-                            </span>
-                        </div>
-                        <div className="space-y-2">
-                            {nearbyUsers.map((user) => (
-                                <div
-                                    key={user.user_id}
-                                    className="bg-white/3 border border-white/6 rounded-xl p-3 flex items-center gap-3 group hover:bg-white/5 transition-all"
-                                >
-                                    {/* Avatar/Icon */}
-                                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-red-500/20 border border-red-500/30 text-red-300">
-                                        <SailBoatIcon className="w-5 h-5" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-bold text-white truncate">
-                                            {user.vessel_name || 'Guardian vessel'}
-                                        </div>
-                                        <div className="text-[12px] text-gray-400 flex items-center gap-2">
-                                            <span>{user.distance_nm.toFixed(1)} NM</span>
-                                        </div>
-                                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
-                                            <LockIcon className="w-3 h-3" />
-                                            <span>Armed</span>
-                                        </div>
-                                    </div>
-                                    {/* Hail button */}
-                                    <button
-                                        aria-label="Hail nearby vessel"
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            setShowHail(user);
-                                        }}
-                                        className="px-3 py-1.5 min-h-[44px] bg-emerald-500/15 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider hover:bg-emerald-500/25 transition-colors active:scale-[0.95]"
-                                    >
-                                        Hail
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* ═══ ZONE 5: ALERT FEED ═══ */}
-                <div>
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-amber-500" />
-                        <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">
-                            Alert Feed
-                        </span>
-                        {alerts.length > 0 && (
-                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-full">
-                                {alerts.length}
-                            </span>
-                        )}
-                    </div>
-                    {!armed ? (
-                        <div className="bg-white/2 border border-white/5 rounded-xl p-6 text-center">
-                            <LockIcon className="mx-auto h-7 w-7 text-slate-500" />
-                            <div className="mt-2 text-xs text-gray-300">Alert feed is paused</div>
-                            <div className="text-[12px] text-gray-500 mt-1">
-                                Arm Guardian to share presence and poll your nearby safety feed.
-                            </div>
-                        </div>
-                    ) : alerts.length === 0 ? (
-                        <div className="bg-white/2 border border-white/5 rounded-xl p-6 text-center">
-                            <div className="mb-2 flex justify-center text-emerald-400/60">
-                                <SailBoatIcon className="w-7 h-7" />
-                            </div>
-                            <div className="text-xs text-gray-400">No alerts in your area</div>
-                            <div className="text-[12px] text-gray-500 mt-1">All quiet on the waterfront</div>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {alerts.slice(0, 10).map((alert) => {
-                                const style = alertStyle(alert.alert_type);
-                                return (
-                                    <div
-                                        key={alert.id}
-                                        className={`${style.bg} border ${style.border} rounded-xl p-3 transition-all`}
-                                    >
-                                        <div className="flex items-start gap-2">
-                                            <span className={`shrink-0 ${style.color}`}>{style.icon}</span>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center justify-between">
-                                                    <span className={`text-sm font-bold ${style.color}`}>
-                                                        {alert.title}
-                                                    </span>
-                                                    <span className="text-[11px] text-gray-500 shrink-0 ml-2">
-                                                        {timeAgo(alert.created_at)}
-                                                    </span>
-                                                </div>
-                                                <p className="text-sm text-gray-300 mt-0.5 line-clamp-2">
-                                                    {alert.body}
-                                                </p>
-                                                {alert.source_vessel_name && (
-                                                    <div className="text-[12px] text-gray-500 mt-1">
-                                                        from {alert.source_vessel_name}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* Bottom spacer */}
-                <div className="h-4" />
             </div>
 
             {/* ═══ MODAL: PROFILE SETUP ═══ */}
