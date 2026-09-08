@@ -78,6 +78,14 @@ export interface PiCacheStatus {
     diaryRelayOwnerId?: string;
     /** Pi's currently persisted relay WAN gate, surfaced without secrets. */
     diaryRelayAllowInternet?: boolean;
+    /**
+     * Diary entries still waiting in the Pi's relay outbox (`diaryRelay.queued`
+     * on /api/admin/status). The Release dialog reads it (2026-09-08 vessel
+     * release decision) so a skipper hears "N entries have not reached the
+     * cloud yet" BEFORE the cloud cuts the relay row and those entries turn
+     * terminal on the Pi. Advisory only; undefined when the Pi did not say.
+     */
+    diaryRelayQueued?: number;
     cacheStats?: {
         kvEntries: number;
         tileEntries: number;
@@ -1031,6 +1039,8 @@ class PiCacheServiceImpl {
                     diaryRelayOwnerId?: string;
                     diaryRelayAllowInternet?: boolean;
                 };
+                /** diaryRelayOutbox.getStats() — only the queued count is copied out. */
+                diaryRelay?: { queued?: number };
             };
 
             // A healthy /status is necessary but no longer sufficient: the
@@ -1053,6 +1063,10 @@ class PiCacheServiceImpl {
                 diaryRelayConfigured: data?.config?.diaryRelayConfigured,
                 diaryRelayOwnerId: data?.config?.diaryRelayOwnerId,
                 diaryRelayAllowInternet: data?.config?.diaryRelayAllowInternet,
+                diaryRelayQueued:
+                    typeof data?.diaryRelay?.queued === 'number' && Number.isFinite(data.diaryRelay.queued)
+                        ? data.diaryRelay.queued
+                        : undefined,
             };
 
             // Notify if status changed

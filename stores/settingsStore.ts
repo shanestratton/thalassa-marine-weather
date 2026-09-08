@@ -38,13 +38,23 @@ import {
     getQueuedVesselPatches,
     loadCachedOwnedVesselFleet,
     loadOwnedVesselFleet,
+    loadReleasedVessels,
     patchOwnedVesselProfile,
     persistCachedOwnedVesselFleet,
     archiveOwnedVessel,
     bootstrapOwnedVesselProfile,
+    releaseOwnedVessel,
     selectActiveOwnedVessel,
     setActiveOwnedVessel,
+    undoVesselRelease as undoVesselReleaseInCloud,
+    RELEASE_OFFLINE_MESSAGE,
+    VesselClaimedError,
+    VesselReleasedError,
     type OwnedVesselProfile,
+    type ReleaseReason,
+    type ReleaseVesselResult,
+    type ReleasedVesselRow,
+    type UndoReleaseResult,
     type VesselFleet,
     type VesselProfilePatch,
 } from '../services/VesselFleetService';
@@ -151,6 +161,36 @@ interface SettingsState {
     createVesselProfile: (seed?: Partial<VesselProfile>) => Promise<void>;
     /** Archive rather than delete a vessel so prior voyages remain historically correct. */
     archiveVesselProfile: (boatId: string) => Promise<void>;
+    /**
+     * Release a hull that was sold or whose delivery is finished (2026-09-08
+     * decision). Archives under the same owner, so the logbook stays; the
+     * server cuts crew, the hull's Pi relay, telemetry and the public page and
+     * frees the MMSI. Refused while this device is tracking and when offline;
+     * never queued. Works on a single-boat fleet, unlike Archive.
+     */
+    releaseVesselProfile: (boatId: string, reason: ReleaseReason) => Promise<ReleaseVesselResult>;
+    /** The 'oops' path within 30 days. Crew, Pi and public page are not restored. */
+    undoVesselRelease: (boatId: string) => Promise<UndoReleaseResult>;
+    /**
+     * Hulls this account released in the last 30 days. Store state, not a
+     * setting: it never travels through `user_settings`. Refreshed by
+     * syncVesselFleet and after release/undo.
+     */
+    releasedVessels: ReleasedVesselRow[];
+    /**
+     * The automatic bootstrap hit MMSI_CLAIMED: another active Thalassa boat
+     * holds this MMSI. The local profile is left intact and the bootstrap is
+     * not retried until `profile.mmsi` changes ('Save without MMSI') or the
+     * banner is dismissed. The Vessel tab shows the centred banner from this.
+     */
+    vesselClaimConflict: { vesselName: string; mmsi: string } | null;
+    dismissVesselClaimConflict: () => void;
+    /**
+     * Why the Release button is disabled right now, or null when release may
+     * proceed. Only the two shore-side gates the 2026-09-08 design names:
+     * this device is recording a passage, or it is offline.
+     */
+    releaseBlockedReason: () => string | null;
     /** Save a sparse update to the selected vessel, with an offline outbox fallback. */
     patchActiveVesselProfile: (patch: Partial<VesselProfile> | VesselProfilePatch) => Promise<void>;
     resetSettings: () => void;
@@ -500,6 +540,121 @@ function hasMeaningfulVesselProfile(profile: UserSettings['vessel']): profile is
         Boolean(profile.registration) ||
         Boolean(profile.mmsi)
     );
+}
+
+/**
+ * After the last hull is released — or the automatic bootstrap learns that this
+ * account released the hull the stale local profile describes — the
+ * compatibility snapshot must stop looking like a real boat. 'My Boat' with
+ * zero dimensions and no model/registration/MMSI is exactly what
+ * hasMeaningfulVesselProfile rejects, so no device re-bootstraps her (the
+ * seller's-second-phone hole from the 2026-09-08 design). Polars and the
+ * Comfort Zone belonged to that hull; unit preferences stay.
+ */
+function settingsWithReleasedPlaceholder(settings: UserSettings): UserSettings {
+    return {
+        ...settings,
+        vessel: defaultVesselProfile('My Boat'),
+        comfortParams: undefined,
+        polarData: undefined,
+        polarBoatModel: undefined,
+        polarSource_type: undefined,
+    };
+}
+
+function normaliseMmsi(value: unknown): string {
+    return typeof value === 'string' ? value.replace(/\D/g, '') : '';
+}
+
+type VesselClaimConflict = NonNullable<SettingsState['vesselClaimConflict']>;
+
+function claimConflictFor(error: VesselClaimedError, profile: VesselProfile | undefined): VesselClaimConflict {
+    // The HINT normally carries the MMSI; fall back to the profile's own so
+    // the "no retry until it changes" rule still has something to compare.
+    return { vesselName: error.vesselName, mmsi: normaliseMmsi(error.mmsi) || normaliseMmsi(profile?.mmsi) };
+}
+
+/** One refusal per MMSI: the bootstrap is not retried until the skipper changes it. */
+function bootstrapBlockedByClaimConflict(
+    conflict: SettingsState['vesselClaimConflict'],
+    profile: VesselProfile | undefined,
+): boolean {
+    if (!conflict) return false;
+    const mmsi = normaliseMmsi(profile?.mmsi);
+    return mmsi !== '' && mmsi === conflict.mmsi;
+}
+
+/** Client gate (a) of the 2026-09-08 release design — the wording the Vessel tab shows under a disabled Release. */
+const RELEASE_TRACKING_GATE_MESSAGE = "You're recording a passage on her. Finish or pause it before releasing.";
+
+/**
+ * `releaseBlockedReason()` must answer synchronously during render, but this
+ * store deliberately dynamic-imports ShipLogService (the GPS stack must not
+ * join the settings module graph). Load the probe once on first use; until it
+ * lands the async action is still the enforcer.
+ */
+let _trackingProbe: { isTracking(): boolean } | null = null;
+let _trackingProbeLoad: Promise<void> | null = null;
+
+function ensureTrackingProbe(): void {
+    if (_trackingProbe || _trackingProbeLoad) return;
+    _trackingProbeLoad = import('../services/ShipLogService')
+        .then((module) => {
+            _trackingProbe = module.ShipLogService;
+        })
+        .catch(() => {
+            _trackingProbeLoad = null;
+        });
+}
+
+/**
+ * Phone-side follow-through for a release (design step 6). The cloud has
+ * already cut the hull's relay row and, on the last boat, the skipper
+ * identity; this stops THIS phone from silently re-pairing the Pi while it is
+ * still on the boat LAN, and from showing a skipper grant that no longer
+ * exists. Every step is best-effort — the release itself has succeeded.
+ */
+async function detachReleasedVesselLocally(scope: AuthIdentityScope): Promise<void> {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    try {
+        // Exactly what PiCacheTab.handleForget does (the settings flag is
+        // written by the caller through updateSettings so it also syncs).
+        const { forgetPairing } = await import('../services/PiPairingService');
+        if (isAuthIdentityScopeCurrent(scope)) forgetPairing();
+    } catch {
+        /* best effort */
+    }
+    try {
+        piCache.configure({ enabled: false });
+    } catch {
+        /* best effort */
+    }
+    try {
+        // Clears the in-memory pairedPis map so the TTL shortcut in
+        // pairPiWhenCloudIsAvailable cannot keep pushing config to a Pi that
+        // no longer belongs to this account. Dynamic on purpose: that module
+        // reads this store at call time, and a static import each way would
+        // be a load-time cycle that fails silently.
+        const { forgetRelayPairings } = await import('../services/DiaryRelayTransport');
+        if (isAuthIdentityScopeCurrent(scope)) forgetRelayPairings(scope.key);
+    } catch {
+        /* best effort */
+    }
+    try {
+        // VesselIdentityService keeps clearCachedIdentity private. syncIdentity
+        // re-reads the server and clears the cache itself when the owner row
+        // is gone (last boat), or re-caches the replacement boat's identity.
+        const { syncIdentity } = await import('../services/VesselIdentityService');
+        if (isAuthIdentityScopeCurrent(scope)) await syncIdentity();
+    } catch {
+        /* best effort */
+    }
+    try {
+        const { invalidatePermissions } = await import('../hooks/usePermissions');
+        if (isAuthIdentityScopeCurrent(scope)) invalidatePermissions();
+    } catch {
+        /* best effort */
+    }
 }
 
 function isTerminalVesselSelectionFailure(error: unknown): boolean {
@@ -899,9 +1054,14 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
         // polars arrive from the selected boat instead of a stale singleton
         // identity row.
         let activeFleet = activeFleetVessel(fleet);
+        let claimConflict: VesselClaimConflict | null = null;
+        let releasedTerminal = false;
         if (activeFleet) {
             merged = settingsWithFleetVessel(merged, activeFleet);
-        } else if (hasMeaningfulVesselProfile(merged.vessel)) {
+        } else if (
+            hasMeaningfulVesselProfile(merged.vessel) &&
+            !bootstrapBlockedByClaimConflict(useSettingsStore.getState().vesselClaimConflict, merged.vessel)
+        ) {
             // First authenticated connection for a legacy/local profile.
             // Create exactly one cloud vessel; subsequent edits use sparse
             // patches. If offline this simply stays local and retries on the
@@ -927,7 +1087,34 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
                 merged = settingsWithFleetVessel(merged, created);
                 _addDebugLog('VESSEL FLEET: migrated local vessel to cloud');
             } catch (fleetBootstrapError) {
-                log.warn(`[pullFromCloud] fleet bootstrap deferred: ${getErrorMessage(fleetBootstrapError)}`);
+                if (fleetBootstrapError instanceof VesselReleasedError) {
+                    // TERMINAL (2026-09-08 design, gate 4): this account
+                    // released the hull this stale profile describes. Never
+                    // retry — replace the snapshot so no device re-creates
+                    // her; 'Undo release' or Add vessel is the way back.
+                    merged = settingsWithReleasedPlaceholder(merged);
+                    releasedTerminal = true;
+                    _addDebugLog(`VESSEL FLEET: ${fleetBootstrapError.vesselName} was released by this account`);
+                } else if (fleetBootstrapError instanceof VesselClaimedError) {
+                    // Another active boat holds this MMSI. Leave the local
+                    // profile intact; the Vessel tab offers 'Enter crew code'
+                    // and 'Save without MMSI'. No retry until the MMSI changes.
+                    claimConflict = claimConflictFor(fleetBootstrapError, merged.vessel);
+                    _addDebugLog(`VESSEL FLEET: MMSI claimed by ${fleetBootstrapError.vesselName}`);
+                } else {
+                    log.warn(`[pullFromCloud] fleet bootstrap deferred: ${getErrorMessage(fleetBootstrapError)}`);
+                }
+            }
+        }
+
+        // Released rows feed 'You released Serene Summer on 8 Sep (sold)' and
+        // its Undo button. Best effort; a client ahead of the migration gets [].
+        let releasedVessels: ReleasedVesselRow[] | null = null;
+        if (fleetLoaded || releasedTerminal) {
+            try {
+                releasedVessels = await loadReleasedVessels(scope);
+            } catch (releasedError) {
+                log.warn(`[pullFromCloud] released vessels deferred: ${getErrorMessage(releasedError)}`);
             }
         }
 
@@ -964,6 +1151,12 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
                   : fleet.vessels.length > 0
                     ? 'saved'
                     : 'idle',
+            // Same rule as the fleet above: a release, undo or 'Save without
+            // MMSI' that landed while this slow pull was in flight is newer
+            // than what the pull learned, so its released rows and claim
+            // banner must not be repainted over the skipper's action.
+            ...(releasedVessels && !newerFleetMutation ? { releasedVessels } : {}),
+            ...(claimConflict && !newerFleetMutation ? { vesselClaimConflict: claimConflict } : {}),
         });
 
         // Persist back to Capacitor Preferences so next cold boot is
@@ -1294,11 +1487,30 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     vesselFleet: [],
     activeVesselId: null,
     vesselFleetStatus: 'idle',
+    releasedVessels: [],
+    vesselClaimConflict: null,
+
+    dismissVesselClaimConflict: () => {
+        set({ vesselClaimConflict: null });
+    },
+
+    releaseBlockedReason: () => {
+        ensureTrackingProbe();
+        if (_trackingProbe?.isTracking()) return RELEASE_TRACKING_GATE_MESSAGE;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return RELEASE_OFFLINE_MESSAGE;
+        return null;
+    },
 
     syncVesselFleet: async () => {
         const scope = getAuthIdentityScope();
         if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) {
-            set({ vesselFleet: [], activeVesselId: null, vesselFleetStatus: 'idle' });
+            set({
+                vesselFleet: [],
+                activeVesselId: null,
+                vesselFleetStatus: 'idle',
+                releasedVessels: [],
+                vesselClaimConflict: null,
+            });
             return;
         }
         const syncMutationGeneration = beginFleetMutation(scope);
@@ -1332,22 +1544,44 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                     // available. We do not manufacture a blank boat merely
                     // because the app was opened before onboarding.
                     const local = get().settings;
-                    if (fleet.vessels.length === 0 && hasMeaningfulVesselProfile(local.vessel)) {
-                        const created = await bootstrapOwnedVesselProfile(
-                            local.vessel,
-                            {
-                                vesselUnits: local.vesselUnits,
-                                polarData: local.polarData,
-                                setPolarData: true,
-                                polarBoatModel: local.polarBoatModel,
-                                setPolarBoatModel: true,
-                                polarSourceType: local.polarSource_type,
-                                setPolarSourceType: true,
-                                comfortParams: local.comfortParams,
-                            },
-                            scope,
-                        );
-                        fleet = { vessels: [created], activeBoatId: created.id };
+                    let releasedTerminal = false;
+                    if (
+                        fleet.vessels.length === 0 &&
+                        hasMeaningfulVesselProfile(local.vessel) &&
+                        !bootstrapBlockedByClaimConflict(get().vesselClaimConflict, local.vessel)
+                    ) {
+                        try {
+                            const created = await bootstrapOwnedVesselProfile(
+                                local.vessel,
+                                {
+                                    vesselUnits: local.vesselUnits,
+                                    polarData: local.polarData,
+                                    setPolarData: true,
+                                    polarBoatModel: local.polarBoatModel,
+                                    setPolarBoatModel: true,
+                                    polarSourceType: local.polarSource_type,
+                                    setPolarSourceType: true,
+                                    comfortParams: local.comfortParams,
+                                },
+                                scope,
+                            );
+                            fleet = { vessels: [created], activeBoatId: created.id };
+                        } catch (bootstrapError) {
+                            if (!isAuthIdentityScopeCurrent(scope)) return;
+                            if (bootstrapError instanceof VesselReleasedError) {
+                                // TERMINAL: this account released her. The
+                                // placeholder below ends the retries; the
+                                // released row with Undo shows instead.
+                                releasedTerminal = true;
+                                _addDebugLog(`VESSEL FLEET: ${bootstrapError.vesselName} was released by this account`);
+                            } else if (bootstrapError instanceof VesselClaimedError) {
+                                // Profile stays; no retry until the MMSI changes.
+                                set({ vesselClaimConflict: claimConflictFor(bootstrapError, local.vessel) });
+                                _addDebugLog(`VESSEL FLEET: MMSI claimed by ${bootstrapError.vesselName}`);
+                            } else {
+                                throw bootstrapError;
+                            }
+                        }
                     }
 
                     set({ vesselFleetStatus: 'syncing' });
@@ -1363,6 +1597,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                     if (!isAuthIdentityScopeCurrent(scope)) return;
                     fleet = await loadOwnedVesselFleet(scope);
                     if (!isAuthIdentityScopeCurrent(scope)) return;
+                    // Best effort: released rows are informational, never a
+                    // reason to mark the whole fleet sync failed.
+                    const releasedVessels = await loadReleasedVessels(scope).catch(() => null);
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
 
                     if (fleetMutationGeneration(scope) !== syncMutationGeneration) {
                         _addDebugLog('VESSEL FLEET: stale sync yielded to a newer vessel change');
@@ -1372,12 +1610,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                     const queuedProjection = await fleetWithQueuedLocalPatches(fleet, scope);
                     const fleetForDisplay = queuedProjection.fleet;
                     const active = activeFleetVessel(fleetForDisplay);
-                    const nextSettings = active ? settingsWithFleetVessel(get().settings, active) : get().settings;
+                    const nextSettings = active
+                        ? settingsWithFleetVessel(get().settings, active)
+                        : releasedTerminal
+                          ? settingsWithReleasedPlaceholder(get().settings)
+                          : get().settings;
                     set({
                         settings: nextSettings,
                         vesselFleet: fleetForDisplay.vessels,
                         activeVesselId: fleetForDisplay.activeBoatId,
                         vesselFleetStatus: queuedProjection.pending > 0 ? 'offline' : 'saved',
+                        releasedVessels: releasedVessels ?? get().releasedVessels,
                     });
                     await persistFleetCompatibilitySettings(scope, nextSettings);
                     await persistCachedOwnedVesselFleet(fleetForDisplay, scope, null);
@@ -1561,6 +1804,158 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         }
     },
 
+    releaseVesselProfile: async (boatId, reason) => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) throw new Error('Sign in before releasing a vessel.');
+        // Gate (a): the archive/switch gate applied to a new action. Only
+        // this device's recording is protected here; other devices rely on
+        // the OfflineQueue 42501 retry (design step 7).
+        const { ShipLogService } = await import('../services/ShipLogService');
+        if (!isAuthIdentityScopeCurrent(scope)) throw new Error('Sign in before releasing a vessel.');
+        if (ShipLogService.isTracking()) {
+            throw new Error(RELEASE_TRACKING_GATE_MESSAGE);
+        }
+        // Gate (b): never queued. Refuse before touching any state so the
+        // status line stays honest — nothing has changed.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(RELEASE_OFFLINE_MESSAGE);
+        const releaseMutationGeneration = beginFleetMutation(scope);
+        set({ vesselFleetStatus: 'syncing' });
+        let result: ReleaseVesselResult;
+        try {
+            result = await releaseOwnedVessel(boatId, reason, scope);
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope) && fleetMutationGeneration(scope) === releaseMutationGeneration) {
+                const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+                set({ vesselFleetStatus: online ? 'error' : 'offline' });
+            }
+            throw error;
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) return result;
+
+        // From here she IS released in the cloud. Nothing below may turn that
+        // into a thrown error: a reload that fails on a dropped connection
+        // must not make the skipper tap Release again (the server would then
+        // say "already archived"), and the phone-side detachments below must
+        // still run — otherwise this phone keeps its Pi pairing and can
+        // silently re-pair the buyer's Pi on the boat LAN, the hole design
+        // step 6 (2026-09-08) exists to close.
+        try {
+            const fleet = await loadOwnedVesselFleet(scope);
+            if (!isAuthIdentityScopeCurrent(scope)) return result;
+            const releasedVessels = await loadReleasedVessels(scope).catch(() => null);
+            if (!isAuthIdentityScopeCurrent(scope)) return result;
+            if (fleetMutationGeneration(scope) === releaseMutationGeneration) {
+                const queuedProjection = await fleetWithQueuedLocalPatches(fleet, scope);
+                if (fleetMutationGeneration(scope) === releaseMutationGeneration) {
+                    const active = activeFleetVessel(queuedProjection.fleet);
+                    // Last boat gone: the snapshot must stop looking like a
+                    // real boat so no device re-bootstraps the released hull.
+                    const nextSettings = active
+                        ? settingsWithFleetVessel(get().settings, active)
+                        : settingsWithReleasedPlaceholder(get().settings);
+                    set({
+                        settings: nextSettings,
+                        vesselFleet: queuedProjection.fleet.vessels,
+                        activeVesselId: queuedProjection.fleet.activeBoatId,
+                        vesselFleetStatus: queuedProjection.pending > 0 ? 'offline' : 'saved',
+                        releasedVessels: releasedVessels ?? get().releasedVessels,
+                    });
+                    await persistFleetCompatibilitySettings(scope, nextSettings);
+                    await persistCachedOwnedVesselFleet(queuedProjection.fleet, scope, null);
+                }
+            }
+        } catch (reloadError) {
+            log.warn(`[releaseVesselProfile] fleet reload after release deferred: ${getErrorMessage(reloadError)}`);
+            if (isAuthIdentityScopeCurrent(scope) && fleetMutationGeneration(scope) === releaseMutationGeneration) {
+                // Project the release locally from the server's own reply so
+                // the list stops showing a hull that is gone; the next fleet
+                // sync repaints from the server, and 'error' says the reload
+                // (not the release) failed.
+                const remaining = get().vesselFleet.filter((vessel) => vessel.id !== boatId);
+                const nextActiveId =
+                    (result.nextActiveBoatId && remaining.some((vessel) => vessel.id === result.nextActiveBoatId)
+                        ? result.nextActiveBoatId
+                        : null) ??
+                    remaining.find((vessel) => vessel.is_active)?.id ??
+                    remaining[0]?.id ??
+                    null;
+                const projected: VesselFleet = {
+                    vessels: remaining.map((vessel) => ({ ...vessel, is_active: vessel.id === nextActiveId })),
+                    activeBoatId: nextActiveId,
+                };
+                const active = activeFleetVessel(projected);
+                const nextSettings = active
+                    ? settingsWithFleetVessel(get().settings, active)
+                    : settingsWithReleasedPlaceholder(get().settings);
+                set({
+                    settings: nextSettings,
+                    vesselFleet: projected.vessels,
+                    activeVesselId: projected.activeBoatId,
+                    vesselFleetStatus: 'error',
+                });
+                await persistFleetCompatibilitySettings(scope, nextSettings).catch(() => undefined);
+                await persistCachedOwnedVesselFleet(projected, scope, null).catch(() => undefined);
+            }
+        }
+        // The cloud has unpaired her Pi and (on the last boat) ended the
+        // skipper identity; make this phone agree, exactly as
+        // PiCacheTab.handleForget does, plus the identity/permission re-read.
+        await detachReleasedVesselLocally(scope);
+        if (isAuthIdentityScopeCurrent(scope)) {
+            try {
+                await get().updateSettings({ piCacheEnabled: false });
+            } catch {
+                /* the release has succeeded; the Pi flag follows on the next settings write */
+            }
+        }
+        return result;
+    },
+
+    undoVesselRelease: async (boatId) => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) throw new Error('Sign in before restoring a vessel.');
+        const undoMutationGeneration = beginFleetMutation(scope);
+        set({ vesselFleetStatus: 'syncing' });
+        try {
+            const result = await undoVesselReleaseInCloud(boatId, scope);
+            if (!isAuthIdentityScopeCurrent(scope)) return result;
+            const fleet = await loadOwnedVesselFleet(scope);
+            if (!isAuthIdentityScopeCurrent(scope)) return result;
+            const releasedVessels = await loadReleasedVessels(scope).catch(() => null);
+            if (!isAuthIdentityScopeCurrent(scope)) return result;
+            if (fleetMutationGeneration(scope) !== undoMutationGeneration) return result;
+            const queuedProjection = await fleetWithQueuedLocalPatches(fleet, scope);
+            if (fleetMutationGeneration(scope) !== undoMutationGeneration) return result;
+            const active = activeFleetVessel(queuedProjection.fleet);
+            const nextSettings = active ? settingsWithFleetVessel(get().settings, active) : get().settings;
+            set({
+                settings: nextSettings,
+                vesselFleet: queuedProjection.fleet.vessels,
+                activeVesselId: queuedProjection.fleet.activeBoatId,
+                vesselFleetStatus: queuedProjection.pending > 0 ? 'offline' : 'saved',
+                releasedVessels: releasedVessels ?? get().releasedVessels,
+            });
+            await persistFleetCompatibilitySettings(scope, nextSettings);
+            await persistCachedOwnedVesselFleet(queuedProjection.fleet, scope, null);
+            // She is back, so the identity projection and skipper grant are too.
+            try {
+                const { syncIdentity } = await import('../services/VesselIdentityService');
+                if (isAuthIdentityScopeCurrent(scope)) await syncIdentity();
+                const { invalidatePermissions } = await import('../hooks/usePermissions');
+                if (isAuthIdentityScopeCurrent(scope)) invalidatePermissions();
+            } catch {
+                /* best effort */
+            }
+            return result;
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope) && fleetMutationGeneration(scope) === undoMutationGeneration) {
+                const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+                set({ vesselFleetStatus: online ? 'error' : 'offline' });
+            }
+            throw error;
+        }
+    },
+
     patchActiveVesselProfile: async (input) => {
         const patch = isVesselProfilePatch(input) ? input : { profile: input };
         const scope = getAuthIdentityScope();
@@ -1573,10 +1968,19 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                   vessel.id === localActiveId ? applyPatchToFleetVessel(vessel, patch) : vessel,
               )
             : beforeEdit.vesselFleet;
+        // 'Save without MMSI' (or typing a different one) ends an MMSI claim
+        // conflict, which re-arms the one-shot bootstrap on the next sync.
+        const conflict = beforeEdit.vesselClaimConflict;
+        const conflictCleared = conflict !== null && normaliseMmsi(localSettings.vessel?.mmsi) !== conflict.mmsi;
         // Local-first keeps the form responsive and protects a change made
         // below deck. The queue is scoped to the account, so this can never
         // replay into the next person who signs in on the same device.
-        set({ settings: localSettings, vesselFleet: locallyUpdatedFleet, vesselFleetStatus: 'syncing' });
+        set({
+            settings: localSettings,
+            vesselFleet: locallyUpdatedFleet,
+            vesselFleetStatus: 'syncing',
+            ...(conflictCleared ? { vesselClaimConflict: null } : {}),
+        });
         await persistFleetCompatibilitySettings(scope, localSettings);
         if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) {
             set({ vesselFleetStatus: 'offline' });
@@ -1628,7 +2032,21 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                 await persistFleetCompatibilitySettings(scope, nextSettings);
                 await persistCachedOwnedVesselFleet(fleet, scope, null);
             } catch (error) {
-                if (isAuthIdentityScopeCurrent(scope)) set({ vesselFleetStatus: 'offline' });
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (error instanceof VesselReleasedError) {
+                    // Same terminal rule as the sync paths: the edit was to a
+                    // hull this account released; do not re-create her.
+                    const placeholder = settingsWithReleasedPlaceholder(get().settings);
+                    set({ settings: placeholder, vesselFleetStatus: 'saved' });
+                    await persistFleetCompatibilitySettings(scope, placeholder);
+                } else if (error instanceof VesselClaimedError) {
+                    set({
+                        vesselClaimConflict: claimConflictFor(error, localSettings.vessel),
+                        vesselFleetStatus: 'saved',
+                    });
+                } else {
+                    set({ vesselFleetStatus: 'offline' });
+                }
                 _addDebugLog(`VESSEL FLEET BOOTSTRAP DEFERRED: ${getErrorMessage(error)}`);
             }
             return;
@@ -1890,6 +2308,10 @@ function beginSettingsScope(scope: AuthIdentityScope, previous: AuthIdentityScop
         vesselFleet: [],
         activeVesselId: null,
         vesselFleetStatus: 'idle',
+        // Account-scoped like the fleet: a released hull or a claim banner
+        // must never show for the next person who signs in on this phone.
+        releasedVessels: [],
+        vesselClaimConflict: null,
     });
 
     const transition = _scopeTransitionTail.then(async () => {

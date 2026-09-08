@@ -68,7 +68,50 @@ interface PairedPi {
     pairedAt: number;
 }
 
+/** Keyed `${scope.key}:${relayId}` — see pairPiWhenCloudIsAvailable and forgetRelayPairings. */
 const pairedPis = new Map<string, PairedPi>();
+
+/**
+ * Drop this account's remembered pairings so the next hand-off pairs over the
+ * network instead of trusting a credential this phone recalls. The store
+ * calls it after Release (Shane, 2026-09-08: a skipper who sells the boat or
+ * finishes a delivery lets her go). The cloud relay row for the hull is gone
+ * by then, yet the phone is usually still on the boat LAN with the Pi
+ * reporting its relay configured — and the TTL shortcut in
+ * pairPiWhenCloudIsAvailable would keep pushing config to a Pi that no longer
+ * belongs to this account. Only the named scope is touched: keys are
+ * `${scope.key}:${relayId}` and a relay id never contains a colon.
+ */
+export function forgetRelayPairings(scopeKey: string): void {
+    const prefix = `${scopeKey}:`;
+    for (const key of Array.from(pairedPis.keys())) {
+        if (key.startsWith(prefix)) pairedPis.delete(key);
+    }
+}
+
+/**
+ * The active OWNED vessel, so a pairing can say which hull the Pi is bolted
+ * to. Release (2026-09-08) cuts only the relay rows matched to the released
+ * boat, so a pair without this stamp leaves the seller's Pi holding a live
+ * token after the sale. Read from the settings store at call time, the way
+ * ShipLogService reads `activeVesselId` for a diary entry: on a cold launch
+ * fleet hydration may not have finished, and a call-time read behind a
+ * try/catch degrades to "no hint" instead of throwing inside a pairing. (The
+ * store already sits in this module's static graph through networkPolicy and
+ * reaches back for forgetRelayPairings by dynamic import only, so this is not
+ * about avoiding a load-time cycle.) Null when no boat is chosen or the store
+ * cannot be read — the server then falls back to the account's own
+ * active-vessel row and verifies ownership either way.
+ */
+async function activeOwnedBoatIdForPairing(): Promise<string | null> {
+    try {
+        const { useSettingsStore } = await import('../stores/settingsStore');
+        const boatId = useSettingsStore.getState().activeVesselId;
+        return typeof boatId === 'string' && boatId ? boatId : null;
+    } catch {
+        return null;
+    }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -313,10 +356,14 @@ async function pairPiWhenCloudIsAvailable(scope: AuthIdentityScope, allowInterne
         if (!isAuthIdentityScopeCurrent(scope)) return false;
         const base = (supabaseUrl || '').replace(/\/$/, '');
         if (!base) return false;
+        // Name the hull. The server stamps pi_diary_relays.boat_id only after
+        // proving this account owns the boat, so this is a hint, not a claim.
+        const boatId = await activeOwnedBoatIdForPairing();
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
         const response = await fetch(`${base}/functions/v1/diary-relay`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ action: 'pair', relay_id: relayId }),
+            body: JSON.stringify({ action: 'pair', relay_id: relayId, boat_id: boatId }),
             signal: AbortSignal.timeout(8_000),
         });
         if (!response.ok || !isAuthIdentityScopeCurrent(scope)) return false;

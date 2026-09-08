@@ -74,11 +74,106 @@ export interface OwnedVesselProfile {
     updated_at: string;
     archived_at?: string | null;
     is_active: boolean;
+    /**
+     * True when `boats.mmsi` holds the CLAIM for this hull (2026-09-08 vessel
+     * claim decision). The profile keeps whatever MMSI the skipper typed for
+     * VHF/DSC; a false here with a 9-digit profile MMSI means another active
+     * Thalassa boat already carries it — advisory on edits, never a refusal.
+     */
+    /** null = the server did not say (a build ahead of migration 20260908170000, or an older cache) — never an advisory. */
+    mmsiClaimed: boolean | null;
+    /** Set by `release_owned_vessel`; the row is also archived. */
+    releasedAt: string | null;
+    releaseReason: ReleaseReason | null;
 }
 
 export interface VesselFleet {
     vessels: OwnedVesselProfile[];
     activeBoatId: string | null;
+}
+
+// ── Release (2026-09-08 decision: "a punter needs a way to release a vessel
+// in case it has been sold, or they were just doing a delivery") ───────────
+
+export type ReleaseReason = 'sold' | 'delivery_complete' | 'other';
+
+/** Mirror of the `release_owned_vessel` jsonb reply, camel-cased. */
+export interface ReleaseVesselResult {
+    released: boolean;
+    remainingActiveBoats: number;
+    nextActiveBoatId: string | null;
+    crewRemoved: number;
+    invitesRevoked: number;
+    relaysRemoved: number;
+    relaysUnmatched: number;
+    telemetryCleared: number;
+    publicPagesDisabled: number;
+}
+
+export interface UndoReleaseResult {
+    restored: boolean;
+    /** The buyer claimed the MMSI meanwhile; the boat came back unclaimed. */
+    claimLost: boolean;
+}
+
+export interface ReleasedVesselRow {
+    boatId: string;
+    name: string;
+    releasedAt: string;
+    releaseReason: ReleaseReason;
+}
+
+/**
+ * Release is never queued in the fleet outbox: a destructive action replaying
+ * later at sea is the wrong surprise. Same shore-side posture as Add vessel.
+ * The store's `releaseBlockedReason()` shows this exact sentence.
+ */
+export const RELEASE_OFFLINE_MESSAGE =
+    'Releasing needs a connection — it disconnects crew, the Pi and the public page in the cloud. Nothing has changed.';
+
+/**
+ * `MMSI_CLAIMED` from create/bootstrap: another ACTIVE boat holds this MMSI.
+ * DETAIL names the claiming boat (name + MMSI are already broadcast on AIS;
+ * the owner is never disclosed), HINT carries the MMSI.
+ */
+export class VesselClaimedError extends Error {
+    readonly vesselName: string;
+    readonly mmsi: string;
+
+    constructor(vesselName: string, mmsi: string) {
+        super(
+            mmsi
+                ? `${vesselName} (MMSI ${mmsi}) is already on Thalassa.`
+                : `${vesselName} is already on Thalassa with this MMSI.`,
+        );
+        this.name = 'VesselClaimedError';
+        this.vesselName = vesselName;
+        this.mmsi = mmsi;
+    }
+}
+
+/**
+ * `VESSEL_RELEASED` from the automatic bootstrap: this account released a
+ * hull matching the local profile, so the stale profile on a second phone
+ * must not resurrect it. Terminal — 'Undo release' or Add vessel is the way
+ * back. DETAIL = name, HINT = `<released_at ISO>|<reason>`.
+ */
+export class VesselReleasedError extends Error {
+    readonly vesselName: string;
+    readonly releasedAt: string | null;
+    readonly reason: ReleaseReason | null;
+
+    constructor(vesselName: string, releasedAt: string | null, reason: ReleaseReason | null) {
+        super(`You released ${vesselName}. Use Undo release or Add vessel to bring her back.`);
+        this.name = 'VesselReleasedError';
+        this.vesselName = vesselName;
+        this.releasedAt = releasedAt;
+        this.reason = reason;
+    }
+}
+
+function isReleaseReason(value: unknown): value is ReleaseReason {
+    return value === 'sold' || value === 'delivery_complete' || value === 'other';
 }
 
 /**
@@ -274,6 +369,7 @@ function normaliseFleetRow(raw: unknown, ownerId: string): OwnedVesselProfile | 
     const profileRaw = raw.profile ?? raw.specification;
     if (!id || owner !== ownerId || !isRecord(profileRaw)) return null;
     const polarSource = raw.polar_source_type;
+    const releaseReasonRaw = raw.release_reason ?? raw.releaseReason;
     return {
         id,
         owner_id: owner,
@@ -291,6 +387,17 @@ function normaliseFleetRow(raw: unknown, ownerId: string): OwnedVesselProfile | 
         updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : new Date(0).toISOString(),
         archived_at: typeof raw.archived_at === 'string' ? raw.archived_at : null,
         is_active: raw.is_active === true,
+        // The RPC rows are snake_case; the fleet cache round-trips this
+        // camel-cased object back through here. Read both spellings, and
+        // treat absent columns as unclaimed/not released so a build shipped
+        // ahead of the 20260908170000_vessel_claim_and_release migration
+        // still loads its fleet.
+        mmsiClaimed:
+            typeof (raw.mmsi_claimed ?? raw.mmsiClaimed) === 'boolean'
+                ? (raw.mmsi_claimed ?? raw.mmsiClaimed) === true
+                : null,
+        releasedAt: stringValue(raw.released_at ?? raw.releasedAt),
+        releaseReason: isReleaseReason(releaseReasonRaw) ? releaseReasonRaw : null,
     };
 }
 
@@ -354,6 +461,11 @@ function isRetiredBoat(scope: AuthIdentityScope, boatId: string): boolean {
 
 function markRetiredBoat(scope: AuthIdentityScope, boatId: string): void {
     retiredBoatKeys.add(boatMutationKey(scope, boatId));
+}
+
+/** 'Undo release' brings a hull back; its edits must be accepted again. */
+function unmarkRetiredBoat(scope: AuthIdentityScope, boatId: string): void {
+    retiredBoatKeys.delete(boatMutationKey(scope, boatId));
 }
 
 async function serialiseBoatMutation<T>(scope: AuthIdentityScope, boatId: string, work: () => Promise<T>): Promise<T> {
@@ -761,7 +873,37 @@ export async function drainQueuedVesselPatches(
     return { flushed, pending };
 }
 
+/**
+ * The claim/release RPCs signal their two business refusals with
+ * `RAISE EXCEPTION '<TOKEN>' USING ERRCODE = 'P0001', DETAIL, HINT`; PostgREST
+ * surfaces those as `message` (starts with the token), `details` and `hint`.
+ * Map them to typed errors BEFORE the generic Error pass-through — a
+ * PostgrestError is itself an Error instance, and the store branches on the
+ * class, never on message text.
+ */
+function typedRpcError(error: unknown): Error | null {
+    if (!isRecord(error) || typeof error.message !== 'string') return null;
+    const details = stringValue(error.details);
+    const hint = stringValue(error.hint);
+    if (error.message.startsWith('MMSI_CLAIMED')) {
+        return new VesselClaimedError(details ?? 'Another Thalassa boat', hint ?? '');
+    }
+    if (error.message.startsWith('VESSEL_RELEASED')) {
+        // Contract: DETAIL = name, HINT = `<released_at>|<reason>`. Tolerate
+        // the earlier draft that packed all three into DETAIL.
+        const detailParts = (details ?? '').split('|');
+        const hintParts = (hint ?? '').split('|');
+        const name = detailParts[0]?.trim() || 'your released vessel';
+        const releasedAt = stringValue(hintParts[0]) ?? stringValue(detailParts[1]);
+        const reasonRaw = stringValue(hintParts[1]) ?? stringValue(detailParts[2]);
+        return new VesselReleasedError(name, releasedAt, isReleaseReason(reasonRaw) ? reasonRaw : null);
+    }
+    return null;
+}
+
 function rpcError(error: unknown, fallback: string): Error {
+    const typed = typedRpcError(error);
+    if (typed) return typed;
     if (error instanceof Error) return error;
     if (isRecord(error) && typeof error.message === 'string') return new Error(error.message);
     return new Error(fallback);
@@ -944,6 +1086,124 @@ export async function archiveOwnedVessel(
         markRetiredBoat(scope, boatId);
         await discardQueuedVesselPatchesForBoat(boatId, scope);
     });
+}
+
+function normaliseReleaseResult(raw: unknown): ReleaseVesselResult {
+    const record = isRecord(raw) ? raw : {};
+    return {
+        released: record.released !== false,
+        remainingActiveBoats: finiteNumber(record.remaining_active_boats, 0),
+        nextActiveBoatId: stringValue(record.next_active_boat_id),
+        crewRemoved: finiteNumber(record.crew_removed, 0),
+        invitesRevoked: finiteNumber(record.invites_revoked, 0),
+        relaysRemoved: finiteNumber(record.relays_removed, 0),
+        relaysUnmatched: finiteNumber(record.relays_unmatched, 0),
+        telemetryCleared: finiteNumber(record.telemetry_cleared, 0),
+        publicPagesDisabled: finiteNumber(record.public_pages_disabled, 0),
+    };
+}
+
+function isOffline(): boolean {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+/**
+ * Release a hull (sold, delivery finished, or something else). Archives under
+ * the same owner so every voyage/track/diary row keeps its `boat_id`; the
+ * server removes crew, unpairs the hull's Pi relay, clears telemetry, darkens
+ * the public page and frees the MMSI. Shares the archive mutation lane so it
+ * can never race an in-flight patch, and is NEVER queued: offline it refuses
+ * with a clear sentence and nothing changes (2026-09-08 decision, gate 2).
+ */
+export async function releaseOwnedVessel(
+    boatId: string,
+    reason: ReleaseReason,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<ReleaseVesselResult> {
+    return serialiseBoatMutation(scope, boatId, async () => {
+        if (isOffline() || !supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) {
+            throw new Error(RELEASE_OFFLINE_MESSAGE);
+        }
+        const { data, error } = await supabase.rpc('release_owned_vessel', { p_boat_id: boatId, p_reason: reason });
+        if (!isAuthIdentityScopeCurrent(scope)) throw new Error('Account changed while releasing vessel');
+        if (error) throw rpcError(error, 'Could not release vessel');
+
+        // Same order as archive: retire first so a patch waiting behind this
+        // release returns terminally rather than re-queueing for a hull that
+        // may belong to someone else by the time it would replay.
+        markRetiredBoat(scope, boatId);
+        await discardQueuedVesselPatchesForBoat(boatId, scope);
+        return normaliseReleaseResult(data);
+    });
+}
+
+/**
+ * The 'oops' path: un-archive a hull this account released within 30 days.
+ * Crew, relay rows and the public page are NOT restored (the owner re-invites,
+ * re-pairs and re-enables); `claimLost` reports that the buyer claimed the
+ * MMSI meanwhile. Not queued either — undo is meaningful only online.
+ */
+export async function undoVesselRelease(
+    boatId: string,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<UndoReleaseResult> {
+    return serialiseBoatMutation(scope, boatId, async () => {
+        if (isOffline() || !supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) {
+            throw new Error('Undoing a release needs a connection. Nothing has changed.');
+        }
+        const { data, error } = await supabase.rpc('undo_vessel_release', { p_boat_id: boatId });
+        if (!isAuthIdentityScopeCurrent(scope)) throw new Error('Account changed while restoring vessel');
+        if (error) throw rpcError(error, 'Could not undo the release');
+        const record = isRecord(data) ? data : {};
+        const restored = record.restored !== false;
+        if (restored) unmarkRetiredBoat(scope, boatId);
+        return { restored, claimLost: record.claim_lost === true };
+    });
+}
+
+/**
+ * PostgREST's "no such function" reply (PGRST202) — a client shipped ahead of
+ * the 20260908170000_vessel_claim_and_release migration. Deliberately NOT
+ * "message mentions the function":
+ * a permission error naming it must still surface.
+ */
+function isMissingRpc(error: unknown): boolean {
+    if (!isRecord(error)) return false;
+    const message = typeof error.message === 'string' ? error.message : '';
+    const code = typeof error.code === 'string' ? error.code : '';
+    return code === 'PGRST202' || /could not find the function/i.test(message);
+}
+
+/**
+ * Hulls this account released in the last 30 days, newest first, for the
+ * 'You released Serene Summer on 8 Sep (sold)' rows and their Undo button.
+ * A client shipped ahead of the migration sees an empty list, not an error.
+ */
+export async function loadReleasedVessels(
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<ReleasedVesselRow[]> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return [];
+    const { data, error } = await supabase.rpc('get_released_vessels');
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    if (error && isMissingRpc(error)) return [];
+    if (error) throw rpcError(error, 'Could not load released vessels');
+    const rows = Array.isArray(data) ? data : isRecord(data) && Array.isArray(data.vessels) ? data.vessels : [];
+    const ownerId = scope.userId;
+    const released: ReleasedVesselRow[] = [];
+    for (const raw of rows) {
+        const row = normaliseFleetRow(raw, ownerId);
+        if (!row || !row.releasedAt) continue;
+        released.push({
+            boatId: row.id,
+            name: row.profile.name,
+            releasedAt: row.releasedAt,
+            releaseReason: row.releaseReason ?? 'other',
+        });
+    }
+    return released.sort(
+        (left, right) =>
+            Date.parse(right.releasedAt) - Date.parse(left.releasedAt) || left.boatId.localeCompare(right.boatId),
+    );
 }
 
 export function defaultVesselProfile(name = 'New Vessel'): VesselProfile {

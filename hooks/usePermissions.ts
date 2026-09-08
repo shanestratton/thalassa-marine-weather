@@ -11,7 +11,7 @@
  * Enforces access locally even when 200nm offshore.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '../services/supabase';
 import {
     type CrewPermissions,
@@ -194,11 +194,50 @@ function mergeCrewPermissions(role: CrewRole, value: unknown): CrewPermissions {
     ) as unknown as CrewPermissions;
 }
 
+// ── Invalidation ───────────────────────────────────────────────────────────
+//
+// Releasing an owner's LAST boat deletes their `vessel_identity` row on the
+// server (2026-09-08 vessel release decision), which is what ends isSkipper.
+// Without a way to force a re-read, the skipper grant lingered in every
+// mounted hook until remount — harmless but confusing straight after the
+// Release dialog. A module-level version bump re-runs the effect below.
+
+let permissionsVersion = 0;
+const permissionsListeners = new Set<() => void>();
+
+function subscribePermissionsVersion(listener: () => void): () => void {
+    permissionsListeners.add(listener);
+    return () => {
+        permissionsListeners.delete(listener);
+    };
+}
+
+function readPermissionsVersion(): number {
+    return permissionsVersion;
+}
+
+/**
+ * Force every mounted `usePermissions` to re-read the server. The validated
+ * cache is kept as the interim value (a multi-boat owner who released one
+ * hull is still a skipper), so this never flashes RESTRICTED at a skipper.
+ */
+export function invalidatePermissions(): void {
+    permissionsVersion += 1;
+    for (const listener of [...permissionsListeners]) {
+        try {
+            listener();
+        } catch {
+            /* one bad subscriber must not stop the others from re-reading */
+        }
+    }
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────
 
 export function usePermissions(): PermissionsState {
     const currentUserId = useAuthStore((auth) => auth.user?.id ?? null);
     const authChecked = useAuthStore((auth) => auth.authChecked);
+    const version = useSyncExternalStore(subscribePermissionsVersion, readPermissionsVersion, readPermissionsVersion);
     const [scopedState, setScopedState] = useState<ScopedPermissionsState>(() => {
         const cached = currentUserId ? readCachedPermissions(currentUserId) : null;
         return {
@@ -286,7 +325,9 @@ export function usePermissions(): PermissionsState {
         return () => {
             cancelled = true;
         };
-    }, [authChecked, currentUserId]);
+        // `version` is the invalidatePermissions() counter: a bump re-runs
+        // this effect, which re-reads vessel_identity/vessel_crew.
+    }, [authChecked, currentUserId, version]);
 
     // Effects run after paint. Never expose account A's state during the
     // render in which Zustand has already switched to account B.
