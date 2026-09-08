@@ -198,6 +198,8 @@ import {
     isBasemapHybridDuplicateLabelLayer,
 } from './mapHubHelpers';
 import { useDestinationFlag } from './useDestinationFlag';
+import { useFollowRouteStore } from '../../stores/followRouteStore';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useMobMarker } from './useMobMarker';
 import { useAnchorSwingLayer } from './useAnchorSwingLayer';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
@@ -2559,7 +2561,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // current GPS. Hidden when no voyage is active. Deliberately KEPT on
     // OBS after the follow-route line was removed: one flag is the
     // glanceable "going there" without the spaghetti.
-    useDestinationFlag(mapRef, mapReady && !planningSurface);
+    // Tap the destination flag → a centred "stop following?" (Shane
+    // 2026-09-09: a green flag at Lady Musgrave for a route he had not
+    // plugged in, and no way on the chart to ask what it was or drop it).
+    const [stopFollowAsk, setStopFollowAsk] = useState(false);
+    const followedPlan = useFollowRouteStore((s) => s.voyagePlan);
+    useDestinationFlag(mapRef, mapReady && !planningSurface, { onTap: () => setStopFollowAsk(true) });
     // Active MOB fix — plain mapReady, NOT gated on planningSurface: an
     // active MOB must never vanish because the planner happens to be open.
     useMobMarker(mapRef, mapReady);
@@ -4962,6 +4969,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </svg>
                         </button>
                     )}
+
+                {/* Following a route — the flag's own door to stop it. Centred per
+                    the standing modal rule; stopping is reversible (Follow again
+                    from the Log), so the copy explains rather than warns. */}
+                <ConfirmDialog
+                    isOpen={stopFollowAsk && !!followedPlan}
+                    title={
+                        followedPlan
+                            ? `Following ${followedPlan.origin} → ${followedPlan.destination}`
+                            : 'Following a route'
+                    }
+                    message="This route was set to follow on this phone — that is the flag and the line on the chart. Stop following it? The Ship's Log keeps recording either way, and you can follow it again from the Log page."
+                    confirmLabel="Stop following"
+                    cancelLabel="Keep following"
+                    onConfirm={() => {
+                        setStopFollowAsk(false);
+                        useFollowRouteStore.getState().stopFollowing();
+                        // If a track is recording, the public page's route link goes too
+                        // (only if this phone set it — authorship rules apply).
+                        void import('../../services/shiplog/publishFollowedRoute')
+                            .then(({ clearFollowedRoute }) => clearFollowedRoute())
+                            .catch(() => undefined);
+                    }}
+                    onCancel={() => setStopFollowAsk(false)}
+                />
 
                 {/* ═══ ACTION FABS ═══ */}
                 {!embedded && !pickerMode && !planningSurface && !isPinView && (
