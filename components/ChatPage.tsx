@@ -105,6 +105,16 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
     // Loading — must be declared before hooks since they receive setLoading
     const [loading, setLoading] = useState(true);
+    /**
+     * Roles (admin / moderator / muted) are known only once ChatService has
+     * initialised. Channels come back from cache almost instantly, so the list
+     * used to paint before the roles did and the Admin Panel card arrived a
+     * beat later ON TOP of the list — the row under the skipper's thumb moved
+     * (Shane 2026-09-09: "if i go to press the General channel, i end up in
+     * the Crew list channel"). The list waits for both; init is bounded by
+     * the 8 s race below, and a failed init still shows the list.
+     */
+    const [rolesSettled, setRolesSettled] = useState(false);
     const [hasOwnedCrew, setHasOwnedCrew] = useState(false);
     const [hasCrewMembership, setHasCrewMembership] = useState(false);
 
@@ -380,8 +390,11 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 const [chs] = await Promise.all([loadChannels(isCurrent), initWithTimeout]);
                 if (!isCurrent()) return;
 
-                // Roles are now loaded — refresh reactive state immediately
+                // Roles are now loaded — refresh reactive state immediately,
+                // and only now let the channel list paint (one paint, card
+                // and channels together).
                 refreshRoles();
+                setRolesSettled(true);
                 loadUnreadCount();
 
                 // Auto-restore channel if returning from pin-view map
@@ -418,6 +431,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 if (!isCurrent()) return;
                 // Outer catch — loadChannels() or channel restore failed
                 log.warn('Chat init failed — using defaults:', e);
+                setRolesSettled(true);
                 setChannels(
                     DEFAULT_CHANNELS.map((c, i) => ({
                         ...c,
@@ -714,7 +728,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                             )}
                         </div>
                     )}
-                    {loading && view === 'channels' && (
+                    {(loading || !rolesSettled) && view === 'channels' && (
                         <div className="pb-24">
                             <SkeletonChannelList />
                         </div>
@@ -748,7 +762,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     )}
 
                     {/* ══════ SIGN-IN BANNER (dismissible) ══════ */}
-                    {view === 'channels' && !loading && !chatIsAuthed && chatAuthBanner && (
+                    {view === 'channels' && !loading && rolesSettled && !chatIsAuthed && chatAuthBanner && (
                         <AuthBanner
                             onSignIn={() => setShowChatAuth(true)}
                             onDismiss={() => {
@@ -774,7 +788,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     )}
 
                     {/* ══════ CHANNEL LIST ══════ */}
-                    {view === 'channels' && !loading && (
+                    {view === 'channels' && !loading && rolesSettled && (
                         <ChannelList
                             channels={channels}
                             onOpenChannel={openChannel}

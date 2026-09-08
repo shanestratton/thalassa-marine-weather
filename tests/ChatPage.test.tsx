@@ -160,12 +160,15 @@ vi.mock('../components/chat/ChannelList', () => ({
     ChannelList: ({
         onRequestAccess,
         onOpenChannel,
+        isAdmin,
     }: {
         onRequestAccess: (channel: { id: string; name: string }) => void;
         onOpenChannel: (channel: { id: string; name: string }) => void;
+        isAdmin?: boolean;
     }) => (
         <div data-testid="channel-list">
             Channels
+            {isAdmin && <div>Admin card</div>}
             <button onClick={() => onOpenChannel({ id: 'general', name: 'General' })}>Open General</button>
             <button onClick={() => onRequestAccess({ id: 'private-1', name: 'Skippers Lounge' })}>
                 Request private channel
@@ -258,6 +261,31 @@ const renderSettledChatPage = async () => {
 
 describe('ChatPage', () => {
     beforeEach(() => vi.clearAllMocks());
+
+    it('paints the Admin card and the channels together — never the card a beat later on top', async () => {
+        // Shane 2026-09-09: "the Admin card arrives at the moment i try to press
+        // something" — channels came back from cache before the roles did, so
+        // the crown card pushed the row under his thumb down. The list now
+        // waits for the roles; both land in one paint.
+        let finishInit!: () => void;
+        vi.mocked(ChatService.initialize).mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+                finishInit = resolve;
+            }),
+        );
+        vi.mocked(ChatService.isAdmin).mockReturnValue(false); // unknown until init
+        render(<ChatPage />);
+        await waitFor(() => expect(ChatService.getChannels).toHaveBeenCalled());
+        // Channels are in hand, roles are not: still the skeleton, no list.
+        expect(screen.queryByTestId('channel-list')).toBeNull();
+
+        vi.mocked(ChatService.isAdmin).mockReturnValue(true);
+        finishInit();
+        const list = await screen.findByTestId('channel-list');
+        expect(list).toHaveTextContent('Admin card');
+        expect(list).toHaveTextContent('Open General');
+        vi.mocked(ChatService.isAdmin).mockReturnValue(false);
+    });
 
     it('renders without crashing', async () => {
         const { container } = await renderSettledChatPage();
