@@ -47,7 +47,7 @@ describe('isStaleLocalFollow', () => {
         expect(shiplog).toContain('isStaleLocalFollow(follow, this.trackingState.isTracking)');
         const mapHub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(mapHub).toContain(
-            'useDestinationFlag(mapRef, mapReady && !planningSurface, { onTap: () => setStopFollowAsk(true) })',
+            'useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) })',
         );
         expect(mapHub).toContain('confirmLabel="Stop following"');
         expect(mapHub).toContain('cancelLabel="Keep following"');
