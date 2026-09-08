@@ -1042,8 +1042,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 mb-3 rows, mb-4 headers) is sized so the whole page fits an
                 844pt phone without scrolling; smaller phones still scroll. */}
             <div
-                className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 stagger-in"
-                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in"
+                // The ROOT already ends 8px above the tab bar, so this port's own
+                // bottom padding must not repeat that: with the tab-bar calc here
+                // too, a page with nothing expanded still had ~100px of dead
+                // scroll room, and a flick up parked the Diary and Scuttlebutt
+                // tiles under the fixed deck with nothing to snap them back
+                // (Shane 2026-09-09: "the diary and the scuttlebutt pages get
+                // stuck under the 4 cards above them"). pb-4 keeps the last row
+                // clear of the port's edge; overscroll stays inside the port.
+                style={{ overscrollBehaviorY: 'contain' }}
             >
                 {/* Diary + Scuttlebutt lead the scrolling area (Shane
                     2026-08-30). They are the two things opened most often and
