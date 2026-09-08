@@ -13,6 +13,8 @@ import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { saveIdentity } from '../../services/VesselIdentityService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { vesselCrewAboard, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
+import { FLOAT_PLAN_ROLES } from '../../services/floatPlanCrew';
+import type { VesselCrewPerson } from '../../types/vessel';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { AlertTriangleIcon, AnchorIcon, EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
 import { triggerHaptic } from '../../utils/system';
@@ -718,6 +720,18 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         }, 1200);
         return () => clearTimeout(t);
     }, [fleetAvailable, vesselName, vesselType, vesselModel]);
+
+    /** One row per person aboard, padded to the crew count (rank defaults: Skipper first, Crew after). */
+    const crewRosterRows: VesselCrewPerson[] = Array.from({ length: vesselCrewAboard(vessel) }, (_, i) => {
+        const row = vessel?.crewRoster?.[i];
+        return { name: row?.name ?? '', age: row?.age, rank: row?.rank || (i === 0 ? 'Skipper' : 'Crew') };
+    });
+    const updateVesselRoster = (index: number, change: Partial<VesselCrewPerson>) => {
+        const next = crewRosterRows.map((row, i) => (i === index ? { ...row, ...change } : row));
+        const patch = { crewRoster: next } as Partial<VesselProfile>;
+        if (updateActiveFleetProfile({ profile: patch })) return;
+        onSave({ vessel: vesselWithDefaults(patch) });
+    };
 
     const updateVessel = (field: string, value: string | number) => {
         let newEstimatedFields = vessel?.estimatedFields;
@@ -1934,6 +1948,61 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             <p className="text-[11px] text-gray-400 mt-1">
                                 Used for provisioning and watch scheduling in passage plans
                             </p>
+                        </div>
+                        {/* One row per person aboard — name, age, rank — straight
+                            under the count (Shane 2026-09-09: "the same amount of
+                            area to add a punters name and age and rank … those
+                            names should auto xfer across to the float plan"). The
+                            Float Plan seeds its persons roster from these first. */}
+                        <div className="mt-3 space-y-2" data-testid="vessel-crew-roster">
+                            {crewRosterRows.map((person, index) => (
+                                <div
+                                    key={index}
+                                    className="grid grid-cols-[minmax(0,1fr)_3.75rem_7rem] gap-2 items-center"
+                                >
+                                    <input
+                                        type="text"
+                                        aria-label={`Person ${index + 1} name`}
+                                        value={person.name}
+                                        onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
+                                        placeholder={index === 0 ? 'Skipper’s name' : `Person ${index + 1}`}
+                                        className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                    />
+                                    <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        min="0"
+                                        max="120"
+                                        aria-label={`Person ${index + 1} age`}
+                                        value={
+                                            typeof person.age === 'number' && Number.isFinite(person.age)
+                                                ? person.age
+                                                : ''
+                                        }
+                                        onChange={(e) => {
+                                            const n = parseInt(e.target.value, 10);
+                                            updateVesselRoster(index, {
+                                                age: Number.isFinite(n) && n > 0 ? n : undefined,
+                                            });
+                                        }}
+                                        placeholder="Age"
+                                        className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 tabular-nums"
+                                    />
+                                    <select
+                                        aria-label={`Person ${index + 1} rank`}
+                                        value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
+                                        onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
+                                        className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                    >
+                                        {FLOAT_PLAN_ROLES.map((role) => (
+                                            <option key={role} value={role}>
+                                                {role}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            ))}
+                            <p className="text-[11px] text-gray-400">These names carry across to the Float Plan.</p>
                         </div>
                         {vessel?.type === 'sail' && (
                             <div className="mt-4">

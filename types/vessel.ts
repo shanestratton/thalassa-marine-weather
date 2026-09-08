@@ -15,6 +15,14 @@ export interface VesselDimensionUnits {
     volume?: VolumeUnit;
 }
 
+/** A person aboard, as the vessel profile remembers them. */
+export interface VesselCrewPerson {
+    name: string;
+    age?: number;
+    /** One of the Float Plan's roles — Skipper, First mate, Navigator, Engineer, Cook, Deckhand, Crew, Guest, Child. */
+    rank?: string;
+}
+
 export interface VesselProfile {
     name: string;
     type: 'sail' | 'power' | 'observer';
@@ -47,6 +55,14 @@ export interface VesselProfile {
     phoneticName?: string;
     sailNumber?: string;
     crewCount?: number;
+    /**
+     * Who the crewCount IS — one row per person aboard, kept on the vessel so
+     * the skipper types them once (Shane 2026-09-09: "the same amount of area
+     * to add a punters name and age and rank … those names should auto xfer
+     * across to the float plan"). Rows beyond crewCount are ignored; empty
+     * names are skipped when the Float Plan seeds its persons roster.
+     */
+    crewRoster?: VesselCrewPerson[];
     customIconUrl?: string;
     estimatedFields?: string[];
     /**

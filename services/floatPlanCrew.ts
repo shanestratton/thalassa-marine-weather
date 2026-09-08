@@ -32,11 +32,28 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('floatPlanCrew');
 
+/**
+ * Roles a rescue coordinator would recognise, in the order they matter to one.
+ * Shared by the Float Plan's roster and the vessel profile's crew rows so the
+ * two agree (2026-09-09).
+ */
+export const FLOAT_PLAN_ROLES = [
+    'Skipper',
+    'First mate',
+    'Navigator',
+    'Engineer',
+    'Cook',
+    'Deckhand',
+    'Crew',
+    'Guest',
+    'Child',
+] as const;
+
 export type FloatPlanRosterSeed = {
     name: string;
     /** A CREW_ROLES label the sheet's role <select> recognises. */
     role: string;
-    source: 'skipper' | 'crew' | 'invite';
+    source: 'skipper' | 'crew' | 'invite' | 'profile';
     crewUserId?: string | null;
 };
 
@@ -278,4 +295,30 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
         log.warn('float plan crew load failed', error);
         return null;
     }
+}
+
+/**
+ * The vessel profile's own people (Shane 2026-09-09) as Float Plan seeds:
+ * the rows the skipper typed under "Crew Aboard", named ones only, capped at
+ * the crew count, ages carried. These outrank the crew-invite list — they are
+ * the skipper's own answer to "who is aboard".
+ */
+export function rosterSeedsFromVesselProfile(
+    vessel:
+        | { crewCount?: number; crewRoster?: Array<{ name: string; age?: number; rank?: string }> }
+        | null
+        | undefined,
+): Array<FloatPlanRosterSeed & { age: number | null }> {
+    const rows = vessel?.crewRoster ?? [];
+    const cap =
+        typeof vessel?.crewCount === 'number' && Number.isFinite(vessel.crewCount)
+            ? Math.max(1, Math.min(99, Math.round(vessel.crewCount)))
+            : rows.length;
+    return rows.slice(0, cap).flatMap((row, index) => {
+        const name = (row?.name ?? '').trim();
+        if (!name) return [];
+        const rank = (row.rank ?? '').trim();
+        const age = typeof row.age === 'number' && Number.isFinite(row.age) && row.age > 0 ? Math.round(row.age) : null;
+        return [{ name, role: rank || (index === 0 ? 'Skipper' : 'Crew'), source: 'profile' as const, age }];
+    });
 }

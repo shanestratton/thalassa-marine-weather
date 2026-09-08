@@ -32,7 +32,12 @@ import {
 } from '../../services/shiplog/plannedRouteNaming';
 import { destNameFromRouteName, stripLegBadge } from '../../services/routeTracer';
 import { vesselCrewAboard } from '../../services/units';
-import { loadFloatPlanCrew, type FloatPlanRosterSeed } from '../../services/floatPlanCrew';
+import {
+    FLOAT_PLAN_ROLES,
+    loadFloatPlanCrew,
+    rosterSeedsFromVesselProfile,
+    type FloatPlanRosterSeed,
+} from '../../services/floatPlanCrew';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 const log = createLogger('FloatPlanSheet');
@@ -61,7 +66,7 @@ export interface FloatPlanPreset {
  * added by the skipper tapping a chip and `manual` rows were typed — both are
  * the skipper's own decisions and survive a refresh.
  */
-type RosterRowSource = 'skipper' | 'crew' | 'invite' | 'manual';
+type RosterRowSource = 'skipper' | 'crew' | 'invite' | 'manual' | 'profile';
 
 interface RosterRow {
     name: string;
@@ -93,17 +98,7 @@ interface FloatPlanSheetProps {
  * A dropdown rather than free text: five skippers type five formats, and
  * "who is in charge" is the first thing asked on the phone.
  */
-const CREW_ROLES = [
-    'Skipper',
-    'First mate',
-    'Navigator',
-    'Engineer',
-    'Cook',
-    'Deckhand',
-    'Crew',
-    'Guest',
-    'Child',
-] as const;
+const CREW_ROLES = FLOAT_PLAN_ROLES;
 
 interface TransferFailure {
     action: 'copy' | 'share';
@@ -291,6 +286,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     // an unaccepted invite is not a person aboard (Shane 2026-09-08).
     const [invitedCrew, setInvitedCrew] = useState<FloatPlanRosterSeed[]>([]);
     const [rosterFromCrew, setRosterFromCrew] = useState(false);
+    /** The roster came from the vessel profile's own people (Shane 2026-09-09) — the skipper's list, not the invites. */
+    const [rosterFromProfile, setRosterFromProfile] = useState(false);
     // Once the skipper has touched the People-aboard stepper the crew count
     // must not overwrite their number, however late the load lands.
     const personsTouchedRef = useRef(false);
@@ -422,9 +419,29 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         if (personsRosterRef.current.length > 0) return;
         const scope = getAuthIdentityScope();
         let cancelled = false;
+        // The vessel profile's own people come first (Shane 2026-09-09: the
+        // names under "Crew Aboard" "auto xfer across to the float plan"). They
+        // are the skipper's answer to who is aboard; the crew-invite list then
+        // only offers its pending invitees as chips.
+        const profileSeeds = rosterSeedsFromVesselProfile(vessel);
+        const seededFromProfile = profileSeeds.length > 0;
+        if (seededFromProfile) {
+            setPersonsRoster(
+                profileSeeds.map((seed) => ({
+                    ...rosterRowFromSeed(seed),
+                    age: seed.age === null ? '' : String(seed.age),
+                })),
+            );
+            setRosterFromProfile(true);
+            if (!personsTouchedRef.current) setPersonsOnBoard(profileSeeds.length);
+        }
         void (async () => {
             const result = await loadFloatPlanCrew(voyage?.id ?? null);
             if (cancelled || !result || !isAuthIdentityScopeCurrent(scope)) return;
+            if (seededFromProfile) {
+                setInvitedCrew(result.invited);
+                return;
+            }
             if (personsRosterRef.current.length > 0) return;
             const named = result.aboard.filter((seed) => seed.name.trim().length > 0);
             if (result.aboard.length > 0) {
@@ -439,6 +456,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         return () => {
             cancelled = true;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- one prefill per open; the profile is read once
     }, [voyage?.id]);
 
     // Until the skipper touches the stepper, a roster that came from the crew
@@ -449,9 +467,9 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     // never drives the count — the vessel-profile souls rule (2026-08-26)
     // stands there.
     useEffect(() => {
-        if (!rosterFromCrew || personsTouchedRef.current) return;
+        if (!(rosterFromCrew || rosterFromProfile) || personsTouchedRef.current) return;
         if (personsRoster.length > 0) setPersonsOnBoard(Math.min(99, personsRoster.length));
-    }, [rosterFromCrew, personsRoster]);
+    }, [rosterFromCrew, rosterFromProfile, personsRoster]);
 
     /**
      * Re-read the crew list on request. Replaces only the rows that came from
@@ -830,12 +848,16 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     names came from the crew list, and a text button to re-read
                     it — no toast, nothing modal. The button only shows for a
                     signed-in skipper; anyone else has no crew list to read. */}
-                {(rosterFromCrew || signedIn) && (
+                {(rosterFromCrew || rosterFromProfile || signedIn) && (
                     <div className="mb-2 flex items-center justify-between gap-3">
                         <p className="text-[11px] leading-relaxed text-violet-200/70">
-                            {rosterFromCrew ? 'From your crew list — edit, add or remove as you like.' : ''}
+                            {rosterFromProfile
+                                ? 'From your vessel profile — edit, add or remove as you like.'
+                                : rosterFromCrew
+                                  ? 'From your crew list — edit, add or remove as you like.'
+                                  : ''}
                         </p>
-                        {signedIn && (
+                        {signedIn && !rosterFromProfile && (
                             <button
                                 type="button"
                                 onClick={() => void refreshRosterFromCrew()}

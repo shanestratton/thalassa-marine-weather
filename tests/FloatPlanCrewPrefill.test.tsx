@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
         liferaftCapacity: 6,
         flaresExpiry: '2027-06-30',
         contactPhone: '+61 400 000 000',
+        crewCount: undefined as number | undefined,
+        crewRoster: undefined as Array<{ name: string; age?: number; rank?: string }> | undefined,
     },
 }));
 
@@ -100,6 +102,8 @@ describe('FloatPlanSheet crew prefill', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setAuthIdentityScope('owner-1');
+        mocks.vessel.crewCount = undefined;
+        mocks.vessel.crewRoster = undefined;
     });
 
     afterEach(() => {
@@ -169,6 +173,28 @@ describe('FloatPlanSheet crew prefill', () => {
         expect(peopleAboard()).toBe('5');
         fireEvent.click(screen.getByRole('button', { name: 'Remove person 4' }));
         expect(peopleAboard()).toBe('5');
+    });
+
+    it('the vessel profile’s own people come first — names, ranks and ages, with the count to match', async () => {
+        // Shane 2026-09-09: the rows under "Crew Aboard" "auto xfer across to the float plan".
+        mocks.vessel.crewCount = 2;
+        mocks.vessel.crewRoster = [
+            { name: 'Shane Stratton', age: 58, rank: 'Skipper' },
+            { name: 'Aunt Beryl', age: 71, rank: 'Guest' },
+            { name: 'Left behind', rank: 'Crew' }, // beyond the crew count — not aboard
+        ];
+        load.mockResolvedValue({ aboard: [SKIPPER, MARTA, LEE], invited: [TOM] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(screen.getByTestId('float-plan-invite-chip')).toBeInTheDocument());
+        expect(nameInputs().map((input) => input.value)).toEqual(['Shane Stratton', 'Aunt Beryl']);
+        expect((screen.getByLabelText('Person 1 role') as HTMLSelectElement).value).toBe('Skipper');
+        expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('Guest');
+        expect((screen.getByLabelText('Person 2 age') as HTMLInputElement).value).toBe('71');
+        expect(peopleAboard()).toBe('2');
+        expect(screen.getByText('From your vessel profile — edit, add or remove as you like.')).toBeInTheDocument();
+        // The crew list is not layered on top of the skipper's own list; only its invitees are offered.
+        expect(nameInputs().map((input) => input.value)).not.toContain('Lee Chen');
+        expect(screen.queryByTestId('float-plan-roster-refresh')).toBeNull();
     });
 
     it('offers a pending invitee as a chip that adds a row and disappears', async () => {
