@@ -2774,8 +2774,11 @@ check(
         // HTTPS relay — never the Capacitor-3 UDP path this gate exists to
         // keep dead, which every assertion above still enforces. The card's
         // own fail-closed state is the new pinned copy: with no relay
-        // configured it says so and sends nothing.
-        read('components/vessel/NmeaPage.tsx').includes('This build has no share relay configured'),
+        // configured it says so and sends nothing. The card moved from the
+        // NMEA Gateway page to Settings → Preferences on 2026-09-09
+        // (41e1c58f, "Share what you hear"); the copy and the rule came with it.
+        read('components/settings/FleetSharingSection.tsx').includes('This build has no share relay configured') &&
+        read('components/settings/GeneralTab.tsx').includes('<FleetSharingSection />'),
 );
 check(
     'Vite client Supabase key has no generic server-key fallback',
