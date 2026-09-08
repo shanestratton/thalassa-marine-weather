@@ -5,6 +5,7 @@
 import React from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
+import { AestheticsSections } from './AestheticsTab';
 import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
 import type { LengthUnit, OffshoreModel } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
@@ -152,6 +153,10 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </div>
             </Section>
+            {/* Appearance — Display Mode, Visual Preferences, Display Orientation.
+                The Aesthetics tab folded in here (Shane 2026-09-09). */}
+            <AestheticsSections settings={settings} onSave={onSave} />
+
             {/* AIS crowd-feed consent — moved here from the NMEA Gateway page
                 (Shane 2026-09-09: "i want to move most toggles there"). */}
             <Section title="Share what you hear">
