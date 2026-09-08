@@ -123,7 +123,7 @@ describe('public-beta privacy contract', () => {
     });
 
     /**
-     * The consent sheet in NmeaPage makes promises the terms have to back. If
+     * The consent sheet (FleetSharingSection, in Preferences) makes promises the terms have to back. If
      * the two ever drift, the disclosure a skipper agreed to and the document
      * that governs it stop matching — and the promise that matters most here
      * is the one that cannot be walked back: opting in publishes their own
@@ -132,7 +132,9 @@ describe('public-beta privacy contract', () => {
     it('backs the AIS sharing consent sheet with matching terms', () => {
         const terms = read('public/terms.html');
         const normalized = terms.replace(/\s+/g, ' ');
-        const sheet = read('components/vessel/NmeaPage.tsx');
+        // The consent card lived on the NMEA Gateway page until 41e1c58f
+        // (2026-09-09) moved it to Settings → Preferences → "Share what you hear".
+        const sheet = read('components/settings/FleetSharingSection.tsx');
 
         // AISHub must be named as a recipient, not left as "service providers".
         expect(terms).toContain('AISHub');
