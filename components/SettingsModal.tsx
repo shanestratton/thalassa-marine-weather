@@ -9,7 +9,6 @@ import { useSettings } from '../context/SettingsContext';
 import { GpsService } from '../services/GpsService';
 
 import { AlertsTab } from './settings/AlertsTab';
-import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
@@ -73,7 +72,7 @@ const NavButton = React.memo(
 
 // Section, Row — imported from ./settings/SettingsPrimitives
 
-type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'boatNetwork' | 'voyageLog';
+type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'locations' | 'boatNetwork' | 'voyageLog';
 
 /**
  * Section grouping for the Settings tab list.
@@ -88,18 +87,17 @@ type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'lo
  * Now grouped into four sections, declared in render order:
  *   - essentials      — what every user actually configures
  *   - sharing         — outward-facing (cloud sync, public log)
- *   - appearance      — personalisation
+ *   - (appearance folded into Preferences → General on 2026-09-09)
  *   - advanced        — boat-hardware + integrations, collapsed
  *
  * The Advanced section collapses by default (via <details>) so it
  * doesn't take cognitive space until the user goes looking for it.
  */
-type SettingsGroup = 'essentials' | 'sharing' | 'appearance' | 'advanced';
+type SettingsGroup = 'essentials' | 'sharing' | 'advanced';
 
 const SETTINGS_GROUPS: { id: SettingsGroup; label: string; collapsibleByDefault: boolean }[] = [
     { id: 'essentials', label: 'Essentials', collapsibleByDefault: false },
     { id: 'sharing', label: 'Account & Sharing', collapsibleByDefault: false },
-    { id: 'appearance', label: 'Appearance', collapsibleByDefault: false },
     { id: 'advanced', label: 'Advanced — Boat Hardware & Integrations', collapsibleByDefault: true },
 ];
 
@@ -178,16 +176,8 @@ const MENU_ITEMS: {
         group: 'sharing',
     },
 
-    // ── APPEARANCE ──────────────────────────────────────────────
-    {
-        id: 'scenery',
-        label: 'Aesthetics',
-        description: 'Theme, colours & environment',
-        icon: (c) => <StarIcon className={c} />,
-        iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
-        iconHoverBg: 'group-hover:bg-sky-500/25',
-        group: 'appearance',
-    },
+    // ── APPEARANCE ── folded into Preferences on 2026-09-09 (Shane: "move the
+    // entire aesthetics page to a section inside the preference page").
 
     // ── ADVANCED — collapsed by default ─────────────────────────
     {
@@ -697,8 +687,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'vessel' && <VesselTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
-
-                        {activeTab === 'scenery' && <AestheticsTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'boatNetwork' && <PiCacheTab settings={settings} onSave={onSave} />}
 

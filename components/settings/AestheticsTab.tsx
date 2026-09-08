@@ -92,7 +92,13 @@ const ORIENTATION_OPTIONS: {
     },
 ];
 
-export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+/**
+ * The three appearance sections, without a page wrapper — mounted inside
+ * Settings → Preferences since 2026-09-09 (Shane: "can we move the entire
+ * aesthetics page to a section inside the preference page"). AestheticsTab
+ * below is the former standalone tab, kept as a thin wrapper.
+ */
+export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const currentOrientation = settings.screenOrientation || 'auto';
     const currentMode = settings.displayMode || 'auto';
     // Device display preference (like theme) — localStorage via screenDim,
@@ -104,7 +110,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
     };
 
     return (
-        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
+        <>
             <Section title="Display Mode">
                 <div className="p-4">
                     <p className="text-xs text-gray-400 mb-4">
@@ -225,6 +231,12 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                     </div>
                 </div>
             </Section>
-        </div>
+        </>
     );
 };
+
+export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => (
+    <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
+        <AestheticsSections settings={settings} onSave={onSave} />
+    </div>
+);
