@@ -362,6 +362,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     const lastHeadingRef = useRef<number>(0);
     const trailCoordsRef = useRef<[number, number][]>([]);
     const swingPointsRef = useRef<LonLat[]>([]);
+    /** Which receiver painted last — the trail and the swing belong to ONE receiver. */
+    const lastSourceRef = useRef<'vessel' | 'phone' | null>(null);
+    /** True once the boat's own receivers have painted in this session. */
+    const vesselSpokeRef = useRef(false);
     // receivedAt of the newest fix — read by the staleness ticker. A ref,
     // not state: a frozen GPS means the watch callback stops firing
     // entirely, so staleness MUST come from an interval, not callbacks.
@@ -418,6 +422,32 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 badgeEl.textContent = sogKts < 0.3 ? 'Anchored' : `${sogKts.toFixed(1)} kts`;
                 badgeEl.style.color = sogKts < 0.3 ? '#94a3b8' : '#38bdf8';
             }
+
+            // ── One receiver per trail ──
+            // The wake trail and the swing envelope are a RECEIVER's story.
+            // When the arbiter changes its mind — the boat feed goes quiet and
+            // the phone takes over, or the Pi comes back — the next point is a
+            // different object in a different place, and joining them drew a
+            // thin blue chord from her berth to the skipper's house (Shane
+            // 2026-09-09: "you get a thin blue line between both spots"). A
+            // change of source starts both again.
+            const source: 'vessel' | 'phone' = viaVessel ? 'vessel' : 'phone';
+            if (viaVessel && lastSourceRef.current === 'phone') {
+                // The boat takes over from the phone: whatever the phone drew
+                // was never her wake. Start clean.
+                trailCoordsRef.current = [];
+                swingPointsRef.current = [];
+                removeTrailLayers(map);
+                removeSwingLayers(map);
+            }
+            lastSourceRef.current = source;
+            if (viaVessel) vesselSpokeRef.current = true;
+            // Once the boat has spoken, the phone is a stand-in for the ARROW
+            // only: it never draws her wake or her swing, and what she drew
+            // stays frozen until she reports again. A skipper walking to the
+            // pub is not the yacht wandering at anchor. A boat with no
+            // instruments (the phone is all she has) keeps both, as before.
+            if (!viaVessel && vesselSpokeRef.current) return;
 
             // ── Trail, or swing envelope at anchor ──
             const newPt: LonLat = [longitude, latitude];
