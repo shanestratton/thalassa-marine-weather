@@ -170,6 +170,35 @@ describe('GuardianPage', () => {
         expect(container).toBeDefined();
     });
 
+    it('docks the arm slider at the foot of the page and lets the alert feed take the rest', async () => {
+        // Shane 2026-09-09: "move the slide to arm vessel to the bottom of the
+        // screen (exactly 8px above the top of the menu bar) and make sure that
+        // the alert feed grows and shrinks to fit."
+        await renderWithProfile();
+        const slider = await screen.findByRole('button', { name: /Arm Guardian vessel watch/ });
+        const dock = slider.closest('[data-testid="guardian-arm-slider-dock"]') as HTMLElement | null;
+        expect(dock).not.toBeNull();
+        const feed = screen.getByTestId('guardian-alert-feed');
+        // The feed comes before the dock, the dock is a direct child of the page
+        // root, and the root's bottom padding is the tab bar plus 8px.
+        expect(feed.compareDocumentPosition(dock!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(dock!.className).toContain('shrink-0');
+        // jsdom re-orders calc() terms; pin the three parts, not the string.
+        const pad = dock!.parentElement?.style.paddingBottom ?? '';
+        expect(pad).toContain('4rem');
+        expect(pad).toContain('8px');
+        expect(pad).toContain('env(safe-area-inset-bottom)');
+        expect(
+            dock!.parentElement?.lastElementChild === dock ||
+                dock!.nextElementSibling?.getAttribute('role') === 'presentation',
+        ).toBe(true);
+        expect(feed.className).toContain('flex-1');
+        expect(feed.className).toContain('min-h-[120px]');
+        expect(feed.querySelector('.overflow-y-auto')).not.toBeNull();
+        // The slider left the scrolling column.
+        expect(feed.parentElement?.contains(dock)).toBe(false);
+    });
+
     it('renders without empty container', async () => {
         const { container } = await renderSettled();
         expect(container.innerHTML.length).toBeGreaterThan(0);
