@@ -19,6 +19,7 @@ import { UndoToast } from './ui/UndoToast';
 import {
     type SharedRegister,
     type CrewMember,
+    type CrewRole,
     PASSAGE_REGISTERS,
     inviteCrew,
     getMyCrew,
@@ -139,6 +140,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showInviteModal, setShowInviteModal] = useState(false);
     const [inviteEmail, setInviteEmail] = useState('');
     const [inviteRegisters, setInviteRegisters] = useState<SharedRegister[]>([]);
+    // Role picker (Shane 2026-09-08): a relief or delivery skipper is invited
+    // as co-skipper rather than handed the hull. Deckhand is the historical
+    // default every invite wrote before the picker existed.
+    const [inviteRole, setInviteRole] = useState<CrewRole>('deckhand');
     const [inviteLoading, setInviteLoading] = useState(false);
     const [inviteError, setInviteError] = useState<string | null>(null);
     const [inviteSuccess, setInviteSuccess] = useState(false);
@@ -359,6 +364,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
             setShowInviteModal(false);
             setInviteEmail('');
+            setInviteRole('deckhand');
             setInviteRegisters([]);
             setInviteLoading(false);
             setInviteError(null);
@@ -1226,6 +1232,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const requestVersion = ++inviteOperationVersion.current;
         const email = inviteEmail.trim();
         const registers = [...inviteRegisters];
+        const role = inviteRole;
         const passageId = selectedPassageId;
         if (!email || registers.length === 0) return;
         const includesPassageAccess = registers.some((register) => PASSAGE_REGISTERS.includes(register));
@@ -1244,7 +1251,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setInviteError(null);
         setInviteSuccess(false);
 
-        const result = await inviteCrew(email, registers, includesPassageAccess ? passageId : undefined);
+        const voyageArg = includesPassageAccess ? passageId : undefined;
+        // The default role keeps the three-argument call so a deckhand invite
+        // is wire-identical to before the 2026-09-08 role picker; only a
+        // deliberately chosen role travels as the fourth argument.
+        const result =
+            role === 'deckhand'
+                ? await inviteCrew(email, registers, voyageArg)
+                : await inviteCrew(email, registers, voyageArg, role);
         if (requestVersion !== inviteOperationVersion.current || !scopeStillOwnsPage(scope)) return;
 
         if (result.success) {
@@ -1258,6 +1272,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 }
                 setShowInviteModal(false);
                 setInviteEmail('');
+                setInviteRole('deckhand');
                 setInviteRegisters([]);
                 setInviteSuccess(false);
                 void loadData();
@@ -1267,6 +1282,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             triggerHaptic('heavy');
         }
         setInviteLoading(false);
+    };
+
+    // One reset for the invite modal — the ModalSheet's X and the crew-code
+    // panel's Done both land here so neither can leave half the form behind.
+    const closeInviteModal = () => {
+        if (!scopeStillOwnsPage(renderScope)) return;
+        inviteOperationVersion.current += 1;
+        if (inviteSuccessTimer.current !== null) {
+            window.clearTimeout(inviteSuccessTimer.current);
+            inviteSuccessTimer.current = null;
+        }
+        setShowInviteModal(false);
+        setInviteLoading(false);
+        setInviteEmail('');
+        setInviteRole('deckhand');
+        setInviteRegisters([]);
+        setInviteError(null);
+        setInviteSuccess(false);
     };
 
     const handleSoftDelete = (member: CrewMember, mode: 'captain' | 'crew') => {
@@ -2047,26 +2080,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             </div>
 
             {/* ── INVITE MODAL ── */}
-            <ModalSheet
-                isOpen={showInviteModal}
-                onClose={() => {
-                    if (!scopeStillOwnsPage(renderScope)) return;
-                    inviteOperationVersion.current += 1;
-                    if (inviteSuccessTimer.current !== null) {
-                        window.clearTimeout(inviteSuccessTimer.current);
-                        inviteSuccessTimer.current = null;
-                    }
-                    setShowInviteModal(false);
-                    setInviteLoading(false);
-                    setInviteEmail('');
-                    setInviteRegisters([]);
-                    setInviteError(null);
-                    setInviteSuccess(false);
-                }}
-                title="Invite Crew Member"
-            >
+            <ModalSheet isOpen={showInviteModal} onClose={closeInviteModal} title="Invite Crew Member">
                 <InviteCrewModal
                     inviteEmail={inviteEmail}
+                    inviteRole={inviteRole}
                     inviteRegisters={inviteRegisters}
                     inviteLoading={inviteLoading}
                     inviteError={inviteError}
@@ -2074,12 +2091,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     onEmailChange={(value) => {
                         if (scopeStillOwnsPage(renderScope)) setInviteEmail(value);
                     }}
+                    onRoleChange={(role) => {
+                        if (scopeStillOwnsPage(renderScope)) setInviteRole(role);
+                    }}
                     onToggleRegister={(register) => {
                         if (scopeStillOwnsPage(renderScope)) {
                             toggleRegister(register, inviteRegisters, setInviteRegisters);
                         }
                     }}
                     onInvite={handleInvite}
+                    onDone={closeInviteModal}
                 />
             </ModalSheet>
 

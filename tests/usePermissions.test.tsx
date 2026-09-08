@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -50,7 +50,7 @@ vi.mock('../services/supabase', () => ({
     },
 }));
 
-import { checkPermission, usePermissions } from '../hooks/usePermissions';
+import { checkPermission, invalidatePermissions, usePermissions } from '../hooks/usePermissions';
 
 const noPermissions = {
     can_view_stores: false,
@@ -162,6 +162,28 @@ describe('usePermissions', () => {
         expect(result.current.loaded).toBe(true);
         expect(checkPermission('can_view_stores')).toBe(true);
         expect(checkPermission('can_view_instruments')).toBe(false);
+    });
+
+    it('invalidatePermissions() forces a re-read that drops the skipper grant once vessel_identity is gone', async () => {
+        mocks.vesselResult.data = { owner_id: 'account-a' };
+        const { result } = renderHook(() => usePermissions());
+        await waitFor(() => expect(result.current.isSkipper).toBe(true));
+        expect(checkPermission('can_edit_stores')).toBe(true);
+
+        // Releasing the last boat deleted the owner's vessel_identity row
+        // server-side (2026-09-08 decision). Without an invalidation the
+        // mounted hook would keep saying "skipper" until remount.
+        mocks.vesselResult.data = null;
+        act(() => {
+            invalidatePermissions();
+        });
+
+        await waitFor(() => expect(result.current.isSkipper).toBe(false));
+        expect(result.current.loaded).toBe(true);
+        expect(result.current.role).toBe('punter');
+        expect(result.current.canManageCrew).toBe(false);
+        // The account-scoped cache followed, so non-React checks agree.
+        expect(checkPermission('can_edit_stores')).toBe(false);
     });
 
     it('rejects missing, malformed, generic, and mismatched-user cache grants', () => {

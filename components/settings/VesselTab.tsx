@@ -11,12 +11,20 @@ import type { ComfortParams } from '../../types/settings';
 import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { saveIdentity } from '../../services/VesselIdentityService';
-import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { vesselCrewAboard, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
+import { AlertTriangleIcon, AnchorIcon, EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
 import { triggerHaptic } from '../../utils/system';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { JoinVessel } from '../crew/JoinVessel';
+// Types only: the tab stays decoupled from the fleet service at runtime (see
+// FleetStoreSurface below) and merely agrees on the release vocabulary.
+import type { ReleaseReason, ReleaseVesselResult, UndoReleaseResult } from '../../services/VesselFleetService';
+import { ReleaseVesselDialog } from './ReleaseVesselDialog';
+import { ReleaseResultDialog, type ReleaseOutcome } from './ReleaseResultDialog';
 
 /**
  * The fleet store is deliberately read through this small compatibility
@@ -51,15 +59,36 @@ interface FleetStoreSurface {
     archiveVesselProfile?: (vesselId: string) => unknown;
     patchActiveVesselProfile?: (patch: FleetProfileUpdate) => unknown;
     syncVesselFleet?: () => unknown;
+    // 2026-09-08 vessel release decision. All optional so a tab built ahead
+    // of the store (or an isolated test) degrades to the archive-only surface.
+    releaseVesselProfile?: (vesselId: string, reason: ReleaseReason) => unknown;
+    undoVesselRelease?: (vesselId: string) => unknown;
+    releasedVessels?: unknown;
+    vesselClaimConflict?: unknown;
+    dismissVesselClaimConflict?: () => void;
+    releaseBlockedReason?: () => string | null;
 }
 
 interface FleetVesselOption {
     id: string;
     vessel: Partial<VesselProfile>;
     archived: boolean;
+    /**
+     * The cloud's claim verdict for this hull's MMSI (claimFlow step 5): false
+     * means another active Thalassa boat holds it. null when the row predates
+     * the column, so the advisory stays silent rather than guessing.
+     */
+    mmsiClaimed: boolean | null;
 }
 
-type FleetBusyAction = 'add' | 'archive' | 'sync' | null;
+interface ReleasedVesselOption {
+    boatId: string;
+    name: string;
+    releasedAt: string;
+    releaseReason: ReleaseReason;
+}
+
+type FleetBusyAction = 'add' | 'archive' | 'release' | 'undo' | 'sync' | null;
 
 interface FleetStatusDisplay {
     label: string;
@@ -103,11 +132,13 @@ function fleetOptionFromUnknown(value: unknown): FleetVesselOption | null {
         value.isArchived === true ||
         typeof value.archived_at === 'string' ||
         typeof value.archivedAt === 'string';
+    const claimed = value.mmsiClaimed ?? value.mmsi_claimed;
 
     return {
         id,
         vessel: nestedProfile as Partial<VesselProfile>,
         archived,
+        mmsiClaimed: typeof claimed === 'boolean' ? claimed : null,
     };
 }
 
@@ -122,6 +153,181 @@ function fleetOptionsFromUnknown(value: unknown): FleetVesselOption[] {
 function fleetActionResultId(value: unknown): string | null {
     if (!isRecord(value)) return null;
     return firstString(value.id, value.vessel_id, value.vesselId, value.boat_id, value.boatId);
+}
+
+// ── Release / Undo / MMSI claim (2026-09-08 decision) ────────────────────────
+// Read through the same tolerant adapters as the fleet rows: the store is the
+// source of truth, and an older store simply yields nothing here.
+
+function releaseReasonFromUnknown(value: unknown): ReleaseReason {
+    return value === 'sold' || value === 'delivery_complete' ? value : 'other';
+}
+
+function releasedVesselsFromUnknown(value: unknown): ReleasedVesselOption[] {
+    if (!Array.isArray(value)) return [];
+    const rows: ReleasedVesselOption[] = [];
+    for (const raw of value) {
+        if (!isRecord(raw)) continue;
+        const boatId = firstString(raw.boatId, raw.boat_id, raw.id);
+        const releasedAt = firstString(raw.releasedAt, raw.released_at);
+        if (!boatId || !releasedAt) continue;
+        rows.push({
+            boatId,
+            name: firstString(raw.name, isRecord(raw.profile) ? raw.profile.name : null) ?? 'Unnamed vessel',
+            releasedAt,
+            releaseReason: releaseReasonFromUnknown(raw.releaseReason ?? raw.release_reason),
+        });
+    }
+    return rows;
+}
+
+function claimConflictFromUnknown(value: unknown): { vesselName: string; mmsi: string } | null {
+    if (!isRecord(value)) return null;
+    const vesselName = firstString(value.vesselName, value.vessel_name);
+    if (!vesselName) return null;
+    return { vesselName, mmsi: mmsiDigits(value.mmsi) };
+}
+
+function finiteCount(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function releaseResultFromUnknown(value: unknown): ReleaseVesselResult | null {
+    if (!isRecord(value)) return null;
+    return {
+        released: value.released !== false,
+        remainingActiveBoats: finiteCount(value.remainingActiveBoats),
+        nextActiveBoatId: firstString(value.nextActiveBoatId),
+        crewRemoved: finiteCount(value.crewRemoved),
+        invitesRevoked: finiteCount(value.invitesRevoked),
+        relaysRemoved: finiteCount(value.relaysRemoved),
+        relaysUnmatched: finiteCount(value.relaysUnmatched),
+        telemetryCleared: finiteCount(value.telemetryCleared),
+        publicPagesDisabled: finiteCount(value.publicPagesDisabled),
+    };
+}
+
+function undoResultFromUnknown(value: unknown): UndoReleaseResult | null {
+    if (!isRecord(value)) return null;
+    return { restored: value.restored !== false, claimLost: value.claimLost === true };
+}
+
+/** The radio labels, lower-cased for 'You released Serene Summer on 8 Sep 2026 (sold)'. */
+function releaseReasonLabel(reason: ReleaseReason): string {
+    if (reason === 'sold') return 'sold';
+    if (reason === 'delivery_complete') return 'delivery finished';
+    return 'something else';
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** '8 Sep 2026' in the device's local day — hand-rolled so ICU's 'Sept' never creeps in. */
+function formatReleaseDate(iso: string): string {
+    const time = Date.parse(iso);
+    if (!Number.isFinite(time)) return iso;
+    const date = new Date(time);
+    return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function mmsiDigits(value: unknown): string {
+    return typeof value === 'string' ? value.replace(/\D/g, '') : '';
+}
+
+interface MmsiClaimBannerProps {
+    conflict: { vesselName: string; mmsi: string };
+    /** Set once the crew code was redeemed, so the banner can point at the remaining step. */
+    joinedCrewOf: string | null;
+    busy: boolean;
+    onEnterCrewCode: () => void;
+    onSaveWithoutMmsi: () => void;
+    onDismiss: () => void;
+}
+
+/**
+ * claimFlow step 4 (2026-09-08): the automatic bootstrap was refused because
+ * another ACTIVE Thalassa boat holds this MMSI. Centred and focus-trapped
+ * like every dialog. The two escapes are the design's: a crew code (the only
+ * way onto someone else's hull) or saving without the MMSI (the boat then
+ * bootstraps unclaimed). The name shown is the claiming BOAT's, which AIS
+ * already broadcasts beside the MMSI; the owner is never disclosed.
+ */
+function MmsiClaimBanner({
+    conflict,
+    joinedCrewOf,
+    busy,
+    onEnterCrewCode,
+    onSaveWithoutMmsi,
+    onDismiss,
+}: MmsiClaimBannerProps) {
+    const crewCodeRef = useRef<HTMLButtonElement>(null);
+    const trapRef = useFocusTrap<HTMLDivElement>(true, { initialFocusRef: crewCodeRef, onEscape: onDismiss });
+    const { vesselName, mmsi } = conflict;
+    const lead = mmsi
+        ? `${vesselName} (MMSI ${mmsi}) is already on Thalassa.`
+        : `${vesselName} is already on Thalassa with this MMSI.`;
+
+    return (
+        <OverlayPortal
+            className="flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mmsi-claim-title"
+            aria-describedby="mmsi-claim-body"
+            ref={trapRef}
+        >
+            <div className="absolute inset-0 bg-black/60" role="presentation" onClick={onDismiss} />
+            <div
+                data-testid="mmsi-claim-panel"
+                className="relative w-full max-w-sm max-h-[80dvh] overflow-y-auto rounded-2xl border border-amber-400/25 bg-slate-900 p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+            >
+                <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-amber-500/15 text-amber-300">
+                    <AlertTriangleIcon className="h-5 w-5" />
+                </div>
+                <h2 id="mmsi-claim-title" className="text-center text-lg font-black text-white">
+                    Already on Thalassa
+                </h2>
+                <p id="mmsi-claim-body" className="mt-2 text-center text-[13px] leading-relaxed text-slate-300">
+                    {lead} Joining her crew? Ask the skipper for a crew code. Bought her? Ask them to release her in
+                    Settings &gt; Vessel.
+                </p>
+                {joinedCrewOf && (
+                    <p
+                        role="status"
+                        className="mt-3 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-[12px] leading-relaxed text-emerald-100"
+                    >
+                        You&apos;ve joined {joinedCrewOf}&apos;s crew. Save without MMSI so your own profile stops
+                        trying to claim her.
+                    </p>
+                )}
+                <div className="mt-5 space-y-2">
+                    <button
+                        ref={crewCodeRef}
+                        type="button"
+                        onClick={onEnterCrewCode}
+                        disabled={busy}
+                        className="w-full min-h-[44px] rounded-xl border border-amber-500/30 bg-linear-to-r from-amber-500/25 to-orange-500/25 py-3 text-sm font-black uppercase tracking-widest text-amber-200 transition-colors hover:from-amber-500/35 hover:to-orange-500/35 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Enter crew code
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onSaveWithoutMmsi}
+                        disabled={busy}
+                        className="w-full min-h-[44px] rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-bold text-slate-100 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        Save without MMSI
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onDismiss}
+                        className="w-full min-h-[44px] rounded-xl py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400 transition-colors hover:text-slate-200"
+                    >
+                        Not now
+                    </button>
+                </div>
+            </div>
+        </OverlayPortal>
+    );
 }
 
 function fleetStatusDisplay(value: unknown, fleetAvailable: boolean): FleetStatusDisplay {
@@ -352,6 +558,55 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [fleetBusyAction, setFleetBusyAction] = useState<FleetBusyAction>(null);
     const [fleetActionError, setFleetActionError] = useState<string | null>(null);
     const [archiveCandidate, setArchiveCandidate] = useState<FleetVesselOption | null>(null);
+    // 2026-09-08 vessel release decision — Release / Undo / MMSI claim state.
+    const [releaseCandidate, setReleaseCandidate] = useState<FleetVesselOption | null>(null);
+    const [releaseOutcome, setReleaseOutcome] = useState<ReleaseOutcome | null>(null);
+    const [joinVesselOpen, setJoinVesselOpen] = useState(false);
+    const [joinedCrewOf, setJoinedCrewOf] = useState<string | null>(null);
+    // releaseBlockedReason() reads navigator.onLine synchronously; re-render
+    // when the connection flips so the disabled Release button and its helper
+    // text follow it without a tap.
+    const [, setConnectivityTick] = useState(0);
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const bump = () => setConnectivityTick((tick) => tick + 1);
+        window.addEventListener('online', bump);
+        window.addEventListener('offline', bump);
+        return () => {
+            window.removeEventListener('online', bump);
+            window.removeEventListener('offline', bump);
+        };
+    }, []);
+    const releasedVessels = useMemo(
+        () => releasedVesselsFromUnknown(fleetSurface.releasedVessels),
+        [fleetSurface.releasedVessels],
+    );
+    const claimConflict = useMemo(
+        () => claimConflictFromUnknown(fleetSurface.vesselClaimConflict),
+        [fleetSurface.vesselClaimConflict],
+    );
+    // 'Not now' on the claim banner (2026-09-08): dismissing clears the store's
+    // conflict, which re-arms the one-shot bootstrap — and the profile patch
+    // path bootstraps too, so the very next keystroke in the form re-confirms
+    // the same conflict and would re-open a modal over the field being typed
+    // in. Remember which conflict was dismissed and show a one-line inline
+    // reminder under the MMSI field instead, until the MMSI changes or the
+    // skipper asks for the options again. The two real escapes are untouched.
+    const [snoozedConflictKey, setSnoozedConflictKey] = useState<string | null>(null);
+    const claimConflictKey = claimConflict ? `${claimConflict.vesselName}|${claimConflict.mmsi}` : null;
+    const claimConflictSnoozed = claimConflict !== null && claimConflictKey === snoozedConflictKey;
+    const releaseAvailable = fleetAvailable && typeof fleetSurface.releaseVesselProfile === 'function';
+    const releaseBlockedReason = releaseAvailable ? (fleetSurface.releaseBlockedReason?.() ?? null) : null;
+    // claimFlow step 5: PATCH is advisory. Speak only once the cloud has
+    // acknowledged the current profile (green) — the local fleet row keeps the
+    // previous claim verdict until the patch RPC's reply replaces it.
+    const localMmsi = mmsiDigits(vessel?.mmsi);
+    const mmsiClaimAdvisory =
+        fleetAvailable &&
+        syncStatus.tone === 'green' &&
+        /^\d{9}$/.test(localMmsi) &&
+        activeFleetVessel?.mmsiClaimed === false &&
+        mmsiDigits(activeFleetVessel.vessel.mmsi) === localMmsi;
     const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isObserver = vessel?.type === 'observer';
     const keyboardHeight = useKeyboardOffset();
@@ -560,6 +815,62 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         void callFleetAction('archive', () => archiveVesselProfile(target.id));
     };
 
+    // ── Release / Undo / MMSI claim (2026-09-08 decision) ─────────────────
+    const openReleaseDialog = () => {
+        if (!activeFleetVessel || !releaseAvailable) return;
+        setFleetActionError(null);
+        setReleaseCandidate(activeFleetVessel);
+    };
+
+    const releaseFleetVessel = (reason: ReleaseReason) => {
+        const release = fleetSurface.releaseVesselProfile;
+        const target = releaseCandidate;
+        if (!target || !release) return;
+        const scope = getAuthIdentityScope();
+        void (async () => {
+            const result = await callFleetAction('release', () => release(target.id, reason));
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            const parsed = releaseResultFromUnknown(result);
+            // null: the store refused (tracking, offline, server). Its sentence
+            // is already in the dialog via fleetActionError; leave her open.
+            if (!parsed) return;
+            setReleaseCandidate(null);
+            setReleaseOutcome({
+                kind: 'released',
+                vesselName: target.vessel.name?.trim() || 'Your vessel',
+                result: parsed,
+            });
+        })();
+    };
+
+    const undoFleetRelease = (row: ReleasedVesselOption) => {
+        const undo = fleetSurface.undoVesselRelease;
+        if (!undo) return;
+        const scope = getAuthIdentityScope();
+        void (async () => {
+            const result = await callFleetAction('undo', () => undo(row.boatId));
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            const parsed = undoResultFromUnknown(result);
+            if (!parsed) return;
+            setReleaseOutcome({ kind: 'restored', vesselName: row.name, result: parsed });
+        })();
+    };
+
+    const saveWithoutMmsi = () => {
+        // The existing save path: in fleet mode the store clears the conflict
+        // itself when the MMSI changes and the next sync bootstraps her
+        // unclaimed; the explicit dismiss covers the legacy onSave fallback.
+        updateVessel('mmsi', '');
+        fleetSurface.dismissVesselClaimConflict?.();
+        setSnoozedConflictKey(null);
+        setJoinedCrewOf(null);
+    };
+
+    const dismissClaimBanner = () => {
+        setSnoozedConflictKey(claimConflictKey);
+        fleetSurface.dismissVesselClaimConflict?.();
+    };
+
     const syncFleet = () => {
         const syncVesselFleet = fleetSurface.syncVesselFleet;
         if (!syncVesselFleet) {
@@ -753,24 +1064,85 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                     ) : (
                         activeFleetVessel && (
-                            <button
-                                type="button"
-                                aria-label={`Archive ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
-                                onClick={() => setArchiveCandidate(activeFleetVessel)}
-                                disabled={
-                                    fleet.length <= 1 || !fleetSurface.archiveVesselProfile || fleetBusyAction !== null
-                                }
-                                title={
-                                    fleet.length <= 1
-                                        ? 'Keep at least one vessel profile active.'
-                                        : 'Archive this vessel profile'
-                                }
-                                className="mt-3 inline-flex min-h-[44px] items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                <TrashIcon className="h-3.5 w-3.5" />
-                                Archive active vessel
-                            </button>
+                            <div className="mt-3">
+                                <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                                    <button
+                                        type="button"
+                                        aria-label={`Archive ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
+                                        onClick={() => setArchiveCandidate(activeFleetVessel)}
+                                        disabled={
+                                            fleet.length <= 1 ||
+                                            !fleetSurface.archiveVesselProfile ||
+                                            fleetBusyAction !== null
+                                        }
+                                        title={
+                                            fleet.length <= 1
+                                                ? 'Keep at least one vessel profile active.'
+                                                : 'Archive this vessel profile'
+                                        }
+                                        className="inline-flex min-h-[44px] items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                        <TrashIcon className="h-3.5 w-3.5" />
+                                        Archive active vessel
+                                    </button>
+                                    {/* Unlike Archive, Release works on a single-boat fleet: the
+                                        sold-only-boat case is exactly what it exists for
+                                        (2026-09-08 decision). Its only gates are the store's two
+                                        shore-side ones, shown as helper text below. */}
+                                    {releaseAvailable && (
+                                        <button
+                                            type="button"
+                                            aria-label={`Release ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
+                                            onClick={openReleaseDialog}
+                                            disabled={fleetBusyAction !== null || releaseBlockedReason !== null}
+                                            title={
+                                                releaseBlockedReason ??
+                                                'Release this vessel — sold, or a delivery finished'
+                                            }
+                                            className="inline-flex min-h-[44px] items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            <AnchorIcon className="h-3.5 w-3.5" />
+                                            Release this vessel
+                                        </button>
+                                    )}
+                                </div>
+                                {releaseAvailable && releaseBlockedReason && (
+                                    <p role="status" className="mt-1 text-[10px] leading-relaxed text-amber-200/85">
+                                        {releaseBlockedReason}
+                                    </p>
+                                )}
+                            </div>
                         )
+                    )}
+
+                    {/* releaseFlow step 8: the 'oops' path for 30 days. Undo brings the
+                        boat back but not crew, Pi or public page — the result dialog says so. */}
+                    {releasedVessels.length > 0 && (
+                        <ul aria-label="Released vessels" className="mt-3 space-y-2">
+                            {releasedVessels.map((row) => (
+                                <li
+                                    key={row.boatId}
+                                    className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5"
+                                >
+                                    <p className="min-w-0 text-[11px] leading-relaxed text-slate-300">
+                                        You released <strong className="text-white">{row.name}</strong> on{' '}
+                                        {formatReleaseDate(row.releasedAt)} ({releaseReasonLabel(row.releaseReason)})
+                                    </p>
+                                    <button
+                                        type="button"
+                                        aria-label={`Undo release of ${row.name}`}
+                                        onClick={() => undoFleetRelease(row)}
+                                        disabled={fleetBusyAction !== null || !fleetSurface.undoVesselRelease}
+                                        className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-400/12 px-3 text-[10px] font-black uppercase tracking-wide text-cyan-100 transition-colors hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                        <RefreshIcon
+                                            className={`h-3.5 w-3.5 ${fleetBusyAction === 'undo' ? 'animate-spin' : ''}`}
+                                        />
+                                        Undo release
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
                     )}
                 </section>
             )}
@@ -855,6 +1227,25 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     placeholder="9-digit number"
                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
                                 />
+                                {mmsiClaimAdvisory && (
+                                    <p role="status" className="mt-1.5 text-[11px] leading-relaxed text-amber-200/90">
+                                        Another Thalassa boat already carries this MMSI — your profile keeps it, but she
+                                        is claimed by them.
+                                    </p>
+                                )}
+                                {claimConflictSnoozed && claimConflict && (
+                                    <p role="status" className="mt-1.5 text-[11px] leading-relaxed text-amber-200/90">
+                                        {claimConflict.vesselName} is already on Thalassa with this MMSI — she cannot
+                                        join your fleet until you enter a crew code or save without the MMSI.{' '}
+                                        <button
+                                            type="button"
+                                            onClick={() => setSnoozedConflictKey(null)}
+                                            className="font-black uppercase tracking-wide text-amber-100 underline-offset-2 hover:underline"
+                                        >
+                                            Show options
+                                        </button>
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
@@ -1571,6 +1962,48 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                 </div>
             </React.Fragment>
+
+            {/* Release / Undo / MMSI claim dialogs (2026-09-08 decision). All centred,
+                all focus-trapped; nothing here is a toast or a bottom sheet. */}
+            {releaseCandidate && (
+                <ReleaseVesselDialog
+                    isOpen
+                    boatId={releaseCandidate.id}
+                    vesselName={releaseCandidate.vessel.name?.trim() || 'this vessel'}
+                    blockedReason={releaseBlockedReason}
+                    busy={fleetBusyAction === 'release'}
+                    errorMessage={fleetActionError}
+                    onKeep={() => {
+                        if (fleetBusyAction !== 'release') setReleaseCandidate(null);
+                    }}
+                    onRelease={releaseFleetVessel}
+                />
+            )}
+            <ReleaseResultDialog outcome={releaseOutcome} onClose={() => setReleaseOutcome(null)} />
+            {claimConflict && !claimConflictSnoozed && (
+                <MmsiClaimBanner
+                    conflict={claimConflict}
+                    joinedCrewOf={joinedCrewOf}
+                    busy={fleetBusyAction !== null}
+                    onEnterCrewCode={() => setJoinVesselOpen(true)}
+                    onSaveWithoutMmsi={saveWithoutMmsi}
+                    onDismiss={dismissClaimBanner}
+                />
+            )}
+            {/* JoinVessel paints its own full-screen, centred, focus-trapped form;
+                Settings has no other route to it, so it opens here on the nested
+                overlay layer above the banner. */}
+            {joinVesselOpen && (
+                <OverlayPortal layer="nested">
+                    <JoinVessel
+                        onJoined={(name) => {
+                            setJoinVesselOpen(false);
+                            setJoinedCrewOf(name);
+                        }}
+                        onClose={() => setJoinVesselOpen(false)}
+                    />
+                </OverlayPortal>
+            )}
             {/* Save CTA — fixed 8px above the 72px tab bar. In fleet mode this
                 is a real cloud flush, not the old cosmetic green state. */}
             <div

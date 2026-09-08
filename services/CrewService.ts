@@ -250,6 +250,36 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
     },
 };
 
+/**
+ * The permissions an invite grants for a chosen role plus the registers the
+ * skipper ticked. The role preset is the base; the ticked registers decide
+ * the passage flags and the Instrument Panel share on top of it.
+ *
+ * Shane 2026-09-08 (vessel claim/release decision): a delivery or relief
+ * skipper is invited as a co-skipper rather than handed the boat, so the
+ * invite has to carry the role's preset instead of the all-false default it
+ * wrote before. The design text spelled this as
+ * `{...ROLE_DEFAULT_PERMISSIONS[role], ...syncPassagePermissions(registers)}`,
+ * but syncPassagePermissions returns EVERY flag (all-false base), so that
+ * spread would erase the preset — the code here keeps the preset as the base.
+ * The Instrument Panel stays "off unless ticked" for every role, including
+ * co-skipper, because the toggle is the explicit share (Shane 2026-09-07).
+ *
+ * Ship's Stores is the one register whose server gate reads the JSONB flag,
+ * not shared_registers (can_access_vessel_register, 20260723100000:305-328:
+ * `can_view_stores OR can_edit_stores`). So a ticked Stores register has to
+ * raise can_view_stores too, or a punter invited with Stores ticked gets a
+ * row that says 'stores' in shared_registers and is refused at the table.
+ * The redeem RPC derives 'stores' from the same flag, so the crew code agrees.
+ */
+export function crewInvitePermissions(role: CrewRole, registers: SharedRegister[]): CrewPermissions {
+    const preset = ROLE_DEFAULT_PERMISSIONS[role];
+    return syncPassagePermissions(registers, {
+        ...preset,
+        can_view_stores: preset.can_view_stores || registers.includes('stores'),
+    });
+}
+
 export type CrewInviteStatus = 'pending' | 'accepted' | 'declined';
 
 export interface CrewMember {
@@ -334,11 +364,17 @@ export async function lookupUserByEmail(email: string): Promise<{
 /**
  * Invite a crew member by email with specific register permissions.
  * Creates a pending invite that the crew member must accept.
+ *
+ * `role` defaults to deckhand so every existing three-argument caller is
+ * unchanged. The role picker (2026-09-08) passes co-skipper for a relief or
+ * delivery skipper — the invite path is the ONLY way onto someone else's
+ * hull, so the role has to travel with it.
  */
 export async function inviteCrew(
     crewEmail: string,
     registers: SharedRegister[],
     voyageId?: string,
+    role: CrewRole = 'deckhand',
 ): Promise<{ success: boolean; error?: string }> {
     if (!supabase) return { success: false, error: 'Not connected' };
     const scope = captureAuthenticatedScope();
@@ -382,13 +418,17 @@ export async function inviteCrew(
             if (existing.status === 'pending') {
                 return { success: false, error: 'An invite is already pending for this person.' };
             }
-            // If declined, allow re-invite by updating
+            // If declined, allow re-invite by updating. A re-invite is a fresh
+            // offer, so it carries the role chosen NOW and that role's preset
+            // (not the declined row's old flags) — otherwise picking co-skipper
+            // for someone who once declined would silently stay deckhand.
             const { error: updateError } = await supabase
                 .from('vessel_crew')
                 .update({
                     status: 'pending',
                     shared_registers: registers,
-                    permissions: syncPassagePermissions(registers, existing.permissions),
+                    permissions: crewInvitePermissions(role, registers),
+                    role,
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', existing.id)
@@ -413,9 +453,9 @@ export async function inviteCrew(
             crew_email: crewEmail.toLowerCase().trim(),
             owner_email: user.email || '',
             shared_registers: registers,
-            permissions: syncPassagePermissions(registers),
+            permissions: crewInvitePermissions(role, registers),
             status: 'pending',
-            role: 'deckhand',
+            role,
             ...(voyageId ? { voyage_id: voyageId } : {}),
         });
 

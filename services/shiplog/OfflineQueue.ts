@@ -2582,10 +2582,33 @@ function isBisectablePermanentUploadError(error: QueueUploadError): boolean {
     const status = typeof error.status === 'number' ? error.status : null;
     // Restrict dead-lettering to row/payload-specific failures. Unknown,
     // auth, policy, schema, rate, and server failures retain the full queue.
+    // 42501 is deliberately absent: a released/archived boat is a fact about
+    // the vessel, not the track point, so those rows are re-sent with the
+    // boat cleared (isReleasedBoatUploadError) and are never dead-lettered.
     return (
         status === 413 ||
         ['22001', '22003', '22007', '22008', '22P02', '23502', '23505', '23514', '23P01'].includes(code)
     );
+}
+
+/**
+ * `assign_and_validate_operational_boat_id` (20260727120000) refuses a row
+ * whose explicit `boat_id` names a boat the writer no longer owns or that has
+ * since been archived/released — Postgres 42501 with a message that opens
+ * "Operational boat …". Under the 2026-09-08 vessel-release decision a second
+ * device may still be tracking when its skipper releases the hull from another
+ * phone; without this classifier that device's whole queue stalled behind the
+ * first refused chunk. Matched tolerantly (case-insensitive, any whitespace)
+ * so a reworded trigger still routes here. The trigger's sibling message
+ * ("Operational boat association belongs to another user") also matches and
+ * costs one harmless retry, but the queue is owner-scoped and the sync bails
+ * on a user switch, so it cannot fire in practice. Every other 42501 — an RLS
+ * refusal, say — keeps today's transient-failure path untouched.
+ */
+function isReleasedBoatUploadError(error: QueueUploadError): boolean {
+    const code = typeof error.code === 'string' ? error.code.trim().toUpperCase() : '';
+    if (code !== '42501') return false;
+    return typeof error.message === 'string' && /operational\s+boat/i.test(error.message);
 }
 
 function parseDeadLetters(value: string | null, state: QueueState): StoredOfflineQueueDeadLetter[] {
@@ -2753,14 +2776,25 @@ export async function syncOfflineQueue(): Promise<number> {
         const uploadOutcome = await withCloudMutationLock(
             state,
             async (): Promise<'complete' | 'failed' | 'scope-changed'> => {
+                /**
+                 * `clearBoatId` is the one retry allowed for a released/archived
+                 * boat (2026-09-08 decision): every row in the chunk goes back
+                 * with `boat_id: null` so the ownership trigger resolves the
+                 * writer's active owned vessel — or leaves NULL — instead of
+                 * refusing the hull that was just let go. It is threaded through
+                 * bisection so a chunk that was already cleared never re-triggers
+                 * the retry; a second 42501 is kept like any transient failure.
+                 */
                 const uploadChunk = async (
                     sourceChunk: OwnedOfflineEntry[],
+                    clearBoatId = false,
                 ): Promise<'complete' | 'failed' | 'scope-changed'> => {
                     if (!isAuthIdentityScopeCurrent(scope)) return 'scope-changed';
                     const chunk = sourceChunk.map((e) => {
                         const row = toDbFormat({ ...e, userId: ownerUserId });
                         delete row.id; // never ship synthetic/display ids — DB generates real ones
                         row.client_operation_id = e.queue_id;
+                        if (clearBoatId) row.boat_id = null;
                         return row;
                     });
 
@@ -2788,6 +2822,20 @@ export async function syncOfflineQueue(): Promise<number> {
                             code: response.error.code,
                             status: response.status,
                         };
+                        if (!clearBoatId && isReleasedBoatUploadError(uploadError)) {
+                            // Live track points are never dead-lettered for this:
+                            // the boat was released or archived from another
+                            // device while this one kept recording, and the
+                            // points are still this skipper's. Re-send once
+                            // without the boat and let the server attribute them.
+                            log.warn(
+                                `syncOfflineQueue: cloud refused the selected boat for ${sourceChunk.length} row(s) at ` +
+                                    `operation ${sourceChunk[0]?.queue_id ?? 'unknown'} (released or archived) — ` +
+                                    `re-sending once with boat_id cleared`,
+                                typeof uploadError.message === 'string' ? uploadError.message : uploadError,
+                            );
+                            return uploadChunk(sourceChunk, true);
+                        }
                         if (!isBisectablePermanentUploadError(uploadError)) {
                             log.warn(
                                 `syncOfflineQueue: transient/unknown upload failure at operation ` +
@@ -2800,9 +2848,9 @@ export async function syncOfflineQueue(): Promise<number> {
 
                         if (sourceChunk.length > 1) {
                             const midpoint = Math.ceil(sourceChunk.length / 2);
-                            const first = await uploadChunk(sourceChunk.slice(0, midpoint));
+                            const first = await uploadChunk(sourceChunk.slice(0, midpoint), clearBoatId);
                             if (first !== 'complete') return first;
-                            return uploadChunk(sourceChunk.slice(midpoint));
+                            return uploadChunk(sourceChunk.slice(midpoint), clearBoatId);
                         }
 
                         const poison = sourceChunk[0];

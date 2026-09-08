@@ -13,6 +13,14 @@
  * This function must be deployed with JWT verification disabled: the `pair`
  * action authenticates a real user explicitly, while ingestion uses the
  * dedicated per-Pi bearer header.
+ *
+ * Since 2026-09-08 a pairing also records WHICH hull the Pi is bolted to
+ * (`pi_diary_relays.boat_id`). Shane's decision that day: a skipper who sells
+ * the boat, or finishes a delivery, Releases her — and Release cuts only the
+ * relay rows matched to that hull, reporting the rest as unmatched rather
+ * than guessing. Without the stamp the seller's Pi would keep a live token
+ * after the sale. The stamp is resolved server-side from a boat the caller
+ * provably owns; a caller-supplied `boat_id` is a hint, never trusted as is.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -231,7 +239,10 @@ type RelayAuthorization = {
     admin: NonNullable<Awaited<ReturnType<typeof adminClient>>>;
 };
 
-type RelayPairing = Pick<RelayRow, 'owner_id' | 'enabled'>;
+type RelayPairing = Pick<RelayRow, 'owner_id' | 'enabled'> & {
+    /** `boats.id` of the hull this Pi is bolted to; NULL on pairings made before 2026-09-08. */
+    boat_id: string | null;
+};
 
 async function loadRelayPairing(
     admin: RelayAuthorization['admin'],
@@ -239,7 +250,7 @@ async function loadRelayPairing(
 ): Promise<{ relay: RelayPairing | null; unavailable: boolean }> {
     const { data, error } = await admin
         .from('pi_diary_relays')
-        .select('owner_id, enabled')
+        .select('owner_id, enabled, boat_id')
         .eq('relay_id', relayId)
         .maybeSingle();
     if (error) {
@@ -253,7 +264,117 @@ async function loadRelayPairing(
         console.error('[diary-relay] pair lookup returned an invalid relay row');
         return { relay: null, unavailable: true };
     }
-    return { relay: { owner_id: relay.owner_id, enabled: relay.enabled }, unavailable: false };
+    return {
+        relay: {
+            owner_id: relay.owner_id,
+            enabled: relay.enabled,
+            boat_id: typeof relay.boat_id === 'string' ? relay.boat_id : null,
+        },
+        unavailable: false,
+    };
+}
+
+/**
+ * Is `boatId` an ACTIVE boat this caller OWNS? The one proof every candidate
+ * hull passes before it is written to `pi_diary_relays.boat_id` — Release
+ * (2026-09-08) cuts relay rows by `owner_id = me AND boat_id = released`, so
+ * a stamp naming a boat the caller does not own would be a row no Release
+ * can ever reach. A lookup failure reads as "not proven", never as a pairing
+ * failure.
+ */
+async function ownedActiveBoatId(
+    admin: RelayAuthorization['admin'],
+    ownerId: string,
+    boatId: string,
+): Promise<string | null> {
+    const { data, error } = await admin
+        .from('boats')
+        .select('id')
+        .eq('id', boatId)
+        .eq('owner_id', ownerId)
+        .is('archived_at', null)
+        .maybeSingle();
+    if (error) {
+        console.error('[diary-relay] pair boat lookup failed:', error.message);
+        return null;
+    }
+    return typeof (data as { id?: unknown } | null)?.id === 'string' ? (data as { id: string }).id : null;
+}
+
+/**
+ * Which hull is this Pi bolted to? The phone names its active OWNED vessel,
+ * but the server believes that only after proving the caller owns the boat
+ * and it is still active — a `boat_id` the caller does not own is never
+ * written, it is simply ignored. Everything else falls back to the caller's
+ * `user_active_vessels` row, read exactly as telemetry-relay reads it, and to
+ * NULL when they have not chosen a boat. The fallback passes the SAME
+ * ownership proof: `validate_user_active_vessel` (20260727120000) lets that
+ * row point at a boat the caller merely crews on, and a crew member who
+ * TOFU-pairs the skipper's Pi over the LAN must not stamp the skipper's hull
+ * onto a relay row under their own account. A lookup failure never fails the
+ * pairing: the column is nullable and Release reports an unmatched relay
+ * instead of guessing which boat it belonged to.
+ */
+async function resolvePairBoatId(
+    admin: RelayAuthorization['admin'],
+    ownerId: string,
+    requested: string | null,
+): Promise<string | null> {
+    if (requested) {
+        const owned = await ownedActiveBoatId(admin, ownerId, requested);
+        if (owned) return owned;
+        console.warn('[diary-relay] pair named a boat the caller does not own; using their active vessel');
+    }
+
+    const { data: active, error: activeError } = await admin
+        .from('user_active_vessels')
+        .select('boat_id')
+        .eq('user_id', ownerId)
+        .maybeSingle();
+    if (activeError) {
+        console.error('[diary-relay] pair active vessel lookup failed:', activeError.message);
+        return null;
+    }
+    const candidate = typeof (active as { boat_id?: unknown } | null)?.boat_id === 'string'
+        ? (active as { boat_id: string }).boat_id
+        : null;
+    // Already failed the proof above; do not ask twice.
+    if (!candidate || candidate === requested) return null;
+    return ownedActiveBoatId(admin, ownerId, candidate);
+}
+
+/**
+ * Back-fill for rows paired before 2026-09-08: they exist but do not say
+ * which hull they belong to, so Release could not match them and the
+ * seller's Pi would keep a live token (reported as "unmatched"). One opening
+ * of the app on the boat LAN before the sale stamps the row. One UPDATE, best
+ * effort, filtered on NULL so it can never overwrite a stamp; a failure here
+ * is not a pairing failure and this never returns a Response. It runs for a
+ * disabled row too — the stamp is metadata, not the enabled/token transition
+ * that the reset flow owns, and Release should be able to cut a disabled row
+ * for a sold hull as well. A foreign row is never written: the owner check
+ * comes first. On success the in-memory row is updated so the response that
+ * follows reports what the database now holds.
+ */
+async function backfillPairBoatId(
+    admin: RelayAuthorization['admin'],
+    relay: RelayPairing,
+    relayId: string,
+    ownerId: string,
+    boatId: string | null,
+): Promise<void> {
+    if (relay.owner_id !== ownerId || relay.boat_id !== null || !boatId) return;
+    const { error } = await admin
+        .from('pi_diary_relays')
+        .update({ boat_id: boatId, updated_at: new Date().toISOString() })
+        .eq('relay_id', relayId)
+        .eq('owner_id', ownerId)
+        .is('boat_id', null);
+    if (error) {
+        console.error('[diary-relay] pair boat back-fill failed:', error.message);
+        return;
+    }
+    relay.boat_id = boatId;
 }
 
 function existingPairingResponse(relay: RelayPairing, relayId: string, ownerId: string): Response {
@@ -272,7 +393,7 @@ function existingPairingResponse(relay: RelayPairing, relayId: string, ownerId: 
     // the Pi already holds it durably. Reissuing a token every time a phone
     // reconnects creates a dangerous failure window where a Boat-LAN handoff
     // fails after the server has invalidated the Pi's working credential.
-    return json({ relay_id: relayId, owner_id: ownerId, already_paired: true });
+    return json({ relay_id: relayId, owner_id: ownerId, boat_id: relay.boat_id, already_paired: true });
 }
 
 async function pairRelay(req: Request, body: Record<string, unknown>): Promise<Response> {
@@ -285,23 +406,31 @@ async function pairRelay(req: Request, body: Record<string, unknown>): Promise<R
     const admin = await adminClient();
     if (!admin) return json({ error: 'Diary relay is not configured' }, 503);
 
+    // `body.boat_id` is the phone's hint; `boatId` is what the server proved.
+    // The insert and the back-fill below use only the proven value.
+    const boatId = await resolvePairBoatId(admin, caller.userId, nullableBoatId(body.boat_id));
+
     const beforeClaim = await loadRelayPairing(admin, relayId);
     if (beforeClaim.unavailable) {
         return json({ error: 'Diary relay unavailable' }, 503);
     }
-    if (beforeClaim.relay) return existingPairingResponse(beforeClaim.relay, relayId, caller.userId);
+    if (beforeClaim.relay) {
+        await backfillPairBoatId(admin, beforeClaim.relay, relayId, caller.userId, boatId);
+        return existingPairingResponse(beforeClaim.relay, relayId, caller.userId);
+    }
 
     const token = randomToken();
     const tokenHash = await sha256(token);
     const { error: pairError } = await admin.from('pi_diary_relays').insert({
         relay_id: relayId,
         owner_id: caller.userId,
+        boat_id: boatId,
         token_hash: tokenHash,
         enabled: true,
         updated_at: new Date().toISOString(),
     });
     if (!pairError) {
-        return json({ relay_id: relayId, owner_id: caller.userId, token });
+        return json({ relay_id: relayId, owner_id: caller.userId, boat_id: boatId, token });
     }
 
     // `relay_id` is unique. The insert is the atomic first claim; if another
@@ -310,7 +439,10 @@ async function pairRelay(req: Request, body: Record<string, unknown>): Promise<R
     if (pairError.code === '23505') {
         const afterConflict = await loadRelayPairing(admin, relayId);
         if (afterConflict.unavailable) return json({ error: 'Diary relay unavailable' }, 503);
-        if (afterConflict.relay) return existingPairingResponse(afterConflict.relay, relayId, caller.userId);
+        if (afterConflict.relay) {
+            await backfillPairBoatId(admin, afterConflict.relay, relayId, caller.userId, boatId);
+            return existingPairingResponse(afterConflict.relay, relayId, caller.userId);
+        }
 
         // A concurrent administrative delete can make a unique conflict
         // briefly unobservable. Retrying an update here would be unsafe,
