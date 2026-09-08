@@ -134,6 +134,48 @@ describe('GpsReceiverStatusService resolver', () => {
         expect(status.detail).toBe('Last GPS sentence 6s ago via Signal K Server · DGPS · 12 sats · HDOP 0.8');
     });
 
+    it('the boat through the Pi over the LAN is her on-board GPS — the same answer the ℹ panel gives', () => {
+        // 2026-09-09: this card said "iPhone GPS in use" while the ℹ panel said
+        // the yacht. The Pi's LAN lane IS her instruments (NmeaStore.isBoatFeed).
+        const status = resolveGpsReceiverStatus(
+            input({
+                nmea: {
+                    ...input().nmea,
+                    feedStatus: 'live',
+                    fixAgeMs: 1_500,
+                    satellites: 11,
+                    hdop: 0.9,
+                    qualityLabel: 'GPS',
+                    remote: { via: 'lan', ageMs: 1_500 },
+                },
+                native: { ...input().native, source: { ...input().native.source, hasLocation: true } },
+            }),
+        );
+        expect(status).toMatchObject({ active: true, kind: 'vessel-nmea', label: 'On-board GPS', deviceName: null });
+        expect(status.detail).toBe('Live via the Pi · GPS · 11 sats · HDOP 0.9');
+    });
+
+    it('a stale Pi lane still names her, with the age', () => {
+        const status = resolveGpsReceiverStatus(
+            input({
+                nmea: { ...input().nmea, feedStatus: 'stale', fixAgeMs: 8_000, remote: { via: 'lan', ageMs: 8_000 } },
+            }),
+        );
+        expect(status.kind).toBe('vessel-nmea');
+        expect(status.detail).toContain('Last GPS sentence 8s ago via the Pi');
+    });
+
+    it('her cloud row is hers too, marked as the boat seen from a distance that steers nothing here', () => {
+        const status = resolveGpsReceiverStatus(
+            input({
+                nmea: { ...input().nmea, feedStatus: 'unavailable', remote: { via: 'cloud', ageMs: 12_000 } },
+                native: { ...input().native, source: { ...input().native.source, hasLocation: true } },
+            }),
+        );
+        expect(status).toMatchObject({ active: true, kind: 'vessel-nmea', label: 'On-board GPS' });
+        expect(status.detail).toBe('Through the cloud · 12s ago · this phone steers by its own GPS');
+    });
+
     it('shows a connected vessel gateway honestly when no GPS sentence has arrived', () => {
         const status = resolveGpsReceiverStatus(
             input({

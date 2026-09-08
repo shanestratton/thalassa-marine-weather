@@ -51,6 +51,9 @@ export interface GpsReceiverStatusInput {
         satellites: number | null;
         hdop: number | null;
         qualityLabel: string;
+        /** The store fed without a socket — the Pi over the boat LAN, or her
+         *  cloud row (2026-09-09). Optional so older callers/tests stay drop-in. */
+        remote?: { via: 'lan' | 'cloud'; ageMs: number | null } | null;
     };
     native: NativeGpsReceiverInfo;
     precision: {
@@ -178,6 +181,50 @@ export function resolveGpsReceiverStatus(input: GpsReceiverStatusInput): GpsRece
             },
             input,
         );
+    }
+
+    // The boat through the Pi (2026-09-09). The direct socket is not her only
+    // feed any more: the Pi's LAN lane IS her instruments and counts as her GPS
+    // everywhere else (NmeaStore.isBoatFeed, the ℹ glyph) — yet this card said
+    // "iPhone GPS in use" while the ℹ panel said the yacht. One question, one
+    // answer. Her cloud row is named as hers too, marked for what it is: the
+    // boat seen from a distance, steering nothing on this phone.
+    const remote = nmea.remote ?? null;
+    if (remote?.via === 'lan' && nmea.feedStatus !== 'unavailable') {
+        const detail =
+            nmea.feedStatus === 'live'
+                ? 'Live via the Pi'
+                : `Last GPS sentence ${formatAge(nmea.fixAgeMs ?? 0)} ago via the Pi`;
+        return appendNmeaFixDetails(
+            {
+                active: true,
+                kind: 'vessel-nmea',
+                label: 'On-board GPS',
+                detail,
+                isNmea: true,
+                satellites: nmea.satellites,
+                hdop: nmea.hdop,
+                avgAccuracy: null,
+                qualityLabel: nmea.qualityLabel,
+                deviceName: null,
+            },
+            input,
+        );
+    }
+    if (remote?.via === 'cloud') {
+        const age = remote.ageMs === null ? '' : ` · ${formatAge(remote.ageMs)} ago`;
+        return {
+            active: true,
+            kind: 'vessel-nmea',
+            label: 'On-board GPS',
+            detail: `Through the cloud${age} · this phone steers by its own GPS`,
+            isNmea: true,
+            satellites: nmea.satellites,
+            hdop: nmea.hdop,
+            avgAccuracy: null,
+            qualityLabel: null,
+            deviceName: null,
+        };
     }
 
     const sourceAgeMs = native.source.timestampMs === null ? null : Math.max(0, now - native.source.timestampMs);
@@ -325,6 +372,15 @@ class GpsReceiverStatusServiceClass {
                 satellites: nmeaState.satellites.value === null ? null : Math.round(nmeaState.satellites.value),
                 hdop: nmeaState.hdop.value,
                 qualityLabel: NmeaGpsProvider.getQualityLabel(),
+                remote:
+                    nmeaState.connectionStatus === 'remote' && nmeaState.remote
+                        ? {
+                              via: nmeaState.remote.via,
+                              ageMs: Number.isFinite(nmeaState.remote.receivedAt)
+                                  ? Math.max(0, now - nmeaState.remote.receivedAt)
+                                  : null,
+                          }
+                        : null,
             },
             native: this.nativeInfo,
             precision: {

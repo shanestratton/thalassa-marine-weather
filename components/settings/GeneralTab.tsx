@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
+import { FleetSharingSection } from './FleetSharingSection';
 import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
 import type { LengthUnit, OffshoreModel } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
@@ -150,6 +151,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         </select>
                     </div>
                 </div>
+            </Section>
+            {/* AIS crowd-feed consent — moved here from the NMEA Gateway page
+                (Shane 2026-09-09: "i want to move most toggles there"). */}
+            <Section title="Share what you hear">
+                <FleetSharingSection />
             </Section>
             {/* Offshore model — unlocked during the public beta. */}
             {canAccess(settings.subscriptionTier, 'weatherFull') && (
