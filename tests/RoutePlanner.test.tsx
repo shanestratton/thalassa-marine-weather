@@ -228,7 +228,7 @@ describe('RoutePlanner', () => {
                     { kind: 'load-saved', id: 'comfort-hidden-trip' },
                     expect.objectContaining({ key: 'anonymous' }),
                 );
-                fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+                fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
                 const date = localDateStr(new Date(Date.now() + 3 * 86_400_000));
                 fireEvent.change(screen.getByLabelText('Departure date'), { target: { value: date } });
@@ -241,7 +241,7 @@ describe('RoutePlanner', () => {
                 expect(screen.getByRole('button', { name: /From a past voyage/ })).toBeEnabled();
                 fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
                 expect(await screen.findByRole('dialog', { name: /Saved routes/i })).toBeInTheDocument();
-                fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+                fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
                 const plot = screen.getByRole('button', { name: 'Slide to Start Plotting' });
                 expect(plot).toHaveAttribute('aria-disabled', 'false');
