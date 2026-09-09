@@ -79,7 +79,35 @@ five skips**; 1,100 files passed and four were skipped. Exit status zero,
 `/private/tmp/thalassa-end-voyage-full-unit.log`.
 
 The focused suite totals overlap with this full result; do not add them.
-Packaging and delivery results will be recorded below when complete.
+
+## Frozen build and final browser checks
+
+Runtime commit **7915248f** was committed and pushed to
+`codex/build-107-daylight-split-view`. All four Xcode counters are 110;
+the marketing version remains 1.2.0.
+
+`VITE_APP_BUILD=110 npm run ship:beta` passed under Node 24: source gates,
+TypeScript, production bundle, local route/byte-identity checks, bundle budget,
+iOS sync, secret/artifact checks and **140 release contracts**. Evidence:
+`/private/tmp/thalassa-build110-ship.log`.
+
+- Main: `main-DFjgoEyc.js`.
+- SHA-256: `90a40191fbf73faf2ea9a256a594f476f44cf40569e2154342a45bbca9752531`.
+- CSS: `index-BmvGv2el.css`.
+- Built entry contains runtime `7915248f` and release `thalassa@1.2.0+110`.
+- Every `dist/assets` file matches its synced iOS counterpart byte-for-byte.
+
+Final immutable production startup/Log smoke: **13 passed, one existing
+conditional skip**, zero retries, Chromium and mobile WebKit, 33.4 seconds.
+Evidence: `/private/tmp/thalassa-build110-smoke.log`.
+
+The full 10,000-entry standalone component stress matrix was repeated using
+the final build's CSS: all four browser/width cases passed every page and
+manual callback again. Initial rendering measured 7–19 ms, with a maximum
+timer gap of 73 ms, 1,246 harness elements and no page errors or horizontal
+overflow. This exercises the real component in an isolated harness, not a
+claim of an end-to-end native GPS stop. Evidence:
+`/private/tmp/thalassa-build110-timeline-browser.log`.
 
 ## Device acceptance
 
