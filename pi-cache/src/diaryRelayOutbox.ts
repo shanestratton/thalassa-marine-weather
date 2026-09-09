@@ -566,6 +566,10 @@ export class DiaryRelayOutbox {
         }
 
         this.invalidateUntrustedPersistedRelayUrls();
+        // Earlier versions retained synced diary bodies after the matching
+        // owner-bound cancellation had been acknowledged. Retire only rows
+        // with that durable proof; queued or unbound cancellations cannot purge.
+        this.purgeAcknowledgedEntries();
 
         // The Pi cannot reliably identify an arbitrary uplink as satellite or
         // ordinary Internet on its own. Fail closed after every process boot
@@ -1027,6 +1031,7 @@ export class DiaryRelayOutbox {
      * after a just-completed `synced` handoff.
      */
     getCanonicalEntry(operationId: string): Record<string, unknown> | null {
+        if (this.readCancellation(operationId)) return null;
         const row = this.readRow(operationId);
         if (!row || row.status !== 'synced' || row.needs_repair === 1) return null;
         return parseObject(row.server_entry_json) ?? null;
@@ -1175,14 +1180,19 @@ export class DiaryRelayOutbox {
         try {
             await this.forwardCancellation(relay, operationId);
             const now = this.now();
-            this.db
-                .prepare(
-                    `UPDATE diary_relay_cancellations
-                     SET status = 'synced', last_attempt_at = ?, last_error = NULL,
-                         next_attempt_at = ?, updated_at = ?, synced_at = ?
-                     WHERE operation_id = ? AND status = 'queued'`,
-                )
-                .run(now, now, now, now, operationId);
+            this.db.transaction(() => {
+                this.db
+                    .prepare(
+                        `UPDATE diary_relay_cancellations
+                         SET status = 'synced', needs_repair = 0, last_attempt_at = ?, last_error = NULL,
+                             next_attempt_at = ?, updated_at = ?, synced_at = ?
+                         WHERE operation_id = ? AND relay_owner_id = ? AND status = 'queued'`,
+                    )
+                    .run(now, now, now, now, operationId, relay.ownerId);
+                // The tombstone must outlive the diary body and canonical
+                // snapshot so late device retries remain unable to revive it.
+                this.purgeAcknowledgedEntries(operationId);
+            })();
         } catch (error) {
             if (error instanceof DiaryRelayPermanentError) {
                 this.markCancellationNeedsRepair(operationId, error, relay);
@@ -1594,10 +1604,24 @@ export class DiaryRelayOutbox {
                     )
                     .run(operationId, relay.url, relay.relayId, relay.token, relay.ownerId, now, now, now, now, now);
             }
-            this.db
-                .prepare("DELETE FROM diary_relay_outbox WHERE operation_id = ? AND status = 'queued'")
-                .run(operationId);
+            this.purgeAcknowledgedEntries(operationId);
         })();
+    }
+
+    /** Remove payloads only when the same operation and owner have a confirmed cancellation. */
+    private purgeAcknowledgedEntries(operationId: string | null = null): void {
+        this.db
+            .prepare(
+                `DELETE FROM diary_relay_outbox
+                 WHERE (? IS NULL OR operation_id = ?)
+                   AND EXISTS (
+                       SELECT 1 FROM diary_relay_cancellations AS cancellation
+                       WHERE cancellation.operation_id = diary_relay_outbox.operation_id
+                         AND cancellation.relay_owner_id = diary_relay_outbox.relay_owner_id
+                         AND cancellation.status = 'synced' AND cancellation.needs_repair = 0
+                   )`,
+            )
+            .run(operationId, operationId);
     }
 
     private toPublicRecord(row: StoredOutboxRow): DiaryRelayPublicRecord {

@@ -977,7 +977,28 @@ class DiaryServiceClass {
         // Offline-created entry — remove from the pending queue before it syncs.
         if (id.startsWith('offline-')) {
             const pending = this._getPendingEntries(scope);
-            const entry = pending.find((e) => e.id === id);
+            const entry = pending.find((e) => e.id === id) ?? this._getCachedEntries(scope).find((e) => e.id === id);
+            // A pending draft may already own uploaded media (or a Pi copy).
+            // Keep those exact refs BEFORE removing the queue row or awaiting
+            // local blob cleanup. They are needed even if cloud delivery has
+            // not yet returned the server id.
+            this._addTombstone(
+                id,
+                entry?.photos ?? [],
+                entry?.audio_url,
+                scope,
+                entry?.client_operation_id,
+                entry?.video_url,
+            );
+            this._savePending(
+                pending.filter((e) => e.id !== id),
+                scope,
+            );
+            this._saveCachedEntries(
+                this._getCachedEntries(scope).filter((e) => e.id !== id),
+                scope,
+            );
+            if (entry?.client_operation_id) void cancelDiaryOnPi(entry.client_operation_id);
             // Clean up any IDB-backed photos so they don't leak bytes
             if (entry?.photos) {
                 for (const p of entry.photos) {
@@ -997,17 +1018,7 @@ class DiaryServiceClass {
             if (entry?.video_url && isIdbVideo(entry.video_url)) {
                 await this.discardUnsavedVideo(entry.video_url);
             }
-            this._savePending(
-                pending.filter((e) => e.id !== id),
-                scope,
-            );
-
-            // Tombstone the offline id too: an in-flight syncPending() may have
-            // snapshotted the queue BEFORE the filter above, in which case it
-            // will still insert this entry. The post-insert tombstone check in
-            // syncPending catches that and deletes the fresh server row.
-            this._addTombstone(id, [], null, scope, entry?.client_operation_id);
-            if (entry?.client_operation_id) void cancelDiaryOnPi(entry.client_operation_id);
+            if (!isAuthIdentityScopeCurrent(scope)) return true;
 
             // Already synced? Then the pending filter was a no-op and the entry
             // lives on the server under a real id — commit a delete for that too.
@@ -1037,12 +1048,14 @@ class DiaryServiceClass {
                     twin?.video_url ?? null,
                 );
             }
+            void this.drainDeletedTombstones();
             return true;
         }
 
         // Server entry — snapshot storage URLs from local sources only (never
         // the network: the whole point is that this must succeed offline).
         const local =
+            this._getPendingEntries(scope).find((e) => e.id === id) ??
             this._getCachedEntries(scope).find((e) => e.id === id) ??
             this._recentlySynced.find((r) => r.entry.id === id)?.entry ??
             null;
@@ -1066,6 +1079,12 @@ class DiaryServiceClass {
         video?: string | null,
     ): boolean {
         this._addTombstone(id, photos, audio, scope, clientOperationId, video);
+        // An edit can still be waiting under this server id. Do not let it
+        // run again once the deletion fence has drained.
+        this._savePending(
+            this._getPendingEntries(scope).filter((e) => e.id !== id),
+            scope,
+        );
         if (clientOperationId) void cancelDiaryOnPi(clientOperationId);
         this._saveCachedEntries(
             this._getCachedEntries(scope).filter((e) => e.id !== id),
@@ -1131,7 +1150,10 @@ class DiaryServiceClass {
                 drained++;
             }
         }
-        if (drained > 0) void this._refreshFromServer(50, scope);
+        if (drained > 0) {
+            window.dispatchEvent(new Event('thalassa:diary-deleted'));
+            void this._refreshFromServer(50, scope);
+        }
     }
 
     /** Server-side row + storage removal. False = retry on next drain. */
@@ -1153,14 +1175,17 @@ class DiaryServiceClass {
             // Pi still holds the corresponding create. Learn it from the
             // authoritative row before deleting so this otherwise ordinary
             // delete still lays down the anti-resurrection tombstone.
-            if (!operationId || (photoUrls.length === 0 && !audioUrl && !videoUrl)) {
-                const { data } = await supabase
+            if (!id.startsWith('offline-')) {
+                const { data, error: lookupError } = await supabase
                     .from(TABLE)
                     .select('photos, audio_url, video_url, client_operation_id')
                     .eq('id', id)
                     .maybeSingle();
                 if (!isAuthIdentityScopeCurrent(scope)) return false;
-                photoUrls = photoUrls.length > 0 ? photoUrls : ((data?.photos as string[] | null) ?? []);
+                // A failed lookup is not proof of absence. In particular, do
+                // not erase the only cloud copy of unknown media references.
+                if (lookupError) return false;
+                photoUrls = [...new Set([...photoUrls, ...((data?.photos as string[] | null) ?? [])])];
                 audioUrl = audioUrl ?? (data?.audio_url as string | null) ?? null;
                 videoUrl = videoUrl ?? (data?.video_url as string | null) ?? null;
                 const fetchedOperationId = data?.client_operation_id;
@@ -1172,6 +1197,10 @@ class DiaryServiceClass {
                     operationId = fetchedOperationId;
                 }
             }
+            // Persist recovered refs before cancellation removes the cloud
+            // row. Otherwise a Storage failure followed by an app restart
+            // loses the only remaining cleanup manifest.
+            this._addTombstone(id, photoUrls, audioUrl, scope, operationId, videoUrl);
             // The cloud tombstone is the authoritative cancellation. It must
             // land before a delayed Pi create can ever be allowed to arrive.
             if (operationId && !(await cancelDiaryDirect(operationId))) return false;
@@ -1183,7 +1212,11 @@ class DiaryServiceClass {
             // returns NO error and zero rows when the policy filters the row
             // out — counting that as success dropped the tombstone and the
             // next refresh resurrected the entry.
-            const { data: deleted, error } = await supabase.from(TABLE).delete().eq('id', id).select('id');
+            // Offline ids are not UUIDs. Their authoritative row is addressed
+            // by the cancellation operation, never by an invalid REST id.
+            const { data: deleted, error } = id.startsWith('offline-')
+                ? { data: [{ id }], error: null }
+                : await supabase.from(TABLE).delete().eq('id', id).select('id');
             if (!isAuthIdentityScopeCurrent(scope)) return false;
             if (error) {
                 log.warn('Server delete failed — will retry on next drain:', error.message);
@@ -1193,8 +1226,13 @@ class DiaryServiceClass {
                 // Zero rows: either already gone (fine) or RLS hid it. Probe —
                 // still readable means blocked, keep the tombstone so the entry
                 // at least stays hidden locally and the drain retries.
-                const { data: still } = await supabase.from(TABLE).select('id').eq('id', id).maybeSingle();
+                const { data: still, error: probeError } = await supabase
+                    .from(TABLE)
+                    .select('id')
+                    .eq('id', id)
+                    .maybeSingle();
                 if (!isAuthIdentityScopeCurrent(scope)) return false;
+                if (probeError) return false;
                 if (still) {
                     log.warn(
                         `Server delete BLOCKED for ${id} — row visible but not deletable (ownership?). Keeping tombstone.`,
@@ -1206,10 +1244,20 @@ class DiaryServiceClass {
             // referenced object is gone too. Storage remove is idempotent:
             // an already-absent path returns no error and is therefore safe on
             // a retry after the row delete committed.
+            const hasCloudMedia =
+                photoUrls.some((ref) => this._managedStorageRefBelongsToScope(ref, PHOTO_BUCKET, scope)) ||
+                (audioUrl && this._managedStorageRefBelongsToScope(audioUrl, AUDIO_BUCKET, scope)) ||
+                (videoUrl && this._managedStorageRefBelongsToScope(videoUrl, VIDEO_BUCKET, scope));
+            const referenced = hasCloudMedia ? await this._survivingDiaryMediaKeys(scope) : new Set<string>();
+            // The server deliberately preserves a shared object. Local retry
+            // cleanup must honour that same rule, including older diary rows
+            // whose media was never part of a relay manifest.
+            if (!referenced || !isAuthIdentityScopeCurrent(scope)) return false;
             for (const url of photoUrls) {
                 if (!isAuthIdentityScopeCurrent(scope)) return false;
+                if (referenced.has(this._mediaRefKey(url, PHOTO_BUCKET))) continue;
                 const path = this._extractStoragePath(url, PHOTO_BUCKET);
-                if (!path) continue;
+                if (!path || !path.startsWith(`${scope.userId}/`)) continue;
                 const { error: storageError } = await supabase.storage.from(PHOTO_BUCKET).remove([path]);
                 if (storageError) {
                     log.warn('Diary photo cleanup failed — will retry with the tombstone:', storageError.message);
@@ -1217,7 +1265,11 @@ class DiaryServiceClass {
                 }
             }
             const audioPath = audioUrl ? this._extractStoragePath(audioUrl, AUDIO_BUCKET) : null;
-            if (audioPath && isAuthIdentityScopeCurrent(scope)) {
+            if (
+                audioPath?.startsWith(`${scope.userId}/`) &&
+                !referenced.has(`${AUDIO_BUCKET}:${audioPath}`) &&
+                isAuthIdentityScopeCurrent(scope)
+            ) {
                 const { error: storageError } = await supabase.storage.from(AUDIO_BUCKET).remove([audioPath]);
                 if (storageError) {
                     log.warn('Diary audio cleanup failed — will retry with the tombstone:', storageError.message);
@@ -1225,7 +1277,11 @@ class DiaryServiceClass {
                 }
             }
             const videoPath = videoUrl ? this._extractStoragePath(videoUrl, VIDEO_BUCKET) : null;
-            if (videoPath && isAuthIdentityScopeCurrent(scope)) {
+            if (
+                videoPath?.startsWith(`${scope.userId}/`) &&
+                !referenced.has(`${VIDEO_BUCKET}:${videoPath}`) &&
+                isAuthIdentityScopeCurrent(scope)
+            ) {
                 const { error: storageError } = await supabase.storage.from(VIDEO_BUCKET).remove([videoPath]);
                 if (storageError) {
                     log.warn('Diary video cleanup failed — will retry with the tombstone:', storageError.message);
@@ -1236,6 +1292,28 @@ class DiaryServiceClass {
         } catch (e) {
             log.warn('Server delete failed — will retry on next drain:', e);
             return false;
+        }
+    }
+
+    /** Paginated: a shared object on an older entry must be protected too. */
+    private async _survivingDiaryMediaKeys(scope: AuthIdentityScope): Promise<Set<string> | null> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        const referenced = new Set<string>();
+        const pageSize = 500;
+        for (let offset = 0; ; offset += pageSize) {
+            const { data, error } = await supabase
+                .from(TABLE)
+                .select('photos,audio_url,video_url')
+                .eq('user_id', scope.userId)
+                .order('id')
+                .range(offset, offset + pageSize - 1);
+            if (error || !Array.isArray(data) || !isAuthIdentityScopeCurrent(scope)) return null;
+            for (const row of data) {
+                for (const ref of row.photos ?? []) referenced.add(this._mediaRefKey(ref, PHOTO_BUCKET));
+                if (row.audio_url) referenced.add(this._mediaRefKey(row.audio_url, AUDIO_BUCKET));
+                if (row.video_url) referenced.add(this._mediaRefKey(row.video_url, VIDEO_BUCKET));
+            }
+            if (data.length < pageSize) return referenced;
         }
     }
 
@@ -1948,6 +2026,7 @@ class DiaryServiceClass {
                 serverRow.audio_url,
                 scope,
                 latest.client_operation_id,
+                serverRow.video_url,
             );
             this._removeTombstone(latest.id, scope);
             this._markRecentlyDrained(latest.id, scope);
@@ -3100,6 +3179,7 @@ class DiaryServiceClass {
                                 : null,
                         photos: Array.isArray(rec.photos) ? rec.photos.filter((p) => typeof p === 'string') : [],
                         audio: typeof rec.audio === 'string' ? rec.audio : null,
+                        video: typeof rec.video === 'string' ? rec.video : null,
                         deletedAt,
                         owner_user_id: scope.userId,
                     });
@@ -3140,16 +3220,17 @@ class DiaryServiceClass {
         clientOperationId?: string | null,
         video?: string | null,
     ): void {
+        const existing = this._getTombstones(scope).find((tombstone) => tombstone.id === id);
         const tomb: DiaryTombstone = {
             id,
             client_operation_id:
                 typeof clientOperationId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(clientOperationId)
                     ? clientOperationId
-                    : null,
-            photos,
-            audio: audio ?? null,
-            video: video ?? null,
-            deletedAt: Date.now(),
+                    : (existing?.client_operation_id ?? null),
+            photos: [...new Set([...(existing?.photos ?? []), ...photos])],
+            audio: audio ?? existing?.audio ?? null,
+            video: video ?? existing?.video ?? null,
+            deletedAt: existing?.deletedAt ?? Date.now(),
             owner_user_id: scope.userId,
         };
         const all = this._getTombstones(scope).filter((t) => t.id !== id);
