@@ -70,23 +70,42 @@
   the owner-bound anti-resurrection tombstone. Cancelled video handoffs are
   rejected before and after async creation. This Pi change has not been
   installed on the yacht by this task.
+- Diary compose now places the writing box before both **Add video** and the
+  selected video preview, for new and edited entries. Attaching a video no
+  longer pushes the text field down. The editor keeps a real minimum height,
+  and keyboard resize follows the focused field rather than the scroll area's
+  tail. Video selection, upload, saving and deletion are unchanged.
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `9e82cfd461a0e523265d88821de555fbf233ce5b`.
+- Compiled source: `4023fd56a6afdd662f1c3e4232d2264b6bcc9f7f`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-BZuKSqDB.js`, SHA-256
-  `8ab4411a030bdeb1f4b12b7a146a0844db5f4317b87a15cd91536933c15135db`.
+- Main entry: `main-D2XSKEDT.js`, SHA-256
+  `698236be9e793782dd6eef7938f3e92c4279c65a5d1d61569ea22a8e2f04827a`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
 - Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
-  Public entry: `logs-ukiRNjW9.js`.
-- **200 focused app tests across 26 files**, **23 Pi tests**, and **7 Deno
-  cleanup tests** passed for diary deletion. They cover video tombstone
+  Public entry: `logs-BssyXQOr.js`, SHA-256
+  `95751156f02783e24e39276da5456d60170b12686af5f33c835090d9b08960c2`;
+  its dist and iOS copies also match.
+- **74 focused unit tests across 8 files** passed for the diary compose layout,
+  media ownership, workflow, video rail and keyboard/focus regressions. New and
+  edited entry tests verify content ordering and retained title/body after a
+  video is attached or removed. Targeted ESLint and formatting passed.
+- **34/34 source browser checks** passed in Chromium and WebKit: 8 new diary
+  cases and 26 existing keyboard cases. Diary cases cover 320×568, 390×650,
+  390×844 and a 512px-wide tablet pane. They verify unchanged editor position
+  on attachment, no preview overlap, removal, preserved content, and full
+  focused-field visibility above the footer during two keyboard heights.
+  Hit-testing confirms the editor is not covered. WebKit screenshots were
+  visually checked. The fixture uses the real form and keyboard guard with a
+  modeled keyboard; this is not a physical iPhone test or a media-upload test.
+- The preceding deletion candidate passed **200 focused app tests across 26 files**,
+  **23 Pi tests**, and **7 Deno cleanup tests**. They cover video tombstone
   persistence, cold-cache recovery, repeat deletes, offline-id cancellation,
   failed reads/Storage/checkpoints, shared/foreign media, exact operation
   acknowledgements, identity changes, stale delivery and actual usage refresh.
@@ -189,9 +208,12 @@
   They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-diary-delete108.zwafki/ship-beta.log`,
+- Current logs: `/private/tmp/thalassa-diary-compose108.8INFLw/ship-beta.log`,
+  `focused-tests.log` and `production-e2e.log`; source-browser screenshots
+  are under `browser-results/` in that same directory.
+  Diary-deletion revision evidence remains in `/private/tmp/thalassa-diary-delete108.zwafki/`:
   `diary-tests.log`, `pi-tests.log`, `edge-tests.log`, `typecheck.log`,
-  `edge-typecheck.log` and `production-e2e.log` in that same directory.
+  `edge-typecheck.log`, `ship-beta.log` and `production-e2e.log`.
   Public-tracks revision evidence remains in `/private/tmp/thalassa-public-tracks108.zhlMPE/`.
   Public-mobile revision evidence remains in `/private/tmp/thalassa-public-mobile108.jVM2Z5/`.
   Static-tide revision evidence remains in `/private/tmp/thalassa-tide-static108.emZsOk/`.
@@ -222,7 +244,7 @@
 - Post-deploy checks confirm migration history, tombstone RLS, service-only
   cancellation/checkpoint privileges, zero unfinished rollout manifests, and
   HTTP **401** for an unauthenticated cancellation request. Logs and rollback
-  test SQL are in the current evidence directory above.
+  test SQL are in `/private/tmp/thalassa-diary-delete108.zwafki/`.
 - Existing orphan files were **not** bulk-deleted. An already-issued upload
   finishing after cancellation, or a concurrent new entry attaching the same
   file between reference check and removal, still needs an upload/reference
