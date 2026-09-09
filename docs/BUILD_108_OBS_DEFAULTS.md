@@ -27,21 +27,29 @@
   their routing effects are unchanged, as are trip, departure and route controls.
   Restore `SHOW_PLANNER_COMFORT_CARD` in `components/RoutePlanner.tsx` to bring
   back the existing controlled accordion.
+- The Departure card has one full-width **Now** button and no **OK** button.
+  Now remains visible and enabled after a reset or repeated presses. Date/time
+  edits still apply immediately; Now keeps the existing picker-dismissal,
+  account-scoped reset and identity-tagged event behaviour.
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `a97a508b26784718fce082919ddb3daa329ce018`.
+- Compiled source: `cee90a5311f5b3a4e2284505385f6ba2f566ca7c`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-CJFOhVZq.js`, SHA-256
-  `50c90d001534c22ca79f9f5e283b2e1b429e21dea0e832db03d52ca0f1e54bce`.
+- Main entry: `main-CANlwg56.js`, SHA-256
+  `d6615b727e4e7c2dfd8322f9930326adffaeba4a5ca2d77c264571abb0a99302`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
 - Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
-- **72 focused unit tests** passed for the planner follow-up, including both
+- **25 focused unit tests** passed for the departure follow-up, covering the
+  persistent Now action, immediate edits, account-scoped resets/events, remount,
+  route-planner interactions, departure-window identity and timezone handling.
+  Targeted ESLint and formatting passed; the build's TypeScript check passed.
+- The preceding planner revision passed **72 focused unit tests**, including both
   standalone and embedded planner interactions, unchanged saved comfort limits,
   the comfort engine, isochrone routing and prior audit regressions. Targeted
   ESLint and formatting passed; the build's TypeScript check passed.
@@ -59,14 +67,16 @@
   card/model-strip geometry, pinned close, keyboard focus/scrolling and desktop
   wheel containment. Mobile WebKit was also visually inspected. These browser
   checks do not substitute for testing a physical iPhone's touch gestures.
-- **18/18 production browser tests** passed in Chromium and mobile WebKit against
+- **20/20 production browser tests** passed in Chromium and mobile WebKit against
   this rebuilt bundle. They verify that the planner's comfort card is absent
-  while its departure, route and header-menu controls remain available, and
-  exercise the dashboard, theme roots, real map host, light/dark/night defaults,
+  while its departure, route and header-menu controls remain available. Now
+  remains enabled and the same size after repeated resets, with OK absent.
+  They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-comfort108.We11Wh/ship-beta.log`,
+- Current logs: `/private/tmp/thalassa-departure108.pPH0pA/ship-beta.log`,
   `focused-tests.log` and `production-e2e.log` in that same directory.
+  Planner-card revision evidence remains in `/private/tmp/thalassa-comfort108.We11Wh/`.
   Wind/tide revision evidence remains in `/private/tmp/thalassa-wind-tide108.aGI0tS/`.
   The earlier local 108 candidates were not uploaded and are superseded by this
   rebuild.
