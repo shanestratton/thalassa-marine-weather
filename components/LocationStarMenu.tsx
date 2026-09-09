@@ -41,14 +41,7 @@ import {
 } from '../utils/savedLocations';
 import { triggerHaptic } from '../utils/system';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
-import { GpsService } from '../services/GpsService';
-import { toast } from './Toast';
-import {
-    boatOrHeldFix,
-    getWeatherFollowTarget,
-    setWeatherFollowTarget,
-    type WeatherFollowTarget,
-} from '../services/weatherPosition';
+import { getWeatherFollowTarget, setWeatherFollowTarget, type WeatherFollowTarget } from '../services/weatherPosition';
 
 /** The boat, drawn as the ℹ panel's GPS glyph draws her. */
 const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -97,11 +90,9 @@ export const LocationStarMenu: React.FC = () => {
     // has the vessel name as a special saved location"). Read when the menu
     // opens so the tick sits on the right row.
     const [followTarget, setFollowTargetState] = useState<WeatherFollowTarget>(() => getWeatherFollowTarget());
-    const [boatNotice, setBoatNotice] = useState<string | null>(null);
     useEffect(() => {
         if (!open) return;
         setFollowTargetState(getWeatherFollowTarget());
-        setBoatNotice(null);
     }, [open]);
     const vesselName = settings.vessel?.name?.trim() ?? '';
     const currentName = weatherData?.locationName ?? '';
@@ -161,18 +152,10 @@ export const LocationStarMenu: React.FC = () => {
         triggerHaptic('light');
         setWeatherFollowTarget('boat');
         setFollowTargetState('boat');
-        void boatOrHeldFix().then((fix) => {
-            if (!fix) {
-                // Stay open and say so — no toast for a two-line answer. The
-                // follower moves the weather to her the moment she reports.
-                setBoatNotice(
-                    `No position from ${vesselName} yet. The weather will move to her when she reports — through the Pi or the gateway.`,
-                );
-                return;
-            }
-            closeAndRestore();
-            void selectLocation('Current Location', { lat: fix.lat, lon: fix.lon });
-        });
+        closeAndRestore();
+        // Register intent before any GPS await. The context owns resolution,
+        // unavailable-state UI and cancellation by a subsequent selection.
+        void selectLocation('Current Location');
     };
 
     const goTo = (loc: SavedLocation | 'current') => {
@@ -182,13 +165,7 @@ export const LocationStarMenu: React.FC = () => {
             // Back to the punter: 'Current Location' follows the phone again.
             setWeatherFollowTarget('phone');
             setFollowTargetState('phone');
-            void GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 12 }).then((pos) => {
-                if (!pos) {
-                    toast.error('Location unavailable. Check Location access or choose a saved place.');
-                    return;
-                }
-                void selectLocation('Current Location', { lat: pos.latitude, lon: pos.longitude });
-            });
+            void selectLocation('Current Location', undefined, { requestPhonePermission: true });
             return;
         }
         const coords =
@@ -303,16 +280,6 @@ export const LocationStarMenu: React.FC = () => {
                                     )}
                                 </button>
                             )}
-                            {boatNotice && (
-                                <div
-                                    role="status"
-                                    data-testid="location-star-boat-notice"
-                                    className="px-3 pb-2 text-[11px] leading-snug text-amber-200/90"
-                                >
-                                    {boatNotice}
-                                </div>
-                            )}
-
                             {/* Current Location — back to live GPS-follow of the phone */}
                             <button
                                 type="button"

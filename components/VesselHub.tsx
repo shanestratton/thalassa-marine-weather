@@ -207,7 +207,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     //
     // The orchestrator handles its own refresh schedule; Nav Station
     // re-renders automatically when weatherData changes.
-    const { weatherData, fetchWeather } = useWeather();
+    const { weatherData, refreshData } = useWeather();
     const current = weatherData?.current;
     const windSpeed = current?.windSpeed ?? null;
     const windDir = current?.windDirection || null;
@@ -304,27 +304,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         return () => clearInterval(id);
     }, []);
 
-    // If WeatherContext has no data yet (user landed on Nav Station
-    // first, before the Dashboard auto-fetched), kick off a fetch via
-    // the shared orchestrator using our GPS position. This populates
-    // the SAME cache the Glass page reads — no parallel pipeline.
-    // Refreshes are handled by the orchestrator's schedule (already
-    // running in WeatherContext); we don't poll here.
-    const weatherLatitudeBucket = position ? Math.round(position.latitude * 10) : null;
-    const weatherLongitudeBucket = position ? Math.round(position.longitude * 10) : null;
+    // The shared weather context owns location intent. The hero band's phone
+    // position must never replace vessel weather (including in split screen).
     useEffect(() => {
         if (weatherData) return; // already populated — orchestrator handles refresh
-        if (weatherLatitudeBucket === null || weatherLongitudeBucket === null || !isOnline) return;
-        // Round to 0.1° to dedupe near-identical re-renders.
-        const lat = weatherLatitudeBucket / 10;
-        const lon = weatherLongitudeBucket / 10;
-        // silent=true so the orchestrator doesn't show a loading
-        // overlay — the Nav Station hero chips just stay empty until
-        // the data lands.
-        fetchWeather('Current Position', false, { lat, lon }, false, true).catch(() => {
-            /* offline — chips stay empty */
-        });
-    }, [weatherData, weatherLatitudeBucket, weatherLongitudeBucket, isOnline, fetchWeather]);
+        if (!isOnline) return;
+        refreshData(true);
+    }, [weatherData, isOnline, refreshData]);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');

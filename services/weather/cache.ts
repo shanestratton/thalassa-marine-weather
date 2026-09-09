@@ -63,9 +63,8 @@ export const weatherCoordinatesMatch = (
  * above. Forecast grids are kilometres wide: a phone that drifted less than
  * this overnight (GPS jitter, a boat swinging at anchor, walking to the
  * kitchen) is asking about the same sky. The instant wake/boot paths use it
- * to decide whether a fresh GPS fix warrants a corrective re-fetch, and
- * resolveLocation uses it to reuse the on-screen place name for the same
- * point instead of holding the fetch for a reverse-geocode round trip.
+ * to decide whether a fresh GPS fix warrants a corrective re-fetch. Locality
+ * names use a separate, metre-scale geocoded baseline, never this radius.
  */
 export const weatherCoordinatesNearby = (
     first: WeatherCacheCoordinates | null | undefined,

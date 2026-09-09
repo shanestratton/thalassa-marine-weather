@@ -4,7 +4,6 @@ import { PanePortalScope } from './context/PanePortalContext';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
-import { useLocationStore } from './stores/LocationStore';
 // authStore is no longer imported here — App.tsx is browse-free, no
 // boot-time auth check. Save-point sheets and the Settings → Account
 // entry import useAuthStore + SignInScreen directly where they need it.
@@ -110,7 +109,7 @@ const SystemStatusFallback: React.FC = () => (
 
 const App: React.FC = () => {
     // 1. DATA STATE
-    const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
+    const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData, positionSource } = useWeather();
     const { settings, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = VESSEL_VIEWS.has(currentView);
@@ -546,18 +545,6 @@ const App: React.FC = () => {
         return undefined;
     }, [alertsToggle, alertsAllowed, settings.calypsoAlertsEnabled, updateSettings]);
 
-    // Live GPS-derived location name — subscribed here (above the
-    // conditional early return) so React's rules-of-hooks are happy.
-    // The useLiveLocationName hook on the Dashboard writes to
-    // LocationStore via setFromGPS on each successful reverse-geocode,
-    // so subscribing here lets the header title update within ~1s of a
-    // fresh GPS fix — even when the cached weather's locationName is
-    // stale or was a bad forward-geocode from onboarding (e.g. 'Old
-    // Aust Road, England' for a user who typed 'Newport' but meant
-    // Newport, QLD).
-    const locationStore = useLocationStore();
-    const livePreferred = locationStore.source === 'gps' && locationStore.name ? locationStore.name : null;
-
     // Loading State
     if (settingsLoading) {
         return (
@@ -586,9 +573,14 @@ const App: React.FC = () => {
     // Show the location name as-is when it's a real place name.
     // Only prepend "WP" for raw decimal coordinates (e.g. "-27.47, 153.03").
     // Cardinal formats (e.g. "27.47°S, 153.03°E") are already human-readable — leave them.
+    // WeatherContext owns both the selected GPS source and its resolved name.
+    // A global map/GPS store may describe a different receiver or an older pick.
     const rawTitle =
-        livePreferred ||
-        (weatherData ? weatherData.locationName : query || settings.defaultLocation || 'Select Location');
+        !weatherData && positionSource?.status === 'unavailable'
+            ? `${positionSource.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`
+            : weatherData
+              ? weatherData.locationName
+              : query || settings.defaultLocation || 'Select Location';
     let displayTitle = rawTitle;
 
     // Only catch truly raw/generic names:
@@ -658,7 +650,7 @@ const App: React.FC = () => {
                     <p className="mt-2 text-xs text-white/40">{error}</p>
                     <button
                         aria-label="Retry loading weather data"
-                        onClick={() => fetchWeather(query || settings.defaultLocation || '')}
+                        onClick={() => refreshData()}
                         className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-95"
                     >
                         Retry
@@ -736,7 +728,7 @@ const App: React.FC = () => {
                         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
                             <button
                                 type="button"
-                                onClick={() => fetchWeather(query || settings.defaultLocation || '')}
+                                onClick={() => refreshData()}
                                 disabled={isOffline}
                                 className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-white disabled:bg-slate-700 disabled:text-slate-400"
                             >

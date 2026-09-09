@@ -1,0 +1,403 @@
+import React from 'react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MarineWeatherReport } from '../types';
+
+const world = vi.hoisted(() => ({
+    settings: { defaultLocation: 'Initial port', forecastModel: 'gfs', satelliteMode: false } as Record<
+        string,
+        unknown
+    >,
+    initial: null as unknown,
+    target: 'phone' as 'phone' | 'boat',
+    gps: vi.fn(),
+    requestGps: vi.fn(),
+    boat: vi.fn(),
+    reverse: vi.fn(),
+    tides: vi.fn(),
+    fetch: vi.fn(),
+    cancel: vi.fn(),
+}));
+
+vi.mock('../context/SettingsContext', () => ({
+    useSettings: () => ({
+        settings: world.settings,
+        loading: true,
+        updateSettings: (patch: object) => Object.assign(world.settings, patch),
+    }),
+}));
+vi.mock('../services/GpsService', () => ({
+    GpsService: {
+        getCurrentPositionIfGranted: world.gps,
+        requestCurrentForegroundPosition: world.requestGps,
+    },
+}));
+vi.mock('../services/weatherService', () => ({ reverseGeocode: world.reverse }));
+vi.mock('../services/weather/api/tides', () => ({ fetchTidesForPosition: world.tides }));
+vi.mock('../components/Toast', () => ({ toast: { info: vi.fn() } }));
+vi.mock('../services/nativeStorage', () => ({
+    saveLargeData: vi.fn(),
+    saveLargeDataImmediate: vi.fn(),
+    deleteLargeData: vi.fn(),
+    loadLargeData: vi.fn(async () => null),
+    VOYAGE_CACHE_KEY: 'voyage',
+}));
+vi.mock('../services/weatherPosition', () => ({
+    WEATHER_FOLLOW_TARGET_EVENT: 'test:target-change',
+    getWeatherFollowTarget: () => world.target,
+    setWeatherFollowTarget: (target: 'phone' | 'boat') => {
+        world.target = target;
+        window.dispatchEvent(new Event('test:target-change'));
+    },
+    setHeldChoice: vi.fn(),
+    describeWeatherFix: (_fix: unknown, _now: number, target: string) =>
+        `${target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`,
+    weatherFixStatus: (fix: { kind: string }) => (fix.kind === 'held' ? 'last-known' : 'live'),
+    resolveWeatherPosition: async (phone: () => Promise<unknown>, { target }: { target: string }) => {
+        const value = target === 'boat' ? await world.boat() : await phone();
+        const fix = value ? { ...(value as object), kind: target === 'boat' ? 'pi' : 'phone' } : null;
+        return { fix, held: null, phone: target === 'phone' ? fix : null, ask: false };
+    },
+}));
+vi.mock('../services/WeatherOrchestrator', () => ({
+    STALE_THRESHOLD_MS: 30 * 60_000,
+    weatherCacheKeysForScope: () => ({ data: 'weather', history: 'history', voyage: 'voyage', nextUpdate: 'next' }),
+    loadWeatherCacheSyncForScope: () => world.initial,
+    WeatherOrchestrator: class {
+        static updateEnvironment = vi.fn();
+        constructor(private callbacks: { setWeatherData: (data: unknown) => void }) {}
+        loadInstantCache() {
+            return world.initial;
+        }
+        checkCacheVersion() {}
+        loadCache() {}
+        loadCacheAndInit() {}
+        dispose() {}
+        cancelPendingLocation() {
+            world.cancel();
+        }
+        patchLiveMetrics() {}
+        async fetchWeather(name: string, options: { coords?: { lat: number; lon: number } }) {
+            world.fetch(name, options);
+            this.callbacks.setWeatherData({
+                current: {},
+                forecast: [],
+                hourly: [],
+                alerts: [],
+                tides: [],
+                tideHourly: [],
+                ...(world.initial as object),
+                locationName: name,
+                coordinates: options.coords,
+                generatedAt: new Date().toISOString(),
+            });
+        }
+    },
+}));
+
+import { WeatherProvider, useWeather } from '../context/WeatherContext';
+import { setWeatherFollowTarget } from '../services/weatherPosition';
+import { useUIStore } from '../stores/uiStore';
+
+let current: ReturnType<typeof useWeather>;
+function Probe() {
+    current = useWeather();
+    return null;
+}
+function report(name: string, lat = -27.21, lon = 153.1): MarineWeatherReport {
+    return {
+        locationName: name,
+        coordinates: { lat, lon },
+        generatedAt: new Date().toISOString(),
+        locationType: 'coastal',
+        current: {},
+        forecast: [],
+        hourly: [],
+        tides: [],
+        tideHourly: [],
+        alerts: [],
+    } as unknown as MarineWeatherReport;
+}
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+function mount() {
+    render(
+        <WeatherProvider>
+            <Probe />
+        </WeatherProvider>,
+    );
+}
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    world.settings = { defaultLocation: 'Initial port', forecastModel: 'gfs', satelliteMode: false };
+    world.initial = report('Initial port');
+    world.target = 'phone';
+    world.gps.mockResolvedValue(null);
+    world.requestGps.mockResolvedValue(null);
+    world.boat.mockResolvedValue(null);
+    world.reverse.mockResolvedValue('Newport');
+    world.tides.mockResolvedValue(null);
+    useUIStore.setState({ isOffline: false });
+});
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
+
+describe('weather receiver selection boundaries', () => {
+    it('a delayed boot continuation cannot replace an explicit favourite', async () => {
+        mount();
+        await act(async () => {
+            current.setHistoryCache({ Newport: report('Newport', -27.2, 153.08) });
+        });
+        await act(async () => {
+            await current.selectLocation('Newport', { lat: -27.2, lon: 153.08 });
+        });
+        await act(async () => {
+            await current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+        expect(current.weatherData?.locationName).toBe('Newport');
+        expect(world.gps).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+    it('a delayed phone fix cannot overwrite a newer cached favourite', async () => {
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        mount();
+        await act(async () => {
+            current.setHistoryCache({ Newport: report('Newport', -27.2, 153.08) });
+        });
+        let first!: Promise<void>;
+        act(() => {
+            first = current.selectLocation('Current Location');
+        });
+        await act(async () => {
+            await current.selectLocation('Newport', { lat: -27.2, lon: 153.08 });
+        });
+        expect(current.weatherData?.locationName).toBe('Newport');
+        await act(async () => {
+            pending.resolve({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() });
+            await first;
+        });
+        expect(current.weatherData?.locationName).toBe('Newport');
+        expect(current.positionSource).toBeNull();
+        expect(world.fetch).not.toHaveBeenCalled();
+        expect(world.cancel).toHaveBeenCalledTimes(2);
+    });
+
+    it('switching boat to phone fences a slower boat fix even though both say Current Location', async () => {
+        const pending = deferred<unknown>();
+        world.boat.mockReturnValue(pending.promise);
+        world.gps.mockResolvedValue({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() });
+        mount();
+        let first!: Promise<void>;
+        act(() => {
+            setWeatherFollowTarget('boat');
+            first = current.selectLocation('Current Location');
+        });
+        await act(async () => {
+            setWeatherFollowTarget('phone');
+            await current.selectLocation('Current Location');
+        });
+        const phoneCoordinates = current.weatherData?.coordinates;
+        await act(async () => {
+            pending.resolve({ lat: -20.2, lon: 148.7, timestamp: Date.now() });
+            await first;
+        });
+        expect(current.weatherData?.coordinates).toEqual(phoneCoordinates);
+        expect(current.positionSource).toMatchObject({ kind: 'phone', target: 'phone' });
+        expect(world.fetch.mock.calls.every(([, options]) => options.coords.lat === -27.21)).toBe(true);
+    });
+
+    it('an unavailable selected phone clears the previous place rather than falling back to it', async () => {
+        mount();
+        await act(async () => {
+            await current.selectLocation('Current Location');
+        });
+        expect(current.weatherData).toBeNull();
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'phone', status: 'unavailable' });
+        expect(current.loading).toBe(false);
+        expect(world.boat).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('manual refresh in vessel mode resolves the boat, never the phone', async () => {
+        world.boat.mockResolvedValue({ lat: -20.2, lon: 148.7, timestamp: Date.now() });
+        mount();
+        await act(async () => {
+            setWeatherFollowTarget('boat');
+            await current.selectLocation('Current Location');
+        });
+        world.fetch.mockClear();
+        await act(async () => {
+            current.refreshData(true);
+        });
+        expect(world.fetch).toHaveBeenLastCalledWith(
+            'Current Location',
+            expect.objectContaining({ coords: { lat: -20.2, lon: 148.7 } }),
+        );
+        expect(world.gps).not.toHaveBeenCalled();
+        expect(world.requestGps).not.toHaveBeenCalled();
+    });
+
+    it('only an explicit phone permission option requests foreground permission', async () => {
+        world.requestGps.mockResolvedValue({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() });
+        world.gps.mockResolvedValue({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() });
+        mount();
+        await act(async () => {
+            await current.selectLocation('Current Location', undefined, { requestPhonePermission: true });
+        });
+        expect(world.requestGps).toHaveBeenCalledTimes(1);
+        expect(current.positionSource?.kind).toBe('phone');
+    });
+
+    it('repairs a stale suburb even when the report already adopted the new coordinates', async () => {
+        world.settings.defaultLocation = 'Current Location';
+        world.initial = report('Scarborough', -27.2, 153.08);
+        world.gps.mockResolvedValue({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() });
+        mount();
+        await waitFor(() => expect(current.weatherData?.locationName).toBe('Newport'));
+        expect(world.reverse).toHaveBeenCalledWith(-27.2, 153.08);
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('a delayed follower name cannot overwrite a manually selected port', async () => {
+        const pending = deferred<string>();
+        world.settings.defaultLocation = 'Current Location';
+        world.initial = report('Scarborough');
+        world.gps.mockResolvedValue({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() });
+        world.reverse.mockReturnValue(pending.promise);
+        mount();
+        await waitFor(() => expect(world.reverse).toHaveBeenCalled());
+        await act(async () => {
+            current.setHistoryCache({ Mackay: report('Mackay', -21.1, 149.2) });
+        });
+        await act(async () => {
+            await current.selectLocation('Mackay', { lat: -21.1, lon: 149.2 });
+        });
+        await act(async () => {
+            pending.resolve('Newport');
+        });
+        expect(current.weatherData?.locationName).toBe('Mackay');
+        expect(current.positionSource).toBeNull();
+    });
+
+    it('allows a geocoder taking longer than one polling interval to complete', async () => {
+        vi.useFakeTimers();
+        const pending = deferred<string>();
+        world.settings.defaultLocation = 'Current Location';
+        world.initial = report('Scarborough');
+        world.gps.mockResolvedValue({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() });
+        world.reverse.mockReturnValue(pending.promise);
+        mount();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(11_000);
+        });
+        expect(world.reverse).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            pending.resolve('Newport');
+        });
+        expect(current.weatherData?.locationName).toBe('Newport');
+    });
+
+    it('a delayed settings restore cannot override a selected but unavailable vessel', async () => {
+        world.initial = null;
+        mount();
+        await act(async () => {
+            setWeatherFollowTarget('boat');
+            await current.selectLocation('Current Location');
+        });
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent('thalassa:settings-restored', {
+                    detail: {
+                        defaultLocation: 'Current Location',
+                        defaultLocationCoords: { lat: -27.2, lon: 153.08 },
+                    },
+                }),
+            );
+        });
+        expect(current.weatherData).toBeNull();
+        expect(current.error).toBe('Boat GPS unavailable');
+        expect(world.fetch).not.toHaveBeenCalled();
+        expect(world.gps).not.toHaveBeenCalled();
+    });
+
+    it('a first settings restore resolves the selected boat instead of trusting saved phone coordinates', async () => {
+        world.initial = null;
+        world.target = 'boat';
+        world.boat.mockResolvedValue({ lat: -20.2, lon: 148.7, timestamp: Date.now() });
+        mount();
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent('thalassa:settings-restored', {
+                    detail: {
+                        defaultLocation: 'Current Location',
+                        defaultLocationCoords: { lat: -27.2, lon: 153.08 },
+                    },
+                }),
+            );
+        });
+        expect(world.fetch).toHaveBeenLastCalledWith(
+            'Current Location',
+            expect.objectContaining({ coords: { lat: -20.2, lon: 148.7 } }),
+        );
+        expect(world.gps).not.toHaveBeenCalled();
+    });
+
+    it('retries a failed name lookup after a minute without weather refetch or a 5-second geocoder loop', async () => {
+        vi.useFakeTimers();
+        world.settings.defaultLocation = 'Current Location';
+        world.gps.mockImplementation(async () => ({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() }));
+        world.reverse.mockRejectedValueOnce(new Error('Geocoder offline')).mockResolvedValue('Newport');
+        await act(async () => {
+            mount();
+        });
+        expect(current.weatherData?.locationName).toContain('27.2100°S');
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(55_000);
+        });
+        expect(world.reverse).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.weatherData?.locationName).toBe('Newport');
+        expect(world.reverse).toHaveBeenCalledTimes(2);
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('accepts a tide result slower than a follow tick and advances its station only on success', async () => {
+        vi.useFakeTimers();
+        const pending = deferred<unknown>();
+        world.settings.defaultLocation = 'Current Location';
+        world.gps.mockImplementation(async () => ({ latitude: -27.28, longitude: 153.1, timestamp: Date.now() }));
+        world.tides.mockReturnValue(pending.promise);
+        await act(async () => {
+            mount();
+        });
+        expect(world.tides).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        expect(world.tides).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            pending.resolve({
+                tides: [{ height: 1.2 }],
+                tideHourly: [],
+                tideGUIDetails: { stationName: 'New station' },
+            });
+        });
+        expect(current.weatherData?.tides).toEqual([{ height: 1.2 }]);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        expect(world.tides).toHaveBeenCalledTimes(1);
+    });
+});
