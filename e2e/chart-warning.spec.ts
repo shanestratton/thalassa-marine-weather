@@ -255,6 +255,13 @@ for (const size of cases) {
         await expect(warning).toHaveAttribute('aria-label', 'ENC coverage');
         await testInfo.attach('enc-warning-layout', { body: await page.screenshot(), contentType: 'image/png' });
 
+        // Opening a picker intentionally overlays map information; the
+        // coverage warning must not intercept its options as it loads.
+        await page.getByRole('button', { name: /^Map base:/ }).click();
+        await page.getByRole('menuitemradio', { name: /^Ocean / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Ocean', exact: true })).toBeVisible();
+        await expect(warning).toBeVisible();
+
         await library.click();
         await expect(page.getByRole('heading', { name: 'ENC Library', exact: true })).toBeVisible();
         await expect(page.getByText('No reference ENC cells are installed', { exact: true })).toBeVisible();

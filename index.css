@@ -3587,6 +3587,13 @@ body,
     transform: translateX(-50%);
 }
 
+/* Use one positioning property throughout. Tailwind's production optimizer
+   folds translate:none into transform:none, which cannot cancel a separate
+   utility-class translate. This badge therefore owns transform in both modes. */
+.thalassa-enc-tide-badge {
+    transform: translateX(-50%);
+}
+
 /* In short landscape (including a short iPad split pane), reserve both the
    middle-left Back control and the right-hand map rail. Tide status stays
    above the notice and beside, rather than over, the emergency control. */
@@ -3601,7 +3608,6 @@ body,
         left: max(12px, env(safe-area-inset-left));
         max-width: calc(100% - 152px);
         white-space: normal;
-        translate: none;
         transform: none;
     }
 }
