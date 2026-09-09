@@ -34,8 +34,12 @@ describe('snap-scroll structure', () => {
         }
     });
 
-    it('a dot rail exists and jumps by section', () => {
-        expect(source).toContain('aria-label={`Jump to ${name}`}');
+    it('has no dot rail — the punter scrolls to the end', () => {
+        // Shane 2026-09-09: "can we remove the 10 dots down the right hand
+        // side. not necessary as a punter will keep scrolling until he gets
+        // to the end."
+        expect(source).not.toContain('Jump to ${name}');
+        expect(source).not.toContain('onPanelScroll');
         expect(source).toContain('snap-mandatory');
     });
 });

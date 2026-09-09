@@ -14,11 +14,11 @@ const page = readFileSync('components/nmea/TheGlassPage.tsx', 'utf8');
 const clock = readFileSync('components/nmea/gauges/ShipsBellClock.tsx', 'utf8');
 
 describe("the ship's bell clock in the instrument panel", () => {
-    it('is a section, and the dot rail knows about it', () => {
-        expect(page).toMatch(/── SECTION: CLOCK ──/);
-        const rail = page.match(/const base = \[([^\]]+)\]/);
-        expect(rail).not.toBeNull();
-        expect((rail as RegExpMatchArray)[1]).toContain("'Clock'");
+    it('is the first section', () => {
+        // The dot rail that used to list it went on 2026-09-09; the section
+        // markers are the order now.
+        const sections = [...page.matchAll(/── SECTION: ([^─]+?)──/g)].map((m) => m[1].split('(')[0].trim());
+        expect(sections[0]).toBe('CLOCK');
     });
 
     it('has no Bells page any more — its switches live in Preferences and the panel follows them', () => {
