@@ -22,12 +22,17 @@ const mocks = vi.hoisted(() => ({
     ensureEnabled: vi.fn(),
     setEnabled: vi.fn(),
     setPublicInstrumentsEnabled: vi.fn(),
+    setPublicAisEnabled: vi.fn(),
     getHiddenVoyageIds: vi.fn(),
     getPlanLinks: vi.fn(),
+    getPlanLinkRows: vi.fn(),
     setVoyageHidden: vi.fn(),
     setVoyagePlanLink: vi.fn(),
+    setPlanLinkWithRetry: vi.fn(),
     getVoyageSummaries: vi.fn(),
     fetchRoutesAndTracks: vi.fn(),
+    markLiveTrickleFreshStart: vi.fn(),
+    purgeLiveTrack: vi.fn(),
     haptic: vi.fn(),
     toastError: vi.fn(),
     toastSuccess: vi.fn(),
@@ -42,11 +47,10 @@ vi.mock('../services/VoyageLogService', () => ({
         ensureEnabled: mocks.ensureEnabled,
         setEnabled: mocks.setEnabled,
         setPublicInstrumentsEnabled: mocks.setPublicInstrumentsEnabled,
+        setPublicAisEnabled: mocks.setPublicAisEnabled,
         getHiddenVoyageIds: mocks.getHiddenVoyageIds,
         getPlanLinks: mocks.getPlanLinks,
-        // The tab reads the author-stamped rows (2026-09-08); the same empty
-        // map serves both shapes in these identity tests.
-        getPlanLinkRows: mocks.getPlanLinks,
+        getPlanLinkRows: mocks.getPlanLinkRows,
         setVoyageHidden: mocks.setVoyageHidden,
         setVoyagePlanLink: mocks.setVoyagePlanLink,
         lastError: null,
@@ -106,6 +110,19 @@ vi.mock('../services/ShipLogService', () => ({
 
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchRoutesAndTracks: mocks.fetchRoutesAndTracks,
+}));
+
+vi.mock('../services/shiplog/planLinkIntent', () => ({
+    setPlanLinkWithRetry: mocks.setPlanLinkWithRetry,
+}));
+
+vi.mock('../services/shiplog/LiveTrickle', () => ({
+    markLiveTrickleFreshStart: mocks.markLiveTrickleFreshStart,
+    purgeLiveTrack: mocks.purgeLiveTrack,
+}));
+
+vi.mock('../services/DiaryService', () => ({
+    DiaryService: { getMediaUsage: vi.fn(async () => []) },
 }));
 
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -185,11 +202,22 @@ function deferred<T>() {
     return { promise, resolve };
 }
 
-function renderTab() {
-    return render(<VoyageLogTab settings={settings} onSave={vi.fn()} />);
+function renderTab(onSave = vi.fn(), currentSettings = settings) {
+    return render(<VoyageLogTab settings={currentSettings} onSave={onSave} />);
 }
 
-describe('VoyageLogTab identity transitions', () => {
+function expectNoPerVoyageAccess() {
+    expect(mocks.getVoyageSummaries).not.toHaveBeenCalled();
+    expect(mocks.getHiddenVoyageIds).not.toHaveBeenCalled();
+    expect(mocks.getPlanLinks).not.toHaveBeenCalled();
+    expect(mocks.getPlanLinkRows).not.toHaveBeenCalled();
+    expect(mocks.fetchRoutesAndTracks).not.toHaveBeenCalled();
+    expect(mocks.setVoyageHidden).not.toHaveBeenCalled();
+    expect(mocks.setVoyagePlanLink).not.toHaveBeenCalled();
+    expect(mocks.setPlanLinkWithRetry).not.toHaveBeenCalled();
+}
+
+describe('VoyageLogTab sharing and identity transitions', () => {
     beforeEach(() => {
         setAuthIdentityScope(null);
         setAuthIdentityScope('account-a');
@@ -205,12 +233,19 @@ describe('VoyageLogTab identity transitions', () => {
         mocks.ensureConfigured.mockResolvedValue(config('account-a', 'boat-a', false));
         mocks.ensureEnabled.mockResolvedValue(config('account-a', 'boat-a'));
         mocks.setEnabled.mockResolvedValue(config('account-a', 'boat-a'));
+        mocks.setPublicInstrumentsEnabled.mockResolvedValue(config('account-a', 'boat-a'));
+        mocks.setPublicAisEnabled.mockResolvedValue(config('account-a', 'boat-a'));
         mocks.getHiddenVoyageIds.mockResolvedValue(new Set());
         mocks.getPlanLinks.mockResolvedValue(new Map());
+        mocks.getPlanLinkRows.mockResolvedValue(new Map());
         mocks.setVoyageHidden.mockResolvedValue(true);
         mocks.setVoyagePlanLink.mockResolvedValue(true);
+        mocks.setPlanLinkWithRetry.mockResolvedValue(true);
+        // Existing voyages and plans must not bring back the removed settings section.
         mocks.getVoyageSummaries.mockResolvedValue([summary('voyage-a'), summary('plan-a', true)]);
         mocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [route('plan-a')], tracks: [] });
+        mocks.markLiveTrickleFreshStart.mockResolvedValue(undefined);
+        mocks.purgeLiveTrack.mockResolvedValue(true);
         mocks.respond.mockImplementation((query: (typeof mocks.queries)[number]) => {
             const userId = query.filters.find((filter) => filter.column === 'user_id')?.value;
             if (query.table === 'boat_members' && query.action === 'read') {
@@ -241,6 +276,132 @@ describe('VoyageLogTab identity transitions', () => {
         });
     });
 
+    it('omits per-voyage visibility and passage controls without loading or changing existing tracks', async () => {
+        mocks.getHiddenVoyageIds.mockResolvedValue(new Set(['voyage-a']));
+        mocks.getPlanLinks.mockResolvedValue(new Map([['voyage-a', 'plan-a']]));
+        mocks.getPlanLinkRows.mockResolvedValue(
+            new Map([
+                [
+                    'voyage-a',
+                    {
+                        planVoyageId: 'plan-a',
+                        deviceId: 'other-device',
+                        deviceName: 'Other phone',
+                        updatedAt: '2026-09-08T00:00:00.000Z',
+                    },
+                ],
+            ]),
+        );
+        renderTab();
+
+        expect(await screen.findByRole('switch', { name: 'Public voyage log on/off' })).toHaveAttribute(
+            'aria-checked',
+            'true',
+        );
+        expect(screen.getByRole('switch', { name: 'Show my current track on/off' })).toBeInTheDocument();
+        expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toBeInTheDocument();
+        expect(screen.getByRole('switch', { name: 'Show shipping around me on/off' })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Public tracks' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('switch', { name: /Show voyage/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Passage:|Plan A|Unlink|Replace/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expectNoPerVoyageAccess();
+    });
+
+    it('changes the public master switch only after each confirmed save without adding instrument consent', async () => {
+        const disable = deferred<VoyageLogConfig | null>();
+        const enable = deferred<VoyageLogConfig | null>();
+        const enabledConfig = { ...config('account-a', 'boat-a'), public_instruments_enabled: false };
+        mocks.getConfig.mockResolvedValue(enabledConfig);
+        mocks.setEnabled.mockReturnValueOnce(disable.promise).mockReturnValueOnce(enable.promise);
+        const onSave = vi.fn();
+        renderTab(onSave);
+        const toggle = await screen.findByRole('switch', { name: 'Public voyage log on/off' });
+
+        fireEvent.click(toggle);
+        expect(mocks.setEnabled).toHaveBeenLastCalledWith(false);
+        expect(toggle).toHaveAttribute('aria-checked', 'true');
+        expect(toggle).toBeDisabled();
+        await act(async () => disable.resolve({ ...enabledConfig, enabled: false }));
+        expect(toggle).toHaveAttribute('aria-checked', 'false');
+        expect(toggle).not.toBeDisabled();
+        expect(screen.queryByRole('switch', { name: 'Share my instruments on/off' })).not.toBeInTheDocument();
+
+        fireEvent.click(toggle);
+        expect(mocks.setEnabled).toHaveBeenLastCalledWith(true);
+        expect(toggle).toHaveAttribute('aria-checked', 'false');
+        expect(toggle).toBeDisabled();
+        await act(async () => enable.resolve(enabledConfig));
+        expect(toggle).toHaveAttribute('aria-checked', 'true');
+        expect(toggle).not.toBeDisabled();
+        expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toHaveAttribute(
+            'aria-checked',
+            'false',
+        );
+        expect(mocks.setPublicInstrumentsEnabled).not.toHaveBeenCalled();
+        expect(onSave).not.toHaveBeenCalled();
+        expectNoPerVoyageAccess();
+    });
+
+    it.each([true, false])('retains the saved master setting (%s) when its update fails', async (enabled) => {
+        mocks.getConfig.mockResolvedValue(config('account-a', 'boat-a', enabled));
+        mocks.setEnabled.mockResolvedValueOnce(null);
+        renderTab();
+        const toggle = await screen.findByRole('switch', { name: 'Public voyage log on/off' });
+
+        fireEvent.click(toggle);
+        await waitFor(() => expect(toggle).not.toBeDisabled());
+        expect(mocks.setEnabled).toHaveBeenCalledWith(!enabled);
+        expect(toggle).toHaveAttribute('aria-checked', String(enabled));
+        expect(mocks.setPublicInstrumentsEnabled).not.toHaveBeenCalled();
+        expectNoPerVoyageAccess();
+    });
+
+    it.each([false, true])(
+        'keeps current-track sharing independent of instrument consent (initially %s)',
+        async (sharing) => {
+            const onSave = vi.fn();
+            renderTab(onSave, { ...settings, liveTrackShare: sharing });
+            const toggle = await screen.findByRole('switch', { name: 'Show my current track on/off' });
+
+            fireEvent.click(toggle);
+            expect(onSave).toHaveBeenCalledWith({ liveTrackShare: !sharing });
+            await waitFor(() =>
+                expect(sharing ? mocks.purgeLiveTrack : mocks.markLiveTrickleFreshStart).toHaveBeenCalledOnce(),
+            );
+            expect(sharing ? mocks.markLiveTrickleFreshStart : mocks.purgeLiveTrack).not.toHaveBeenCalled();
+            expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toHaveAttribute(
+                'aria-checked',
+                'false',
+            );
+            expect(mocks.setPublicInstrumentsEnabled).not.toHaveBeenCalled();
+            expect(mocks.setEnabled).not.toHaveBeenCalled();
+            expectNoPerVoyageAccess();
+        },
+    );
+
+    it('keeps shipping visibility separate from instrument consent', async () => {
+        mocks.setPublicAisEnabled.mockResolvedValueOnce({
+            ...config('account-a', 'boat-a'),
+            public_ais_enabled: false,
+        });
+        const onSave = vi.fn();
+        renderTab(onSave);
+        const toggle = await screen.findByRole('switch', { name: 'Show shipping around me on/off' });
+
+        fireEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
+        expect(mocks.setPublicAisEnabled).toHaveBeenCalledWith(false);
+        expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toHaveAttribute(
+            'aria-checked',
+            'false',
+        );
+        expect(mocks.setPublicInstrumentsEnabled).not.toHaveBeenCalled();
+        expect(mocks.setEnabled).not.toHaveBeenCalled();
+        expect(onSave).not.toHaveBeenCalled();
+        expectNoPerVoyageAccess();
+    });
+
     it('defaults instruments off and waits for a confirmed save before showing them as shared', async () => {
         const save = deferred<VoyageLogConfig | null>();
         mocks.setPublicInstrumentsEnabled.mockReturnValueOnce(save.promise);
@@ -268,7 +429,7 @@ describe('VoyageLogTab identity transitions', () => {
         expect(toggle).toHaveAttribute('aria-checked', 'false');
     });
 
-    it('synchronously hides A config, boats, tracks, picker, and copy state while B loads', async () => {
+    it('synchronously hides A config, boats, and copy state while B loads', async () => {
         const accountBConfig = deferred<VoyageLogConfig | null>();
         mocks.getConfig
             .mockResolvedValueOnce(config('account-a', 'boat-a'))
@@ -283,8 +444,6 @@ describe('VoyageLogTab identity transitions', () => {
         await waitFor(() =>
             expect(screen.getByRole('button', { name: 'Copy API endpoint URL' })).toHaveTextContent('Copied'),
         );
-        fireEvent.click(screen.getByText(/Passage: none/));
-        expect(screen.getByRole('button', { name: /Plan A/ })).toBeInTheDocument();
 
         act(() => {
             mocks.authUserId = 'account-b';
@@ -294,11 +453,11 @@ describe('VoyageLogTab identity transitions', () => {
         expect(screen.queryByText('https://account-a-private-handle.thalassawx.app')).not.toBeInTheDocument();
         expect(screen.queryByText('account-a-PRIVATE-API-KEY')).not.toBeInTheDocument();
         expect(screen.queryByText('Crew Boat A')).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: /Plan A/ })).not.toBeInTheDocument();
         expect(screen.queryByText('Copied')).not.toBeInTheDocument();
 
         await act(async () => accountBConfig.resolve(null));
         expect(await screen.findByRole('button', { name: 'Set up your voyage log' })).toBeInTheDocument();
+        expectNoPerVoyageAccess();
     });
 
     it('discards a deferred A setup result without a B haptic or config flash', async () => {
@@ -376,25 +535,26 @@ describe('VoyageLogTab identity transitions', () => {
         expect(mocks.haptic).not.toHaveBeenCalledWith('medium');
     });
 
-    it('does not run an A optimistic revert or error toast after switching to B', async () => {
-        const accountAMutation = deferred<boolean>();
-        mocks.setVoyageHidden.mockReturnValueOnce(accountAMutation.promise);
-        mocks.getVoyageSummaries.mockResolvedValue([summary('voyage-a')]);
+    it('does not apply an A instrument-consent failure or error toast after switching to B', async () => {
+        const accountAMutation = deferred<VoyageLogConfig | null>();
+        mocks.setPublicInstrumentsEnabled.mockReturnValueOnce(accountAMutation.promise);
         mocks.getConfig.mockResolvedValueOnce(config('account-a', 'boat-a')).mockResolvedValueOnce(null);
 
         renderTab();
-        const trackToggle = await screen.findByRole('switch', { name: /Show voyage/ });
-        fireEvent.click(trackToggle);
+        const instrumentToggle = await screen.findByRole('switch', { name: 'Share my instruments on/off' });
+        fireEvent.click(instrumentToggle);
+        expect(instrumentToggle).toHaveAttribute('aria-checked', 'false');
         const hapticsAtSwitch = mocks.haptic.mock.calls.length;
 
         act(() => {
             mocks.authUserId = 'account-b';
             setAuthIdentityScope('account-b');
         });
-        await act(async () => accountAMutation.resolve(false));
+        await act(async () => accountAMutation.resolve(null));
 
+        expect(await screen.findByRole('button', { name: 'Set up your voyage log' })).toBeInTheDocument();
         expect(mocks.toastError).not.toHaveBeenCalled();
         expect(mocks.haptic).toHaveBeenCalledTimes(hapticsAtSwitch);
-        expect(screen.queryByRole('switch', { name: /Show voyage/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('switch', { name: 'Share my instruments on/off' })).not.toBeInTheDocument();
     });
 });
