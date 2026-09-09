@@ -63,6 +63,8 @@ describe('the weather is for the boat', () => {
         // packed screen." The row lives in System Status; the header has no chip.
         expect(status).toContain('<GpsSourceRow />');
         expect(app).not.toContain('<GpsSourceGlyph />');
+        expect(app).toContain('value={displayTitle}');
+        expect(app).not.toContain('value={query}');
         expect(glyph).toContain("weatherKind === 'held'");
         expect(glyph).toContain('canChoose: true');
         expect(glyph).toContain('tap to choose the boat or this phone');
