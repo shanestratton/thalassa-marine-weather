@@ -823,25 +823,51 @@ const USAGE_LABELS: Record<string, string> = {
     'diary-video': 'Video',
 };
 
-const CloudStorageSection: React.FC = () => {
-    const [usage, setUsage] = useState<{ bucket: string; bytes: number; objects: number }[] | null | 'loading'>(
-        'loading',
-    );
+export const CloudStorageSection: React.FC = () => {
+    const scope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
+    type Usage = { bucket: string; bytes: number; objects: number }[] | null | 'loading';
+    const [result, setResult] = useState<{ generation: number; usage: Usage }>({
+        generation: scope.generation,
+        usage: 'loading',
+    });
+    const [refresh, setRefresh] = useState(0);
+    const usage = result.generation === scope.generation ? result.usage : 'loading';
     useEffect(() => {
         let cancelled = false;
+        setResult({ generation: scope.generation, usage: 'loading' });
         void (async () => {
             const { DiaryService } = await import('../../services/DiaryService');
+            if (cancelled || !isAuthIdentityScopeCurrent(scope)) return;
             const rows = await DiaryService.getMediaUsage();
-            if (!cancelled) setUsage(rows);
+            if (!cancelled && isAuthIdentityScopeCurrent(scope)) {
+                setResult({ generation: scope.generation, usage: rows });
+            }
         })();
         return () => {
             cancelled = true;
         };
+    }, [scope, refresh]);
+    useEffect(() => {
+        const reload = () => setRefresh((value) => value + 1);
+        window.addEventListener('thalassa:diary-deleted', reload);
+        return () => window.removeEventListener('thalassa:diary-deleted', reload);
     }, []);
 
     const total = Array.isArray(usage) ? usage.reduce((sum, r) => sum + r.bytes, 0) : 0;
     return (
         <Section title="Cloud storage">
+            <Row>
+                <span className="text-sm text-gray-400">Files currently stored in Supabase</span>
+                <button
+                    type="button"
+                    onClick={() => setRefresh((value) => value + 1)}
+                    disabled={usage === 'loading'}
+                    className="min-h-[44px] min-w-[44px] px-3 text-sm font-semibold text-sky-300 disabled:opacity-50"
+                    aria-label="Refresh cloud storage usage"
+                >
+                    Refresh
+                </button>
+            </Row>
             {usage === 'loading' ? (
                 <Row>
                     <span className="text-sm text-gray-400">Measuring…</span>

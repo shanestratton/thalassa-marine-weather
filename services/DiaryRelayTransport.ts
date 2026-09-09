@@ -324,7 +324,13 @@ export async function cancelDiaryDirect(clientOperationId: string): Promise<bool
         });
         if (!response.ok || !isAuthIdentityScopeCurrent(scope)) return false;
         const data: unknown = await response.json();
-        return isRecord(data) && data.ok === true && data.cancelled === true;
+        return (
+            isAuthIdentityScopeCurrent(scope) &&
+            isRecord(data) &&
+            data.ok === true &&
+            data.cancelled === true &&
+            data.client_operation_id === clientOperationId
+        );
     } catch (error) {
         log.debug('Direct diary cancellation deferred:', error);
         return false;

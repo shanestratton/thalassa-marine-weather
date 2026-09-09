@@ -98,10 +98,11 @@ export function createDiaryRelayRoutes(outbox: DiaryRelayOutbox, videoRelay?: Di
     router.post('/cancel', async (req: Request, res: Response) => {
         try {
             const operationId = cancellationOperationId(req.body);
-            // A deleted entry's parked clip must die with it, or the Pi
-            // uploads a video for a row that no longer exists.
-            if (videoRelay) void videoRelay.cancelOperation(operationId);
             const queued = outbox.cancel(operationId);
+            // A deleted entry's parked clip must die with it, or the Pi
+            // uploads a video for a row that no longer exists. Wait for the
+            // local files to be removed before acknowledging cancellation.
+            if (videoRelay) await videoRelay.cancelOperation(operationId);
             const current = await outbox.attemptCancellation(operationId);
             const result = current ?? queued;
             return res.json({
@@ -129,12 +130,23 @@ export function createDiaryRelayRoutes(outbox: DiaryRelayOutbox, videoRelay?: Di
     if (videoRelay) {
         router.post('/video/begin', async (req: Request, res: Response) => {
             const body = requestEnvelope(req.body) as unknown as Record<string, unknown>;
+            const operationId = typeof body.client_operation_id === 'string' ? body.client_operation_id : '';
+            const cancelled = () => outbox.getStatus(operationId)?.kind === 'cancellation';
+            if (cancelled()) {
+                return res.status(409).json({ cancelled: true, error: 'Diary operation has been cancelled' });
+            }
             const result = await videoRelay.begin({
-                operationId: typeof body.client_operation_id === 'string' ? body.client_operation_id : '',
+                operationId,
                 path: typeof body.path === 'string' ? body.path : '',
                 totalBytes: typeof body.total_bytes === 'number' ? body.total_bytes : NaN,
                 sha256: typeof body.sha256 === 'string' ? body.sha256 : '',
             });
+            // begin writes files asynchronously. A cancellation that arrived
+            // during that write also wins over this in-flight handoff.
+            if (cancelled()) {
+                await videoRelay.cancelOperation(operationId);
+                return res.status(409).json({ cancelled: true, error: 'Diary operation has been cancelled' });
+            }
             if ('error' in result) return res.status(result.status).json({ error: result.error });
             return res.json(result);
         });
