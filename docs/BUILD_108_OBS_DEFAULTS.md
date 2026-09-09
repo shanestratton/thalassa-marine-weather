@@ -13,6 +13,10 @@
   default. The existing OBS map stays mounted; there is no `setStyle` reload.
 - Only the raster background selection changes. ENC safety layers, depth
   treatment, navigation marks, routes and warning rules are unchanged.
+- The empty-coverage warning now occupies the usable OBS map area rather than
+  the full-bleed map's bottom edge. Short landscape and short split panes leave
+  room for Back, MOB, Locate, map credits and the live-tide badge. Its coverage
+  conditions, wording and working 44px ENC Library action remain unchanged.
 - Wind-versus-tide keeps the existing Glass card dimensions and no longer
   scrolls. The +3/+6/+9/+12-hour outlook is removed; the selected time's full
   verdict, wind/stream readings, direction-source label and flood controls all

@@ -3577,6 +3577,35 @@ body,
     bottom: calc(4rem + 73px + env(safe-area-inset-bottom));
 }
 
+/* Keep the coverage notice below the top/MOB controls, not bottom-anchored
+   to a full-bleed map that extends behind navigation. This also leaves the
+   Locate/scale/attribution stack intact on narrow phones. */
+.thalassa-enc-coverage-notice {
+    top: calc(160px + env(safe-area-inset-top));
+    left: 50%;
+    width: min(390px, calc(100% - 24px));
+    transform: translateX(-50%);
+}
+
+/* In short landscape (including a short iPad split pane), reserve both the
+   middle-left Back control and the right-hand map rail. Tide status stays
+   above the notice and beside, rather than over, the emergency control. */
+@media (orientation: landscape) and (max-height: 600px) {
+    .thalassa-enc-coverage-notice {
+        top: calc(148px + env(safe-area-inset-top));
+        left: calc(72px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 224px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        transform: none;
+    }
+    .thalassa-enc-tide-badge {
+        left: max(12px, env(safe-area-inset-left));
+        max-width: calc(100% - 152px);
+        white-space: normal;
+        translate: none;
+        transform: none;
+    }
+}
+
 /* ── Bottom sheets and the on-screen keyboard ──────────────────────
    USE THIS on any bottom-anchored panel that contains a text field and
    scrolls internally. Add the class, delete the hard-coded max-h.

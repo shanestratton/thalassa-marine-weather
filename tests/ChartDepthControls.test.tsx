@@ -119,8 +119,20 @@ describe('ChartDepthControls', () => {
         expect(
             screen.getByText('No verified ENC charts installed. Library imports are reference-only.'),
         ).toBeInTheDocument();
+        expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveClass('thalassa-enc-coverage-notice');
+        expect(screen.getByRole('button', { name: 'Open on-device ENC Library' })).toHaveClass('min-h-[44px]');
         fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
         expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        { surfaceVisible: false },
+        { encVisible: false },
+        { encHydration: { total: 2, remaining: 1 } },
+        { encReferenceCellCount: 1 },
+    ])('preserves the no-coverage notice visibility gate: %j', (override) => {
+        render(<ChartDepthControls {...props({ encCellCount: 0, encNoCoverage: true, ...override })} />);
+        expect(screen.queryByRole('status', { name: 'ENC coverage' })).not.toBeInTheDocument();
     });
 
     it('keeps unsigned reference data visibly unverified on the Plan surface', () => {
