@@ -751,7 +751,6 @@ const HeroSlideComponent = ({
                                                 {showWindVsTide ? (
                                                     <WindVsTideView
                                                         tideSeries={tideHourly}
-                                                        hourly={hourly}
                                                         now={{
                                                             windDeg: cardData.windDegree,
                                                             windKts: cardData.windSpeed,
