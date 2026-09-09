@@ -841,14 +841,18 @@ export const useAppController = () => {
     );
 
     // Navigation Handlers (Encapsulate DOM/Window logic)
-    const handleTabDashboard = useCallback(() => {
-        if (currentView !== 'dashboard') {
-            setPage('dashboard');
-        } else {
-            // "Pull to Refresh" feel for tab click
-            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
-        }
-    }, [currentView, setPage]);
+    const handleTabDashboard = useCallback(
+        (glassAlreadyVisible = false) => {
+            if (currentView !== 'dashboard' && !glassAlreadyVisible) {
+                setPage('dashboard');
+            } else {
+                // Same reset-to-live for the full page and the pinned Glass;
+                // refreshing a pinned pane must not navigate its neighbour.
+                setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
+            }
+        },
+        [currentView, setPage],
+    );
 
     const handleTabMetrics = useCallback(() => {
         setPage('details');

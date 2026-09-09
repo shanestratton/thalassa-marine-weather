@@ -245,8 +245,9 @@ const App: React.FC = () => {
     } = useAppController();
 
     // ── Tablet split view ──────────────────────────────────────────
-    // Long-press The Glass to pin it beside whatever else you are doing; the
-    // same tap closes it again. Gated on WIDTH rather than orientation because
+    // Long-press The Glass to pin it beside whatever else you are doing; another
+    // long press closes it. Short taps keep their normal Glass reset behaviour.
+    // Gated on WIDTH rather than orientation because
     // width is the thing that actually decides whether two panes fit — that
     // gets iPad landscape and the desktop web build from one rule, and keeps
     // it off a phone in landscape, where 900px split in two is two useless
@@ -380,12 +381,12 @@ const App: React.FC = () => {
         }
     }, [wideEnoughForSplit, splitViewEnabled, rememberSplitView, currentView, previousView, setPage]);
 
-    // Tapping The Glass while split collapses back to one view: the gesture
-    // that opened it closes it, so there is nothing new to learn.
+    // The pinned Glass is already visible. Reset it without navigating the
+    // right pane to dashboard (which would also hide the split) or changing
+    // the saved preference. Only the long-press handler toggles that preference.
     const handleGlassTab = useCallback(() => {
-        if (splitViewEnabled) rememberSplitView(false);
-        handleTabDashboard();
-    }, [splitViewEnabled, rememberSplitView, handleTabDashboard]);
+        handleTabDashboard(splitActive);
+    }, [splitActive, handleTabDashboard]);
 
     // Compute display mode BEFORE any early returns — needed by useEffect below
     const isLight = effectiveMode === 'light';

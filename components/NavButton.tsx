@@ -22,7 +22,7 @@ interface NavButtonProps {
     /** Optional unread badge count (true = dot only, number = count) */
     badge?: boolean | number;
     /**
-     * Held rather than tapped. Used by The Glass to open the tablet split view.
+     * Held rather than tapped. Used by The Glass to toggle the tablet split view.
      *
      * A tab bar is pressed constantly and often on a moving boat, so the press
      * must not fire as well as the tap: whichever wins, exactly one thing
