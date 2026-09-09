@@ -59,22 +59,40 @@
   The main **Public Voyage Log** opt-in/out switch remains. Existing hidden
   voyages are not made public, no logs or privacy settings are deleted, and
   automatic passage links and separate instrument consent are unchanged.
+- Diary deletion retains uploaded video references when reading its durable
+  delete queue, preserves references across repeated deletes, and checkpoints
+  cold-cache media before the cloud row disappears. Offline operation ids are
+  cancelled through the relay protocol, not sent as invalid UUID row deletes.
+  Failed reads/cleanup keep the deletion queued. Shared media is preserved,
+  including references on older paginated diary entries; cloud usage refreshes
+  after confirmed cleanup and has a manual Refresh control with account fencing.
+- The Pi source now retires cancelled synced diary payloads/counts while keeping
+  the owner-bound anti-resurrection tombstone. Cancelled video handoffs are
+  rejected before and after async creation. This Pi change has not been
+  installed on the yacht by this task.
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `6d85014915462d2bf9b2a328b39500d7858d432f`.
+- Compiled source: `9e82cfd461a0e523265d88821de555fbf233ce5b`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-B1iG77Vx.js`, SHA-256
-  `ece9abff33229ee7faee5df29186dd568ddfeedee9f8665ef0aaf0e12dc12d78`.
+- Main entry: `main-BZuKSqDB.js`, SHA-256
+  `8ab4411a030bdeb1f4b12b7a146a0844db5f4317b87a15cd91536933c15135db`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
 - Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
   Public entry: `logs-ukiRNjW9.js`.
-- **125 focused unit tests across 12 files** passed for the Public tracks
+- **200 focused app tests across 26 files**, **23 Pi tests**, and **7 Deno
+  cleanup tests** passed for diary deletion. They cover video tombstone
+  persistence, cold-cache recovery, repeat deletes, offline-id cancellation,
+  failed reads/Storage/checkpoints, shared/foreign media, exact operation
+  acknowledgements, identity changes, stale delivery and actual usage refresh.
+  App/Pi/Edge typechecks and migration audit passed. Targeted lint had no
+  errors (one existing unused `CapacitorHttp` import warning in relay transport).
+- The preceding candidate passed **125 focused unit tests across 12 files** for the Public tracks
   removal: absence/no retired reads or writes, confirmed opt-in/out and failed
   saves, retained instrument/AIS/live-track choices, account-switch races,
   backend exclusions, published-diary privacy, automatic passage linking,
@@ -171,8 +189,10 @@
   They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-public-tracks108.zhlMPE/ship-beta.log`,
-  `focused-tests.log` and `production-e2e.log` in that same directory.
+- Current logs: `/private/tmp/thalassa-diary-delete108.zwafki/ship-beta.log`,
+  `diary-tests.log`, `pi-tests.log`, `edge-tests.log`, `typecheck.log`,
+  `edge-typecheck.log` and `production-e2e.log` in that same directory.
+  Public-tracks revision evidence remains in `/private/tmp/thalassa-public-tracks108.zhlMPE/`.
   Public-mobile revision evidence remains in `/private/tmp/thalassa-public-mobile108.jVM2Z5/`.
   Static-tide revision evidence remains in `/private/tmp/thalassa-tide-static108.emZsOk/`.
   Vessel-scroll revision evidence remains in `/private/tmp/thalassa-vessel-snap108.DlzhSD/`.
@@ -181,6 +201,35 @@
   Wind/tide revision evidence remains in `/private/tmp/thalassa-wind-tide108.aGI0tS/`.
   The earlier local 108 candidates were not uploaded and are superseded by this
   rebuild.
+
+## Diary cleanup server deployment — 9 September 2026
+
+- Project: `pcisdplnodrphauixcau` (Thalassa Marine Forecasting). Applied only
+  migration `20260909110000_diary_deletion_media_cleanup`, recording its exact
+  SQL in migration history. No unrelated pending migrations were pushed.
+- The cancellation RPC captures photo/audio/video refs atomically on the
+  owner/operation tombstone before deleting its row. The Edge removes exact
+  owned Storage objects, preserves shared refs and checkpoints only verified
+  removal; failed cleanup remains retryable rather than returning false success.
+- Executed the full migration and synthetic private fixtures in a rollback-only
+  transaction first. Checks passed for capture, row deletion, retries, normalized
+  shared refs, checkpoint idempotence, invalid owner paths and service-only grants.
+  No real customer records or Storage objects were deleted during testing.
+- Downloaded the prior deployed function to
+  `/private/tmp/thalassa-diary-live-backup.DHaAx3/`; its entry and shared helpers
+  matched HEAD before editing. Deployed only **diary-relay**, now **ACTIVE v15**,
+  bundle SHA-256 `9d2fdf342c8d28ecea6ff909033cb101a7b5b1e9c4a4250618c28bb414441177`.
+- Post-deploy checks confirm migration history, tombstone RLS, service-only
+  cancellation/checkpoint privileges, zero unfinished rollout manifests, and
+  HTTP **401** for an unauthenticated cancellation request. Logs and rollback
+  test SQL are in the current evidence directory above.
+- Existing orphan files were **not** bulk-deleted. An already-issued upload
+  finishing after cancellation, or a concurrent new entry attaching the same
+  file between reference check and removal, still needs an upload/reference
+  fencing design; these changes do not claim to eliminate those races.
+- Pi source fixes are tested but **not deployed to the yacht**. Anti-resurrection
+  tombstone counts are intentionally cumulative; those rows are deletion
+  metadata, not retained diary bodies. Cloud storage counts measure actual files.
 
 This is a built and synced local candidate, **not an archived, Apple-validated or
 uploaded TestFlight release**. The full application test suite and remote CI were
