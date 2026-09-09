@@ -13,15 +13,16 @@
   default. The existing OBS map stays mounted; there is no `setStyle` reload.
 - Only the raster background selection changes. ENC safety layers, depth
   treatment, navigation marks, routes and warning rules are unchanged.
-- Wind-versus-tide keeps the existing Glass card dimensions. Its details now
-  scroll inside the card, with the back button pinned outside the scroller and
-  a hint when more content is available. All four +3/+6/+9/+12-hour relationships
-  and flood-direction controls are reachable without moving the model strip.
+- Wind-versus-tide keeps the existing Glass card dimensions and no longer
+  scrolls. The +3/+6/+9/+12-hour outlook is removed; the selected time's full
+  verdict, wind/stream readings, direction-source label and flood controls all
+  fit in place. There is no scroll hint or change to the model strip's position.
 - Ordinary taps on the detail text no longer close it. Flood controls keep real
   44px tap targets even on the narrow-phone font scale. Keyboard opening moves
   focus into the active card's details; keyboard closing restores graph focus.
-  Arrow keys do not escape into the day/hour carousels. Pointer opening does not
-  move focus. Tide/wind arithmetic and flood-direction semantics are unchanged.
+  Navigation keys do not scroll an ancestor or escape into the day/hour carousels;
+  Tab and normal button activation are preserved. Pointer opening does not move
+  focus. Current tide/wind arithmetic and flood-direction semantics are unchanged.
 - The top Route Planner comfort card is temporarily hidden in standalone and
   embedded planners, with no empty wrapper gap. Saved comfort parameters and
   their routing effects are unchanged, as are trip, departure and route controls.
@@ -39,28 +40,45 @@
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `ef8e50363cf31f396c16da6c0a77e5e53dba5c84`.
+- Compiled source: `9756d848690b64cb88ae00e37510cf547346adae`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-Dc1cBqY6.js`, SHA-256
-  `b003c03f3a94f983039caf6a71ea2a433596be7796424124bdb7f02e766e7285`.
+- Main entry: `main-C5bhkZpl.js`, SHA-256
+  `bbbf17aa2e1dd5a6ef623f62999d34b69d46d5f742160868eb8a658da9b4fbf5`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
 - Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
-- **38 focused unit tests** passed for the Vessel follow-up, covering scroll
+- **74 focused unit tests** passed for the static tide-card follow-up, covering
+  current readouts, missing data, controlled flood-direction adjustments,
+  open/close/focus behaviour, keyboard isolation, unchanged wind/tide engines
+  and Glass layout/forecast contracts. Targeted lint and formatting passed.
+- **32/32 source-level browser tests** passed in Chromium and WebKit for the
+  static card: day/dark/night at 320px, 430px and 1024px split-pane widths,
+  150–197px card heights, full long warning/unavailable verdicts, 12/14/16px
+  minimum label/reading/verdict fonts, 44px controls, Auto and 345° wraparound.
+  They measure zero content overflow and unchanged card/model-strip geometry,
+  including after adjustments. Keyboard activation and traversal are covered
+  (macOS WebKit uses Option+Tab for all controls). Mobile WebKit previews were
+  visually inspected; a physical iPhone has not been tested.
+- **36/36 production browser tests** passed against this rebuilt bundle in
+  Chromium and mobile WebKit. They include the actual 390×844 Glass page with
+  cached coastal tides: all current text and controls fit, no inner scrolling
+  or hidden clipping remains, flood/Auto and close work, and the card does not
+  resize. The other 34 cases recheck Vessel scrolling, the planner and OBS.
+- The preceding Vessel revision passed **38 focused unit tests**, covering scroll
   targets, layout ordering, fixed safety controls, anchor/underway presentation,
   passage-planning placement and Skipper-device identity/GPS/Pi behaviour.
   Targeted ESLint, formatting and the build's TypeScript check passed.
-- **14/14 source-level browser tests** passed in Chromium and WebKit. The real
+- That Vessel revision passed **14/14 source-level browser tests** in Chromium and WebKit. The real
   app is exercised at 390×650, 390×844, 430×932 and 768×768, plus daylight/night
   phone cases. Checks measure complete return-to-home geometry, unchanged safety
   deck position and reachable expanded Settings controls, with native desktop
   wheel gestures in both engines. Mobile WebKit's geometry is tested, not a
   physical iPhone's touch momentum.
-- **34/34 production browser tests** passed against this rebuilt bundle in
+- That Vessel revision passed **34/34 production browser tests** in
   Chromium and mobile WebKit: the same 14 Vessel cases, plus the 20 dashboard,
   route-planner and OBS regressions described below. The desktop-wheel case
   deliberately disables mobile emulation because mobile WebKit has no wheel API.
@@ -72,7 +90,7 @@
   standalone and embedded planner interactions, unchanged saved comfort limits,
   the comfort engine, isochrone routing and prior audit regressions. Targeted
   ESLint and formatting passed; the build's TypeScript check passed.
-- The preceding wind/tide revision passed **80 focused unit tests**, covering
+- The earlier scrolling wind/tide revision passed **80 focused unit tests**, covering
   actual HeroSlide
   open/close/focus behaviour, detail readouts and controls, keyboard isolation,
   Glass dimensions, unchanged wind/tide calculations, daylight surfaces and OBS
@@ -86,6 +104,7 @@
   card/model-strip geometry, pinned close, keyboard focus/scrolling and desktop
   wheel containment. Mobile WebKit was also visually inspected. These browser
   checks do not substitute for testing a physical iPhone's touch gestures.
+  That scrolling design is superseded by the current-only face above.
 - The preceding departure revision passed **20/20 production browser tests** in
   Chromium and mobile WebKit. They verify that the planner's comfort card is absent
   while its departure, route and header-menu controls remain available. Now
@@ -93,9 +112,10 @@
   They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-vessel-snap108.DlzhSD/ship-beta.log`,
-  `focused-tests.log`, `vessel-final.log` and `production-e2e.log` in that same
+- Current logs: `/private/tmp/thalassa-tide-static108.emZsOk/ship-beta.log`,
+  `focused-tests.log`, `layout-final.log` and `production-e2e.log` in that same
   directory.
+  Vessel-scroll revision evidence remains in `/private/tmp/thalassa-vessel-snap108.DlzhSD/`.
   Departure-button revision evidence remains in `/private/tmp/thalassa-departure108.pPH0pA/`.
   Planner-card revision evidence remains in `/private/tmp/thalassa-comfort108.We11Wh/`.
   Wind/tide revision evidence remains in `/private/tmp/thalassa-wind-tide108.aGI0tS/`.
