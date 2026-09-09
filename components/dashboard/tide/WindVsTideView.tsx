@@ -34,7 +34,7 @@ interface WindVsTideViewProps {
     floodDirection?: number;
     onSetFloodDirection: (deg: number | undefined) => void;
     units: UnitPreferences;
-    onClose?: () => void;
+    onClose?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
 /** Current direction can be a number (deg) or a cardinal string — normalise to degrees. */
@@ -109,6 +109,25 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
     units,
     onClose,
 }) => {
+    const scrollRef = React.useRef<HTMLDivElement>(null);
+    const contentRef = React.useRef<HTMLDivElement>(null);
+    const [scrollHint, setScrollHint] = React.useState('');
+    const updateScrollHint = React.useCallback(() => {
+        const element = scrollRef.current;
+        if (!element) return;
+        const overflow = element.scrollHeight > element.clientHeight + 1;
+        const atEnd = element.scrollTop + element.clientHeight >= element.scrollHeight - 2;
+        setScrollHint(overflow ? (atEnd ? 'Scroll up ↑' : 'More below ↓') : '');
+    }, []);
+
+    React.useEffect(() => {
+        updateScrollHint();
+        const observer = new ResizeObserver(updateScrollHint);
+        if (scrollRef.current) observer.observe(scrollRef.current);
+        if (contentRef.current) observer.observe(contentRef.current);
+        return () => observer.disconnect();
+    }, [updateScrollHint]);
+
     const usingSetting = floodDirection != null && Number.isFinite(floodDirection);
 
     // NOW
@@ -151,112 +170,149 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
     };
 
     return (
-        <div className="relative w-full h-full flex flex-col px-4 py-3 text-white overflow-hidden">
-            {/* Close / flip-back */}
-            {onClose ? (
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onClose();
-                    }}
-                    aria-label="Back to tide graph"
-                    className="hit-target-44 absolute top-2 right-2 w-7 h-7 rounded-full bg-white/10 text-white/70 text-sm flex items-center justify-center active:scale-90"
-                >
-                    ✕
-                </button>
-            ) : null}
-
-            <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">Wind vs Tide</span>
-
-            {/* Verdict */}
-            <div className={`mt-1 text-lg font-black leading-tight ${relationColor(nowResult)}`}>{nowResult.label}</div>
-
-            {/* Wind / Stream readout */}
-            <div className="mt-2 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-white/4 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wider text-white/40">Wind</div>
-                    <div className="text-sm font-bold tabular-nums">
-                        {windSpd !== null ? `${windSpd} ${units.speed}` : '--'}{' '}
-                        <span className="text-white/50 font-normal">from {windFrom}</span>
-                    </div>
-                </div>
-                <div className="rounded-lg bg-white/4 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wider text-white/40">
-                        Stream {PHASE_ARROW[phase]} {PHASE_LABEL[phase]}
-                    </div>
-                    <div className="text-sm font-bold tabular-nums">
-                        {curSpd !== null ? `${curSpd} ${units.speed}` : '~'}{' '}
-                        <span className="text-white/50 font-normal">to {streamCardinal}</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Outlook strip */}
-            <div className="mt-3 flex items-stretch gap-1.5">
-                {outlook.map(({ h, ph, res }) => (
-                    <div
-                        key={h}
-                        className={`flex-1 rounded-md px-1 py-1.5 text-center ${res.windOverTide ? 'bg-red-500/20 border border-red-500/40' : 'bg-white/4'}`}
-                    >
-                        <div className="text-[10px] text-white/45">+{h}h</div>
-                        <div
-                            className={`text-[13px] leading-none ${res.windOverTide ? 'text-red-300' : 'text-white/70'}`}
-                        >
-                            {PHASE_ARROW[ph]}
-                        </div>
-                        <div className="text-[9px] mt-0.5 text-white/40 truncate">
-                            {res.relation === 'against'
-                                ? 'against'
-                                : res.relation === 'with'
-                                  ? 'with'
-                                  : res.relation === 'cross'
-                                    ? 'cross'
-                                    : '—'}
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {/* Flood-direction control */}
-            <div className="mt-auto pt-2 flex items-center justify-between">
-                <span className="text-[10px] text-white/40">
-                    {usingSetting
-                        ? `Stream from your flood ${Math.round(floodDirection!)}°`
-                        : 'Stream from modelled current'}
+        <div
+            className="relative w-full h-full min-h-0 min-w-0 flex flex-col text-white overflow-hidden"
+            onKeyDown={(event) => {
+                // The surrounding Glass carousels use arrow keys to change
+                // days/hours. Inside these details, let native keys scroll this
+                // region instead, including when a flood control has focus.
+                if (
+                    ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(
+                        event.key,
+                    )
+                ) {
+                    event.stopPropagation();
+                }
+            }}
+        >
+            <div className="shrink-0 min-h-12 flex items-center justify-between gap-2 px-3 py-1">
+                <span className="text-xs uppercase tracking-[0.2em] text-white/60">Wind vs Tide</span>
+                <span className="ml-auto text-xs text-white/60" aria-hidden="true">
+                    {scrollHint}
                 </span>
-                <div className="flex items-center gap-1">
+                {onClose ? (
                     <button
+                        type="button"
                         onClick={(e) => {
                             e.stopPropagation();
-                            adjustFlood(-15);
+                            onClose(e);
                         }}
-                        className="w-11 h-11 rounded-md bg-white/10 text-white/80 text-base active:scale-90"
-                        aria-label="Flood direction minus 15 degrees"
+                        aria-label="Back to tide graph"
+                        className="shrink-0 w-[44px] h-[44px] rounded-full bg-white/10 text-white/70 text-sm flex items-center justify-center active:scale-90"
                     >
-                        −
+                        ✕
                     </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            adjustFlood(15);
-                        }}
-                        className="w-11 h-11 rounded-md bg-white/10 text-white/80 text-base active:scale-90"
-                        aria-label="Flood direction plus 15 degrees"
-                    >
-                        +
-                    </button>
-                    {usingSetting ? (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onSetFloodDirection(undefined);
-                            }}
-                            className="px-3 h-11 rounded-md bg-white/10 text-white/70 text-xs active:scale-90"
-                            aria-label="Use modelled current instead"
-                        >
-                            Auto
-                        </button>
-                    ) : null}
+                ) : null}
+            </div>
+            {/* The Glass card is deliberately height-constrained. Scroll only
+                its details, never shrink text or grow the surrounding carousel. */}
+            <div
+                ref={scrollRef}
+                role="region"
+                aria-label="Wind versus tide details"
+                tabIndex={0}
+                onScroll={updateScrollHint}
+                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-3 pb-3 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-sky-400"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+            >
+                <div ref={contentRef} className="min-w-0">
+                    {/* Verdict */}
+                    <div className={`mt-1 text-lg font-black leading-tight ${relationColor(nowResult)}`}>
+                        {nowResult.label}
+                    </div>
+
+                    {/* Wind / Stream readout */}
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div className="min-w-0 rounded-lg bg-white/4 px-2 py-2">
+                            <div className="text-[10px] uppercase tracking-wider text-white/40">Wind</div>
+                            <div className="text-sm font-bold tabular-nums">
+                                {windSpd !== null ? `${windSpd} ${units.speed}` : '--'}{' '}
+                                <span className="text-white/50 font-normal">from {windFrom}</span>
+                            </div>
+                        </div>
+                        <div className="min-w-0 rounded-lg bg-white/4 px-2 py-2">
+                            <div className="text-[10px] uppercase tracking-wider text-white/40">
+                                Stream {PHASE_ARROW[phase]} {PHASE_LABEL[phase]}
+                            </div>
+                            <div className="text-sm font-bold tabular-nums">
+                                {curSpd !== null ? `${curSpd} ${units.speed}` : '~'}{' '}
+                                <span className="text-white/50 font-normal">to {streamCardinal}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Outlook strip */}
+                    <div className="mt-3 grid grid-cols-4 items-stretch gap-1.5">
+                        {outlook.map(({ h, ph, res }) => (
+                            <div
+                                key={h}
+                                data-testid={`wind-tide-outlook-${h}`}
+                                className={`min-w-0 rounded-md px-1 py-1.5 text-center ${res.windOverTide ? 'bg-red-500/20 border border-red-500/40' : 'bg-white/4'}`}
+                            >
+                                <div className="text-[10px] text-white/45">+{h}h</div>
+                                <div
+                                    className={`text-[13px] leading-none ${res.windOverTide ? 'text-red-300' : 'text-white/70'}`}
+                                >
+                                    {PHASE_ARROW[ph]}
+                                </div>
+                                <div className="text-xs mt-0.5 text-white/60 break-words">
+                                    {res.relation === 'against'
+                                        ? 'against'
+                                        : res.relation === 'with'
+                                          ? 'with'
+                                          : res.relation === 'cross'
+                                            ? 'cross'
+                                            : '—'}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Flood-direction control */}
+                    <div className="pt-3 flex flex-wrap items-center justify-between gap-2">
+                        <span className="min-w-0 text-xs text-white/60">
+                            {usingSetting
+                                ? `Stream from your flood ${Math.round(floodDirection!)}°`
+                                : 'Stream from modelled current'}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-1">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    adjustFlood(-15);
+                                }}
+                                className="shrink-0 w-[44px] h-[44px] rounded-md bg-white/10 text-white/80 text-base active:scale-90"
+                                aria-label="Flood direction minus 15 degrees"
+                                type="button"
+                            >
+                                −
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    adjustFlood(15);
+                                }}
+                                className="shrink-0 w-[44px] h-[44px] rounded-md bg-white/10 text-white/80 text-base active:scale-90"
+                                aria-label="Flood direction plus 15 degrees"
+                                type="button"
+                            >
+                                +
+                            </button>
+                            {usingSetting ? (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSetFloodDirection(undefined);
+                                    }}
+                                    className="shrink-0 min-w-[44px] px-3 h-[44px] rounded-md bg-white/10 text-white/70 text-xs active:scale-90"
+                                    aria-label="Use modelled current instead"
+                                    type="button"
+                                >
+                                    Auto
+                                </button>
+                            ) : null}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

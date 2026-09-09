@@ -11,6 +11,7 @@ export default defineConfig({
         'ui-legibility.spec.ts',
         'split-pane-layout.spec.ts',
         'nmea-daylight.spec.ts',
+        'wind-tide-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
