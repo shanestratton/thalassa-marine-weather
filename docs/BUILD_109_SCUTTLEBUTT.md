@@ -4,8 +4,8 @@
 
 Build 108 remains the previously uploaded TestFlight build. These changes prepare
 1.2.0 (109); this note is not evidence of an archive, Apple upload, processing, or
-tester availability. Final build/sync and verification results are recorded below
-once complete.
+tester availability. Production build and iOS sync are complete; verification
+results and artifact identifiers are recorded below.
 
 - Channel and private-message composers reserve the same bottom-navigation and
   safe-area clearance. The native keyboard reduces the chat area; its input does
@@ -36,14 +36,25 @@ once complete.
   failures or flaky results. Coverage includes 320px/390px phones, phone
   landscape, iPad and desktop split panes, long channel history, empty and
   populated DMs, both keyboard models, and block/error/retry controls.
+- **12/12 packaged-app smoke executions passed**: three real-app journeys in
+  Chromium and mobile WebKit, each repeated twice, with zero retries, skips or
+  flaky results (47.43 seconds). They exercise Vessel → Scuttlebutt → channel,
+  input/Send geometry above navigation and a modeled keyboard, and Back/reopen.
+  Every run confirms intercepted channel/history reads and zero chat writes or
+  failed mock requests. The production bundle was not rebuilt between checks.
+- The previous smoke only checked non-empty body text. Its replacement checks
+  actual controls and four-edge hit targets. Initial harness failures exposed
+  incomplete mock CORS headers in WebKit and an assertion ahead of React's
+  keyboard-layout commit; corrected transport mocks and a bounded wait for
+  actual layout preserve the strict geometry assertions. No app change was
+  required after source commit `7f31daa1`.
 - Browser negative controls reproduced the original DM navigation overlap,
   extra keyboard-guard page padding, and WebKit's 72px scroll of the split frame.
   Chat's split frame now uses `overflow-clip`; other pages are unchanged.
 - **178 focused blocking/service/hook tests passed** on frozen source. Final
   UI/keyboard/history subset: **17 passed**. TypeScript and changed-file ESLint
   passed. Full unit suite: **9,677 passed**, 3 existing expected failures and
-  5 skips; 1,097 test files passed and 4 skipped, 198.11 seconds. Final bundle
-  results are pending below.
+  5 skips; 1,097 test files passed and 4 skipped, 198.11 seconds.
 - Migration `20260910090000_chat_bilateral_block_enforcement.sql` was tested
   twice with rollback-only synthetic fixtures, then applied to
   `pcisdplnodrphauixcau` and recorded in migration history. SHA-256:
@@ -55,10 +66,28 @@ once complete.
   anonymous execution (HTTP 401 / SQLSTATE `42501`, not a missing-function error).
   No real message, notification or customer block choice was created or removed.
 
-Final production build/sync and commit identifiers: pending.
+### Production artifact
+
+- Source commit: `7f31daa1` — `fix(chat): keep composers visible and enforce bilateral blocks for build 109`.
+- `VITE_APP_BUILD=109 npm run ship:beta` completed successfully: Vite production
+  build, local production-release checks, route audit, bundle budget, client-secret
+  checks, iOS sync with all 19 Capacitor plugins, and **140 release contracts**.
+- Main entry: `main-Ds4LyusS.js`, SHA-256
+  `810524905cf7f9a0f96c9c01ee3de5c7403d7b74258f77c1225ac50263829cec`.
+- Public logs entry: `logs-BAlJ4052.js`, SHA-256
+  `ff4a57aaa0b482aa07989eaaafe3e37341b946157de6b5bc078a39606501339e`.
+- Main stylesheet: `index-ZFrs0ZGH.css`. Both JavaScript entries have identical
+  hashes in `dist` and the synced iOS public assets. All four Xcode build counters
+  are 109, and the compiled Sentry release identifies `thalassa@1.2.0+109`.
+- Total bundle: 13.31 MB; JavaScript: 9.84 MB against the existing 9.90 MB budget.
+  The budget passes but has little JavaScript headroom.
+- No archive, Apple validation/upload, or TestFlight distribution was performed
+  for 109. Build 108's shipped artifacts remain untouched.
 
 Evidence directory: `/private/tmp/thalassa-chat109.h2gOmw/`.
 Server proof/verification: `/private/tmp/thalassa-chat-block.IPx38g/`.
+Packaged-app report: `scuttlebutt-production-verified.json` in the evidence
+directory; screenshots are in the adjacent `scuttlebutt-production-verified/`.
 
 ## Physical-device checks
 
