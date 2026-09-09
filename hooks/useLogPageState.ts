@@ -147,6 +147,7 @@ export type LogPageAction =
     | { type: 'REMOVE_VOYAGE'; voyageId: string }
     | { type: 'UPDATE_ENTRIES'; updater: (prev: ShipLogEntry[]) => ShipLogEntry[] }
     | { type: 'SET_TRACKING'; isTracking: boolean; isPaused: boolean }
+    | { type: 'BEGIN_STOP'; voyageId: string | undefined }
     /**
      * Seed tracking state from ShipLogService's LOCAL knowledge, the moment
      * initialize() has read it — BEFORE any network round trip. The live map is
@@ -384,6 +385,25 @@ function logPageReducerInner(state: LogPageState, action: LogPageAction): LogPag
                 // existing voyage already has one, and stopping clears it.
                 startPending: action.isTracking && !state.currentVoyageId,
             };
+        case 'BEGIN_STOP': {
+            // The live view auto-expands its voyage for local seeding. Carrying
+            // that flag into the history view mounted the entire long voyage
+            // at End Voyage, before native teardown even had time to finish.
+            // Collapse only this card in the SAME render as the view switch;
+            // all entries and the other cards' explicit choices are retained.
+            const expandedVoyages = new Set(state.expandedVoyages);
+            if (action.voyageId) expandedVoyages.delete(action.voyageId);
+            return {
+                ...state,
+                showStopVoyageDialog: false,
+                isTracking: false,
+                isPaused: false,
+                isRapidMode: false,
+                isPrecisionMode: false,
+                startPending: false,
+                expandedVoyages,
+            };
+        }
         case 'SET_PRECISION_MODE':
             return { ...state, isPrecisionMode: action.isPrecisionMode };
         case 'SET_RAPID_MODE':
@@ -1152,19 +1172,18 @@ export function useLogPageState() {
     }, []);
 
     const handleStopTracking = useCallback(() => {
-        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        if (!isAuthIdentityScopeCurrent(identityScope) || stoppingRef.current) return;
         dispatch({ type: 'SHOW_STOP_DIALOG', show: true });
     }, [dispatch, identityScope]);
 
     const confirmStopVoyage = useCallback(async () => {
         const actionScope = identityScope;
-        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        dispatch({ type: 'SHOW_STOP_DIALOG', show: false });
+        if (!isAuthIdentityScopeCurrent(actionScope) || stoppingRef.current) return;
         // Capture the voyage id BEFORE stopTracking clears it.
         const stoppedVoyageId = ShipLogService.getCurrentVoyageId();
         // Instant UI response — dispatch first, guard prevents polls from overwriting
         stoppingRef.current = true;
-        dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+        dispatch({ type: 'BEGIN_STOP', voyageId: stoppedVoyageId });
         // BREADCRUMBS THROUGH THE WHOLE STOP.
         //
         // Stopping a route kills the app on Shane's phone and the trail ends

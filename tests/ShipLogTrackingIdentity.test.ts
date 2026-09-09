@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CaptureContext, FlushBufferedTrackResult } from '../services/shiplog/CapturePipeline';
+import type { ShipLogEntry } from '../types';
 
 const mocks = vi.hoisted(() => {
     const state = {
@@ -59,6 +60,7 @@ const mocks = vi.hoisted(() => {
         addManual: vi.fn(async () => null),
         flushBuffered: vi.fn<(ctx: CaptureContext) => Promise<FlushBufferedTrackResult>>(async () => 'complete'),
         syncQueue: vi.fn(async () => 0),
+        offlineEntries: vi.fn<(...args: unknown[]) => Promise<ShipLogEntry[]>>(async () => []),
         purge: vi.fn(async () => true),
         cache: vi.fn(async () => undefined),
         disarmTrickle: vi.fn(),
@@ -256,7 +258,7 @@ vi.mock('../services/shiplog/LiveTrickle', () => ({
 vi.mock('../services/shiplog/OfflineQueue', () => ({
     syncOfflineQueue: mocks.syncQueue,
     getOfflineQueueCount: vi.fn(async () => 0),
-    getOfflineEntries: vi.fn(async () => []),
+    getOfflineEntries: mocks.offlineEntries,
     deleteVoyageFromOfflineQueue: vi.fn(async () => false),
     flushOfflineQueueToDisk: vi.fn(async () => undefined),
 }));
@@ -1017,6 +1019,32 @@ describe('ShipLogService tracking owner fence', () => {
         expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore + 1);
         expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
         expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('finishes and caches a full-capacity voyage without spreading its distances into a call', async () => {
+        const userId = 'ship-owner-long-stop';
+        const voyageId = 'long-stop-voyage';
+        setAuthIdentityScope(userId);
+        await ShipLogService.initialize();
+        await ShipLogService.startTracking(false, voyageId);
+        const entry = {
+            voyageId,
+            owner_user_id: userId,
+            cumulativeDistanceNM: 42,
+            entryType: 'auto',
+        } as unknown as ShipLogEntry;
+        const entries = Array.from({ length: 250_000 }, () => entry);
+        mocks.offlineEntries.mockResolvedValueOnce(entries);
+        const cachesBefore = mocks.cache.mock.calls.length;
+
+        await ShipLogService.stopTracking(voyageId);
+
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+        expect(mocks.offlineEntries).toHaveBeenLastCalledWith({
+            voyageId,
+            expectedScope: expect.objectContaining({ userId }),
+        });
+        expect(mocks.cache).toHaveBeenCalledTimes(cachesBefore + 1);
     });
 
     it('does not claim native GPS for an ordinary reloaded pause owned by another feature', async () => {

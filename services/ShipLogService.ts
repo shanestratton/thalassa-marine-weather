@@ -2214,17 +2214,14 @@ class ShipLogServiceClass {
         let voyageTrack: ShipLogEntry[] = [];
         if (previousVoyageId) {
             try {
-                const queued = await _getOfflineEntries();
+                voyageTrack = await _getOfflineEntries({ voyageId: previousVoyageId, expectedScope: scope });
                 assertStopCurrent(activeState);
-                voyageTrack = queued.filter(
-                    (entry) =>
-                        entry.voyageId === previousVoyageId &&
-                        (entry as ShipLogEntry & { owner_user_id?: string }).owner_user_id === scope.userId,
-                );
-                const maxCumNM = voyageTrack.length
-                    ? Math.max(0, ...voyageTrack.map((e) => e.cumulativeDistanceNM || 0))
-                    : 0;
-                const hasManual = voyageTrack.some((e) => e.entryType === 'manual');
+                let maxCumNM = 0;
+                let hasManual = false;
+                for (const entry of voyageTrack) {
+                    maxCumNM = Math.max(maxCumNM, entry.cumulativeDistanceNM || 0);
+                    hasManual ||= entry.entryType === 'manual';
+                }
                 voyageWasEmpty = maxCumNM < EMPTY_TRACK_NM && !hasManual;
 
                 if (voyageWasEmpty) {

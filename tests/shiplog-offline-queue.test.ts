@@ -71,6 +71,18 @@ beforeEach(() => {
 });
 
 describe('queueOfflineEntry', () => {
+    it('returns an isolated snapshot of only the requested voyage', async () => {
+        await queueOfflineEntry({ id: 'other', voyageId: 'other-voyage', notes: 'unrelated' });
+        await queueOfflineEntry({ id: 'wanted', voyageId: 'wanted-voyage', notes: 'original' });
+        const scope = getAuthIdentityScope();
+
+        const selected = await getOfflineEntries({ voyageId: 'wanted-voyage', expectedScope: scope });
+        expect(selected).toHaveLength(1);
+        expect(selected[0]).toMatchObject({ voyageId: 'wanted-voyage', notes: 'original' });
+        selected[0].notes = 'changed display copy';
+        expect((await getOfflineEntries()).map((entry) => entry.notes)).toEqual(['unrelated', 'original']);
+    });
+
     it('queues a single entry', async () => {
         await queueOfflineEntry({ id: 'e1', voyageId: 'v1', timestamp: '2025-01-01T00:00:00Z' });
         const count = await getOfflineQueueCount();
