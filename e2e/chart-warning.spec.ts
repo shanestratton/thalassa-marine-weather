@@ -2,6 +2,9 @@ import { test, expect, type Locator, type Page, type TestInfo } from '@playwrigh
 import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 test.use({
+    // Service-worker fetches bypass page routes; never let a live tide
+    // response race the deterministic no-data or populated-tide fixture.
+    serviceWorkers: 'block',
     storageState: async ({ baseURL }, provide) => {
         await provide({
             ...ONBOARDED_STORAGE,
@@ -11,9 +14,12 @@ test.use({
 });
 
 const EMPTY_ENC_NOTICE = 'No verified ENC charts installed. Library imports are reference-only.';
+type TideFixture = 'none' | 'available';
 
-async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo) {
+async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, tideFixture?: TideFixture) {
     const origin = new URL(baseURL).origin;
+    let tideResponses = 0;
+    const tideAnchorSeconds = Math.floor(Date.now() / 1000);
     const errors: string[] = [];
     const styleRequests: string[] = [];
     const recordError = (message: string) => {
@@ -26,7 +32,29 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo) {
     });
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
-        if (url.origin === origin) {
+        if (url.pathname === '/functions/v1/proxy-tides') {
+            // Exercise the real WorldTides → TideHeightService →
+            // TideOffsetService chain, including LAT and interpolation guards.
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    status: 200,
+                    requestDatum: 'LAT',
+                    responseDatum: 'LAT',
+                    station: 'Sydney Harbour',
+                    extremes:
+                        tideFixture === 'available'
+                            ? Array.from({ length: 9 }, (_, index) => ({
+                                  dt: tideAnchorSeconds + (index * 6 - 12) * 3600,
+                                  height: index % 2 === 0 ? 0.4 : 1.8,
+                                  type: index % 2 === 0 ? 'Low' : 'High',
+                              }))
+                            : [],
+                }),
+            });
+            tideResponses += 1;
+        } else if (url.origin === origin) {
             await route.continue();
         } else if (url.hostname.endsWith('.mapbox.com') && /^\/styles\/v1\/[^/]+\/[^/]+\/?$/.test(url.pathname)) {
             styleRequests.push(url.pathname);
@@ -92,6 +120,22 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo) {
         });
         throw error;
     }
+    if (tideFixture) {
+        await expect.poll(() => tideResponses, 'the real tide service must consume the fixture API').toBeGreaterThan(0);
+        const tideBadge = page.getByRole('button', {
+            name: 'Live tide depth is on — tap to return to chart datum',
+            exact: true,
+        });
+        const scrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
+        if (tideFixture === 'available') {
+            await expect(tideBadge).toContainText('Sydney Harbour');
+            await expect(tideBadge).toContainText('approx');
+            await expect(scrubber).toBeVisible();
+        } else {
+            await expect(tideBadge).toHaveText('LIVE DEPTH — no tide data, showing chart datum');
+            await expect(scrubber).toHaveCount(0);
+        }
+    }
     await page.evaluate(() => document.fonts.ready);
 }
 
@@ -133,7 +177,7 @@ function expectSeparate(
     ).toBe(true);
 }
 
-const cases = [
+const cases: { width: number; height: number; mode: string; split?: boolean; tide?: TideFixture }[] = [
     { width: 320, height: 568, mode: 'dark' },
     { width: 390, height: 844, mode: 'dark' },
     { width: 430, height: 932, mode: 'dark' },
@@ -144,12 +188,15 @@ const cases = [
     { width: 390, height: 844, mode: 'night' },
     { width: 1024, height: 768, mode: 'dark', split: true },
     { width: 1024, height: 520, mode: 'dark', split: true },
-    { width: 568, height: 320, mode: 'dark', tideDepth: true },
-    { width: 667, height: 375, mode: 'dark', tideDepth: true },
+    { width: 568, height: 320, mode: 'dark', tide: 'none' },
+    { width: 667, height: 375, mode: 'dark', tide: 'none' },
+    { width: 568, height: 320, mode: 'dark', tide: 'available' },
+    { width: 667, height: 375, mode: 'dark', tide: 'available' },
+    { width: 320, height: 568, mode: 'dark', tide: 'available' },
 ];
 
 for (const size of cases) {
-    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tideDepth ? ' tide depth' : ''}`, async ({
+    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide depth ${size.tide}` : ''}`, async ({
         page,
         baseURL,
     }, testInfo) => {
@@ -170,90 +217,102 @@ for (const size of cases) {
                 if (split) localStorage.setItem('thalassa_split_view', '1');
                 if (tideDepth) localStorage.setItem('thalassa_tide_depth_mode', 'true');
             },
-            { mode: size.mode, split: size.split === true, tideDepth: size.tideDepth === true },
+            { mode: size.mode, split: size.split === true, tideDepth: size.tide !== undefined },
         );
-        await openEmptyChart(page, baseURL!, testInfo);
+        await openEmptyChart(page, baseURL!, testInfo, size.tide);
 
         const library = page.getByRole('button', { name: 'Open on-device ENC Library', exact: true });
         // Existing text/CTA identify the production warning too, so the old
         // compiled app fails on its collision rather than a newly added role.
         const warning = library.locator('..');
-        await testInfo.attach('enc-controls-geometry', {
-            contentType: 'application/json',
-            body: JSON.stringify(
-                await page.evaluate(() => {
-                    const selectors = {
-                        warning: '[aria-label="ENC coverage"]',
-                        chart: '[data-testid="map-hub"]',
-                        nav: 'nav[aria-label="Main"]',
-                        back: 'button[aria-label="Back"]',
-                        locate: 'button[aria-label="Locate me"]',
-                        mob: 'button[aria-label="Open Man Overboard emergency"]',
-                        tide: 'button[aria-label="Live tide depth is on — tap to return to chart datum"]',
-                    };
-                    return Object.fromEntries(
-                        Object.entries(selectors).map(([name, selector]) => [
-                            name,
-                            document.querySelector(selector)?.getBoundingClientRect().toJSON() ?? null,
-                        ]),
-                    );
-                }),
-            ),
-        });
-        const warningBox = await visibleBox(warning, page);
-        const nav = page.getByRole('navigation', { name: 'Main', exact: true });
-        const navBox = await visibleBox(nav, page);
-        expect(
-            warningBox.y + warningBox.height,
-            'the complete warning must clear the fixed navigation',
-        ).toBeLessThanOrEqual(navBox.y);
-        const chartBox = await visibleBox(page.getByTestId('map-hub'), page);
-        expect(warningBox.x).toBeGreaterThanOrEqual(chartBox.x);
-        expect(warningBox.y).toBeGreaterThanOrEqual(chartBox.y);
-        expect(warningBox.x + warningBox.width).toBeLessThanOrEqual(chartBox.x + chartBox.width);
-        expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(chartBox.y + chartBox.height);
-        if (size.split) await expect(page.locator('[data-split-pane="glass"]')).toBeVisible();
-
-        const locate = page.getByRole('button', { name: 'Locate me', exact: true });
-        const back = page.getByRole('button', { name: 'Back', exact: true });
-        const mob = page.getByRole('button', { name: 'Open Man Overboard emergency', exact: true });
-        const attribution = page.locator('.thalassa-chart-map .mapboxgl-ctrl-attrib');
-        const scale = page.locator('.thalassa-chart-map .mapboxgl-ctrl-scale');
-        const logo = page.locator('.thalassa-chart-map .mapboxgl-ctrl-logo');
-        for (const [label, control] of [
-            ['Locate', locate],
-            ['Back', back],
-            ['MOB', mob],
-            ['Mapbox attribution', attribution],
-            ['map scale', scale],
-            ['Mapbox logo', logo],
-        ] as const) {
-            expectSeparate(warningBox, await visibleBox(control, page), label);
-        }
-        if (size.tideDepth) {
-            const tideBadge = page.getByRole('button', {
-                name: 'Live tide depth is on — tap to return to chart datum',
-                exact: true,
+        async function expectControlsClear(stage: string) {
+            await testInfo.attach(`enc-controls-geometry-${stage}`, {
+                contentType: 'application/json',
+                body: JSON.stringify(
+                    await page.evaluate(() => {
+                        const selectors = {
+                            warning: '[aria-label="ENC coverage"]',
+                            chart: '[data-testid="map-hub"]',
+                            nav: 'nav[aria-label="Main"]',
+                            back: 'button[aria-label="Back"]',
+                            locate: 'button[aria-label="Locate me"]',
+                            mob: 'button[aria-label="Open Man Overboard emergency"]',
+                            tide: 'button[aria-label="Live tide depth is on — tap to return to chart datum"]',
+                        };
+                        return Object.fromEntries(
+                            Object.entries(selectors).map(([name, selector]) => [
+                                name,
+                                document.querySelector(selector)?.getBoundingClientRect().toJSON() ?? null,
+                            ]),
+                        );
+                    }),
+                ),
             });
-            expectSeparate(warningBox, await visibleBox(tideBadge, page), 'Live tide depth badge');
-            await expectHitTarget(tideBadge);
-            const tideScrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
-            if (await tideScrubber.isVisible()) {
-                expectSeparate(warningBox, await visibleBox(tideScrubber, page), 'Tide scrubber');
+            const warningBox = await visibleBox(warning, page);
+            const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+            const navBox = await visibleBox(nav, page);
+            expect(
+                warningBox.y + warningBox.height,
+                'the complete warning must clear the fixed navigation',
+            ).toBeLessThanOrEqual(navBox.y);
+            const chartBox = await visibleBox(page.getByTestId('map-hub'), page);
+            expect(warningBox.x).toBeGreaterThanOrEqual(chartBox.x);
+            expect(warningBox.y).toBeGreaterThanOrEqual(chartBox.y);
+            expect(warningBox.x + warningBox.width).toBeLessThanOrEqual(chartBox.x + chartBox.width);
+            expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(chartBox.y + chartBox.height);
+            if (size.split) await expect(page.locator('[data-split-pane="glass"]')).toBeVisible();
+
+            const locate = page.getByRole('button', { name: 'Locate me', exact: true });
+            const back = page.getByRole('button', { name: 'Back', exact: true });
+            const mob = page.getByRole('button', { name: 'Open Man Overboard emergency', exact: true });
+            const attribution = page.locator('.thalassa-chart-map .mapboxgl-ctrl-attrib');
+            const scale = page.locator('.thalassa-chart-map .mapboxgl-ctrl-scale');
+            const logo = page.locator('.thalassa-chart-map .mapboxgl-ctrl-logo');
+            for (const [label, control] of [
+                ['Locate', locate],
+                ['Back', back],
+                ['MOB', mob],
+                ['Mapbox attribution', attribution],
+                ['map scale', scale],
+                ['Mapbox logo', logo],
+            ] as const) {
+                expectSeparate(warningBox, await visibleBox(control, page), label);
             }
+            if (size.tide) {
+                const tideBadge = page.getByRole('button', {
+                    name: 'Live tide depth is on — tap to return to chart datum',
+                    exact: true,
+                });
+                expectSeparate(warningBox, await visibleBox(tideBadge, page), 'Live tide depth badge');
+                await expectHitTarget(tideBadge);
+                const tideScrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
+                if (size.tide === 'available') {
+                    // The labels/padding share the higher-z panel with the
+                    // slider: its full box, not just the input, can block Library.
+                    const tidePanel = tideScrubber.locator('..');
+                    expectSeparate(warningBox, await visibleBox(tidePanel, page), 'Full tide scrubber panel');
+                    await expectHitTarget(tideScrubber);
+                } else {
+                    await expect(tideScrubber).toHaveCount(0);
+                }
+            }
+            for (const control of [library, locate, back, mob, attribution, logo]) await expectHitTarget(control);
+            for (const tab of await nav.getByRole('tab').all()) {
+                await visibleBox(tab, page);
+                await expectHitTarget(tab);
+            }
+            // Mapbox's scale is not interactive. Geometry guards it without
+            // incorrectly requiring it to intercept pointer events.
+            await expect(library).toBeEnabled();
+            await library.click({ trial: true });
+            await expect(warning).toHaveAttribute('role', 'status');
+            await expect(warning).toHaveAttribute('aria-label', 'ENC coverage');
+            await testInfo.attach(`enc-warning-layout-${stage}`, {
+                body: await page.screenshot(),
+                contentType: 'image/png',
+            });
         }
-        for (const control of [library, locate, back, mob, attribution, logo]) await expectHitTarget(control);
-        for (const tab of await nav.getByRole('tab').all()) {
-            await visibleBox(tab, page);
-            await expectHitTarget(tab);
-        }
-        // Mapbox's scale is not interactive. Geometry guards it without
-        // incorrectly requiring it to intercept pointer events.
-        await expect(library).toBeEnabled();
-        await library.click({ trial: true });
-        await expect(warning).toHaveAttribute('role', 'status');
-        await expect(warning).toHaveAttribute('aria-label', 'ENC coverage');
-        await testInfo.attach('enc-warning-layout', { body: await page.screenshot(), contentType: 'image/png' });
+        await expectControlsClear('initial');
 
         // Opening a picker intentionally overlays map information; the
         // coverage warning must not intercept its options as it loads.
@@ -261,6 +320,7 @@ for (const size of cases) {
         await page.getByRole('menuitemradio', { name: /^Ocean / }).click();
         await expect(page.getByRole('button', { name: 'Map base: Ocean', exact: true })).toBeVisible();
         await expect(warning).toBeVisible();
+        await expectControlsClear('after-ocean-selection');
 
         await library.click();
         await expect(page.getByRole('heading', { name: 'ENC Library', exact: true })).toBeVisible();

@@ -119,13 +119,32 @@ describe('ChartDepthControls', () => {
         expect(
             screen.getByText('No verified ENC charts installed. Library imports are reference-only.'),
         ).toBeInTheDocument();
-        expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveClass('thalassa-enc-coverage-notice');
+        expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveClass(
+            'thalassa-enc-coverage-notice',
+            'thalassa-enc-coverage-notice--with-tide',
+        );
         const tideBadge = screen.getByRole('button', { name: /Live tide depth is on/ });
         expect(tideBadge).toHaveClass('thalassa-enc-tide-badge');
         expect(tideBadge).not.toHaveClass('-translate-x-1/2');
         expect(screen.getByRole('button', { name: 'Open on-device ENC Library' })).toHaveClass('min-h-[44px]');
         fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
         expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
+    });
+
+    it('reserves the full tide panel only while its slider is present', () => {
+        const input = props({ encCellCount: 0, encNoCoverage: true });
+        const { rerender } = render(<ChartDepthControls {...input} tideOffsetInfo={null} />);
+        const coverage = () => screen.getByRole('status', { name: 'ENC coverage' });
+        expect(coverage()).not.toHaveClass('thalassa-enc-coverage-notice--with-tide');
+        expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+
+        rerender(<ChartDepthControls {...input} />);
+        expect(coverage()).toHaveClass('thalassa-enc-coverage-notice--with-tide');
+        expect(screen.getByRole('slider')).toBeInTheDocument();
+
+        rerender(<ChartDepthControls {...input} tideDepthMode={false} />);
+        expect(coverage()).not.toHaveClass('thalassa-enc-coverage-notice--with-tide');
+        expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     });
 
     it.each([
