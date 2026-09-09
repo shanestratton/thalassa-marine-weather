@@ -1,5 +1,74 @@
 # Build 108 — OBS defaults, layout polish and public mobile views
 
+## Current delivery — 9 September 2026
+
+**Uploaded successfully at 18:56:54 AEST; Apple reports the package is processing.**
+Xcode returned exit 0 with `Upload succeeded` and `Uploaded App`. Processing
+completion and tester availability are not yet confirmed. This section
+supersedes the earlier held-candidate records below. The unuploaded `4023fd56`
+and `bd9506d9` archives are preserved; build 107 remains untouched.
+
+- Compiled source: `cc04086d85a75ad697c01b56b0b4c3195657596e`, **1.2.0 (108)**.
+  The subsequent `aee880b4d590814a4818bf885529893855b076ac` changes only the
+  browser-test fixture, not the compiled runtime or synced bundle.
+- OBS coverage warnings now clear Layers, Back, MOB, Locate, navigation,
+  credits and the complete populated-tide slider. Narrow station labels wrap;
+  short-landscape and iPad split layouts reserve the controls' actual space.
+  Basemap choices remain reachable over the warning. Coverage truth conditions,
+  warning text, tide arithmetic and the 44px Library action are unchanged.
+- Final production-browser run: **151 passed, 7 existing conditional skips,
+  0 failures and 0 flaky results**, 193.56 seconds, Chromium and mobile WebKit.
+  All 30 coverage-layout cases exercise controls before and after Ocean selection.
+  **62 focused unit tests** passed on the final runtime source; lint/format for
+  changed files passed. The preceding `bd9506d9` full unit run passed **9,630**
+  tests, with 3 expected failures and 5 skips; it preceded the final layout-only
+  adjustments and the additional focused test, not a fresh full-unit run on `cc04086d`.
+- Earlier source layout checks passed **30/30**. The first final-bundle browser
+  run passed 150, skipped 7 and timed out once before map readiness. Diagnostics
+  exposed missing `glyphs` metadata in the mock style. A test-only correction
+  supplies valid metadata and a deterministic empty font response, retaining
+  every timeout, geometry and hit-target assertion. Three isolated production
+  repeats and then the full final run passed with zero missing-glyph errors.
+  The signed runtime was not rebuilt or changed for this fixture correction.
+- `VITE_APP_BUILD=108 npm run ship:beta` passed TypeScript, production build,
+  deep-route/asset verification, bundle budgets, route audit, secret scans,
+  Capacitor sync (19 plugins) and **140 embedded-artifact contracts**.
+- Main: `main-CsBYhHww.js`, SHA-256
+  `52ccd2be055a35f0a7124e8c19261513e16c38269d42abe53a3e4c9102538857`.
+  Public entry: `logs-lxJT0vgt.js`, SHA-256
+  `74c9d7c685b8e20ac136699b526aa94b20f5a10abcaeb6f8019af08e029689de`.
+- Immutable manifest captured **18:42:03 AEST**, SHA-256
+  `463a026aaa6e5d2f3b273d9d2bd59e28dc9a424cfe55a280a3f5847597fc3591`.
+  All **419 native public files**, archived files and exported files match it;
+  all **23 binary/dSYM pairs** match. No source maps or embedded Watch/PlugIns.
+  iOS minimum 17; expected background modes and non-exempt-encryption flag retained.
+- Archive created **18:44:24 AEST**, Xcode **26.6 (17F113)**:
+  `/Users/shanestratton/Library/Developer/Xcode/Archives/2026-09-09/Thalassa-1.2.0-108-cc04086d.xcarchive`.
+  Apple validation passed **18:48:05 AEST**; distribution export **18:49:59 AEST**.
+  Archive/export deep and strict signature checks passed. Exported entitlements
+  retain `D4TW8A23QZ.com.thalassa.weather`, `get-task-allow=false`, APNs
+  `production`, `beta-reports-active=true`, Apple sign-in and WeatherKit.
+- IPA: `/Users/shanestratton/Documents/Temporary Projects/Thalassa Releases/1.2.0-108-cc04086d/Thalassa Marine Weather.ipa`,
+  **8,090,187 bytes**, SHA-256
+  `996e3ea16574ee1f822695efd17772ed4b4f6d0f4890351bacf765cd5659fa98`.
+  `What-to-Test.txt` is alongside it. Upload uses `app-store-connect` with
+  `destination=upload`, symbol upload enabled and automatic build-number
+  management disabled. Validation/export alone are not delivery evidence.
+- Upload log: `upload-cc04086d.log`; Apple distribution diagnostics:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/App_2026-09-09_18-54-45.653.xcdistributionlogs`.
+  The upload-options SHA-256 was
+  `4e19288caf0f0b7116300f4f5e0d6e871b61b6b8846177c4800944249421d4d0`.
+  Acceptance is confirmed, not just a completed local export. No tester group
+  or public link was created or changed.
+- Evidence: `/private/tmp/thalassa-enc108.MRBvxB/`, including the `cc04086d`
+  build, manifest, archive/export integrity and signature records, final
+  production HTML/JSON reports, validation/export logs and upload log.
+
+These are local/browser checks, not physical-device certification or a claim
+of exact-source GitHub CI/hosted deployment success. Pi changes are not installed
+aboard; the documented late-media-upload races remain. No tester-group,
+public-link, yacht or production-service settings were changed in this delivery.
+
 ## Behaviour
 
 - The main OBS map defaults to **Ocean** in daylight and **Satellite** in dark
@@ -15,7 +84,7 @@
   treatment, navigation marks, routes and warning rules are unchanged.
 - The empty-coverage warning now occupies the usable OBS map area rather than
   the full-bleed map's bottom edge. Short landscape and short split panes leave
-  room for Back, MOB, Locate, map credits and the live-tide badge. Its coverage
+  room for Layers, Back, MOB, Locate, map credits and the live-tide controls. Its coverage
   conditions, wording and working 44px ENC Library action remain unchanged.
 - Wind-versus-tide keeps the existing Glass card dimensions and no longer
   scrolls. The +3/+6/+9/+12-hour outlook is removed; the selected time's full
@@ -80,7 +149,7 @@
   and keyboard resize follows the focused field rather than the scroll area's
   tail. Video selection, upload, saving and deletion are unchanged.
 
-## Verified local candidate — 9 September 2026
+## Superseded local candidate — 9 September 2026
 
 - Compiled source: `4023fd56a6afdd662f1c3e4232d2264b6bcc9f7f`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
@@ -257,7 +326,7 @@
   tombstone counts are intentionally cumulative; those rows are deletion
   metadata, not retained diary bodies. Cloud storage counts measure actual files.
 
-## Native delivery attempt — 9 September 2026, upload held
+## Superseded native delivery attempt — 9 September 2026, upload held
 
 Shane requested uploading 108 to TestFlight. **No TestFlight upload was made**:
 the final release-wide browser check reproduced the OBS banner/navigation
