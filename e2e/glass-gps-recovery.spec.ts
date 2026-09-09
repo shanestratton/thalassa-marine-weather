@@ -22,7 +22,7 @@ interface ControlledGps {
 test('Glass keeps same-location weather and layout through GPS timeout, then recovers automatically', async ({
     page,
     baseURL,
-}) => {
+}, testInfo) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 390, height: 844 });
     const origin = new URL(baseURL!).origin;
@@ -176,6 +176,7 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
     await expect(location).toHaveValue(`Last location · ${locationBefore}`);
     await expect(metrics).toHaveText(metricsBefore!);
     await expect(fullScreenFailure).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('retained-weather.png'), fullPage: true });
 
     await page.evaluate(() => {
         (window as unknown as { __glassGps: ControlledGps }).__glassGps.phase = 'live';

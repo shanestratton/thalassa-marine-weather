@@ -355,3 +355,80 @@ for (const size of cases) {
         expect(glyphDiagnostics.errors, 'the fixture must support app-owned text symbol layers').toEqual([]);
     });
 }
+
+for (const size of [
+    { width: 390, height: 844, split: false },
+    // The important regression: a half-pane wider than Mapbox's own 640px
+    // breakpoint must still use the native compact control, not a grey strip.
+    { width: 1500, height: 1000, split: true },
+]) {
+    test(`native map attribution stays compact and reopenable at ${size.width}x${size.height}${size.split ? ' split' : ''}`, async ({
+        page,
+        baseURL,
+    }, testInfo) => {
+        test.setTimeout(60_000);
+        await page.setViewportSize({ width: size.width, height: size.height });
+        await page.routeWebSocket('**/*', (socket) => socket.close());
+        await page.addInitScript((split) => {
+            localStorage.setItem('thalassa_split_view', split ? '1' : '0');
+            for (const key of [
+                'thalassa_settings_mirror::anonymous',
+                'CapacitorStorage.thalassa_settings::anonymous',
+            ]) {
+                const value = localStorage.getItem(key);
+                if (!value) continue;
+                const saved = JSON.parse(value);
+                saved.settings.displayMode = 'dark';
+                localStorage.setItem(key, JSON.stringify(saved));
+            }
+        }, size.split);
+        await openEmptyChart(page, baseURL!, testInfo);
+        const chart = page.locator('.thalassa-chart-map');
+        const attribution = chart.locator('.mapboxgl-ctrl-attrib');
+        const toggle = attribution.getByRole('button', { name: 'Toggle attribution', exact: true });
+        const credits = attribution.locator('.mapboxgl-ctrl-attrib-inner');
+        const logo = chart.locator('.mapboxgl-ctrl-logo');
+        const chartBox = (await chart.boundingBox())!;
+        if (size.split) {
+            await expect(page.locator('[data-split-pane="glass"]')).toBeVisible();
+            await expect(page.locator('[data-split-pane="chart"]')).toBeVisible();
+            expect(chartBox.width).toBeGreaterThan(640);
+            expect(chartBox.width).toBeLessThan(960);
+        }
+        await expect(attribution).toHaveCount(1);
+        await expect(attribution).toHaveClass(/mapboxgl-compact/);
+        await expect(attribution).not.toHaveClass(/mapboxgl-compact-show/);
+        await expect(credits).not.toBeVisible();
+        await visibleBox(toggle, page);
+        await expectHitTarget(toggle);
+        await visibleBox(logo, page);
+        await expectHitTarget(logo);
+        await page.screenshot({ path: testInfo.outputPath('native-attribution-collapsed.png') });
+
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expect(credits).toBeVisible();
+        await expect(credits).toContainText('Mapbox');
+        await expect(credits.getByRole('link', { name: 'Mapbox', exact: true }).first()).toBeVisible();
+        const expandedBox = await visibleBox(attribution, page);
+        expect(expandedBox.x).toBeGreaterThanOrEqual(chartBox.x - 1);
+        expect(expandedBox.x + expandedBox.width).toBeLessThanOrEqual(chartBox.x + chartBox.width + 1);
+        await page.screenshot({ path: testInfo.outputPath('native-attribution-expanded.png') });
+
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(credits).not.toBeVisible();
+        // Native source-change handling must survive the custom compact mode.
+        await page.getByRole('button', { name: /^Map base:/ }).click();
+        await page.getByRole('menuitemradio', { name: /^Ocean / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Ocean', exact: true })).toBeVisible();
+        await expect(attribution).toHaveCount(1);
+        await expect(attribution).toHaveClass(/mapboxgl-compact/);
+        await toggle.click();
+        await expect(credits).toBeVisible();
+        await expect(credits).toContainText('MapTiler');
+        await expect(credits).toContainText('OpenStreetMap');
+        await expectHitTarget(toggle);
+        await expectHitTarget(logo);
+    });
+}
