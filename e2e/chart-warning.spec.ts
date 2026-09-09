@@ -22,7 +22,9 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
     const tideAnchorSeconds = Math.floor(Date.now() / 1000);
     const errors: string[] = [];
     const styleRequests: string[] = [];
+    const glyphDiagnostics = { requests: [] as string[], errors: [] as string[] };
     const recordError = (message: string) => {
+        if (message.includes('requires a style "glyphs" property')) glyphDiagnostics.errors.push(message);
         if (errors.length < 40)
             errors.push(message.replace(/([?&](?:access_token|token|key)=)[^&\s]+/g, '$1[redacted]'));
     };
@@ -66,9 +68,25 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
                 contentType: 'application/json',
                 body: JSON.stringify({
                     version: 8,
+                    // App-owned symbol layers require glyph metadata even
+                    // when this background-only fixture has no label features.
+                    glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
                     sources: {},
                     layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0f2433' } }],
                 }),
+            });
+        } else if (
+            url.hostname.endsWith('.mapbox.com') &&
+            /^\/fonts\/v1\/mapbox\/[^/]+\/[^/]+\.pbf$/.test(url.pathname)
+        ) {
+            glyphDiagnostics.requests.push(url.pathname);
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/x-protobuf',
+                // Valid empty fontstack message: field 1, zero-length body.
+                // Mapbox parses this as { glyphs: [] }; no live font request
+                // is needed for the fixture's empty symbol sources.
+                body: Buffer.from([0x0a, 0x00]),
             });
         } else {
             await route.abort();
@@ -137,6 +155,7 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
         }
     }
     await page.evaluate(() => document.fonts.ready);
+    return glyphDiagnostics;
 }
 
 async function visibleBox(locator: Locator, page: Page) {
@@ -219,7 +238,7 @@ for (const size of cases) {
             },
             { mode: size.mode, split: size.split === true, tideDepth: size.tide !== undefined },
         );
-        await openEmptyChart(page, baseURL!, testInfo, size.tide);
+        const glyphDiagnostics = await openEmptyChart(page, baseURL!, testInfo, size.tide);
 
         const library = page.getByRole('button', { name: 'Open on-device ENC Library', exact: true });
         // Existing text/CTA identify the production warning too, so the old
@@ -329,5 +348,10 @@ for (const size of cases) {
         await library.click();
         await expect(page.getByRole('heading', { name: 'ENC Library', exact: true })).toBeVisible();
         await expect(page.getByText('No reference ENC cells are installed', { exact: true })).toBeVisible();
+        await testInfo.attach('glyph-fixture-diagnostics', {
+            contentType: 'application/json',
+            body: JSON.stringify(glyphDiagnostics),
+        });
+        expect(glyphDiagnostics.errors, 'the fixture must support app-owned text symbol layers').toEqual([]);
     });
 }
