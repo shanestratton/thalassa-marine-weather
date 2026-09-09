@@ -61,4 +61,89 @@ describe('DepartControl identity boundary', () => {
         );
         window.removeEventListener('thalassa:departure-changed', onDeparture);
     });
+
+    it('shows an enabled Now button instead of OK even when already leaving now', () => {
+        const scope = getAuthIdentityScope();
+        const onDeparture = vi.fn();
+        window.addEventListener('thalassa:departure-changed', onDeparture);
+        try {
+            render(<DepartControl />);
+            expect(screen.queryByRole('button', { name: 'OK' })).not.toBeInTheDocument();
+            const now = screen.getByRole('button', { name: 'Now' });
+            expect(now).toBeEnabled();
+            expect(now).toHaveAttribute('type', 'button');
+            expect(screen.getByText('leaving now')).toBeInTheDocument();
+
+            fireEvent.click(now);
+            fireEvent.click(now);
+            expect(screen.getByRole('button', { name: 'Now' })).toBeEnabled();
+            expect(sessionStorage.getItem(authScopedStorageKey(STORAGE_KEY, scope))).toBeNull();
+            expect(onDeparture).toHaveBeenCalledTimes(2);
+            for (const [event] of onDeparture.mock.calls as [CustomEvent][]) {
+                expect(event.detail).toEqual({
+                    ms: null,
+                    scopeKey: scope.key,
+                    scopeGeneration: scope.generation,
+                });
+            }
+        } finally {
+            window.removeEventListener('thalassa:departure-changed', onDeparture);
+        }
+    });
+
+    it('applies date/time edits immediately, then Now clears the scoped departure through remount', () => {
+        const scope = getAuthIdentityScope();
+        const key = authScopedStorageKey(STORAGE_KEY, scope);
+        const onDeparture = vi.fn();
+        window.addEventListener('thalassa:departure-changed', onDeparture);
+        try {
+            const { unmount } = render(<DepartControl />);
+            const nextDate = localDate(Date.now() + 3 * 86_400_000);
+            const dateInput = screen.getByLabelText('Departure date');
+            const hourInput = screen.getByLabelText('Departure hour (24-hour)');
+            const minuteInput = screen.getByLabelText('Departure minutes');
+
+            fireEvent.change(dateInput, { target: { value: nextDate } });
+            expect(localDate(Number(sessionStorage.getItem(key)))).toBe(nextDate);
+            expect(onDeparture).toHaveBeenCalledTimes(1);
+            fireEvent.change(hourInput, { target: { value: '14' } });
+            expect(new Date(Number(sessionStorage.getItem(key))).getHours()).toBe(14);
+            expect(onDeparture).toHaveBeenCalledTimes(2);
+            fireEvent.change(minuteInput, { target: { value: '35' } });
+            const plannedMs = new Date(`${nextDate}T14:35`).getTime();
+            expect(sessionStorage.getItem(key)).toBe(String(plannedMs));
+            expect(onDeparture).toHaveBeenCalledTimes(3);
+            expect((onDeparture.mock.lastCall?.[0] as CustomEvent).detail).toEqual({
+                ms: plannedMs,
+                scopeKey: scope.key,
+                scopeGeneration: scope.generation,
+            });
+            expect(dateInput).toHaveValue(nextDate);
+            expect(hourInput).toHaveValue('14');
+            expect(minuteInput).toHaveValue('35');
+            expect(screen.queryByRole('button', { name: 'OK' })).not.toBeInTheDocument();
+
+            dateInput.focus();
+            fireEvent.click(screen.getByRole('button', { name: 'Now' }));
+            expect(dateInput).not.toHaveFocus();
+            expect(sessionStorage.getItem(key)).toBeNull();
+            expect((onDeparture.mock.lastCall?.[0] as CustomEvent).detail).toEqual({
+                ms: null,
+                scopeKey: scope.key,
+                scopeGeneration: scope.generation,
+            });
+            expect(screen.getByText('leaving now')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Now' })).toBeEnabled();
+
+            unmount();
+            render(<DepartControl />);
+            expect(screen.getByText('leaving now')).toBeInTheDocument();
+            expect(screen.getByLabelText('Departure date')).toHaveValue(localDate(Date.now()));
+            expect(screen.getByRole('button', { name: 'Now' })).toBeEnabled();
+            expect(screen.queryByRole('button', { name: 'OK' })).not.toBeInTheDocument();
+            expect(sessionStorage.getItem(key)).toBeNull();
+        } finally {
+            window.removeEventListener('thalassa:departure-changed', onDeparture);
+        }
+    });
 });
