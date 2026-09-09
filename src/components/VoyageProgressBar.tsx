@@ -42,8 +42,16 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
     const etaDate = avgSog && avgSog > 0.1 ? new Date(Date.now() + (dtgNm / avgSog) * 3600 * 1000) : null;
 
     return (
-        <div className="shrink-0 px-4 sm:px-6 py-2.5 bg-slate-900 border-b border-slate-700/80 z-20 relative">
-            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-1.5">
+        <div className="shrink-0 px-4 lg:px-6 py-2 lg:py-2.5 bg-slate-900 border-b border-slate-700/80 z-20 relative">
+            <div className="mb-2 flex min-w-0 items-center justify-between gap-3 text-xs lg:hidden">
+                <span className="truncate font-semibold text-teal-200" title={destination.name ?? 'Destination'}>
+                    To {destination.name ?? 'Destination'}
+                </span>
+                <span className="shrink-0 text-slate-300">
+                    <strong className="text-white">{Math.round(dtgNm)} nm</strong> to go
+                </span>
+            </div>
+            <div className="hidden items-center justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-1.5 lg:flex">
                 <span>Passage Progress</span>
                 <span className="text-sky-400">{Math.round(pct)}%</span>
             </div>
@@ -74,9 +82,9 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
             </div>
 
             {/* End labels + stats */}
-            <div className="flex items-baseline justify-between mt-1.5 text-[10px] font-mono">
+            <div className="hidden flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mt-1.5 text-[10px] font-mono lg:flex">
                 <span className="text-slate-500">Departure</span>
-                <div className="flex items-baseline gap-3 text-slate-400">
+                <div className="flex flex-wrap items-baseline gap-3 text-slate-400">
                     <span>
                         <span className="text-slate-500">DTG</span>{' '}
                         <span className="text-white font-bold">{Math.round(dtgNm)} nm</span>
