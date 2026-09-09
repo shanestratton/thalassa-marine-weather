@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 // Mock heavy sub-components to isolate HeroSlide logic
@@ -90,6 +90,28 @@ const baseUnits = {
     distance: 'nm' as const,
 };
 
+function renderTideCard(onAncestorKeyDown = vi.fn()) {
+    return render(
+        <div onKeyDown={onAncestorKeyDown}>
+            <HeroSlide
+                data={baseData}
+                index={0}
+                units={baseUnits}
+                settings={{} as any}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="StormGlass"
+                isVisible={true}
+                locationType="inshore"
+                tides={[
+                    { time: '2026-09-09T01:00:00Z', type: 'High', height: 2 },
+                    { time: '2026-09-09T07:00:00Z', type: 'Low', height: 0.5 },
+                ]}
+            />
+        </div>,
+    );
+}
+
 describe('HeroSlide', () => {
     it('renders without crashing', () => {
         const { container } = render(
@@ -121,5 +143,58 @@ describe('HeroSlide', () => {
         );
         // The rendered output should contain water temperature from props
         expect(container.textContent).toContain('19');
+    });
+
+    it('keeps wind-versus-tide details open on content taps and closes only through the back control', () => {
+        renderTideCard();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show wind versus tide' }));
+        expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Show wind versus tide' })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('+12h'));
+        expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Back to tide graph' }));
+        expect(screen.queryByRole('region', { name: 'Wind versus tide details' })).not.toBeInTheDocument();
+        expect(screen.getByTestId('tide-graph')).toBeInTheDocument();
+
+        // Closing restores the original keyboard-accessible graph trigger.
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Show wind versus tide' }), { key: 'Enter' });
+        expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
+    });
+
+    it.each(['Enter', ' '])('%s opening hands keyboard focus to details before an arrow can change the day', (key) => {
+        const ancestorKeyDown = vi.fn();
+        renderTideCard(ancestorKeyDown);
+        const trigger = screen.getByRole('button', { name: 'Show wind versus tide' });
+        trigger.focus();
+        fireEvent.keyDown(trigger, { key });
+
+        const details = screen.getByRole('region', { name: 'Wind versus tide details' });
+        expect(details).toHaveFocus();
+        ancestorKeyDown.mockClear();
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+        expect(ancestorKeyDown).not.toHaveBeenCalled();
+    });
+
+    it('restores focus to the graph after activating the back control with the keyboard', () => {
+        renderTideCard();
+        const trigger = screen.getByRole('button', { name: 'Show wind versus tide' });
+        trigger.focus();
+        fireEvent.keyDown(trigger, { key: 'Enter' });
+        const close = screen.getByRole('button', { name: 'Back to tide graph' });
+        close.focus();
+        // Keyboard-generated native clicks have detail 0. jsdom does not
+        // synthesize the click from a key press, so supply that click itself.
+        fireEvent.click(close, { detail: 0 });
+        expect(screen.getByRole('button', { name: 'Show wind versus tide' })).toHaveFocus();
+    });
+
+    it('does not move focus when the graph opens through a pointer tap', () => {
+        renderTideCard();
+        const focusedBefore = document.activeElement;
+        fireEvent.click(screen.getByRole('button', { name: 'Show wind versus tide' }), { detail: 1 });
+        expect(screen.getByRole('region', { name: 'Wind versus tide details' })).not.toHaveFocus();
+        expect(document.activeElement).toBe(focusedBefore);
     });
 });
