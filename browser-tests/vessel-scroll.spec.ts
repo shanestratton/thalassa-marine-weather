@@ -137,10 +137,35 @@ test.describe('native wheel input', () => {
         const port = page.locator('.vessel-hub-surface > .overflow-y-auto').filter({ has: diary });
         const deck = page.getByRole('region', { name: 'Vessel status and safety controls' });
         await expect(diary).toBeVisible({ timeout: 25_000 });
+        // Match the geometry cases above: the incoming cards must finish
+        // their entrance transforms before WebKit hit-tests a wheel gesture.
+        await port.evaluate(async (el) => {
+            await document.fonts.ready;
+            await Promise.all(
+                Array.from(el.children).flatMap((child) =>
+                    child.getAnimations().map((animation) => animation.finished),
+                ),
+            );
+        });
         const deckBefore = await deck.boundingBox();
         await port.hover();
         await page.mouse.wheel(0, 1000);
         await expect.poll(async () => (await geometry(port)).top).toBeGreaterThan(30);
+        // mouse.wheel returns before native scrolling/snap has finished.
+        // Reading the first moving offset made the reverse delta too small.
+        let previousTop = -1;
+        let stableReadings = 0;
+        await expect
+            .poll(
+                async () => {
+                    const { top } = await geometry(port);
+                    stableReadings = Math.abs(top - previousTop) < 0.5 ? stableReadings + 1 : 0;
+                    previousTop = top;
+                    return stableReadings;
+                },
+                { intervals: [100] },
+            )
+            .toBeGreaterThanOrEqual(3);
         const lower = await geometry(port);
         // Stop the gesture just short of home and let native snapping settle.
         await page.mouse.wheel(0, -(lower.top - 12));
