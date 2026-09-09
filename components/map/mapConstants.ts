@@ -15,6 +15,8 @@ export interface MapHubProps {
     initialZoom?: number;
     /** Override map style URL (default: navigation-night-v1) */
     mapStyle?: string;
+    /** Resolved OBS display mode: Ocean in daylight, Satellite otherwise. */
+    daylightMode?: boolean;
     /** Remove large country/place labels for a cleaner look */
     minimalLabels?: boolean;
     /** Embedded mode: no overlays, no interactions, static centered view */
