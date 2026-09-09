@@ -181,6 +181,11 @@ export interface ChatDMComposeProps {
     partnerName?: string;
     keyboardOffset: number;
     isUserBlocked: boolean;
+    blockedByMe: boolean;
+    blockStatusLoading: boolean;
+    blockStatusError: string | null;
+    blockMutationPending: boolean;
+    onRetryBlockStatus: () => void;
     showBlockConfirm: boolean;
     setShowBlockConfirm: (v: boolean) => void;
     onSendDM: () => void;
@@ -195,6 +200,11 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
         partnerName,
         keyboardOffset,
         isUserBlocked,
+        blockedByMe,
+        blockStatusLoading,
+        blockStatusError,
+        blockMutationPending,
+        onRetryBlockStatus,
         showBlockConfirm,
         setShowBlockConfirm,
         onSendDM,
@@ -204,31 +214,33 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
         <div className="shrink-0 relative">
             <div className="absolute inset-0 bg-linear-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
             <div
-                className={`relative px-4 py-3 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[max(0.75rem,env(safe-area-inset-bottom))]'}`}
+                className={`relative px-4 pt-2 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}
             >
                 {/* Block confirmation dialog */}
                 {showBlockConfirm && (
                     <div className="mb-3 p-4 rounded-2xl bg-red-500/5 border border-red-400/15">
                         <p className="text-sm text-white/60 mb-3">
-                            {isUserBlocked
-                                ? `Unblock ${partnerName}? They'll be able to DM you again.`
-                                : `Block ${partnerName}? They won't be able to send you DMs.`}
+                            {blockedByMe
+                                ? `Remove your block on ${partnerName}? Messaging still depends on their settings.`
+                                : `Block ${partnerName}? Direct messages between you will be stopped.`}
                         </p>
                         <div className="flex gap-2">
                             <button
-                                onClick={isUserBlocked ? onUnblock : onBlock}
-                                aria-label={isUserBlocked ? `Unblock ${partnerName}` : `Block ${partnerName}`}
+                                onClick={blockedByMe ? onUnblock : onBlock}
+                                disabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
+                                aria-label={blockedByMe ? `Unblock ${partnerName}` : `Block ${partnerName}`}
                                 className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 min-h-[44px] ${
-                                    isUserBlocked
+                                    blockedByMe
                                         ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20'
                                         : 'bg-red-500/15 text-red-300 border border-red-400/20'
                                 }`}
                             >
-                                {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
+                                {blockMutationPending ? 'Saving…' : blockedByMe ? '🔓 Unblock' : '🚫 Block'}
                             </button>
                             <Button
                                 variant="secondary"
                                 onClick={() => setShowBlockConfirm(false)}
+                                disabled={blockMutationPending}
                                 className="flex-1 text-white/60"
                             >
                                 Cancel
@@ -237,17 +249,41 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                     </div>
                 )}
 
-                {/* Blocked state */}
+                {(blockStatusLoading || blockStatusError) && (
+                    <div className="mb-2 flex items-center justify-between gap-2" role="status">
+                        <p className="text-sm text-white/70">
+                            {blockStatusLoading ? 'Checking messaging permissions…' : blockStatusError}
+                        </p>
+                        {blockStatusError && !blockStatusLoading && (
+                            <button
+                                type="button"
+                                onClick={onRetryBlockStatus}
+                                className="shrink-0 min-h-[44px] px-3 text-sm font-bold text-sky-300"
+                            >
+                                Retry
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {/* Only the sailor who placed a block can remove it. */}
                 {isUserBlocked && !showBlockConfirm ? (
                     <div className="flex items-center justify-between py-2">
-                        <p className="text-xs text-red-300/50">🚫 This user is blocked</p>
-                        <button
-                            onClick={() => setShowBlockConfirm(true)}
-                            aria-label="Unblock user"
-                            className="text-xs text-white/40 hover:text-emerald-300/60 transition-colors min-h-[44px] px-2"
-                        >
-                            Unblock
-                        </button>
+                        <p className="text-sm text-white/70" role="status">
+                            {blockedByMe
+                                ? 'You have blocked this sailor.'
+                                : 'Messaging is unavailable for this conversation.'}
+                        </p>
+                        {blockedByMe && (
+                            <button
+                                onClick={() => setShowBlockConfirm(true)}
+                                disabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
+                                aria-label="Unblock user"
+                                className="text-sm text-emerald-300 transition-colors min-h-[44px] px-2"
+                            >
+                                Unblock
+                            </button>
+                        )}
                     </div>
                 ) : (
                     !showBlockConfirm && (
@@ -256,17 +292,26 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                                 type="text"
                                 value={dmText}
                                 onChange={(e) => setDmText(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && onSendDM()}
+                                onKeyDown={(e) => {
+                                    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                                    e.preventDefault();
+                                    if (blockStatusLoading || blockStatusError || blockMutationPending) return;
+                                    onSendDM();
+                                }}
+                                data-no-keyboard-scroll
+                                enterKeyHint="send"
                                 placeholder={`Message ${partnerName || ''}...`}
                                 aria-label={`Message ${partnerName || 'user'}`}
                                 maxLength={MAX_CHAT_MESSAGE_CHARS}
-                                className="flex-1 bg-white/4 border border-white/6 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-purple-500/30 focus:bg-white/6 transition-all duration-200 min-h-[48px]"
+                                className="min-w-0 flex-1 bg-white/4 border border-white/6 rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-hidden focus:border-purple-500/30 focus:bg-white/6 transition-all duration-200 min-h-[48px]"
                             />
                             <button
                                 onClick={onSendDM}
-                                disabled={!dmText.trim()}
+                                disabled={
+                                    !dmText.trim() || blockStatusLoading || !!blockStatusError || blockMutationPending
+                                }
                                 aria-label="Send direct message"
-                                className="w-11 h-11 rounded-xl bg-linear-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 disabled:from-white/3 disabled:to-white/3 disabled:border disabled:border-white/4 flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-purple-500/20 disabled:shadow-none"
+                                className="w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 rounded-xl bg-linear-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 disabled:from-white/3 disabled:to-white/3 disabled:border disabled:border-white/4 flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-purple-500/20 disabled:shadow-none"
                             >
                                 <svg
                                     width="16"

@@ -9,6 +9,7 @@ import { triggerHaptic } from '../../utils/system';
 import { batchFetchAvatars } from '../../services/ProfilePhotoService';
 import { toast } from '../../components/Toast';
 import { reconcileOptimisticMessage } from '../../components/chat/chatUtils';
+import { scrollChatToLatest } from '../../components/chat/scrollChatToLatest';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -150,7 +151,7 @@ export function useChatMessages(options: UseChatMessagesOptions) {
             // the bottom after async re-renders (avatar loads, image
             // attachment layout shifts).
             const jumpToBottom = () => {
-                messageEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+                if (isAuthIdentityScopeCurrent(identity)) scrollChatToLatest(messageEndRef.current);
             };
             requestAnimationFrame(jumpToBottom);
             setTimeout(jumpToBottom, 150);
@@ -206,7 +207,9 @@ export function useChatMessages(options: UseChatMessagesOptions) {
                 return;
             }
             triggerHaptic('light');
-            setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+            setTimeout(() => {
+                if (isAuthIdentityScopeCurrent(identity)) scrollChatToLatest(messageEndRef.current, 'smooth');
+            }, 50);
         },
         [messageText, activeChannel, isQuestion],
     );

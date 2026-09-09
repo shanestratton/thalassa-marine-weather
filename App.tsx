@@ -1199,12 +1199,16 @@ const App: React.FC = () => {
                                             paneId="page"
                                             frameRef={splitRightFrameRef}
                                         >
+                                            {/* Chat scrolls only its history. In WebKit an
+                                                overflow-hidden frame can still be scrolled
+                                                by focus into its extended inner page,
+                                                losing the header. Clip forbids that scroll. */}
                                             <div
                                                 ref={splitRightFrameRef}
                                                 data-split-pane={splitActive ? 'page' : undefined}
                                                 className={
                                                     splitActive
-                                                        ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/25 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                                                        ? `relative h-full min-w-0 flex-1 ${currentView === 'chat' ? 'overflow-clip' : 'overflow-hidden'} rounded-2xl border border-white/25 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]`
                                                         : 'absolute inset-0'
                                                 }
                                             >
@@ -1232,7 +1236,12 @@ const App: React.FC = () => {
                                                         canSwipeBack={false}
                                                         onSwipeBack={() => setPage('vessel')}
                                                     >
-                                                        <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                        {/* Chat owns its message scroller and keyboard-sized
+                                                            composer. Scrolling this outer wrapper would move
+                                                            the whole conversation (and send box) out of view. */}
+                                                        <div
+                                                            className={`h-full ${currentView === 'chat' ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'}`}
+                                                        >
                                                             {/* Dashboard — special case with error/loading states */}
                                                             {currentView === 'dashboard' && glassContent}
 

@@ -18,6 +18,7 @@ export interface ChatHeaderProps {
     unreadDMs: number;
     messageCount: number;
     isUserBlocked: boolean;
+    blockActionDisabled?: boolean;
     hasDMPartner: boolean;
     onGoBack: () => void;
     /** Leaves Scuttlebutt entirely — shown on the root channel list. */
@@ -38,6 +39,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
         unreadDMs,
         messageCount,
         isUserBlocked,
+        blockActionDisabled,
         hasDMPartner,
         onGoBack,
         onExit,
@@ -154,6 +156,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <button
                                 aria-label={isUserBlocked ? 'Unblock user' : 'Block user'}
                                 onClick={onToggleBlock}
+                                disabled={blockActionDisabled}
                                 className="px-3 py-2 min-h-[44px] rounded-xl bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >
                                 {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}

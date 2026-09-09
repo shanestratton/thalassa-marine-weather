@@ -27,9 +27,13 @@ export function useChatDMs(options: UseChatDMsOptions) {
     // --- State ---
     const [dmConversations, setDmConversations] = useState<DMConversation[]>([]);
     const [dmThread, setDmThread] = useState<DirectMessage[]>([]);
-    const [dmPartner, setDmPartner] = useState<{ id: string; name: string } | null>(null);
+    const [dmPartner, setDmPartnerState] = useState<{ id: string; name: string } | null>(null);
     const [dmText, setDmText] = useState('');
     const [isUserBlocked, setIsUserBlocked] = useState(false);
+    const [blockedByMe, setBlockedByMe] = useState(false);
+    const [blockStatusLoading, setBlockStatusLoading] = useState(false);
+    const [blockStatusError, setBlockStatusError] = useState<string | null>(null);
+    const [blockMutationPending, setBlockMutationPending] = useState(false);
     const [showBlockConfirm, setShowBlockConfirm] = useState(false);
     const [unreadDMs, setUnreadDMs] = useState(0);
     // Keep the iOS permission request contextual: the first time a sailor
@@ -41,9 +45,45 @@ export function useChatDMs(options: UseChatDMsOptions) {
 
     // Ref so the DM subscription callback always has fresh partner data
     const dmPartnerRef = useRef(dmPartner);
-    useEffect(() => {
-        dmPartnerRef.current = dmPartner;
-    }, [dmPartner]);
+    const partnerVersionRef = useRef(0);
+    const blockRequestRef = useRef(0);
+    const blockMutationRef = useRef(false);
+    const setDmPartner = useCallback((partner: { id: string; name: string } | null) => {
+        partnerVersionRef.current += 1;
+        blockRequestRef.current += 1;
+        dmPartnerRef.current = partner;
+        blockMutationRef.current = false;
+        setDmPartnerState(partner);
+        setIsUserBlocked(false);
+        setBlockedByMe(false);
+        setBlockStatusLoading(false);
+        setBlockStatusError(null);
+        setBlockMutationPending(false);
+    }, []);
+
+    const retryBlockStatus = useCallback(async () => {
+        const partner = dmPartnerRef.current;
+        if (!partner || blockMutationRef.current) return;
+        const identity = getAuthIdentityScope();
+        const version = partnerVersionRef.current;
+        const request = ++blockRequestRef.current;
+        const current = () =>
+            isAuthIdentityScopeCurrent(identity) &&
+            version === partnerVersionRef.current &&
+            request === blockRequestRef.current;
+        setBlockStatusLoading(true);
+        setBlockStatusError(null);
+        try {
+            const status = await ChatService.getDMBlockStatus(partner.id);
+            if (!current()) return;
+            setBlockedByMe(status.blockedByMe);
+            setIsUserBlocked(status.blockedEitherDirection);
+        } catch {
+            if (current()) setBlockStatusError('Unable to verify blocking. Retry before sending a message.');
+        } finally {
+            if (current()) setBlockStatusLoading(false);
+        }
+    }, []);
 
     const ensureDirectMessagePushRegistration = useCallback(() => {
         const scope = getAuthIdentityScope();
@@ -80,7 +120,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
                 setUnreadDMs(0);
                 setLoading(false);
             }),
-        [setLoading],
+        [setLoading, setDmPartner],
     );
 
     useEffect(() => {
@@ -147,31 +187,34 @@ export function useChatDMs(options: UseChatDMsOptions) {
             ensureDirectMessagePushRegistration();
             const identity = getAuthIdentityScope();
             setDmPartner({ id: userId, name });
+            const version = partnerVersionRef.current;
+            setDmThread([]);
+            setDmText('');
             setNavDirection('forward');
             setView('dm_thread');
             setShowBlockConfirm(false);
             setLoading(true);
-            const result = await Promise.all([ChatService.getDMThread(userId), ChatService.isBlocked(userId)]).catch(
-                () => null,
-            );
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (!result) {
+            const blockStatus = retryBlockStatus();
+            const thread = await ChatService.getDMThread(userId).catch(() => null);
+            await blockStatus;
+            if (!isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current) return;
+            if (!thread) {
                 setLoading(false);
                 toast.error("This conversation couldn't be loaded. Check your connection and try again.");
                 return;
             }
-            const [thread, blocked] = result;
             setDmThread(thread);
-            setIsUserBlocked(blocked);
             setLoading(false);
             setUnreadDMs((prev) => Math.max(0, prev - 1));
         },
-        [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading],
+        [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading, setDmPartner, retryBlockStatus],
     );
 
     const sendDMMessage = useCallback(async () => {
         if (!dmText.trim() || !dmPartner) return;
+        if (isUserBlocked || blockStatusLoading || blockStatusError || blockMutationRef.current) return;
         const identity = getAuthIdentityScope();
+        const version = partnerVersionRef.current;
         const text = dmText.trim();
         setDmText('');
 
@@ -188,10 +231,13 @@ export function useChatDMs(options: UseChatDMsOptions) {
         setDmThread((prev) => [...prev, optimistic]);
 
         const result = await ChatService.sendDM(dmPartner.id, text).catch(() => null);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+        if (!isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current) return;
         if (result === 'blocked') {
             setDmThread((prev) => prev.filter((m) => m.id !== optimistic.id));
             setIsUserBlocked(true);
+            setDmText((current) => current || text);
+            toast.info('Messages are unavailable in this conversation. Your text has been restored.');
+            await retryBlockStatus();
             return;
         }
         if (result === 'queued') {
@@ -207,26 +253,54 @@ export function useChatDMs(options: UseChatDMsOptions) {
         }
         setDmThread((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
         triggerHaptic('light');
-    }, [dmText, dmPartner]);
+    }, [dmText, dmPartner, isUserBlocked, blockStatusLoading, blockStatusError, retryBlockStatus]);
 
-    const handleBlockUser = useCallback(async () => {
-        if (!dmPartner) return;
+    const updateBlock = useCallback(async (blocked: boolean) => {
+        const partner = dmPartnerRef.current;
+        if (!partner || blockMutationRef.current) return;
         const identity = getAuthIdentityScope();
-        const ok = await ChatService.blockUser(dmPartner.id);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        if (ok) {
-            setIsUserBlocked(true);
+        const version = partnerVersionRef.current;
+        const request = ++blockRequestRef.current;
+        const current = () =>
+            isAuthIdentityScopeCurrent(identity) &&
+            version === partnerVersionRef.current &&
+            request === blockRequestRef.current;
+        blockMutationRef.current = true;
+        setBlockMutationPending(true);
+        setBlockStatusLoading(false);
+        setBlockStatusError(null);
+        try {
+            const ok = await (blocked ? ChatService.blockUser(partner.id) : ChatService.unblockUser(partner.id));
+            if (!current()) return;
+            if (!ok) throw new Error('Block update not confirmed');
+            setBlockedByMe(blocked);
+            if (blocked) {
+                setIsUserBlocked(true);
+                setDmThread((messages) => messages.filter((message) => message.delivery_status !== 'queued'));
+            }
             setShowBlockConfirm(false);
+            // Unblocking our row must not pretend the other sailor's block
+            // disappeared. Re-read the server's combined state.
+            const status = await ChatService.getDMBlockStatus(partner.id);
+            if (!current()) return;
+            setBlockedByMe(status.blockedByMe);
+            setIsUserBlocked(status.blockedEitherDirection);
+        } catch {
+            if (!current()) return;
+            setBlockStatusError('Unable to confirm blocking changes. Retry to check the current status.');
+            toast.error(
+                blocked ? "Block couldn't be confirmed. Please retry." : "Unblock couldn't be confirmed. Please retry.",
+            );
+        } finally {
+            if (current()) {
+                blockMutationRef.current = false;
+                setBlockMutationPending(false);
+            }
         }
-    }, [dmPartner]);
+    }, []);
 
-    const handleUnblockUser = useCallback(async () => {
-        if (!dmPartner) return;
-        const identity = getAuthIdentityScope();
-        const ok = await ChatService.unblockUser(dmPartner.id);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        if (ok) setIsUserBlocked(false);
-    }, [dmPartner]);
+    const handleBlockUser = useCallback(() => updateBlock(true), [updateBlock]);
+    const handleUnblockUser = useCallback(() => updateBlock(false), [updateBlock]);
 
     const loadUnreadCount = useCallback(async () => {
         const identity = getAuthIdentityScope();
@@ -246,6 +320,10 @@ export function useChatDMs(options: UseChatDMsOptions) {
         dmText,
         setDmText,
         isUserBlocked,
+        blockedByMe,
+        blockStatusLoading,
+        blockStatusError,
+        blockMutationPending,
         showBlockConfirm,
         setShowBlockConfirm,
         unreadDMs,
@@ -257,6 +335,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
         sendDMMessage,
         handleBlockUser,
         handleUnblockUser,
+        retryBlockStatus,
         loadUnreadCount,
     };
 }
