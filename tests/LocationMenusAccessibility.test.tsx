@@ -86,30 +86,28 @@ describe('location popover menu accessibility', () => {
         expect(trigger).toHaveFocus();
     });
 
-    it('resolves Current Location from explicit foreground intent before entering GPS-follow mode', async () => {
+    it('hands explicit foreground intent immediately to the cancellable context selection', async () => {
         render(<LocationStarMenu />);
         fireEvent.click(screen.getByRole('button', { name: 'Saved locations' }));
         fireEvent.click(screen.getByRole('menuitem', { name: 'Current Location' }));
 
         await waitFor(() => {
-            expect(menuMocks.requestCurrentForegroundPosition).toHaveBeenCalledWith({
-                staleLimitMs: 30_000,
-                timeoutSec: 12,
-            });
-            expect(menuMocks.selectLocation).toHaveBeenCalledWith('Current Location', {
-                lat: -27.47,
-                lon: 153.03,
+            expect(menuMocks.selectLocation).toHaveBeenCalledWith('Current Location', undefined, {
+                requestPhonePermission: true,
             });
         });
+        expect(menuMocks.requestCurrentForegroundPosition).not.toHaveBeenCalled();
     });
 
-    it('does not persist GPS-follow mode when an explicit foreground fix is unavailable', async () => {
+    it('delegates missing-fix handling instead of leaving the previous location selected', async () => {
         menuMocks.requestCurrentForegroundPosition.mockResolvedValueOnce(null);
         render(<LocationStarMenu />);
         fireEvent.click(screen.getByRole('button', { name: 'Saved locations' }));
         fireEvent.click(screen.getByRole('menuitem', { name: 'Current Location' }));
 
-        await waitFor(() => expect(menuMocks.toastError).toHaveBeenCalled());
-        expect(menuMocks.selectLocation).not.toHaveBeenCalled();
+        expect(menuMocks.selectLocation).toHaveBeenCalledWith('Current Location', undefined, {
+            requestPhonePermission: true,
+        });
+        expect(menuMocks.toastError).not.toHaveBeenCalled();
     });
 });

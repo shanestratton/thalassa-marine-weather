@@ -268,7 +268,10 @@ describe('useAppController account boundary', () => {
 
         renderHook(() => useAppController());
 
-        await waitFor(() => expect(h.getCurrentPositionIfGranted).toHaveBeenCalledOnce());
+        await waitFor(() =>
+            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', undefined, { onlyIfUnselected: true }),
+        );
+        expect(h.getCurrentPositionIfGranted).not.toHaveBeenCalled();
         expect(h.checkLocationPermissions).not.toHaveBeenCalled();
         expect(h.requestLocationPermissions).not.toHaveBeenCalled();
         expect(h.getNativeCurrentPosition).not.toHaveBeenCalled();
@@ -276,7 +279,7 @@ describe('useAppController account boundary', () => {
         expect(h.getCurrentPosition).not.toHaveBeenCalled();
     });
 
-    it('uses the lightweight one-shot provider when Location was already granted', async () => {
+    it('delegates passive boot resolution to the context without a competing GPS lookup', async () => {
         localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded'), 'true');
         h.getCurrentPositionIfGranted.mockResolvedValueOnce({
             latitude: -27.4,
@@ -291,12 +294,9 @@ describe('useAppController account boundary', () => {
         renderHook(() => useAppController());
 
         await waitFor(() =>
-            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', { lat: -27.4, lon: 153.1 }),
+            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', undefined, { onlyIfUnselected: true }),
         );
-        expect(h.getCurrentPositionIfGranted).toHaveBeenCalledWith({
-            staleLimitMs: 60_000,
-            timeoutSec: 8,
-        });
+        expect(h.getCurrentPositionIfGranted).not.toHaveBeenCalled();
         expect(h.checkLocationPermissions).not.toHaveBeenCalled();
         expect(h.getNativeCurrentPosition).not.toHaveBeenCalled();
         expect(h.requestLocationPermissions).not.toHaveBeenCalled();
@@ -304,42 +304,20 @@ describe('useAppController account boundary', () => {
         expect(h.getCurrentPosition).not.toHaveBeenCalled();
     });
 
-    it('drops A lightweight GPS boot completion after B becomes active', async () => {
+    it('registers boot intent before an account change and has no late GPS callback to select for B', async () => {
         localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded'), 'true');
-        let resolveGps!: (value: {
-            latitude: number;
-            longitude: number;
-            accuracy: number;
-            altitude: null;
-            heading: null;
-            speed: number;
-            timestamp: number;
-        }) => void;
-        h.getCurrentPositionIfGranted.mockReturnValueOnce(
-            new Promise((resolve) => {
-                resolveGps = resolve;
-            }),
-        );
         renderHook(() => useAppController());
-        await waitFor(() => expect(h.getCurrentPositionIfGranted).toHaveBeenCalledOnce());
+        await waitFor(() => expect(h.selectLocation).toHaveBeenCalledOnce());
 
         act(() => {
             h.user = { id: 'controller-b' };
             setAuthIdentityScope('controller-b');
         });
         await act(async () => {
-            resolveGps({
-                latitude: -27.4,
-                longitude: 153.1,
-                accuracy: 8,
-                altitude: null,
-                heading: null,
-                speed: 0,
-                timestamp: Date.now(),
-            });
+            await Promise.resolve();
         });
-
-        expect(h.selectLocation).not.toHaveBeenCalled();
+        expect(h.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+        expect(h.selectLocation).toHaveBeenCalledOnce();
     });
 
     it('stores map-pick diagnostics in the exact account namespace without the private location', async () => {

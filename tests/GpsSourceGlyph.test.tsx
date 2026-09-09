@@ -22,16 +22,17 @@ describe('resolveGpsSourceState', () => {
     const at = (weatherKind: any, storeStatus: any = 'disconnected', remoteVia: any = null) =>
         resolveGpsSourceState({ weatherKind, storeStatus, remoteVia });
 
-    it('a receiver on the boat is a live boat, whatever the weather chain is doing', () => {
-        expect(at(null, 'connected')).toMatchObject({ glyph: 'boat', tone: 'live' });
-        expect(at('phone', 'remote', 'lan')).toMatchObject({ glyph: 'boat', tone: 'live' });
+    it('the selected weather receiver wins over unrelated instrument connectivity', () => {
+        expect(at(null, 'connected')).toMatchObject({ glyph: 'none', tone: 'none' });
+        expect(at('phone', 'remote', 'lan')).toMatchObject({ glyph: 'phone', tone: 'phone' });
+        expect(at('phone', 'remote', 'cloud')).toMatchObject({ glyph: 'phone', tone: 'phone' });
         expect(at('bus')).toMatchObject({ glyph: 'boat', tone: 'live' });
         expect(at('pi')).toMatchObject({ glyph: 'boat', tone: 'live' });
     });
 
     it('the boat through the cloud is a boat with a sky dot', () => {
         expect(at('cloud')).toMatchObject({ glyph: 'boat', tone: 'cloud' });
-        expect(at(null, 'remote', 'cloud')).toMatchObject({ glyph: 'boat', tone: 'cloud' });
+        expect(at(null, 'remote', 'cloud')).toMatchObject({ glyph: 'none', tone: 'none' });
     });
 
     it('her held last fix is a boat with an amber dot, and can be changed', () => {
@@ -42,6 +43,39 @@ describe('resolveGpsSourceState', () => {
     it('the phone is a phone; nothing yet is neither', () => {
         expect(at('phone')).toMatchObject({ glyph: 'phone', tone: 'phone', canChoose: false });
         expect(at(null)).toMatchObject({ glyph: 'none', tone: 'none' });
+    });
+
+    it('unavailable boat weather never becomes live just because instruments are connected', () => {
+        expect(
+            resolveGpsSourceState({
+                weatherKind: null,
+                target: 'boat',
+                status: 'unavailable',
+                storeStatus: 'connected',
+                remoteVia: null,
+            }),
+        ).toMatchObject({
+            glyph: 'boat',
+            tone: 'none',
+            label: 'Position: the boat’s GPS unavailable',
+        });
+    });
+
+    it('an older phone fix is explicitly last-known and carries its age', () => {
+        expect(
+            resolveGpsSourceState({
+                weatherKind: 'phone',
+                target: 'phone',
+                status: 'last-known',
+                timestamp: Date.now() - 300_000,
+                storeStatus: 'remote',
+                remoteVia: 'cloud',
+            }),
+        ).toMatchObject({
+            glyph: 'phone',
+            tone: 'held',
+            label: 'Position: this phone’s last fix · 5m ago',
+        });
     });
 });
 

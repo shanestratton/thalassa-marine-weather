@@ -28,22 +28,29 @@ import {
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
-import {
-    findWeatherHistoryReport,
-    weatherReportMatchesRequest,
-    weatherCoordinatesNearby,
-} from '../services/weather/cache';
+import { findWeatherHistoryReport, weatherReportMatchesRequest } from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
-import { decideFollowAction, haversineNM, tideNeedsRefresh, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
+import {
+    decideFollowAction,
+    haversineNM,
+    tideNeedsRefresh,
+    GPS_FOLLOW_POLL_MS,
+    coordinateLocationName,
+} from '../utils/gpsFollow';
 import { fetchTidesForPosition } from '../services/weather/api/tides';
 import {
     resolveWeatherPosition,
+    getWeatherFollowTarget,
+    WEATHER_FOLLOW_TARGET_EVENT,
+    weatherFixStatus,
+    describeWeatherFix,
     setHeldChoice,
     setWeatherFollowTarget,
     type HeldChoice,
     type WeatherFix,
     type WeatherFixKind,
+    type WeatherFollowTarget,
 } from '../services/weatherPosition';
 import type { BoatFixRung } from '../services/boatPositionChain';
 import { useWeatherStore } from '../stores/weatherStore';
@@ -61,8 +68,10 @@ const log = createLogger('WeatherContext');
 
 /** Which receiver the weather is for while following — see services/weatherPosition. */
 export interface WeatherPositionSource {
-    kind: WeatherFixKind;
+    kind: WeatherFixKind | null;
     timestamp: number;
+    target?: WeatherFollowTarget;
+    status?: 'live' | 'last-known' | 'unavailable';
     rung?: BoatFixRung;
     source?: string | null;
 }
@@ -98,7 +107,11 @@ interface WeatherContextType {
         showOverlay?: boolean,
         silent?: boolean,
     ) => Promise<void>;
-    selectLocation: (location: string, coords?: { lat: number; lon: number }) => Promise<void>;
+    selectLocation: (
+        location: string,
+        coords?: { lat: number; lon: number },
+        options?: { requestPhonePermission?: boolean; onlyIfUnselected?: boolean },
+    ) => Promise<void>;
     refreshData: (silent?: boolean) => void;
     saveVoyagePlan: (plan: VoyagePlan) => void;
     handleSaveVoyagePlan: (plan: VoyagePlan) => void;
@@ -235,24 +248,34 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const [positionPrompt, setPositionPrompt] = useState<WeatherPositionChoicePrompt | null>(null);
     const lastHeldRef = useRef<WeatherFix | null>(null);
     const lastPhoneRef = useRef<WeatherFix | null>(null);
-    const askedHeldRef = useRef<number | null>(null);
     const followTickRef = useRef<(() => void) | null>(null);
     // Publish only on a change of receiver (or of the held fix itself): a live
     // fix arrives every tick, and re-rendering every consumer of this context
     // every 5 s for an unchanged label would be a cost with no return.
-    const publishPositionSource = useCallback((fix: WeatherFix | null) => {
+    const publishPositionSource = useCallback((fix: WeatherFix | null, target?: WeatherFollowTarget) => {
         const next: WeatherPositionSource | null = fix
-            ? { kind: fix.kind, timestamp: fix.timestamp, rung: fix.rung, source: fix.source ?? null }
-            : null;
+            ? {
+                  kind: fix.kind,
+                  timestamp: fix.timestamp,
+                  rung: fix.rung,
+                  source: fix.source ?? null,
+                  target,
+                  status: weatherFixStatus(fix),
+              }
+            : target
+              ? { kind: null, timestamp: 0, target, status: 'unavailable' }
+              : null;
         const prev = positionSourceRef.current;
         const same =
             (prev === null && next === null) ||
             (prev !== null &&
                 next !== null &&
                 prev.kind === next.kind &&
+                prev.target === next.target &&
+                prev.status === next.status &&
                 prev.rung === next.rung &&
                 (prev.source ?? null) === (next.source ?? null) &&
-                (next.kind !== 'held' || prev.timestamp === next.timestamp));
+                (next.status !== 'last-known' || prev.timestamp === next.timestamp));
         if (same) return;
         positionSourceRef.current = next;
         setPositionSource(next);
@@ -268,6 +291,17 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const locationModeRef = useRef(locationMode);
     const pendingDisposeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const previousOfflineRef = useRef(isOffline);
+    const selectionEpochRef = useRef(0);
+    const selectionResolvingRef = useRef(false);
+    const followRefreshInFlightRef = useRef<symbol | null>(null);
+    const followTargetRef = useRef(getWeatherFollowTarget());
+    // A forecast can adopt new coordinates without resolving their suburb.
+    // Only an actual naming attempt advances this separate baseline.
+    const namePointRef = useRef<{ lat: number; lon: number } | null>(null);
+    const nameResolvedRef = useRef(false);
+    const nameRetryAtRef = useRef(0);
+    const tideRequestRef = useRef<{ point: { lat: number; lon: number }; token: symbol } | null>(null);
+    const restoreLocationRef = useRef<((location: string, coords?: { lat: number; lon: number }) => void) | null>(null);
 
     // Wrapper: every weather update also feeds the environment detection service
     const setWeatherData = useCallback(
@@ -462,14 +496,12 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 `[WeatherContext] settings-restored event received: loc=${loc ?? 'undefined'}, hasData=${!!weatherDataRef.current}`,
             );
             if (!loc) return;
+            // A delayed account restore is not newer user intent. In particular,
+            // selection deliberately clears old weather while awaiting GPS.
+            if (selectionEpochRef.current !== 0) return;
             if (weatherDataRef.current) return; // already have data, nothing to do
             log.warn(`[WeatherContext] dispatching fetchWeather for ${loc}`);
-            void orchestrator.fetchWeather(loc, {
-                force: false,
-                coords: detail?.defaultLocationCoords,
-                showOverlay: false,
-                silent: false,
-            });
+            restoreLocationRef.current?.(loc, loc === 'Current Location' ? undefined : detail?.defaultLocationCoords);
         };
         window.addEventListener('thalassa:settings-restored', handler);
         return () => window.removeEventListener('thalassa:settings-restored', handler);
@@ -540,6 +572,89 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         [isCurrentScope, orchestrator],
     );
 
+    const resolveFollowFix = useCallback(
+        async (requestPhonePermission = false) => {
+            const epoch = selectionEpochRef.current;
+            const target = getWeatherFollowTarget();
+            const resolution = await resolveWeatherPosition(
+                async () => {
+                    const position = requestPhonePermission
+                        ? await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 10_000 })
+                        : await GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 });
+                    return position
+                        ? { lat: position.latitude, lon: position.longitude, timestamp: position.timestamp }
+                        : null;
+                },
+                { target },
+            );
+            if (
+                !isCurrentScope() ||
+                selectionEpochRef.current !== epoch ||
+                locationModeRef.current !== 'gps' ||
+                getWeatherFollowTarget() !== target
+            )
+                return null;
+            publishPositionSource(resolution.fix, target);
+            lastHeldRef.current = resolution.held;
+            lastPhoneRef.current = resolution.phone;
+            setError(resolution.fix ? null : describeWeatherFix(null, Date.now(), target));
+            return resolution.fix;
+        },
+        [isCurrentScope, publishPositionSource],
+    );
+
+    const refreshFollowWeather = useCallback(
+        async (silent = true) => {
+            if (selectionResolvingRef.current || followRefreshInFlightRef.current) return;
+            const request = Symbol('weather-follow-refresh');
+            followRefreshInFlightRef.current = request;
+            const epoch = selectionEpochRef.current;
+            const target = getWeatherFollowTarget();
+            try {
+                const fix = await resolveFollowFix();
+                if (
+                    !fix ||
+                    !isCurrentScope() ||
+                    epoch !== selectionEpochRef.current ||
+                    target !== getWeatherFollowTarget() ||
+                    useUIStore.getState().isOffline
+                ) {
+                    if (epoch === selectionEpochRef.current) setStaleRefresh(false);
+                    return;
+                }
+                await fetchWeather('Current Location', true, { lat: fix.lat, lon: fix.lon }, false, silent);
+            } finally {
+                if (followRefreshInFlightRef.current === request) followRefreshInFlightRef.current = null;
+            }
+        },
+        [fetchWeather, isCurrentScope, resolveFollowFix],
+    );
+
+    // A receiver switch can keep the same "Current Location" setting, so an
+    // effect keyed only by that setting cannot cancel its older promises.
+    useEffect(() => {
+        const changed = () => {
+            const target = getWeatherFollowTarget();
+            if (!isCurrentScope() || target === followTargetRef.current) return;
+            followTargetRef.current = target;
+            selectionEpochRef.current += 1;
+            selectionResolvingRef.current = false;
+            followRefreshInFlightRef.current = null;
+            namePointRef.current = null;
+            nameResolvedRef.current = false;
+            nameRetryAtRef.current = 0;
+            tideRequestRef.current = null;
+            orchestrator.cancelPendingLocation();
+            if (locationModeRef.current === 'gps') {
+                setWeatherData(null);
+                publishPositionSource(null, target);
+                setError(describeWeatherFix(null, Date.now(), target));
+            }
+        };
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, changed);
+        return () => window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, changed);
+    }, [isCurrentScope, orchestrator, publishPositionSource, setWeatherData]);
+
     // ── REFRESH / SELECT ────────────────────────────────────
     const refreshData = useCallback(
         (silent = false) => {
@@ -550,24 +665,64 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 if (!silent) toast.info('Offline — showing cached data');
                 return;
             }
+            if (locationModeRef.current === 'gps') {
+                void refreshFollowWeather(silent);
+                return;
+            }
             void fetchWeather(loc, true, data?.coordinates, false, silent);
         },
-        [fetchWeather, isCurrentScope],
+        [fetchWeather, isCurrentScope, refreshFollowWeather],
     );
 
     const selectLocation = useCallback(
-        async (location: string, coords?: { lat: number; lon: number }) => {
+        async (
+            location: string,
+            coords?: { lat: number; lon: number },
+            options?: { requestPhonePermission?: boolean; onlyIfUnselected?: boolean },
+        ) => {
             if (!isCurrentScope()) return;
+            if (options?.onlyIfUnselected && selectionEpochRef.current !== 0) return;
+            const epoch = ++selectionEpochRef.current;
+            selectionResolvingRef.current = false;
+            followRefreshInFlightRef.current = null;
+            const target = getWeatherFollowTarget();
+            orchestrator.cancelPendingLocation();
+            namePointRef.current = null;
+            nameResolvedRef.current = false;
+            nameRetryAtRef.current = 0;
+            tideRequestRef.current = null;
             const isCurrent = location === 'Current Location';
             setLocationMode(isCurrent ? 'gps' : 'selected');
+            locationModeRef.current = isCurrent ? 'gps' : 'selected';
             isTrackingCurrentLocation.current = isCurrent;
 
-            const persistPatch = locationPersistPatch(settingsRef.current, location, coords);
+            // Do not persist receiver coordinates as a generic location fallback.
+            const persistPatch = locationPersistPatch(settingsRef.current, location, isCurrent ? undefined : coords);
             if (persistPatch) updateSettings(persistPatch);
+            if (isCurrent) {
+                selectionResolvingRef.current = true;
+                publishPositionSource(null, target);
+                setWeatherData(null);
+                setBackgroundUpdating(true);
+                const fix = await resolveFollowFix(options?.requestPhonePermission === true);
+                if (!isCurrentScope() || selectionEpochRef.current !== epoch || target !== getWeatherFollowTarget())
+                    return;
+                selectionResolvingRef.current = false;
+                if (!fix) {
+                    setLoading(false);
+                    setStaleRefresh(false);
+                    setBackgroundUpdating(false);
+                    return;
+                }
+                coords = { lat: fix.lat, lon: fix.lon };
+            } else {
+                publishPositionSource(null);
+                setError(null);
+            }
 
             // Smooth transition strategy
             const cache = historyCacheRef.current;
-            const cached = findWeatherHistoryReport(cache, location, coords);
+            const cached = isCurrent ? null : findWeatherHistoryReport(cache, location, coords);
             const isCacheValid =
                 cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
@@ -708,8 +863,20 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 await fetchWeather(location, true, coords, !weatherDataRef.current);
             }
         },
-        [fetchWeather, isCurrentScope, setWeatherData, updateSettings],
+        [
+            fetchWeather,
+            isCurrentScope,
+            orchestrator,
+            publishPositionSource,
+            resolveFollowFix,
+            setWeatherData,
+            updateSettings,
+        ],
     );
+
+    restoreLocationRef.current = (location, coords) => {
+        void selectLocation(location, coords);
+    };
 
     // ── WATCHDOG: Ensure nextUpdate is set if data exists ───
     useEffect(() => {
@@ -763,28 +930,23 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             const loc = current?.locationName || settingsRef.current.defaultLocation;
             if (!loc) return;
 
-            if (locationMode === 'gps') {
-                void GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
-                    if (!isCurrentScope() || useUIStore.getState().isOffline) return;
-                    if (pos) {
-                        void fetchWeather(
-                            'Current Location',
-                            true,
-                            { lat: pos.latitude, lon: pos.longitude },
-                            false,
-                            true,
-                        );
-                    } else {
-                        void fetchWeather(loc, true, current?.coordinates, false, true);
-                    }
-                });
+            if (locationModeRef.current === 'gps') {
+                void refreshFollowWeather();
             } else {
                 void fetchWeather(loc, true, current?.coordinates, false, true);
             }
         }, 1500);
 
         return () => clearTimeout(reconnectTimer);
-    }, [cacheKeys.nextUpdate, fetchWeather, isCurrentScope, isOffline, locationMode, setNextUpdateForScope]);
+    }, [
+        cacheKeys.nextUpdate,
+        fetchWeather,
+        isCurrentScope,
+        isOffline,
+        locationMode,
+        refreshFollowWeather,
+        setNextUpdateForScope,
+    ]);
 
     // ── SMART REFRESH TIMER ─────────────────────────────────
     useEffect(() => {
@@ -821,27 +983,8 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 const tempNext = Date.now() + 90000;
                 setNextUpdateForScope(tempNext);
 
-                if (locationMode === 'gps') {
-                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 30_000 }).then((pos) => {
-                        if (!isCurrentScope() || useUIStore.getState().isOffline) return;
-                        if (pos) {
-                            // Refresh AT the boat's position, labelled with
-                            // the current friendly name. Passing the literal
-                            // 'Current Location' string here used to clobber
-                            // weatherData.locationName on every refresh —
-                            // the clobber that useAppController's old
-                            // mode-flip "fix" was working around. The GPS
-                            // follower owns display naming now.
-                            const currentName = weatherDataRef.current?.locationName;
-                            const label =
-                                currentName && currentName !== 'Current Location' ? currentName : 'Current Location';
-                            void fetchWeather(label, true, { lat: pos.latitude, lon: pos.longitude }, false, true);
-                        } else {
-                            const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
-                            const coords = weatherDataRef.current?.coordinates;
-                            if (loc) void fetchWeather(loc, false, coords, false, true);
-                        }
-                    });
+                if (locationModeRef.current === 'gps') {
+                    void refreshFollowWeather();
                 } else {
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                     const storedCoords = weatherDataRef.current?.coordinates;
@@ -869,45 +1012,23 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (dataAge > STALE_ON_WAKE_MS) {
                 log.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
                 setStaleRefresh(true);
-                // INSTANT PATH (Shane 2026-08-10: the morning refresh "takes a
-                // lot longer than any other app I have ever used"). The old
-                // order was blur → 2 s defer → up to 10 s of GPS acquisition
-                // (fixes older than 60 s refused) → reverse geocode → and only
-                // THEN the first weather byte: 5–15 s of blur spent re-learning
-                // coordinates the phone already knew last night. Forecast grids
-                // are kilometres wide — overnight drift does not change the
-                // sky. So the fetch fires NOW against the report's own point,
-                // and the GPS fix that arrives in parallel triggers a silent
-                // corrective fetch only when the phone genuinely moved (>2 km,
-                // weatherCoordinatesNearby). The defer shrinks 2000 → 300 ms:
-                // it exists to let the wake frame paint, not to pace the fetch.
+                // Revalidate the selected receiver before reusing a point.
+                // A cached report does not prove whether it came from this
+                // phone or the vessel, including after a receiver switch.
+                const wakeEpoch = selectionEpochRef.current;
                 scheduleDeferred(() => {
                     if (useUIStore.getState().isOffline) return;
                     if (isFetchingRef.current) return;
+                    if (wakeEpoch !== selectionEpochRef.current) return;
                     const loc = data?.locationName || settingsRef.current.defaultLocation;
                     if (!loc) return;
                     const knownCoords = data?.coordinates;
 
-                    if (locationMode !== 'gps') {
+                    if (locationModeRef.current !== 'gps') {
                         void fetchWeather(loc, true, knownCoords, false, true);
                         return;
                     }
-                    if (knownCoords) {
-                        void fetchWeather('Current Location', true, knownCoords, false, true);
-                    }
-                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
-                        if (!isCurrentScope() || useUIStore.getState().isOffline) return;
-                        if (pos) {
-                            const fresh = { lat: pos.latitude, lon: pos.longitude };
-                            // Same sky — the instant fetch already covered it.
-                            if (knownCoords && weatherCoordinatesNearby(knownCoords, fresh)) return;
-                            void fetchWeather('Current Location', true, fresh, false, true);
-                        } else if (!knownCoords) {
-                            // No known point AND no fix: last resort, let the
-                            // orchestrator's own fallback ladder sort it out.
-                            void fetchWeather(loc, true, undefined, false, true);
-                        }
-                    });
+                    void refreshFollowWeather();
                 }, 300);
             } else {
                 const now = Date.now();
@@ -926,7 +1047,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             deferredTimers.clear();
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [fetchWeather, isCurrentScope, isOffline, locationMode, setNextUpdateForScope]);
+    }, [fetchWeather, isCurrentScope, isOffline, locationMode, refreshFollowWeather, setNextUpdateForScope]);
 
     // ── BLUR WATCHDOG ──────────────────────────────────────────
     // The blur is only ever cleared by the orchestrator's `finally`, which
@@ -1001,109 +1122,172 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         if (locationMode !== 'gps' || !isCurrentScope()) return;
         let cancelled = false;
         let tickGeneration = 0;
-
-        const cardinalName = (lat: number, lon: number) =>
-            `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+        let activeTick: { epoch: number } | null = null;
 
         const tick = () => {
-            if (!isCurrentScope() || cancelled) return;
+            if (!isCurrentScope() || cancelled || locationModeRef.current !== 'gps') return;
             if (document.hidden) return;
             if (isFetchingRef.current) return;
+            if (selectionResolvingRef.current || followRefreshInFlightRef.current) return;
+            // A slow geocoder must get to finish, rather than being replaced
+            // every five seconds. A new selection may start immediately.
+            if (activeTick?.epoch === selectionEpochRef.current) return;
 
             const displayed = weatherDataRef.current?.coordinates;
             const weatherPoint = weatherPointRef.current;
-            if (!displayed || !weatherPoint) return;
             const generation = ++tickGeneration;
+            const selectionEpoch = selectionEpochRef.current;
+            const tickRequest = { epoch: selectionEpoch };
+            activeTick = tickRequest;
+            const target = getWeatherFollowTarget();
+            const isCurrentTick = () =>
+                isCurrentScope() &&
+                !cancelled &&
+                generation === tickGeneration &&
+                selectionEpoch === selectionEpochRef.current &&
+                target === getWeatherFollowTarget() &&
+                locationModeRef.current === 'gps';
 
             // The phone by default; the boat (the bus, then the Pi, then her
             // cloud row, then her held last fix) when the skipper picked her
             // row in the ★ menu — see services/weatherPosition (2026-09-08).
             // The phone read stays the passive, already-granted one.
-            resolveWeatherPosition(() =>
-                GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then((p) =>
-                    p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
-                ),
-            ).then(async (resolved) => {
-                if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
-                publishPositionSource(resolved.fix);
-                lastHeldRef.current = resolved.held;
-                lastPhoneRef.current = resolved.phone;
-                if (resolved.ask && resolved.held && askedHeldRef.current !== resolved.held.timestamp) {
-                    askedHeldRef.current = resolved.held.timestamp;
-                    setPositionPrompt({ held: resolved.held, phone: resolved.phone });
-                }
-                if (!resolved.fix) return;
-                const { lat: latitude, lon: longitude } = resolved.fix;
-
-                const action = decideFollowAction({
-                    weatherPoint,
-                    displayed,
-                    position: { lat: latitude, lon: longitude },
-                    // Boot case: prettify the literal placeholder name even
-                    // at zero drift — without leaving GPS mode.
-                    displayedNameIsPlaceholder: weatherDataRef.current?.locationName === 'Current Location',
-                });
-                if (action === 'none') return;
-
-                let name = cardinalName(latitude, longitude);
-                // A cardinal coordinate is an honest offline label. Do not
-                // send a reverse-geocode request until the WAN probe says it
-                // can succeed.
-                if (!useUIStore.getState().isOffline) {
-                    try {
-                        const geo = await reverseGeocode(latitude, longitude);
-                        if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
-                        if (geo) name = geo;
-                    } catch {
-                        /* offshore — cardinal coords are an honest label */
+            resolveWeatherPosition(
+                () =>
+                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then((p) =>
+                        p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
+                    ),
+                { target },
+            )
+                .then(async (resolved) => {
+                    if (!isCurrentTick()) return;
+                    publishPositionSource(resolved.fix, target);
+                    lastHeldRef.current = resolved.held;
+                    lastPhoneRef.current = resolved.phone;
+                    if (!resolved.fix) {
+                        setError(describeWeatherFix(null, Date.now(), target));
+                        return;
                     }
-                }
-                if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
-                if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
-
-                if (action === 'refetch') {
-                    if (useUIStore.getState().isOffline) return; // retry after the reachability probe recovers
-                    const dist = haversineNM(weatherPoint.lat, weatherPoint.lon, latitude, longitude);
-                    log.warn(
-                        `[WeatherContext] GPS follow: ${dist.toFixed(1)} NM from forecast point — refetching for ${name}`,
-                    );
-                    void fetchWeather(name, true, { lat: latitude, lon: longitude }, false, true);
-                } else {
-                    // Inside the 30 NM bubble: keep the DISPLAYED position
-                    // live. No settings write, no refetch — just the label.
-                    const existing = weatherDataRef.current;
-                    if (existing) {
-                        setWeatherData({
-                            ...existing,
-                            locationName: name,
-                            coordinates: { lat: latitude, lon: longitude },
-                        });
+                    setError(null);
+                    const { lat: latitude, lon: longitude } = resolved.fix;
+                    if (!displayed || !weatherPoint) {
+                        if (!useUIStore.getState().isOffline) {
+                            void fetchWeather('Current Location', true, { lat: latitude, lon: longitude }, false, true);
+                        }
+                        return;
                     }
-                    // The tide station follows sooner than the forecast: the
-                    // label under the graph read the old station until the
-                    // 30 NM refetch (Shane 2026-09-06). Tide-only; the 24 h
-                    // upstream cache makes a repeat cheap.
-                    if (
-                        existing &&
-                        tideNeedsRefresh(tidePointRef.current, { lat: latitude, lon: longitude }) &&
-                        !useUIStore.getState().isOffline
-                    ) {
-                        tidePointRef.current = { lat: latitude, lon: longitude }; // one attempt per hop
-                        void fetchTidesForPosition(latitude, longitude).then((tides) => {
-                            if (!tides || !isCurrentScope() || cancelled) return;
-                            if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
-                            const current = weatherDataRef.current;
-                            if (!current) return;
+
+                    const action = decideFollowAction({
+                        weatherPoint,
+                        displayed: namePointRef.current ?? displayed,
+                        position: { lat: latitude, lon: longitude },
+                        // Boot case: prettify the literal placeholder name even
+                        // at zero drift — without leaving GPS mode.
+                        displayedNameIsPlaceholder:
+                            namePointRef.current === null ||
+                            (!nameResolvedRef.current && Date.now() >= nameRetryAtRef.current),
+                    });
+                    if (action === 'none' && !tideNeedsRefresh(tidePointRef.current, { lat: latitude, lon: longitude }))
+                        return;
+
+                    let name =
+                        action === 'none'
+                            ? (weatherDataRef.current?.locationName ?? '')
+                            : coordinateLocationName({ lat: latitude, lon: longitude });
+                    let nameResolved = false;
+                    // A cardinal coordinate is an honest offline label. Do not
+                    // send a reverse-geocode request until the WAN probe says it
+                    // can succeed.
+                    if (action !== 'none' && !useUIStore.getState().isOffline) {
+                        try {
+                            const geo = await reverseGeocode(latitude, longitude);
+                            if (!isCurrentTick()) return;
+                            if (geo) {
+                                name = geo;
+                                nameResolved = true;
+                            }
+                        } catch {
+                            /* offshore — cardinal coords are an honest label */
+                        }
+                    }
+                    if (!isCurrentTick()) return;
+                    if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
+                    if (action !== 'none') {
+                        namePointRef.current = { lat: latitude, lon: longitude };
+                        nameResolvedRef.current = nameResolved;
+                        nameRetryAtRef.current = Date.now() + 60_000;
+                    }
+
+                    if (action === 'refetch') {
+                        if (useUIStore.getState().isOffline) return; // retry after the reachability probe recovers
+                        const dist = haversineNM(weatherPoint.lat, weatherPoint.lon, latitude, longitude);
+                        log.warn(
+                            `[WeatherContext] GPS follow: ${dist.toFixed(1)} NM from forecast point — refetching for ${name}`,
+                        );
+                        void fetchWeather(name, true, { lat: latitude, lon: longitude }, false, true);
+                    } else {
+                        // Inside the 30 NM bubble: keep the DISPLAYED position
+                        // live. No settings write, no refetch — just the label.
+                        const existing = weatherDataRef.current;
+                        if (existing && action !== 'none') {
                             setWeatherData({
-                                ...current,
-                                tides: tides.tides,
-                                tideHourly: tides.tideHourly,
-                                tideGUIDetails: tides.tideGUIDetails ?? current.tideGUIDetails,
+                                ...existing,
+                                locationName: name,
+                                coordinates: { lat: latitude, lon: longitude },
                             });
-                        });
+                        }
+                        // The tide station follows sooner than the forecast: the
+                        // label under the graph read the old station until the
+                        // 30 NM refetch (Shane 2026-09-06). Tide-only; the 24 h
+                        // upstream cache makes a repeat cheap.
+                        if (
+                            existing &&
+                            tideNeedsRefresh(tidePointRef.current, { lat: latitude, lon: longitude }) &&
+                            (!tideRequestRef.current ||
+                                tideNeedsRefresh(tideRequestRef.current.point, { lat: latitude, lon: longitude })) &&
+                            !useUIStore.getState().isOffline
+                        ) {
+                            const request = { point: { lat: latitude, lon: longitude }, token: Symbol('tides') };
+                            tideRequestRef.current = request;
+                            void fetchTidesForPosition(latitude, longitude)
+                                .then((tides) => {
+                                    if (
+                                        !tides ||
+                                        !isCurrentScope() ||
+                                        cancelled ||
+                                        selectionEpoch !== selectionEpochRef.current ||
+                                        target !== getWeatherFollowTarget() ||
+                                        locationModeRef.current !== 'gps' ||
+                                        tideRequestRef.current !== request
+                                    )
+                                        return;
+                                    if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
+                                    const current = weatherDataRef.current;
+                                    if (!current) return;
+                                    tidePointRef.current = request.point;
+                                    setWeatherData({
+                                        ...current,
+                                        tides: tides.tides,
+                                        tideHourly: tides.tideHourly,
+                                        tideGUIDetails: tides.tideGUIDetails ?? current.tideGUIDetails,
+                                    });
+                                })
+                                .catch(() => {
+                                    // Retry at the next eligible tick; a failed request
+                                    // must not pretend that the tide station moved.
+                                })
+                                .finally(() => {
+                                    if (tideRequestRef.current === request) tideRequestRef.current = null;
+                                });
+                        }
                     }
-                }
-            });
+                })
+                .catch((error) => {
+                    if (isCurrentTick()) log.warn('GPS follow lookup failed', error);
+                })
+                .finally(() => {
+                    if (activeTick === tickRequest) activeTick = null;
+                });
         };
 
         // Immediate first tick — covers 'opened the app after a flight'
@@ -1152,10 +1336,14 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         if (!isCurrentScope()) return;
         if (prevModelRef.current !== settings.forecastModel) {
             prevModelRef.current = settings.forecastModel;
+            if (locationModeRef.current === 'gps') {
+                void refreshFollowWeather();
+                return;
+            }
             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
             if (loc) void fetchWeather(loc, true);
         }
-    }, [fetchWeather, isCurrentScope, settings.forecastModel]);
+    }, [fetchWeather, isCurrentScope, refreshFollowWeather, settings.forecastModel]);
 
     // ── ZUSTAND SYNC BRIDGE ──────────────────────────────────
     // Syncs context state → Zustand store so components can use

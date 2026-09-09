@@ -2189,7 +2189,12 @@ check(
         !passiveLaunchSettings.includes("merged.defaultLocation = 'Current Location'") &&
         !passiveLaunchController.includes('Geolocation.requestPermissions(') &&
         !passiveLaunchController.includes('Geolocation.getCurrentPosition(') &&
-        passiveLaunchController.includes('GpsService.getCurrentPositionIfGranted(') &&
+        passiveLaunchController.includes(
+            "void selectLocation('Current Location', undefined, { onlyIfUnselected: true });",
+        ) &&
+        !passiveLaunchController
+            .slice(passiveLaunchController.indexOf('// 1b.'), passiveLaunchController.indexOf('// 1c.'))
+            .includes('requestCurrentForegroundPosition(') &&
         passiveLaunchController.includes('GpsService.requestCurrentForegroundPosition(') &&
         includesAll(passiveLocationService, [
             'async getCurrentPositionIfGranted(',

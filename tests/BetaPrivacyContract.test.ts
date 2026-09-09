@@ -211,7 +211,10 @@ describe('public-beta privacy contract', () => {
         expect(settings).not.toContain("merged.defaultLocation = 'Current Location'");
         expect(controller).not.toContain('Geolocation.requestPermissions(');
         expect(controller).not.toContain('Geolocation.getCurrentPosition(');
-        expect(controller).toContain('GpsService.getCurrentPositionIfGranted(');
+        const bootFollow = controller.slice(controller.indexOf('// 1b.'), controller.indexOf('// 1c.'));
+        expect(bootFollow).toContain("void selectLocation('Current Location', undefined, { onlyIfUnselected: true });");
+        expect(bootFollow).not.toContain('requestPhonePermission: true');
+        expect(bootFollow).not.toContain('requestCurrentForegroundPosition(');
         expect(controller).toContain('GpsService.requestCurrentForegroundPosition(');
         expect(gps).toContain('async getCurrentPositionIfGranted(');
         expect(gps).toContain('const permission = await Geolocation.checkPermissions()');

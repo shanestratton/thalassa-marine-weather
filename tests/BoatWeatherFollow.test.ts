@@ -37,12 +37,12 @@ describe('the weather is for the boat', () => {
         expect(weatherContext).not.toContain('GpsService.getCurrentPosition(');
     });
 
-    it('the boot path and both "Current Location" fetch paths use the same order, without asking', () => {
-        expect(controller).toContain('resolveWeatherPosition(');
-        expect(controller).toContain('{ mayAsk: false }');
-        expect(orchestrator).toContain('private async weatherPositionOrPhone(');
-        expect(orchestrator).toContain('this.weatherPositionOrPhone(60_000, 10)');
-        expect(orchestrator).toContain('this.weatherPositionOrPhone(60_000, 15)');
+    it('the boot path starts selection before any async position read, and fetches share the resolver', () => {
+        expect(controller).toContain("selectLocation('Current Location', undefined, { onlyIfUnselected: true });");
+        expect(controller).not.toContain('resolveWeatherPosition(');
+        expect(orchestrator).toContain('private async selectedWeatherPosition(');
+        expect(orchestrator).toContain('this.selectedWeatherPosition(60_000, 10)');
+        expect(orchestrator).toContain('this.selectedWeatherPosition(60_000, 15)');
         expect(orchestrator).not.toMatch(
             /getCurrentPositionIfGranted\(\{ staleLimitMs: 60_000, timeoutSec: 1[05] \}\)/,
         );

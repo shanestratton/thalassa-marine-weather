@@ -27,7 +27,8 @@ import { degreesToCardinal } from '../utils';
 import { EnvironmentService } from './EnvironmentService';
 import { getErrorMessage } from '../utils/createLogger';
 import { GpsService } from './GpsService';
-import { resolveWeatherPosition } from './weatherPosition';
+import { getWeatherFollowTarget, resolveWeatherPosition } from './weatherPosition';
+import { coordinateLocationName, sameLocationNamePoint } from '../utils/gpsFollow';
 import {
     saveLargeDataImmediate,
     loadLargeData,
@@ -176,6 +177,8 @@ export class WeatherOrchestrator {
     private fetchEpoch = 0;
     private adviceEpoch = 0;
     private liveMetricsEpoch = 0;
+    private locationEpoch = 0;
+    private namedPoint: { coords: Coords; name: string } | null = null;
 
     constructor(callbacks: OrchestratorCallbacks, scope: AuthIdentityScope = getAuthIdentityScope()) {
         this.cb = callbacks;
@@ -196,6 +199,21 @@ export class WeatherOrchestrator {
 
     isCurrentIdentity(): boolean {
         return !this.disposed && isAuthIdentityScopeCurrent(this.scope);
+    }
+
+    /** A new location intent wins even when it is served entirely from cache. */
+    cancelPendingLocation(): void {
+        this.locationEpoch += 1;
+        this.fetchEpoch += 1;
+        this.adviceEpoch += 1;
+        this.liveMetricsEpoch += 1;
+        for (const timer of this.timers) clearTimeout(timer);
+        this.timers.clear();
+        if (!this.isCurrentIdentity()) return;
+        this.cb.setIsFetching(false);
+        this.cb.setLoading(false);
+        this.cb.setBackgroundUpdating(false);
+        this.cb.setStaleRefresh(false);
     }
 
     private isFetchCurrent(epoch: number): boolean {
@@ -369,14 +387,16 @@ export class WeatherOrchestrator {
 
     async loadCacheAndInit(): Promise<void> {
         if (!this.isCurrentIdentity()) return;
+        const locationEpoch = this.locationEpoch;
         const hasCachedData = await this.loadCache();
-        if (!this.isCurrentIdentity()) return;
+        if (!this.isCurrentIdentity() || locationEpoch !== this.locationEpoch) return;
         this.triggerInitialFetch(hasCachedData);
     }
 
     private cacheLoadPromise: Promise<boolean> | null = null;
 
     private async doLoadCache(): Promise<boolean> {
+        const locationEpoch = this.locationEpoch;
         log.warn(`[perf] loadCache start`);
         let hasCachedData = false;
 
@@ -398,7 +418,7 @@ export class WeatherOrchestrator {
             addBreadcrumb({ category: 'weather', message: 'Loading cached weather data', level: 'info' });
             const cached = await this.loadScopedCache<MarineWeatherReport>(this.cacheKeys.data, DATA_CACHE_KEY);
             this.assertCurrent();
-            if (cached && cached.locationName) {
+            if (cached && cached.locationName && locationEpoch === this.locationEpoch) {
                 log.info(`[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`);
                 addBreadcrumb({
                     category: 'weather',
@@ -514,84 +534,48 @@ export class WeatherOrchestrator {
 
         // Handle GPS-based "Current Location"
         if (loc === 'Current Location') {
-            // INSTANT PATH (Shane 2026-08-10, mirrored in the wake handler):
-            // when a cached report carries its own point, the refresh must not
-            // queue behind a cold GPS acquisition — fetch against where the
-            // phone was when that report was made, and let the fix arriving in
-            // parallel trigger a corrective fetch only on a real move (>2 km).
-            const knownCoords = hasCachedData ? this.cb.getWeatherData()?.coordinates : undefined;
-            if (knownCoords) {
-                log.info('Cached point available — fetching instantly, GPS correcting in parallel');
-                addBreadcrumb({
-                    category: 'weather',
-                    message: 'Instant fetch from cached point; GPS in parallel',
-                    level: 'info',
-                });
-                this.schedule(() => {
-                    void this.fetchWeather(loc, {
-                        force: false,
-                        coords: knownCoords,
-                        showOverlay: false,
-                        silent: true,
-                    });
-                }, 100);
-            }
+            // Resolve the selected receiver before refreshing. A cached report
+            // has no proof it belongs to today's phone/vessel choice.
+            const locationEpoch = this.locationEpoch;
+            const target = getWeatherFollowTarget();
             if (!hasCachedData) this.cb.setLoadingMessage('Getting GPS Location...');
             log.info('Requesting GPS position...');
             addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
-            this.weatherPositionOrPhone(60_000, 10).then((pos) => {
-                if (!this.isCurrentIdentity()) return;
-                if (pos) {
-                    log.info(`GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
-                    addBreadcrumb({
-                        category: 'weather',
-                        message: 'GPS position received',
-                        level: 'info',
-                        data: { source: 'device-gps' },
-                    });
-                    const fresh = { lat: pos.latitude, lon: pos.longitude };
-                    // Same sky as the instant fetch — a second round of
-                    // sources would buy nothing but the blur it causes.
-                    if (knownCoords && weatherCoordinatesNearby(knownCoords, fresh)) return;
-                    this.fetchWeather(loc, {
-                        force: !hasCachedData,
-                        coords: fresh,
-                        showOverlay: false,
-                        silent: hasCachedData,
-                    });
-                } else {
-                    log.warn('GPS returned null');
-                    addBreadcrumb({ category: 'weather', message: 'GPS returned null', level: 'warning' });
-                    if (!hasCachedData) {
-                        // GPS is a dead end here (plain-http Pi page can
-                        // NEVER get it — not a secure context; or the user
-                        // denied it). Fall back to the home-port coords
-                        // saved at onboarding rather than a blocking error
-                        // card (Shane 2026-07-11, calypso.local:3001).
-                        const fallbackCoords = settings.defaultLocationCoords as Coords | undefined;
-                        const fallbackName =
-                            typeof settings.defaultLocation === 'string' &&
-                            settings.defaultLocation !== 'Current Location'
-                                ? settings.defaultLocation
-                                : null;
-                        if (fallbackCoords) {
-                            log.warn('GPS unavailable — falling back to saved home-port coords');
-                            this.fetchWeather(fallbackName ?? 'Home port', {
-                                force: true,
-                                coords: fallbackCoords,
-                                showOverlay: false,
-                            });
-                        } else {
-                            this.cb.setError(
-                                typeof window !== 'undefined' && window.isSecureContext === false
-                                    ? 'GPS is unavailable on this connection (http) — search or pick a location instead.'
-                                    : 'Unable to get GPS location. Please select a location.',
-                            );
-                            this.cb.setLoading(false);
-                        }
+            this.selectedWeatherPosition(60_000, 10)
+                .then((pos) => {
+                    if (
+                        !this.isCurrentIdentity() ||
+                        locationEpoch !== this.locationEpoch ||
+                        target !== getWeatherFollowTarget()
+                    )
+                        return;
+                    if (pos) {
+                        log.info(`GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
+                        addBreadcrumb({
+                            category: 'weather',
+                            message: 'GPS position received',
+                            level: 'info',
+                            data: { source: target },
+                        });
+                        const fresh = { lat: pos.latitude, lon: pos.longitude };
+                        this.fetchWeather(loc, {
+                            force: !hasCachedData,
+                            coords: fresh,
+                            showOverlay: false,
+                            silent: hasCachedData,
+                        });
+                    } else {
+                        log.warn('GPS returned null');
+                        addBreadcrumb({ category: 'weather', message: 'GPS returned null', level: 'warning' });
+                        this.cb.setError(
+                            `${target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Choose a saved location or try again.`,
+                        );
+                        this.cb.setLoading(false);
                     }
-                }
-            });
+                })
+                .catch((error) => {
+                    if (!this.isStaleOperation(error)) log.warn('Initial position lookup failed', error);
+                });
         } else {
             log.info(`Named location: "${loc}" — scheduling fetch`);
             addBreadcrumb({
@@ -621,28 +605,27 @@ export class WeatherOrchestrator {
 
     // ── Location Resolution ────────────────────────────────────
 
-    /**
-     * Where the weather is for: the boat (the bus, then the Pi), her held last
-     * fix when she is quiet, and the phone only when no boat has ever answered
-     * on this device or the skipper chose it — services/weatherPosition. The
-     * phone read is the passive, already-granted one. These paths have no UI
-     * to ask boat-or-phone with, so they never do; the follower asks.
-     */
-    private async weatherPositionOrPhone(
+    /** Passive lookup of only the selected receiver; never substitutes another one. */
+    private async selectedWeatherPosition(
         staleLimitMs: number,
         timeoutSec: number,
     ): Promise<{ latitude: number; longitude: number } | null> {
+        const target = getWeatherFollowTarget();
+        const locationEpoch = this.locationEpoch;
         const resolved = await resolveWeatherPosition(
             () =>
                 GpsService.getCurrentPositionIfGranted({ staleLimitMs, timeoutSec }).then((p) =>
                     p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
                 ),
-            { mayAsk: false },
+            { mayAsk: false, target },
         );
+        if (!this.isCurrentIdentity() || locationEpoch !== this.locationEpoch || target !== getWeatherFollowTarget()) {
+            throw new StaleWeatherOperationError();
+        }
         return resolved.fix ? { latitude: resolved.fix.lat, longitude: resolved.fix.lon } : null;
     }
 
-    async resolveLocation(location: string, coords?: Coords, fetchEpoch?: number): Promise<ResolvedLocation> {
+    async resolveLocation(location: string, coords?: Coords, fetchEpoch = this.fetchEpoch): Promise<ResolvedLocation> {
         this.assertCurrent(fetchEpoch);
         addBreadcrumb({
             category: 'location',
@@ -658,70 +641,48 @@ export class WeatherOrchestrator {
         if (!resolvedCoords) {
             if (location === 'Current Location') {
                 this.cb.setLoadingMessage('Getting GPS Location...');
-                const pos = await this.weatherPositionOrPhone(60_000, 15);
+                const pos = await this.selectedWeatherPosition(60_000, 15);
                 this.assertCurrent(fetchEpoch);
                 if (pos) {
                     addBreadcrumb({
                         category: 'location',
                         message: 'Resolved "Current Location" via GPS',
                         level: 'info',
-                        data: { source: 'device-gps' },
+                        data: { source: getWeatherFollowTarget() },
                     });
-                    return {
-                        name: location,
-                        coords: { lat: pos.latitude, lon: pos.longitude },
-                    };
+                    resolvedCoords = { lat: pos.latitude, lon: pos.longitude };
+                } else {
+                    throw new Error(
+                        `${getWeatherFollowTarget() === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Choose a saved location or try again.`,
+                    );
                 }
-                addBreadcrumb({
-                    category: 'location',
-                    message: 'Failed to get GPS for "Current Location"',
-                    level: 'error',
-                });
-                // Same fallback ladder as the boot path: home-port coords
-                // beat a fatal throw (http origins can never get GPS).
-                const s = this.cb.getSettings();
-                const fbCoords = s?.defaultLocationCoords as Coords | undefined;
-                if (fbCoords) {
-                    const fbName =
-                        typeof s.defaultLocation === 'string' && s.defaultLocation !== 'Current Location'
-                            ? s.defaultLocation
-                            : 'Home port';
-                    log.warn('resolveLocation: GPS unavailable — using saved home-port coords');
-                    return { name: fbName, coords: fbCoords };
-                }
-                throw new Error(
-                    typeof window !== 'undefined' && window.isSecureContext === false
-                        ? 'GPS is unavailable on this connection (http) — search or pick a location instead.'
-                        : 'Unable to get GPS location. Please select a location or enable location services.',
-                );
-            }
-
-            try {
-                const parsed = await parseLocation(location);
-                this.assertCurrent(fetchEpoch);
-                if (parsed.lat !== 0 || parsed.lon !== 0) {
-                    resolvedCoords = { lat: parsed.lat, lon: parsed.lon };
-                    if (parsed.name && parsed.name !== location && parsed.name !== 'Invalid Location') {
-                        resolvedLocation = parsed.name;
+            } else
+                try {
+                    const parsed = await parseLocation(location);
+                    this.assertCurrent(fetchEpoch);
+                    if (parsed.lat !== 0 || parsed.lon !== 0) {
+                        resolvedCoords = { lat: parsed.lat, lon: parsed.lon };
+                        if (parsed.name && parsed.name !== location && parsed.name !== 'Invalid Location') {
+                            resolvedLocation = parsed.name;
+                        }
+                        if (parsed.timezone) resolvedTimezone = parsed.timezone;
+                        addBreadcrumb({
+                            category: 'location',
+                            message: 'Parsed requested location name',
+                            level: 'info',
+                            data: { parseSucceeded: true },
+                        });
                     }
-                    if (parsed.timezone) resolvedTimezone = parsed.timezone;
+                } catch (e) {
+                    if (this.isStaleOperation(e)) throw e;
                     addBreadcrumb({
                         category: 'location',
-                        message: 'Parsed requested location name',
-                        level: 'info',
-                        data: { parseSucceeded: true },
+                        message: 'Failed to parse requested location name',
+                        level: 'warning',
+                        data: { error: getErrorMessage(e) },
                     });
+                    // Continue — fetchWeatherByStrategy will handle it
                 }
-            } catch (e) {
-                if (this.isStaleOperation(e)) throw e;
-                addBreadcrumb({
-                    category: 'location',
-                    message: 'Failed to parse requested location name',
-                    level: 'warning',
-                    data: { error: getErrorMessage(e) },
-                });
-                // Continue — fetchWeatherByStrategy will handle it
-            }
         }
 
         // Reverse geocode if location looks generic
@@ -733,29 +694,18 @@ export class WeatherOrchestrator {
                 location.startsWith('WP ') ||
                 /^-?\d/.test(location))
         ) {
-            // Same point as the report already on screen → its name still
-            // names it. Skipping the Nominatim round trip here matters
-            // because this await sits ON the fetch's critical path: the
-            // instant wake/boot refresh re-asks about last night's exact
-            // coordinates, and holding the weather fetch to re-learn a
-            // suburb name we are already displaying is pure blur time.
-            const prev = this.cb.getWeatherData();
-            const prevName = prev?.locationName?.trim();
-            const prevNameReusable =
-                !!prevName && prevName !== 'Current Location' && !prevName.startsWith('WP ') && !/^-?\d/.test(prevName);
-            if (prevNameReusable && weatherCoordinatesNearby(prev?.coordinates, resolvedCoords)) {
-                addBreadcrumb({
-                    category: 'location',
-                    message: 'Reused on-screen name for same point — reverse geocode skipped',
-                    level: 'info',
-                });
-                return { name: prevName, coords: resolvedCoords, timezone: resolvedTimezone };
+            // Only reuse a name whose own geocoded point we know. Report
+            // coordinates move independently and weather's 2 km cache radius
+            // can span several suburbs. Never adopt a legacy label as proof.
+            if (this.namedPoint && sameLocationNamePoint(this.namedPoint.coords, resolvedCoords)) {
+                return { name: this.namedPoint.name, coords: resolvedCoords, timezone: resolvedTimezone };
             }
             try {
                 const name = await reverseGeocode(resolvedCoords.lat, resolvedCoords.lon);
                 this.assertCurrent(fetchEpoch);
                 if (name) {
                     resolvedLocation = name;
+                    this.namedPoint = { name, coords: { ...resolvedCoords } };
                     addBreadcrumb({
                         category: 'location',
                         message: 'Reverse geocoded requested coordinates',
@@ -793,9 +743,7 @@ export class WeatherOrchestrator {
     }
 
     private formatCoords(coords: Coords): string {
-        const latStr = Math.abs(coords.lat).toFixed(2) + '°' + (coords.lat >= 0 ? 'N' : 'S');
-        const lonStr = Math.abs(coords.lon).toFixed(2) + '°' + (coords.lon >= 0 ? 'E' : 'W');
-        return `${latStr}, ${lonStr}`;
+        return coordinateLocationName(coords);
     }
 
     // ── Core Fetch ─────────────────────────────────────────────
@@ -819,11 +767,26 @@ export class WeatherOrchestrator {
             const current = currentAtRequest;
             const generatedAt = current?.generatedAt ? Date.parse(current.generatedAt) : Number.NaN;
             const ageMs = Number.isFinite(generatedAt) ? Date.now() - generatedAt : Infinity;
-            const samePoint = weatherReportMatchesRequest(current, location, coords);
+            const samePoint =
+                weatherReportMatchesRequest(current, location, coords) ||
+                (location === 'Current Location' && weatherCoordinatesNearby(current?.coordinates, coords));
             const currentState = current as (MarineWeatherReport & { loading?: boolean; isEstimated?: boolean }) | null;
             const usableCurrent = currentState && !currentState.loading && !currentState.isEstimated;
 
-            if (usableCurrent && ageMs >= 0 && ageMs < STALE_THRESHOLD_MS && samePoint) {
+            if (current && usableCurrent && ageMs >= 0 && ageMs < STALE_THRESHOLD_MS && samePoint) {
+                // Reusing forecast data must not freeze a suburb name. Resolve
+                // the label against its own point without another provider call.
+                if (location === 'Current Location' && coords) {
+                    const target = getWeatherFollowTarget();
+                    try {
+                        const resolved = await this.resolveLocation(location, coords);
+                        if (this.cb.getWeatherData() !== current || target !== getWeatherFollowTarget()) return;
+                        this.cb.setWeatherData({ ...current, locationName: resolved.name, coordinates: coords });
+                    } catch (error) {
+                        if (this.isStaleOperation(error)) return;
+                        throw error;
+                    }
+                }
                 log.info(`Fresh current report for "${location}" — skipping duplicate fetch`);
                 addBreadcrumb({
                     category: 'weather',
