@@ -120,6 +120,9 @@ describe('ChartDepthControls', () => {
             screen.getByText('No verified ENC charts installed. Library imports are reference-only.'),
         ).toBeInTheDocument();
         expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveClass('thalassa-enc-coverage-notice');
+        const tideBadge = screen.getByRole('button', { name: /Live tide depth is on/ });
+        expect(tideBadge).toHaveClass('thalassa-enc-tide-badge');
+        expect(tideBadge).not.toHaveClass('-translate-x-1/2');
         expect(screen.getByRole('button', { name: 'Open on-device ENC Library' })).toHaveClass('min-h-[44px]');
         fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
         expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();

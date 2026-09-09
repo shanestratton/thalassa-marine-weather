@@ -73,7 +73,7 @@ export function ChartDepthControls({
                                 ? 'Depths shown at a future tide — tap to return to now'
                                 : 'Live tide depth is on — tap to return to chart datum'
                         }
-                        className={`absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95 ${showCoverageNotice ? 'thalassa-enc-tide-badge' : ''}`}
+                        className={`absolute left-1/2 top-16 z-9990 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95 ${showCoverageNotice ? 'thalassa-enc-tide-badge' : '-translate-x-1/2'}`}
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
