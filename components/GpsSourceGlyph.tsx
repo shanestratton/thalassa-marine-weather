@@ -35,15 +35,21 @@ export function resolveGpsSourceState(input: {
     remoteVia: 'lan' | 'cloud' | null;
     target?: WeatherFollowTarget;
     status?: 'live' | 'last-known' | 'unavailable';
+    retainedWeather?: boolean;
     timestamp?: number;
     hasWeatherContext?: boolean;
 }): GpsSourceState {
     const { weatherKind, storeStatus, remoteVia, target, status, timestamp } = input;
     if (status === 'unavailable') {
+        const now = Date.now();
+        const fixAge =
+            typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0 && timestamp <= now
+                ? formatFixAge(now - timestamp)
+                : 'age unavailable';
         return {
             glyph: target ?? 'none',
             tone: 'none',
-            label: `Position: ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS unavailable`,
+            label: `Position: ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS unavailable${input.retainedWeather ? ` — showing forecast for the last location · fix ${fixAge}` : ''}`,
             canChoose: false,
         };
     }
@@ -134,6 +140,7 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
         remoteVia: link.remote?.via ?? null,
         target: weather?.positionSource?.target,
         status: weather?.positionSource?.status,
+        retainedWeather: weather?.positionSource?.retainedWeather,
         timestamp: weather?.positionSource?.timestamp,
         hasWeatherContext: weather != null,
     });

@@ -22,17 +22,23 @@ const status = read('components/SystemStatusButton.tsx');
 const dialog = read('components/dashboard/WeatherPositionChoiceDialog.tsx');
 
 describe('the weather is for the boat', () => {
-    it('the follower asks the boat before the phone, and the phone read stays passive', () => {
+    it('the follower uses the selected receiver and the shared phone read stays passive', () => {
         const follow = weatherContext.slice(
             weatherContext.indexOf('const tick = () => {'),
             weatherContext.indexOf('const followTimer = setInterval(tick, GPS_FOLLOW_POLL_MS)'),
         );
-        const chain = follow.indexOf('resolveWeatherPosition(');
-        const phone = follow.indexOf('GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 })');
+        const reader = weatherContext.slice(
+            weatherContext.indexOf('const readFollowPosition = useCallback('),
+            weatherContext.indexOf('const resolveFollowFix = useCallback('),
+        );
+        const chain = follow.indexOf('readFollowPosition(target)');
         const decide = follow.indexOf('decideFollowAction({');
         expect(chain).toBeGreaterThan(-1);
-        expect(phone).toBeGreaterThan(chain);
-        expect(decide).toBeGreaterThan(phone);
+        expect(decide).toBeGreaterThan(chain);
+        expect(reader).toContain('resolveWeatherPosition(');
+        expect(reader).toContain('requestPhonePermission = false');
+        expect(reader).toContain('GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 })');
+        expect(reader).toContain('{ target }');
         expect(follow).toContain('const { lat: latitude, lon: longitude } = resolved.fix;');
         expect(weatherContext).not.toContain('GpsService.getCurrentPosition(');
     });

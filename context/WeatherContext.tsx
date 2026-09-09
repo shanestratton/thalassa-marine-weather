@@ -28,7 +28,11 @@ import {
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
-import { findWeatherHistoryReport, weatherReportMatchesRequest } from '../services/weather/cache';
+import {
+    findWeatherHistoryReport,
+    weatherCoordinatesNearby,
+    weatherReportMatchesRequest,
+} from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
 import {
@@ -36,6 +40,7 @@ import {
     haversineNM,
     tideNeedsRefresh,
     GPS_FOLLOW_POLL_MS,
+    NAME_UPDATE_NM,
     coordinateLocationName,
 } from '../utils/gpsFollow';
 import { fetchTidesForPosition } from '../services/weather/api/tides';
@@ -73,6 +78,8 @@ export interface WeatherPositionSource {
     timestamp: number;
     target?: WeatherFollowTarget;
     status?: 'live' | 'last-known' | 'unavailable';
+    /** GPS is unavailable; the displayed forecast still belongs to this last verified selection. */
+    retainedWeather?: boolean;
     rung?: BoatFixRung;
     source?: string | null;
 }
@@ -255,34 +262,39 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     // Publish only on a change of receiver (or of the held fix itself): a live
     // fix arrives every tick, and re-rendering every consumer of this context
     // every 5 s for an unchanged label would be a cost with no return.
-    const publishPositionSource = useCallback((fix: WeatherFix | null, target?: WeatherFollowTarget) => {
-        const next: WeatherPositionSource | null = fix
-            ? {
-                  kind: fix.kind,
-                  timestamp: fix.timestamp,
-                  rung: fix.rung,
-                  source: fix.source ?? null,
-                  target,
-                  status: weatherFixStatus(fix),
-              }
-            : target
-              ? { kind: null, timestamp: 0, target, status: 'unavailable' }
-              : null;
-        const prev = positionSourceRef.current;
-        const same =
-            (prev === null && next === null) ||
-            (prev !== null &&
-                next !== null &&
-                prev.kind === next.kind &&
-                prev.target === next.target &&
-                prev.status === next.status &&
-                prev.rung === next.rung &&
-                (prev.source ?? null) === (next.source ?? null) &&
-                (next.status !== 'last-known' || prev.timestamp === next.timestamp));
-        if (same) return;
-        positionSourceRef.current = next;
-        setPositionSource(next);
-    }, []);
+    const publishPositionSource = useCallback(
+        (fix: WeatherFix | null, target?: WeatherFollowTarget, retainedWeather = false) => {
+            const next: WeatherPositionSource | null = fix
+                ? {
+                      kind: fix.kind,
+                      timestamp: fix.timestamp,
+                      rung: fix.rung,
+                      source: fix.source ?? null,
+                      target,
+                      status: retainedWeather ? 'unavailable' : weatherFixStatus(fix),
+                      ...(retainedWeather ? { retainedWeather: true } : {}),
+                  }
+                : target
+                  ? { kind: null, timestamp: 0, target, status: 'unavailable' }
+                  : null;
+            const prev = positionSourceRef.current;
+            const same =
+                (prev === null && next === null) ||
+                (prev !== null &&
+                    next !== null &&
+                    prev.kind === next.kind &&
+                    prev.target === next.target &&
+                    prev.status === next.status &&
+                    prev.retainedWeather === next.retainedWeather &&
+                    prev.rung === next.rung &&
+                    (prev.source ?? null) === (next.source ?? null) &&
+                    ((next.status !== 'last-known' && !next.retainedWeather) || prev.timestamp === next.timestamp));
+            if (same) return;
+            positionSourceRef.current = next;
+            setPositionSource(next);
+        },
+        [],
+    );
 
     // ── Refs ─────────────────────────────────────────────────
     const historyCacheRef = useRef<Record<string, MarineWeatherReport>>({});
@@ -298,6 +310,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const selectionResolvingRef = useRef(false);
     const followRefreshInFlightRef = useRef<symbol | null>(null);
     const followTargetRef = useRef(getWeatherFollowTarget());
+    const lastFollowFixRef = useRef<{ fix: WeatherFix; target: WeatherFollowTarget; epoch: number } | null>(null);
     // A forecast can adopt new coordinates without resolving their suburb.
     // Only an actual naming attempt advances this separate baseline.
     const namePointRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -305,6 +318,46 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const nameRetryAtRef = useRef(0);
     const tideRequestRef = useRef<{ point: { lat: number; lon: number }; token: symbol } | null>(null);
     const restoreLocationRef = useRef<((location: string, coords?: { lat: number; lon: number }) => void) | null>(null);
+
+    // A missed receiver read does not invalidate a forecast already obtained
+    // for that same selection. Keep its actual place and dates, but explicitly
+    // mark GPS unavailable. Never reuse an unproven startup cache, another
+    // receiver's report, or weather for a newly known different position.
+    const setWeatherError = useCallback(
+        (message: string | null) => {
+            if (!isCurrentScope()) return;
+            const target = getWeatherFollowTarget();
+            const previous = lastFollowFixRef.current;
+            const report = weatherDataRef.current;
+            if (
+                message?.startsWith(`${target === 'phone' ? 'Phone' : 'Boat'} GPS unavailable`) &&
+                locationModeRef.current === 'gps' &&
+                previous?.target === target &&
+                previous.epoch === selectionEpochRef.current &&
+                report?.generatedAt &&
+                (report as MarineWeatherReport & { loading?: boolean }).loading !== true &&
+                Number.isFinite(Date.parse(report.generatedAt)) &&
+                // The normal follower intentionally leaves the displayed point
+                // unchanged inside its name-update radius. Ordinary GPS jitter
+                // there must not turn the next missed read into a page failure.
+                weatherCoordinatesNearby(
+                    report.coordinates,
+                    {
+                        lat: previous.fix.lat,
+                        lon: previous.fix.lon,
+                    },
+                    NAME_UPDATE_NM * 1.852,
+                )
+            ) {
+                publishPositionSource(previous.fix, target, true);
+                setStaleRefresh(false);
+                setError(null);
+                return;
+            }
+            setError(message);
+        },
+        [isCurrentScope, publishPositionSource],
+    );
 
     // Wrapper: every weather update also feeds the environment detection service
     const setWeatherData = useCallback(
@@ -387,7 +440,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             setLoadingMessage,
             setBackgroundUpdating,
             setStaleRefresh,
-            setError,
+            setError: setWeatherError,
             setNextUpdate: setNextUpdateForScope,
             setHistoryCache: setHistoryCacheForScope,
             setVersionChecked,
@@ -587,7 +640,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                         : null;
                 },
                 { target },
-            ),
+            ).catch((): WeatherPositionResolution => ({ fix: null, held: null, phone: null, ask: false })),
         [],
     );
 
@@ -603,13 +656,14 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 getWeatherFollowTarget() !== target
             )
                 return null;
+            if (resolution.fix) lastFollowFixRef.current = { fix: resolution.fix, target, epoch };
             publishPositionSource(resolution.fix, target);
             lastHeldRef.current = resolution.held;
             lastPhoneRef.current = resolution.phone;
-            setError(resolution.fix ? null : describeWeatherFix(null, Date.now(), target));
+            setWeatherError(resolution.fix ? null : describeWeatherFix(null, Date.now(), target));
             return resolution.fix;
         },
-        [isCurrentScope, publishPositionSource, readFollowPosition],
+        [isCurrentScope, publishPositionSource, readFollowPosition, setWeatherError],
     );
 
     const refreshFollowWeather = useCallback(
@@ -646,6 +700,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             const target = getWeatherFollowTarget();
             if (!isCurrentScope() || target === followTargetRef.current) return;
             followTargetRef.current = target;
+            lastFollowFixRef.current = null;
             selectionEpochRef.current += 1;
             selectionResolvingRef.current = false;
             followRefreshInFlightRef.current = null;
@@ -715,6 +770,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                     return;
             }
             const epoch = ++selectionEpochRef.current;
+            lastFollowFixRef.current = null;
             selectionResolvingRef.current = false;
             followRefreshInFlightRef.current = null;
             orchestrator.cancelPendingLocation();
@@ -748,6 +804,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                     return;
                 }
                 if (bootResolution) {
+                    lastFollowFixRef.current = { fix, target, epoch };
                     publishPositionSource(fix, target);
                     lastHeldRef.current = bootResolution.held;
                     lastPhoneRef.current = bootResolution.phone;
@@ -1192,20 +1249,15 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             // cloud row, then her held last fix) when the skipper picked her
             // row in the ★ menu — see services/weatherPosition (2026-09-08).
             // The phone read stays the passive, already-granted one.
-            resolveWeatherPosition(
-                () =>
-                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then((p) =>
-                        p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null,
-                    ),
-                { target },
-            )
+            readFollowPosition(target)
                 .then(async (resolved) => {
                     if (!isCurrentTick()) return;
+                    if (resolved.fix) lastFollowFixRef.current = { fix: resolved.fix, target, epoch: selectionEpoch };
                     publishPositionSource(resolved.fix, target);
                     lastHeldRef.current = resolved.held;
                     lastPhoneRef.current = resolved.phone;
                     if (!resolved.fix) {
-                        setError(describeWeatherFix(null, Date.now(), target));
+                        setWeatherError(describeWeatherFix(null, Date.now(), target));
                         return;
                     }
                     setError(null);
@@ -1342,7 +1394,15 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             followTickRef.current = null;
             clearInterval(followTimer);
         };
-    }, [fetchWeather, isCurrentScope, locationMode, setWeatherData, publishPositionSource]);
+    }, [
+        fetchWeather,
+        isCurrentScope,
+        locationMode,
+        setWeatherData,
+        publishPositionSource,
+        readFollowPosition,
+        setWeatherError,
+    ]);
 
     // Off GPS-follow (a port was picked): no receiver line, no open question.
     useEffect(() => {
