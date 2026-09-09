@@ -1,4 +1,4 @@
-# Build 108 — OBS defaults and layout polish
+# Build 108 — OBS defaults, layout polish and public mobile views
 
 ## Behaviour
 
@@ -37,25 +37,68 @@
   can reach its controls without pulling every scroll back to the top. Existing
   page dimensions, tuck-under scrolling and the separate fixed safety deck are
   unchanged; no mandatory snapping, touch interception or extra spacer is added.
+- The public voyage page opens on the **Map** on phones and small tablets,
+  with persistent **Map / Instruments / Diary** navigation. Each panel has its
+  own reachable scroll area; instruments and diary remain mutually exclusive.
+  Desktop retains the simultaneous map and folding side panel at 1024px+.
+- The public header and voyage selector are compact. The mobile progress strip
+  shows destination and distance remaining on the map, without crowding diary
+  or instruments. **Expand map** hides the header while retaining navigation;
+  short landscape phones start expanded and can restore the header/selector.
+- Map camera, basemap and canvas survive view changes. Destination markers are
+  compact on phones; diary pins and zoom controls have 44px touch targets.
+  Keyboard pin activation moves focus into its now-visible diary entry.
+  Existing reef imagery, attribution, consent and freshness rules are unchanged.
+- Public-page typography no longer inherits the native app's fluid root scale.
+  Phone safe areas and dynamic viewport height are respected. The fast public
+  instrument poll pauses while its panel is off-screen; historical voyages
+  still cannot display present-tense instruments.
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `9756d848690b64cb88ae00e37510cf547346adae`.
+- Compiled source: `c444e6961f83a1725e0b744881741eada7a2dab5`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-C5bhkZpl.js`, SHA-256
-  `bbbf17aa2e1dd5a6ef623f62999d34b69d46d5f742160868eb8a658da9b4fbf5`.
+- Main entry: `main-Cm0pUb6O.js`, SHA-256
+  `2307d56674ff15f4516cf8a83bee1bee879853f2776eb03c27446cb6da7de827`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
-- Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
-- **74 focused unit tests** passed for the static tide-card follow-up, covering
+- Bundle: **13.30 MB**, JavaScript **9.84 MB**, within the unchanged budgets.
+  Public entry: `logs-ukiRNjW9.js`.
+- **161 public-page unit tests across 20 files** passed, including mobile
+  navigation, keyboard marker focus, map persistence, historical restrictions,
+  consent revocation, fast-feed activation/abort, stale data and host routing.
+  Targeted ESLint, formatting and the build's TypeScript check passed.
+- **16/16 source browser tests** passed in Chromium and WebKit at 320×568,
+  390×844, 430×932, 740×360, 844×390, 768×1024 and desktop 1280×900.
+  They verify compact phone headers, expansion/restoration, 44px controls,
+  no document overflow, long diary/detail scrolling, persistent bottom tabs,
+  retained map canvas/basemap, keyboard marker focus and historical privacy.
+  Screenshots were visually inspected. Local API/Mapbox-style fixtures are
+  used without external writes; this does not revalidate live reef imagery
+  or replace a physical iPhone check.
+- The first broader production run passed 51/52, with a WebKit native-wheel
+  test racing card entrance/scroll settling. A test-only follow-up waits for
+  entrance animations and a stable down-scroll before computing its reverse
+  delta; the original home-position assertions are unchanged. Six isolated
+  repeats passed across Chromium/WebKit. No Vessel app code or compiled
+  runtime artifact changed during that correction.
+- The final compiled-build batch passed **51/52**: all **16 public mobile
+  scenarios** passed, as did the corrected Vessel wheel test. The remaining
+  failure is WebKit's OBS night-mode revisit: the existing **No verified ENC
+  charts installed** banner intercepts the bottom **The Glass** tab click
+  (`e2e/weather-map.spec.ts:65`, `components/map/ChartDepthControls.tsx:221`).
+  No forced click, skipped test or suppressed warning was used. This separate
+  native-app layout issue remains open and must be resolved before claiming
+  a completely green release-wide browser batch for 108.
+- The preceding static tide-card revision passed **74 focused unit tests**, covering
   current readouts, missing data, controlled flood-direction adjustments,
   open/close/focus behaviour, keyboard isolation, unchanged wind/tide engines
   and Glass layout/forecast contracts. Targeted lint and formatting passed.
-- **32/32 source-level browser tests** passed in Chromium and WebKit for the
+- That revision passed **32/32 source-level browser tests** in Chromium and WebKit for the
   static card: day/dark/night at 320px, 430px and 1024px split-pane widths,
   150–197px card heights, full long warning/unavailable verdicts, 12/14/16px
   minimum label/reading/verdict fonts, 44px controls, Auto and 345° wraparound.
@@ -63,7 +106,7 @@
   including after adjustments. Keyboard activation and traversal are covered
   (macOS WebKit uses Option+Tab for all controls). Mobile WebKit previews were
   visually inspected; a physical iPhone has not been tested.
-- **36/36 production browser tests** passed against this rebuilt bundle in
+- That revision passed **36/36 production browser tests** against its rebuilt bundle in
   Chromium and mobile WebKit. They include the actual 390×844 Glass page with
   cached coastal tides: all current text and controls fit, no inner scrolling
   or hidden clipping remains, flood/Auto and close work, and the card does not
@@ -112,9 +155,10 @@
   They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-tide-static108.emZsOk/ship-beta.log`,
-  `focused-tests.log`, `layout-final.log` and `production-e2e.log` in that same
-  directory.
+- Current logs: `/private/tmp/thalassa-public-mobile108.jVM2Z5/ship-beta.log`,
+  `public-unit.log`, `production-e2e.log`, `production-final.log` and
+  `vessel-wheel-settled.log` in that same directory.
+  Static-tide revision evidence remains in `/private/tmp/thalassa-tide-static108.emZsOk/`.
   Vessel-scroll revision evidence remains in `/private/tmp/thalassa-vessel-snap108.DlzhSD/`.
   Departure-button revision evidence remains in `/private/tmp/thalassa-departure108.pPH0pA/`.
   Planner-card revision evidence remains in `/private/tmp/thalassa-comfort108.We11Wh/`.
@@ -125,5 +169,8 @@
 This is a built and synced local candidate, **not an archived, Apple-validated or
 uploaded TestFlight release**. The full application test suite and remote CI were
 not rerun to completion during this narrow change; run the release-wide checks
-before submitting 108. The uploaded 107 archive and IPA were not rebuilt or
+before submitting 108, including the OBS banner/navigation issue above. The
+uploaded 107 archive and IPA were not rebuilt or
 modified. Later evidence-only commits do not change the compiled source above.
+This record verifies local artifacts; it does not certify a live production
+website deployment.
