@@ -1,8 +1,13 @@
 # Build 109 — phone/vessel location integrity
 
-Final runtime commit: `f40e0e0e`, following `147f8a83` and `0747d93d`.
+This candidate was superseded during the full pre-upload browser checks. See
+[build 109 TestFlight delivery](BUILD_109_TESTFLIGHT.md) for the correction and
+current release status. The evidence below describes the earlier candidate.
+
+Runtime commit: `f40e0e0e`, following `147f8a83` and `0747d93d`.
 This supersedes the bundle identifiers in `BUILD_109_GLASS_GESTURES.md`.
-Build 109 remains unreleased: no archive or TestFlight upload is part of this task.
+At this checkpoint, build 109 remained unreleased; archive and TestFlight delivery
+are recorded separately in the release document linked above.
 
 ## Behaviour
 
@@ -42,7 +47,8 @@ reproduced a startup race in mobile WebKit: after a source change, a newly start
 cache load repainted the legacy Sydney report. `browser.log` records that failure.
 The fix fences both late cache completion and late cache initiation after user
 intent; its direct regression is also recorded in `late-cache.log`. Only the
-rebuilt artifact from `f40e0e0e` is eligible for handoff.
+rebuilt artifact from `f40e0e0e` was considered eligible at that checkpoint;
+the later full-matrix findings superseded it before upload.
 
 **16/16 packaged-browser executions passed** in 55.8 seconds, with zero retries
 or skips: Chromium and mobile WebKit, both journeys repeated twice. They cover
