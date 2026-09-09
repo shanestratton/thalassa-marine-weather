@@ -122,8 +122,11 @@ if [[ -z "$NODE_BIN" ]] || ! node_meets_minimum "$NODE_BIN"; then
         DETECTED_NODE_VERSION=$("$NODE_BIN" -v 2>/dev/null || echo "unreadable")
     fi
     echo -e "  Installing/upgrading Node.js (need >=${MIN_NODE_VERSION}; found ${DETECTED_NODE_VERSION})..."
-    if ! curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1; then
-        echo -e "  ${RED}✗${NC} Could not configure the Node.js 20 package repository."
+    # Node 22 (LTS to April 2027): Signal K 2.32 on the same Pi requires >=22, and the
+    # boat moved to NodeSource 22.x on 2026-09-10. Anything >=MIN_NODE_VERSION already
+    # installed is left alone.
+    if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1; then
+        echo -e "  ${RED}✗${NC} Could not configure the Node.js 22 package repository."
         exit 1
     fi
     if ! apt-get install -y nodejs >/dev/null 2>&1; then
