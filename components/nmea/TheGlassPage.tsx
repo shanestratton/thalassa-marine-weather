@@ -27,7 +27,7 @@ import { ShipsBellAlarmService, type BellAlarm } from '../../services/ShipsBellA
 import { clockInZone, deviceTimeZone } from '../../utils/timeZones';
 import { SHIP_CLOCK_PREFS_EVENT, readShipClockPrefs } from '../../services/shipClockPrefs';
 import { formatSeaTemp, formatSeaTempDelta, seaTempTrend } from './seaTemp';
-import { bellsAt, nextBellFrom, watchAt } from '../../utils/shipsBells';
+import { bellsAt } from '../../utils/shipsBells';
 import { HeadingGauge } from './gauges/HeadingGauge';
 import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
@@ -787,9 +787,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const plan = sailHold?.plan ?? null;
     const kite = isSereneSummer ? kiteAdvice(recentGust, twaUnsigned, false) : null;
 
-    // Snap-section registry for the dot rail.
-    const scrollerRef = useRef<HTMLDivElement | null>(null);
-    const [activeSection, setActiveSection] = useState(0);
     // ── This device's own watches, or none ──
     //
     // Empty for anyone not on the bill, and the section below is then not
@@ -811,30 +808,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         };
     }, []);
     const hasMyWatch = myWatchList.length > 0;
-
-    const sectionNames = useMemo(() => {
-        /* MUST match the order the <section> elements are rendered in below —
-           the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
-           here does not just lose a dot, it shifts every dot after it onto the
-           wrong instrument. */
-        const base = ['Clock', 'Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Sea temp', 'Heading', 'Helm'];
-        // 'Watch' exists only for a crew member who has one. The rail and the
-        // sections must agree, or the dots point at pages that are not there.
-        const withWatch = hasMyWatch ? ['Clock', 'Watch', ...base.slice(1)] : base;
-        return isSereneSummer ? [...withWatch, 'Sail Plan'] : withWatch;
-    }, [isSereneSummer, hasMyWatch]);
-    const onPanelScroll = useCallback(() => {
-        const el = scrollerRef.current;
-        if (!el) return;
-        const index = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
-        setActiveSection((prev) => (prev === index ? prev : Math.max(0, Math.min(index, sectionNames.length - 1))));
-    }, [sectionNames.length]);
-    const jumpToSection = useCallback((index: number) => {
-        const el = scrollerRef.current;
-        if (!el) return;
-        triggerHaptic('light');
-        el.scrollTo({ top: index * el.clientHeight, behavior: 'smooth' });
-    }, []);
 
     // COG is a GPS-derived course made good. Below a knot it is noise — a
     // moored boat's fixes wander, and the compass card was reporting 053 while
@@ -1287,14 +1260,12 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     Rebuilt 2026-08-26 (Shane: "make the instruments page really
                     pop… scrolls up and down, but snaps to each instrument…
                     sail plans etc go to the bottom"). Each section owns the
-                    viewport; the dot rail jumps. Serene Summer's sail-plan
-                    brain renders only for her hull. */}
+                    viewport; the punter scrolls. The dot rail down the right
+                    went on 2026-09-09 (Shane: "not necessary as a punter will
+                    keep scrolling until he gets to the end"). Serene Summer's
+                    sail-plan brain renders only for her hull. */}
                 <div className="relative flex-1 min-h-0">
-                    <div
-                        ref={scrollerRef}
-                        onScroll={onPanelScroll}
-                        className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar"
-                    >
+                    <div className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar">
                         {/* ── SECTION: CLOCK ──
                             FIRST in the panel, and the face has this page to
                             itself (Shane 2026-09-04: "we need the watches, and
@@ -1332,8 +1303,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         {/* ── SECTION: WATCH ──
                             EXISTS ONLY IF THE PUNTER HAS A WATCH. Not an empty
                             state, not a "no watches assigned" card — the
-                            section is not mounted, and the dot rail does not
-                            offer it (Shane 2026-09-04: "if there is no watch
+                            section is not mounted and nothing points at it
+                            (Shane 2026-09-04: "if there is no watch
                             for this user, then nothing shows and that page does
                             not exist").
 
@@ -2338,30 +2309,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </div>
                             </section>
                         )}
-                    </div>
-
-                    {/* Dot rail — one per section, current one lit. */}
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col pr-0.5">
-                        {sectionNames.map((name, index) => (
-                            <button
-                                key={name}
-                                type="button"
-                                aria-label={`Jump to ${name}`}
-                                onClick={() => jumpToSection(index)}
-                                /* The dot is 8px; the button is not. A 44px-tall
-                                   target is what a wet thumb on a moving deck can
-                                   actually hit, and stacking them flush keeps the
-                                   rail narrow enough to stay off the instruments. */
-                                className="flex h-11 w-5 shrink-0 items-center justify-center"
-                            >
-                                <span
-                                    aria-hidden="true"
-                                    className={`h-2 w-2 rounded-full transition-all ${
-                                        index === activeSection ? 'bg-sky-400 scale-125' : 'bg-white/20'
-                                    }`}
-                                />
-                            </button>
-                        ))}
                     </div>
                 </div>
             </div>
