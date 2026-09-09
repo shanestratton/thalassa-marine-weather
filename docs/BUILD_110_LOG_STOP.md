@@ -1,4 +1,4 @@
-# Build 110 — End Voyage freeze and Pi-aware system status
+# Build 110 — End Voyage, Pi-aware status and recorded wind history
 
 Shane reported build 109 freezing on the Log screen after End Voyage on
 10 September 2026. The uploaded 109 archive is unchanged; this correction uses
@@ -161,7 +161,7 @@ Evidence: `/private/tmp/thalassa-build110-nmea-focused.log`,
 `/private/tmp/thalassa-build110-nmea-types.log`,
 `/private/tmp/thalassa-build110-nmea-ship.log`.
 
-Current synced candidate, replacing the earlier 7915248f bundle:
+Pi-status candidate, replacing 7915248f and superseded by the wind candidate below:
 
 - Main: `main-CNwCTRNp.js`.
 - SHA-256: `1c85a28b01590d8f298db02e0ad45b56210f43d25a9af5a6e5a780a3e418fcc3`.
@@ -188,3 +188,75 @@ Shane's physical iPhone; installed build 109 remains unchanged.
 
 This updated build 110 is built, synced, committed and pushed. It has not yet
 been archived, validated or uploaded to TestFlight.
+
+## Rolling wind history — same unuploaded build 110
+
+Shane found the wind page only began collecting peaks when it opened. Its
+ten-minute array and lifetime maximum were component-local. Leaving the page
+discarded both; the lifetime maximum also never expired while the page stayed
+open. Existing Pi telemetry supplied current values, not preceding-hour history.
+
+Runtime commit **5afea6ebd1f6** replaces that page-local state:
+
+- **Max · 1h** is the highest recorded true wind in the preceding hour.
+  **Gust 10m** stays the highest sampled true wind in the preceding ten minutes,
+  including for existing sail-plan advice. It is not a meteorological
+  three-second gust measurement. Both figures are independent of page mounts.
+- The Pi collects a bounded hour from local Signal K every five seconds,
+  independently of internet, pairing and open screens. Original wind-leaf
+  timestamps and physical source identity are required; cached values do not
+  create observations. Real zero is preserved, absent history remains absent.
+- Atomic, identity-fenced persistence survives normal restarts. Dirty peaks
+  flush even when the sensor stops reporting. Delayed previous-source readings
+  cannot replace a newer source's record.
+- Versioned scalar summaries use the existing LAN/cloud telemetry payload.
+  No schema, RLS, sharing-default or cloud-function change is needed.
+- The app's shared store retains known same-source observations and expires
+  them by original sample time. A peak the app observes between Pi polls
+  cannot disappear when the next Pi summary has a lower maximum.
+- Cloud reads are now fenced by reader lifetime and account generation. This
+  resolves the in-flight-read caveat noted in the earlier NMEA-status section:
+  late reads cannot repopulate a released feed or previous account's history.
+- The same three-card footprint is retained. Tapping a peak opens the existing
+  status sheet's short explanation of windows and potentially partial history.
+
+Verification on the final frozen sources:
+
+- Full app suite: **9,875 passed**, three existing expected failures, five
+  skips; 1,106 files passed, four skipped; exit zero in 194.13 seconds.
+- Pi suite: **249 passed**. After the final source-provenance guard, the Pi
+  rebuilt and all **41** wind, telemetry, adapter and sensor tests passed again.
+- TypeScript, changed-file ESLint and formatting passed. The Glass file's
+  12 existing lint warnings remain; no lint errors were introduced.
+- `VITE_APP_BUILD=110 npm run ship:beta` passed, including iOS sync and all
+  **140 release contracts**. Source commit is pushed.
+- Immutable production startup, Log and system-status smoke: **15 passed**,
+  one existing conditional WebKit GPS skip, zero retries, 27.2 seconds.
+- Actual wind-card component plus final production CSS: all 12 Chromium/WebKit
+  cases passed at 320/390/512 px in day/dark modes. No horizontal overflow,
+  wrapped labels/units or page errors; both detail buttons worked. This is
+  desktop browser-engine testing, not a physical-iPhone measurement.
+
+Evidence: `/private/tmp/thalassa-wind-history-final-full-unit.log`,
+`/private/tmp/thalassa-wind-pi-full-tests.log`,
+`/private/tmp/thalassa-wind-history-final-lint.log`,
+`/private/tmp/thalassa-build110-wind-ship.log`,
+`/private/tmp/thalassa-build110-wind-smoke.log`,
+`/private/tmp/thalassa-build110-wind-layout.log`.
+
+Current synced candidate:
+
+- Main: `main-DSJgpLSI.js`.
+- SHA-256: `63085896aec4028ad208582cb123f74bb3243b2b054f5be5e47409bd78c3bcf0`.
+- CSS: `index-BmvGv2el.css`.
+- Entry contains runtime `5afea6eb` and release `thalassa@1.2.0+110`.
+- All **283** `dist/assets` files match the synced iOS files byte-for-byte.
+- All four Xcode build counters remain 110; marketing version remains 1.2.0.
+
+**Not activated aboard or uploaded to TestFlight.** The Pi update requires
+explicit safe-interruption approval and anchor-watch reassignment/verification;
+see [wind-history deployment notes](../pi-cache/docs/wind-history.md). The
+running yacht services and installed build 109 have not been changed. First
+activation must collect observations before a full hour exists. Device
+acceptance must then confirm LAN/cloud backfill after leaving/reopening the
+page and app, while disconnected/expired data stays honestly unavailable.
