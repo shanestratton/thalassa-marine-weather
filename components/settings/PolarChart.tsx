@@ -169,7 +169,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                             <text
                                 x={cx + 4}
                                 y={cy - r - 2}
-                                fill="var(--day-ui-muted, rgba(255,255,255,0.3))"
+                                fill="var(--day-ui-muted, #cbd5e1)"
                                 fontSize="9"
                                 fontFamily="monospace"
                                 fontWeight="bold"
@@ -209,7 +209,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                             <text
                                 x={x}
                                 y={y}
-                                fill="var(--day-ui-muted, rgba(255,255,255,0.25))"
+                                fill="var(--day-ui-muted, #cbd5e1)"
                                 fontSize="8"
                                 fontWeight="bold"
                                 textAnchor="middle"
@@ -220,7 +220,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                             <text
                                 x={mx}
                                 y={my}
-                                fill="var(--day-ui-muted, rgba(255,255,255,0.25))"
+                                fill="var(--day-ui-muted, #cbd5e1)"
                                 fontSize="8"
                                 fontWeight="bold"
                                 textAnchor="middle"
@@ -237,7 +237,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                 <text
                     x={cx}
                     y={12}
-                    fill="var(--day-ui-muted, rgba(255,255,255,0.3))"
+                    fill="var(--day-ui-muted, #cbd5e1)"
                     fontSize="9"
                     fontWeight="bold"
                     textAnchor="middle"

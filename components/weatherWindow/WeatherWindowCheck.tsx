@@ -89,8 +89,8 @@ export const WeatherWindowCheck: React.FC<{ onBack: () => void }> = ({ onBack })
                     </svg>
                 </button>
                 <div className="flex-1">
-                    <h1 className="text-[15px] font-bold tracking-tight">Weather Window Check</h1>
-                    <p className="text-[11px] text-slate-400">
+                    <h1 className="ui-page-title text-xl font-extrabold tracking-tight">Weather Window Check</h1>
+                    <p className="ui-caption text-xs text-slate-400">
                         Go / No-Go score · needs ≥ {GO_THRESHOLD} to be a window
                     </p>
                 </div>

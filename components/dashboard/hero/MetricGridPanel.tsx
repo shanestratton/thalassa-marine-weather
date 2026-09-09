@@ -38,9 +38,11 @@ const SmallArrow: React.FC<{ degrees: number; size?: number }> = ({ degrees, siz
 
 const MetricCell: React.FC<{ w: MetricWidget; value: string | number; unit: string }> = ({ w, value, unit }) => (
     <div className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
-        <div className="flex items-center gap-1.5 opacity-90">
+        <div className="glass-metric-heading-row flex items-center gap-1.5 opacity-90">
             <span className={`w-3 h-3 ${w.headingColor}`}>{w.icon}</span>
-            <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}>
+            <span
+                className={`glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}
+            >
                 {w.label}
             </span>
         </div>

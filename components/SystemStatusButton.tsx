@@ -464,7 +464,7 @@ const SystemRow: React.FC<{
 }> = ({ icon, label, active, detail, dotColor, pulse, action }) => (
     <div
         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-            active ? 'bg-white/4 border-white/10' : 'bg-white/1 border-white/4 opacity-50'
+            active ? 'bg-white/4 border-white/10' : 'bg-white/1 border-white/4'
         }`}
     >
         {/* Status dot */}

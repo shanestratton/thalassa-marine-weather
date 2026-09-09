@@ -209,7 +209,9 @@ const MENU_ITEMS: {
 
 /** Small section header used on both desktop sidebar and mobile menu. */
 const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">{children}</p>
+    <p className="ui-section-heading text-label font-bold uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">
+        {children}
+    </p>
 );
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
@@ -290,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 {/* --- DESKTOP SIDEBAR (unchanged) --- */}
                 <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-linear-to-b from-transparent via-white/2 to-transparent">
                     <div className="mb-6 px-2">
-                        <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-xs">
+                        <h2 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
                         </h2>
@@ -495,7 +497,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             <div className="flex items-center gap-3">
                                 {onBack && <BackButton onClick={onBack} />}
                                 <div>
-                                    <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3">
+                                    <h2 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
                                         <GearIcon className="w-6 h-6 text-sky-400" />
                                         SETTINGS
                                     </h2>

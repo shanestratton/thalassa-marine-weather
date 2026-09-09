@@ -115,10 +115,10 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             const cardinals = [
-                { label: 'N', angle: -90, color: daylight ? '#b91c1c' : 'rgba(248, 113, 113, 0.8)' },
-                { label: 'E', angle: 0, color: daylight ? '#475569' : 'rgba(148, 163, 184, 0.5)' },
-                { label: 'S', angle: 90, color: daylight ? '#475569' : 'rgba(148, 163, 184, 0.5)' },
-                { label: 'W', angle: 180, color: daylight ? '#475569' : 'rgba(148, 163, 184, 0.5)' },
+                { label: 'N', angle: -90, color: daylight ? '#b91c1c' : '#f87171' },
+                { label: 'E', angle: 0, color: daylight ? '#475569' : '#cbd5e1' },
+                { label: 'S', angle: 90, color: daylight ? '#475569' : '#cbd5e1' },
+                { label: 'W', angle: 180, color: daylight ? '#475569' : '#cbd5e1' },
             ];
             cardinals.forEach(({ label, angle, color }) => {
                 const rad = (angle * Math.PI) / 180;
@@ -327,10 +327,10 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                 if (visibleCount > 0) {
                     const badgeX = W - 8;
                     const badgeY = 14;
-                    ctx.font = 'bold 11px system-ui';
+                    ctx.font = 'bold 12px system-ui';
                     ctx.textAlign = 'right';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'rgba(56, 189, 248, 0.5)';
+                    ctx.fillStyle = daylight ? '#0369a1' : '#7dd3fc';
                     ctx.fillText(`🚢 ${visibleCount}`, badgeX, badgeY);
                 }
             }

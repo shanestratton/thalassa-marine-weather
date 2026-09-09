@@ -53,8 +53,8 @@ export const TideCanvas = React.memo(
             const marginTop = 20;
             const marginRight = 0;
             const marginLeft = 0;
-            // Room for the hour labels below the curve — they are 11px now
-            // (canvas text is not reached by the index.css legibility floor).
+            // Keep the plot geometry unchanged; the 14px caption band also
+            // fits 12px semibold text (canvas bypasses the CSS size floor).
             const marginBottom = 14;
             const plotW = w - marginLeft - marginRight;
             const plotH = h - marginTop - marginBottom;
@@ -82,9 +82,11 @@ export const TideCanvas = React.memo(
 
                 // Label every 4 hours
                 if (hour % 4 === 0 && hour < 24) {
-                    ctx.fillStyle = daylight ? '#475569' : 'rgba(255, 255, 255, 0.45)';
-                    ctx.font = '11px system-ui, sans-serif';
-                    ctx.textAlign = 'center';
+                    ctx.fillStyle = daylight ? '#334155' : '#cbd5e1';
+                    ctx.font = '600 12px system-ui, sans-serif';
+                    // A centered midnight label would lose its first digit
+                    // beyond the left canvas edge.
+                    ctx.textAlign = hour === 0 ? 'left' : 'center';
                     ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
                 }
                 ctx.restore();

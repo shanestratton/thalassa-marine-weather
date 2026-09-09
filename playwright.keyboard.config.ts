@@ -8,6 +8,7 @@ export default defineConfig({
     testMatch: [
         'keyboard-layout.spec.ts',
         'daylight-layout.spec.ts',
+        'ui-legibility.spec.ts',
         'split-pane-layout.spec.ts',
         'nmea-daylight.spec.ts',
     ],

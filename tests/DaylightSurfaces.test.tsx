@@ -48,10 +48,12 @@ describe('daylight component surfaces', () => {
     });
 
     it('redraws the mounted tide canvas on day/night switches without changing data geometry', async () => {
-        const labels: { color: unknown; text: string }[] = [];
+        const labels: { color: unknown; text: string; font: string; align: string }[] = [];
         const strokes: unknown[] = [];
         const context = {
             fillStyle: '' as unknown,
+            font: '',
+            textAlign: '',
             strokeStyle: '' as unknown,
             clearRect: vi.fn(),
             scale: vi.fn(),
@@ -67,7 +69,7 @@ describe('daylight component surfaces', () => {
                 strokes.push(this.strokeStyle);
             },
             fillText(text: string) {
-                labels.push({ color: this.fillStyle, text });
+                labels.push({ color: this.fillStyle, text, font: this.font, align: this.textAlign });
             },
             createLinearGradient: () => ({ addColorStop: vi.fn() }),
         };
@@ -92,7 +94,9 @@ describe('daylight component surfaces', () => {
         };
         const view = render(<TideCanvas {...input} />);
         const originalGeometry = context.lineTo.mock.calls.slice();
-        expect(labels[0]).toEqual({ color: 'rgba(255, 255, 255, 0.45)', text: '00' });
+        const midnight = { text: '00', font: '600 12px system-ui, sans-serif', align: 'left' };
+        expect(labels[0]).toEqual({ color: '#cbd5e1', ...midnight });
+        expect(labels.find((label) => label.text === '04')?.align).toBe('center');
 
         labels.length = 0;
         strokes.length = 0;
@@ -100,7 +104,7 @@ describe('daylight component surfaces', () => {
         await act(async () => {
             document.documentElement.classList.add('display-light');
         });
-        await waitFor(() => expect(labels[0]).toEqual({ color: '#475569', text: '00' }));
+        await waitFor(() => expect(labels[0]).toEqual({ color: '#334155', ...midnight }));
         expect(strokes).toContain('rgba(51, 65, 85, 0.28)');
         expect(context.lineTo.mock.calls).toEqual(originalGeometry);
         expect(context.fillStyle).toBe('#0f172a');
@@ -110,7 +114,7 @@ describe('daylight component surfaces', () => {
             document.documentElement.classList.remove('display-light');
             document.documentElement.classList.add('display-night');
         });
-        await waitFor(() => expect(labels[0]).toEqual({ color: 'rgba(255, 255, 255, 0.45)', text: '00' }));
+        await waitFor(() => expect(labels[0]).toEqual({ color: '#cbd5e1', ...midnight }));
         expect(context.fillStyle).toBe('#ffffff');
 
         view.unmount();

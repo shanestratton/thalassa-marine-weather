@@ -70,22 +70,24 @@ export const CompactHeaderRow = ({
                 }
                 className={`${
                     hasWarnings
-                        ? 'bg-red-500 hover:bg-red-600 border-red-400/50'
+                        ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
                         : 'bg-emerald-500/10 border-emerald-500/20'
                 } transition-all active:scale-[0.97] border rounded-xl px-3 h-[40px] flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
             >
                 {hasWarnings ? (
                     <>
-                        <AlertTriangleIcon className="w-4 h-4 text-white animate-pulse" />
-                        <span className="text-white font-bold uppercase tracking-wider text-sm">Warnings</span>
-                        <div className="bg-white text-red-600 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
+                        <AlertTriangleIcon className="w-4 h-4 glass-warning-label animate-pulse" />
+                        <span className="glass-warning-label font-bold uppercase tracking-wider text-sm">Warnings</span>
+                        <div className="bg-white text-red-700 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
                             {activeAlerts.length}
                         </div>
                     </>
                 ) : (
                     <>
                         <CheckIcon className="w-4 h-4 text-emerald-400" />
-                        <span className="text-emerald-100 font-bold text-sm uppercase tracking-wider">No Warnings</span>
+                        <span className="glass-clear-status text-emerald-100 font-bold text-sm uppercase tracking-wider">
+                            No Warnings
+                        </span>
                     </>
                 )}
             </button>
