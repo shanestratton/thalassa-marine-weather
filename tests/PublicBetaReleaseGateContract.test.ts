@@ -6,6 +6,37 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('public-beta release gate contract', () => {
+    it('requires pane-aware native map credits, responsive wiring and visible provider chrome', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const attributionGate = gate.slice(
+            gate.indexOf("'map provider attribution is visible'"),
+            gate.indexOf("'unsafe public development prototypes are absent'"),
+        );
+        for (const guard of [
+            'installPaneAwareAttribution(map, containerRef.current)',
+            'new ResizeObserver',
+            'refreshAttribution',
+            'mapboxgl.AttributionControl(compact ? { compact: true } : {})',
+            "map.addControl(control, 'bottom-right')",
+            'container.clientWidth',
+            'data-split-pane',
+            'satellite-base',
+            'hybrid-base',
+            'maptiler-ocean',
+            'openseamap-permanent',
+            'Mapbox',
+            'Maxar',
+            'MapTiler',
+            'OpenStreetMap',
+            'OpenSeaMap',
+            "!read('index.css').includes('.mapboxgl-ctrl-attrib')",
+            "!read('index.css').includes('.mapboxgl-ctrl-logo')",
+        ])
+            expect(attributionGate).toContain(guard);
+        expect(gate).toContain("read('components/map/paneAwareAttribution.ts')");
+        expect(attributionGate).not.toContain('attributionControl: true');
+    });
+
     it('enforces Node 24 for release and artifact verification', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const previewSmoke = read('.github/workflows/preview-smoke.yml');

@@ -2966,6 +2966,7 @@ const offlineMaps = read('services/MapOfflineService.ts');
 const encBootstrap = read('services/enc/bootstrapEncSamples.ts');
 const encMetadata = read('services/enc/EncCellMetadata.ts');
 const mapInit = read('components/map/useMapInit.ts');
+const paneAttribution = read('components/map/paneAwareAttribution.ts');
 const subscriptions = read('services/SubscriptionService.ts');
 check(
     'public OSM/OpenSeaMap bulk prefetch is fail-closed',
@@ -2995,7 +2996,30 @@ check(
 );
 check(
     'map provider attribution is visible',
-    includesAll(mapInit, ['attributionControl: true', 'Mapbox', 'MapTiler', 'OpenStreetMap contributors']),
+    // Explicit installation replaces Mapbox's automatic duplicate, not its
+    // credits. Require both the genuine native control and its pane-resize
+    // wiring; attributionControl:false by itself must always fail this gate.
+    includesAll(mapInit, [
+        'attributionControl: false',
+        "import { installPaneAwareAttribution } from './paneAwareAttribution'",
+        'const refreshAttribution = installPaneAwareAttribution(map, containerRef.current)',
+    ]) &&
+        /new ResizeObserver\(\(\) => \{\s*refreshAttribution\(\);\s*map\.resize\(\)/.test(mapInit) &&
+        includesAll(paneAttribution, [
+            'new mapboxgl.AttributionControl(compact ? { compact: true } : {})',
+            "map.addControl(control, 'bottom-right')",
+            'container.clientWidth',
+            'data-split-pane',
+            'refresh();',
+            'return refresh;',
+        ]) &&
+        /map\.addSource\('satellite-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?Maxar/.test(mapInit) &&
+        /map\.addSource\('hybrid-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?OpenStreetMap/.test(mapInit) &&
+        /map\.addSource\('maptiler-ocean',[\s\S]*?attribution:[\s\S]*?MapTiler[\s\S]*?OpenStreetMap/.test(mapInit) &&
+        /map\.addSource\('openseamap-permanent',[\s\S]*?attribution:[\s\S]*?OpenSeaMap/.test(mapInit) &&
+        !/attribution:\s*['"]\s*['"]/.test(mapInit) &&
+        !read('index.css').includes('.mapboxgl-ctrl-attrib') &&
+        !read('index.css').includes('.mapboxgl-ctrl-logo'),
 );
 check(
     'unsafe public development prototypes are absent',
