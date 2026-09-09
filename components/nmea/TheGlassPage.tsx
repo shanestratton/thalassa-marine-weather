@@ -2214,6 +2214,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         </>
                                                     )}
                                                     <SailPlanDiagram
+                                                        adviceBand={plan.band.band}
                                                         band={
                                                             plan.band.band === 'Running' && downwind === 'gybe'
                                                                 ? 'Broad reach'
