@@ -188,6 +188,11 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         dmText,
         setDmText,
         isUserBlocked,
+        blockedByMe,
+        blockStatusLoading,
+        blockStatusError,
+        blockMutationPending,
+        retryBlockStatus,
         showBlockConfirm,
         setShowBlockConfirm,
         unreadDMs,
@@ -647,7 +652,8 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
     // --- RENDER ---
     return (
         <div
-            className="flex flex-col h-full bg-slate-950 text-white overflow-hidden"
+            data-chat-page
+            className="flex min-h-0 flex-col h-full bg-slate-950 text-white overflow-hidden"
             style={
                 keyboardOffset > 0
                     ? { height: `calc(100% - ${keyboardOffset}px)`, transition: 'height 0.15s ease-out' }
@@ -662,7 +668,8 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 myAvatarUrl={myAvatarUrl}
                 unreadDMs={unreadDMs}
                 messageCount={messages.length}
-                isUserBlocked={isUserBlocked}
+                isUserBlocked={blockedByMe}
+                blockActionDisabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
                 hasDMPartner={!!dmPartner}
                 onGoBack={goBack}
                 onExit={onBack}
@@ -707,8 +714,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
             <ChatErrorBoundary>
                 <div
                     key={view}
+                    data-chat-scroll
                     ref={pullRefresh.containerRef}
-                    className={`flex-1 overflow-y-auto overscroll-contain overscroll-glow ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'}`}
+                    className={`min-h-0 flex-1 overflow-y-auto overscroll-contain overscroll-glow ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'}`}
                     {...pullRefresh.handlers}
                 >
                     {/* Pull-to-refresh indicator */}
@@ -1037,6 +1045,11 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     partnerName={dmPartner?.name}
                     keyboardOffset={keyboardOffset}
                     isUserBlocked={isUserBlocked}
+                    blockedByMe={blockedByMe}
+                    blockStatusLoading={blockStatusLoading}
+                    blockStatusError={blockStatusError}
+                    blockMutationPending={blockMutationPending}
+                    onRetryBlockStatus={retryBlockStatus}
                     showBlockConfirm={showBlockConfirm}
                     setShowBlockConfirm={setShowBlockConfirm}
                     onSendDM={sendDMMessage}

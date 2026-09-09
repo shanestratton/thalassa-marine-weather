@@ -25,6 +25,7 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { createLogger } from '../../utils/createLogger';
 import { PIN_PREFIX, reconcileOptimisticMessage } from '../../components/chat/chatUtils';
+import { scrollChatToLatest } from '../../components/chat/scrollChatToLatest';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -426,7 +427,7 @@ export function usePinDrop(options: UsePinDropOptions) {
                 kind === 'current' ? setShowPinSheet(false) : setShowPoiSheet(false);
                 setTimeout(() => {
                     if (isAuthIdentityScopeCurrent(identity)) {
-                        messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                        scrollChatToLatest(messageEndRef.current, 'smooth');
                     }
                 }, 50);
             } finally {

@@ -73,6 +73,7 @@ import {
 import { normalizeChatMessage } from './chat/messagePolicy';
 
 const log = createLogger('Chat');
+const CANCELLED_DM = Symbol('cancelled-dm');
 
 interface OwnedQueuedMessage extends QueuedMessage {
     queue_id: string;
@@ -86,6 +87,23 @@ interface ChatOperationContext {
     readonly role: ChatRole;
     readonly ownerUserId: string | null;
     readonly muted: boolean;
+}
+
+export interface DMBlockStatus {
+    blockedByMe: boolean;
+    blockedEitherDirection: boolean;
+}
+
+function parseDMBlockStatus(value: unknown): DMBlockStatus {
+    const status = value as Partial<DMBlockStatus> | null;
+    if (
+        !status ||
+        typeof status.blockedByMe !== 'boolean' ||
+        typeof status.blockedEitherDirection !== 'boolean' ||
+        (status.blockedByMe && !status.blockedEitherDirection)
+    )
+        throw new Error('Unable to verify direct-message blocking.');
+    return { blockedByMe: status.blockedByMe, blockedEitherDirection: status.blockedEitherDirection };
 }
 
 type Privilege = 'user' | 'moderator' | 'admin';
@@ -145,6 +163,8 @@ class ChatServiceClass {
     private currentRole: ChatRole = 'member';
     private mutedUntil: Date | null = null;
     private blocked: boolean = false;
+    private dmBlockStatus = new Map<string, DMBlockStatus>();
+    private dmBlockGeneration = new Map<string, number>();
     private initPromise: Promise<void> | null = null;
     private ownerUserId: string | null = null; // Founding admin — immutable
     private cachedDisplayName: string | null = null; // Cached to avoid per-message DB lookup
@@ -172,6 +192,8 @@ class ChatServiceClass {
             this.currentRole = 'member';
             this.mutedUntil = null;
             this.blocked = false;
+            this.dmBlockStatus.clear();
+            this.dmBlockGeneration.clear();
             this.ownerUserId = null;
             this.cachedDisplayName = null;
             this.initPromise = null;
@@ -280,9 +302,10 @@ class ChatServiceClass {
     private async queueForMatchingLocalSession(
         operation: ChatOperationContext,
         message: QueuedMessage,
+        dmGeneration?: number,
     ): Promise<'queued' | null> {
         if (!(await this.hasMatchingLocalSession(operation)) || !this.operationIsCurrent(operation)) return null;
-        const queued = await this.queueOffline(message, operation.scope);
+        const queued = await this.queueOffline(message, operation.scope, dmGeneration);
         return queued && this.operationIsCurrent(operation) ? 'queued' : null;
     }
 
@@ -813,7 +836,8 @@ class ChatServiceClass {
     }
 
     async sendDM(recipientId: string, text: string): Promise<DirectMessageSendResult> {
-        return this.sendDMForScope(recipientId, text, getAuthIdentityScope(), true);
+        const result = await this.sendDMForScope(recipientId, text, getAuthIdentityScope(), true);
+        return result === CANCELLED_DM ? null : result;
     }
 
     private async sendDMForScope(
@@ -821,9 +845,20 @@ class ChatServiceClass {
         text: string,
         operationScope: AuthIdentityScope,
         queueOnFailure: boolean,
-    ): Promise<DirectMessageSendResult> {
+    ): Promise<DirectMessageSendResult | typeof CANCELLED_DM> {
+        const blockGeneration = this.dmBlockGeneration.get(recipientId) ?? 0;
+        const blockUnchanged = () => blockGeneration === (this.dmBlockGeneration.get(recipientId) ?? 0);
         const normalizedText = normalizeChatMessage(text);
-        if (!normalizedText) return null;
+        if (!normalizedText || !isSafePostgrestFilterId(recipientId) || recipientId === operationScope.userId)
+            return null;
+        if (
+            typeof navigator !== 'undefined' &&
+            !navigator.onLine &&
+            isAuthIdentityScopeCurrent(operationScope) &&
+            this.dmBlockStatus.get(recipientId)?.blockedEitherDirection
+        ) {
+            return 'blocked';
+        }
         text = normalizedText;
 
         if (!supabase) {
@@ -836,6 +871,7 @@ class ChatServiceClass {
                         timestamp: new Date().toISOString(),
                     },
                     operationScope,
+                    blockGeneration,
                 );
                 return queued ? 'queued' : null;
             }
@@ -859,7 +895,7 @@ class ChatServiceClass {
             timestamp: new Date().toISOString(),
         };
         if (queueOnFailure && typeof navigator !== 'undefined' && !navigator.onLine) {
-            return this.queueForMatchingLocalSession(operation, queuedMessage);
+            return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration);
         }
 
         let user: User | null = null;
@@ -869,14 +905,14 @@ class ChatServiceClass {
             if (authResult.error) {
                 log.error('Auth error in sendDM:', authResult.error.message);
                 if (queueOnFailure && isAuthRetryableFetchError(authResult.error)) {
-                    return this.queueForMatchingLocalSession(operation, queuedMessage);
+                    return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration);
                 }
                 return null;
             }
         } catch (authError) {
             log.error('Auth error in sendDM:', authError);
             if (queueOnFailure && isAuthRetryableFetchError(authError)) {
-                return this.queueForMatchingLocalSession(operation, queuedMessage);
+                return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration);
             }
             return null;
         }
@@ -886,11 +922,20 @@ class ChatServiceClass {
         }
 
         // Check if either party has blocked the other
-        const blocked = await this.isBlockedForOperation(recipientId, operation);
+        let blocked: boolean;
+        try {
+            blocked = await this.isBlockedForOperation(recipientId, operation);
+        } catch (error) {
+            log.warn('DM block status unavailable; message not sent:', error);
+            if (!blockUnchanged()) return CANCELLED_DM;
+            return null;
+        }
         if (blocked) {
             return 'blocked';
         }
         if (!this.operationIsCurrent(operation)) return null;
+
+        if (!blockUnchanged()) return CANCELLED_DM;
 
         const displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Sailor';
 
@@ -908,9 +953,13 @@ class ChatServiceClass {
 
         if (!this.operationIsCurrent(operation)) return null;
         if (error) {
+            if (!blockUnchanged()) return CANCELLED_DM;
             log.error('sendDM INSERT failed:', error.message);
+            // A block may commit after preflight. Never turn an authorization
+            // denial into an offline message that sends after a later unblock.
+            if (error.code === '42501' || error.code === '23514' || error.code === '23503') return CANCELLED_DM;
             if (queueOnFailure) {
-                const queued = await this.queueOffline(queuedMessage, operationScope);
+                const queued = await this.queueOffline(queuedMessage, operationScope, blockGeneration);
                 return queued ? 'queued' : null;
             }
             return null;
@@ -969,52 +1018,88 @@ class ChatServiceClass {
 
     // ─── DM BLOCKS ────────────────────────────
 
-    /** Block a user from DMing you. Directional: A blocks B = B can't DM A. */
+    /** Apply the caller's block consistently across Scuttlebutt and DMs. */
     async blockUser(userId: string): Promise<boolean> {
-        if (!supabase) return false;
-        const operation = this.captureOperation();
-        if (!operation || !(await this.verifyRemoteOperation(operation))) return false;
-        const { error } = await supabase.from(DM_BLOCKS_TABLE).upsert(
-            {
-                blocker_id: operation.userId,
-                blocked_id: userId,
-            },
-            { onConflict: 'blocker_id,blocked_id' },
-        );
-        return this.operationIsCurrent(operation) && !error;
+        return this.setUserBlock(userId, true);
     }
 
     /** Unblock a user */
     async unblockUser(userId: string): Promise<boolean> {
-        if (!supabase) return false;
+        return this.setUserBlock(userId, false);
+    }
+
+    private async setUserBlock(userId: string, blocked: boolean): Promise<boolean> {
         const operation = this.captureOperation();
-        if (!operation || !(await this.verifyRemoteOperation(operation))) return false;
-        const { error } = await supabase
-            .from(DM_BLOCKS_TABLE)
-            .delete()
-            .eq('blocker_id', operation.userId)
-            .eq('blocked_id', userId);
-        return this.operationIsCurrent(operation) && !error;
+        if (!supabase || !operation || !isSafePostgrestFilterId(userId) || userId === operation.userId) return false;
+        const generation = (this.dmBlockGeneration.get(userId) ?? 0) + 1;
+        this.dmBlockGeneration.set(userId, generation);
+        try {
+            if (!(await this.verifyRemoteOperation(operation))) return false;
+            const { data, error } = await supabase.rpc('set_chat_user_block', {
+                p_other_user_id: userId,
+                p_blocked: blocked,
+            });
+            if (error || !this.operationIsCurrent(operation) || this.dmBlockGeneration.get(userId) !== generation)
+                return false;
+            const status = parseDMBlockStatus(data);
+            if (status.blockedByMe !== blocked) return false;
+            // Also invalidate reads that began while the mutation was pending.
+            this.dmBlockGeneration.set(userId, generation + 1);
+            this.dmBlockStatus.set(userId, status);
+            if (blocked) {
+                await this.withOfflineQueueLock(async () => {
+                    const key = authScopedStorageKey(OFFLINE_QUEUE_KEY, operation.scope);
+                    const queue = await this.readScopedQueue(key, operation.scope);
+                    const remaining = queue.filter(
+                        (message) => message.type !== 'dm' || message.recipient_id !== userId,
+                    );
+                    if (remaining.length) await Preferences.set({ key, value: JSON.stringify(remaining) });
+                    else await Preferences.remove({ key });
+                });
+            }
+            return this.operationIsCurrent(operation);
+        } catch (error) {
+            log.warn('Unable to update chat block:', error);
+            return false;
+        }
+    }
+
+    async getDMBlockStatus(userId: string): Promise<DMBlockStatus> {
+        const operation = this.captureOperation();
+        if (!operation) throw new Error('Unable to verify direct-message blocking.');
+        return this.getDMBlockStatusForOperation(userId, operation);
+    }
+
+    private async getDMBlockStatusForOperation(
+        userId: string,
+        operation: ChatOperationContext,
+    ): Promise<DMBlockStatus> {
+        const generation = this.dmBlockGeneration.get(userId) ?? 0;
+        if (
+            !supabase ||
+            !this.operationIsCurrent(operation) ||
+            !isSafePostgrestFilterId(userId) ||
+            userId === operation.userId
+        ) {
+            throw new Error('Unable to verify direct-message blocking.');
+        }
+        if (!(await this.verifyRemoteOperation(operation)))
+            throw new Error('Unable to verify direct-message blocking.');
+        const { data, error } = await supabase.rpc('get_chat_dm_block_status', { p_other_user_id: userId });
+        if (error || !this.operationIsCurrent(operation) || generation !== (this.dmBlockGeneration.get(userId) ?? 0))
+            throw new Error('Unable to verify direct-message blocking.');
+        const status = parseDMBlockStatus(data);
+        this.dmBlockStatus.set(userId, status);
+        return status;
     }
 
     /** Check if DMs are blocked between current user and target (either direction) */
     async isBlocked(userId: string): Promise<boolean> {
-        const operation = this.captureOperation();
-        if (!operation) return false;
-        return this.isBlockedForOperation(userId, operation);
+        return (await this.getDMBlockStatus(userId)).blockedEitherDirection;
     }
 
     private async isBlockedForOperation(userId: string, operation: ChatOperationContext): Promise<boolean> {
-        if (!supabase || !this.operationIsCurrent(operation)) return false;
-        const { data } = await supabase
-            .from(DM_BLOCKS_TABLE)
-            .select('id')
-            .or(
-                `and(blocker_id.eq.${operation.userId},blocked_id.eq.${userId}),` +
-                    `and(blocker_id.eq.${userId},blocked_id.eq.${operation.userId})`,
-            )
-            .limit(1);
-        return this.operationIsCurrent(operation) && !!(data && data.length > 0);
+        return (await this.getDMBlockStatusForOperation(userId, operation)).blockedEitherDirection;
     }
 
     /** Get list of user IDs blocked by the current user */
@@ -1939,6 +2024,7 @@ class ChatServiceClass {
     private async queueOffline(
         msg: QueuedMessage,
         scope: AuthIdentityScope = getAuthIdentityScope(),
+        dmGeneration?: number,
     ): Promise<boolean> {
         const owned: OwnedQueuedMessage = {
             ...msg,
@@ -1946,13 +2032,24 @@ class ChatServiceClass {
             owner_user_id: scope.userId,
         };
         try {
-            await this.withOfflineQueueLock(async () => {
+            const queued = await this.withOfflineQueueLock(async () => {
+                if (
+                    msg.type === 'dm' &&
+                    msg.recipient_id &&
+                    ((dmGeneration !== undefined &&
+                        dmGeneration !== (this.dmBlockGeneration.get(msg.recipient_id) ?? 0)) ||
+                        (isAuthIdentityScopeCurrent(scope) &&
+                            this.dmBlockStatus.get(msg.recipient_id)?.blockedEitherDirection))
+                )
+                    return false;
                 await this.migrateLegacyOfflineQueue(scope);
                 const key = authScopedStorageKey(OFFLINE_QUEUE_KEY, scope);
                 const queue = await this.readScopedQueue(key, scope);
                 queue.push(owned);
                 await Preferences.set({ key, value: JSON.stringify(queue) });
+                return true;
             });
+            if (!queued) return false;
             if (scope.userId === this.currentUserId && isAuthIdentityScopeCurrent(scope)) {
                 this.scheduleOfflineQueueRetry(scope, 15_000);
             }
@@ -1976,7 +2073,13 @@ class ChatServiceClass {
 
             for (const msg of queue) {
                 if (!isAuthIdentityScopeCurrent(scope)) return 0;
-                let sent = false;
+                // A block may have cancelled this queued item since the
+                // initial snapshot. Never revive a removed operation.
+                const stillQueued = await this.withOfflineQueueLock(async () =>
+                    (await this.readScopedQueue(key, scope)).some((candidate) => candidate.queue_id === msg.queue_id),
+                );
+                if (!stillQueued) continue;
+                let completed = false;
                 let confirmedDirectMessage: DirectMessage | null = null;
                 if (msg.type === 'channel' && msg.channel_id) {
                     const result = await this.sendMessageForScope(
@@ -1986,15 +2089,17 @@ class ChatServiceClass {
                         scope,
                         false,
                     );
-                    sent = result !== null && result !== 'queued';
+                    completed = result !== null && result !== 'queued';
                 } else if (msg.type === 'dm' && msg.recipient_id) {
                     const result = await this.sendDMForScope(msg.recipient_id, msg.message, scope, false);
-                    sent = result !== null && result !== 'blocked' && result !== 'queued';
-                    if (result && result !== 'blocked' && result !== 'queued') {
+                    // A confirmed block is a terminal cancellation, not a
+                    // message to silently send after a future unblock.
+                    completed = result !== null && result !== 'queued';
+                    if (result && result !== CANCELLED_DM && result !== 'blocked' && result !== 'queued') {
                         confirmedDirectMessage = result;
                     }
                 }
-                if (!sent) continue;
+                if (!completed) continue;
                 if (confirmedDirectMessage && typeof window !== 'undefined' && isAuthIdentityScopeCurrent(scope)) {
                     window.dispatchEvent(
                         new CustomEvent(QUEUED_DM_SENT_EVENT, {
@@ -2007,7 +2112,7 @@ class ChatServiceClass {
                 }
 
                 // Re-read under the mutation lock so concurrent appends survive.
-                // Remove exactly this confirmed-success operation, never the
+                // Remove exactly this confirmed-success/cancelled operation, never the
                 // whole queue and never another account's scoped key.
                 await this.withOfflineQueueLock(async () => {
                     const live = await this.readScopedQueue(key, scope);
@@ -2064,6 +2169,8 @@ class ChatServiceClass {
         this.currentRole = 'member';
         this.mutedUntil = null;
         this.blocked = false;
+        this.dmBlockStatus.clear();
+        this.dmBlockGeneration.clear();
         this.ownerUserId = null;
         this.cachedDisplayName = null;
         this.initPromise = null; // Allow fresh init on next visit (picks up login state)

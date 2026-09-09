@@ -15,6 +15,7 @@ export default defineConfig({
         'vessel-scroll.spec.ts',
         'public-voyage-mobile.spec.ts',
         'diary-compose-layout.spec.ts',
+        'scuttlebutt-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
