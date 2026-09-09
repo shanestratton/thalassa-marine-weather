@@ -1,5 +1,8 @@
 # Build 109 — Glass split-screen gestures
 
+The gestures below remain included. The newer weather-location fixes and latest
+build 109 artifact are recorded in [BUILD_109_WEATHER_LOCATIONS.md](BUILD_109_WEATHER_LOCATIONS.md).
+
 Runtime source: `86d09a88`. This follows the unreleased build 109 Sail Plan and
 Scuttlebutt fixes; it does not upload or distribute a TestFlight build.
 
