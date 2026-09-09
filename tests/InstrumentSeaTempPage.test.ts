@@ -21,15 +21,13 @@ const page = readFileSync('components/nmea/TheGlassPage.tsx', 'utf8');
 describe('the Sea temp page in the instrument panel', () => {
     const section = page.slice(page.indexOf('── SECTION: SEA TEMP ──'), page.indexOf('── SECTION: HEADING ──'));
 
-    it('sits after Depth, before Heading, and the dot rail knows it', () => {
+    it('sits after Depth, before Heading', () => {
         expect(section.length).toBeGreaterThan(0);
-        expect(page.indexOf('── SECTION: DEPTH ──')).toBeLessThan(page.indexOf('── SECTION: SEA TEMP ──'));
-        const rail = page.match(/const base = \[([^\]]+)\]/);
-        expect(rail).not.toBeNull();
-        const names = (rail as RegExpMatchArray)[1];
-        expect(names).toContain("'Sea temp'");
-        expect(names.indexOf("'Depth'")).toBeLessThan(names.indexOf("'Sea temp'"));
-        expect(names).not.toContain("'Bells'");
+        const sections = [...page.matchAll(/── SECTION: ([^─]+?)──/g)].map((m) => m[1].split('(')[0].trim());
+        const depth = sections.indexOf('DEPTH');
+        expect(sections[depth + 1]).toBe('SEA TEMP');
+        expect(sections[depth + 2]).toBe('HEADING');
+        expect(sections).not.toContain('BELLS');
     });
 
     it('reads the real water-temperature metric and keeps a record of it, like the other pages', () => {

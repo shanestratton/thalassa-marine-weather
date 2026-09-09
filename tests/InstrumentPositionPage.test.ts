@@ -1,5 +1,5 @@
 /**
- * The Position page, and the invariant that makes the dot rail honest.
+ * The Position page, and the order of the instrument pages.
  *
  * Shane 2026-08-30: "we need a dedicated page to the gps coords ... just a nice
  * page with a heading that says Position, and then the LAT, LONG, in nice big
@@ -19,33 +19,34 @@ function renderedSections(): string[] {
     return [...source.matchAll(/── SECTION: ([^─]+?)──/g)].map((m) => m[1].split('(')[0].trim());
 }
 
-/** The dot rail's names, in the order it will jump to them. */
-function railNames(): string[] {
-    const line = source.match(/const base = \[([^\]]+)\]/);
-    expect(line, 'dot rail name list not found').not.toBeNull();
-    const base = [...(line as RegExpMatchArray)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    // TWO sections are conditional, and the rail must model both or its dots
-    // point at the wrong instrument:
-    //   - 'Watch' exists only for a crew member who has one on the passage
-    //     planner's watch bill, and is spliced in after the Clock (the Bells
-    //     page went on 2026-09-09; its switches live in Preferences);
-    //   - 'Sail Plan' is Serene Summer's alone, appended last.
-    // This builds the MAXIMAL rail — every section present — which is the
-    // order the source file's markers are in.
-    expect(source, 'the Watch splice moved').toMatch(
-        /hasMyWatch \? \['Clock', 'Watch', \.\.\.base\.slice\(1\)\] : base/,
-    );
-    return ['Clock', 'Watch', ...base.slice(1), 'Sail Plan'];
-}
+/**
+ * The order the pages come in. Pinned as a list now that the dot rail is gone
+ * (Shane 2026-09-09: "not necessary as a punter will keep scrolling until he
+ * gets to the end") — the markers ARE the order, and two of them are
+ * conditional: 'Watch' mounts only for a crew member on the watch bill, 'Sail
+ * Plan' only for Serene Summer.
+ */
+const EXPECTED_ORDER = [
+    'CLOCK',
+    'WATCH',
+    'WIND',
+    'BAROMETER',
+    'POSITION',
+    'SPEED',
+    'DEPTH',
+    'SEA TEMP',
+    'HEADING',
+    'HELM',
+    'SAIL PLAN',
+];
 
-describe('the dot rail matches the sections it jumps to', () => {
-    it('lists every section, in the same order', () => {
-        // The rail computes its index as scrollTop / clientHeight, so a name
-        // missing or out of order here does not merely lose a dot — it points
-        // every dot after it at the wrong instrument.
-        const sections = renderedSections();
-        const rail = railNames().map((n) => n.toUpperCase());
-        expect(sections.map((s) => s.toUpperCase())).toEqual(rail);
+describe('the pages come in the order the markers say', () => {
+    it('lists every section, in the same order, with no dot rail to keep honest', () => {
+        expect(renderedSections().map((s) => s.toUpperCase())).toEqual(EXPECTED_ORDER);
+        expect(source).not.toContain('Jump to ${name}');
+        // The two conditional pages are still conditional.
+        expect(source).toMatch(/\{hasMyWatch && \(/);
+        expect(source).toMatch(/\{isSereneSummer && /);
     });
 
     it('opens on the Clock, then keeps Wind → Barometer → Position together near the top', () => {
