@@ -1052,7 +1052,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 // (Shane 2026-09-09: "the diary and the scuttlebutt pages get
                 // stuck under the 4 cards above them"). pb-4 keeps the last row
                 // clear of the port's edge; overscroll stays inside the port.
-                style={{ overscrollBehaviorY: 'contain' }}
+                style={{
+                    overscrollBehaviorY: 'contain',
+                    scrollSnapType: 'y proximity',
+                    // Match pt-2 so the first row rests at scrollTop 0,
+                    // not one padding-width under the operational deck.
+                    scrollPaddingTop: '0.5rem',
+                    scrollPaddingBottom: '1rem',
+                }}
             >
                 {/* Diary + Scuttlebutt lead the scrolling area (Shane
                     2026-08-30). They are the two things opened most often and
@@ -1061,7 +1068,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     up" — Skipper Device, Passage Planning, Boat Binder — and
                     before the menu headers below them. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
-                <div className="mb-3">
+                <div className="mb-3" style={{ scrollSnapAlign: 'start' }}>
                     <div className="grid grid-cols-2 gap-3">
                         {/* Diary — personal journal (left tile) */}
                         <button
@@ -1269,7 +1276,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* the punter visits rarely, so they don't     */}
                 {/* deserve two separate cognitive buckets.     */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
+                {/* A lower resting point lets Safari reach these controls
+                    instead of pulling every scroll back to the first row. */}
+                <div className="mb-4" style={{ scrollSnapAlign: 'end' }}>
                     <SectionHeader
                         color="var(--day-ui-accent, #67E8F9)"
                         label="Settings & Connect"
