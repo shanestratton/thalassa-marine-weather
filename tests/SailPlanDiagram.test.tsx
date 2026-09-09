@@ -16,22 +16,6 @@ import { SailPlanDiagram } from '../components/nmea/gauges/SailPlanDiagram';
 
 const base = { band: 'Beam reach', main: 'Full', yankee: 'Full', stay: false as const };
 
-/**
- * The centreline, read from the drawing rather than hardcoded.
- *
- * These assertions used to compare against a literal 150 (half of the old
- * 300-wide viewBox) and select the boom as querySelectorAll('line')[2] — a
- * positional index into the artwork. Both broke on the 2026-09-05 rescale,
- * neither because the BEHAVIOUR changed. Marks carry data-mark now, and the
- * centreline comes off the viewBox, so this file survives the next redraw.
- */
-function centreline(container: HTMLElement): number {
-    // The FRAME's centre. Since 2026-09-05 the hull leans away from whichever
-    // side the labels are on, so for "is this mark to port or starboard" use
-    // the mast instead — that is the middle of the ship.
-    const box = container.querySelector('svg')!.getAttribute('viewBox')!.split(' ');
-    return Number(box[2]) / 2;
-}
 const mark = (container: HTMLElement, name: string) => container.querySelector(`[data-mark="${name}"]`) as SVGElement;
 /** The middle of the SHIP, which is not the middle of the frame — see above. */
 const mastX = (container: HTMLElement) => Number(mark(container, 'mast').getAttribute('cx'));
@@ -79,8 +63,6 @@ describe('sails that are not set are not drawn', () => {
     it('dims the boom and drops the sail when the main is down', () => {
         const { container } = render(<SailPlanDiagram {...base} main="Down" windAngle={45} />);
         expect(mark(container, 'boom').getAttribute('opacity')).toBe('0.5');
-        // And no mainsheet, because there is no sail for it to be trimming.
-        expect(mark(container, 'mainsheet')).toBeNull();
     });
 });
 
@@ -102,16 +84,25 @@ describe('the warnings that hurt people are never silent', () => {
     });
 });
 
-describe('the yankee lead, which is not the same as the car', () => {
-    it('shows the car live on its track while the advice is "leave the car alone"', () => {
-        const { container } = render(<SailPlanDiagram {...base} band="Beating" windAngle={45} yankee="Full" />);
-        expect(container.textContent).toContain('YANKEE CAR');
-        expect(container.textContent).not.toContain('RAIL BLOCK');
-    });
-
-    it('moves the lead to a rail block reaching, because the track cannot do outboard', () => {
-        const { container } = render(<SailPlanDiagram {...base} band="Beam reach" windAngle={45} yankee="Full" />);
-        expect(container.textContent).toContain('RAIL BLOCK');
+describe('the hardware is off the boat, the pole stays', () => {
+    // Shane 2026-09-09: "can we have the traveller and the yankee car off the
+    // vessel altogether. we know what they are, but it just makes it very
+    // messy for the sail area." The words under the picture still say where
+    // the traveller and the car go; the drawing shows sails, boom and wind.
+    it('draws no traveller, car, rail block or sheet in any band, on either tack', () => {
+        for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach', 'Running']) {
+            for (const windAngle of [45, 315]) {
+                const { container } = render(
+                    <SailPlanDiagram {...base} band={band} windAngle={windAngle} yankee="Full" />,
+                );
+                for (const name of ['traveller-car', 'yankee-car', 'rail-block', 'mainsheet', 'yankee-sheet']) {
+                    expect(mark(container, name), `${name} ${band} @${windAngle}`).toBeNull();
+                }
+                expect(container.textContent).not.toContain('TRAVELLER');
+                expect(container.textContent).not.toContain('YANKEE CAR');
+                expect(container.textContent).not.toContain('RAIL BLOCK');
+            }
+        }
     });
 
     it('poles it out running, and to WINDWARD — the opposite side to everything else', () => {
@@ -130,9 +121,13 @@ describe('the yankee lead, which is not the same as the car', () => {
         expect(yankee.getAttribute('d')).toContain(`${cx + 66}`);
     });
 
-    it('draws no yankee gear at all when the sail is furled', () => {
-        const { container } = render(<SailPlanDiagram {...base} band="Beam reach" windAngle={45} yankee="Furled" />);
-        expect(container.textContent).not.toContain('YANKEE CAR');
-        expect(container.textContent).not.toContain('RAIL BLOCK');
+    it('draws no pole in the bands that are not poled, nor when the sail is furled', () => {
+        for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach']) {
+            const { container } = render(<SailPlanDiagram {...base} band={band} windAngle={45} yankee="Full" />);
+            expect(mark(container, 'pole'), band).toBeNull();
+        }
+        const { container } = render(<SailPlanDiagram {...base} band="Running" windAngle={45} yankee="Furled" />);
+        expect(mark(container, 'pole')).toBeNull();
+        expect(container.textContent).not.toContain('POLED');
     });
 });
