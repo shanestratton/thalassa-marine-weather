@@ -1,4 +1,4 @@
-# Build 110 — long-voyage End Voyage freeze
+# Build 110 — End Voyage freeze and Pi-aware system status
 
 Shane reported build 109 freezing on the Log screen after End Voyage on
 10 September 2026. The uploaded 109 archive is unchanged; this correction uses
@@ -80,7 +80,7 @@ five skips**; 1,100 files passed and four were skipped. Exit status zero,
 
 The focused suite totals overlap with this full result; do not add them.
 
-## Frozen build and final browser checks
+## Initial Log-fix candidate (superseded by the Pi-status candidate below)
 
 Runtime commit **7915248f** was committed and pushed to
 `codex/build-107-daylight-split-view`. All four Xcode counters are 110;
@@ -118,3 +118,73 @@ Repeat offline and verify any failed native teardown remains retryable rather
 than claiming a successful stop. Physical-device acceptance is still required.
 
 Build 110 has not been uploaded to TestFlight at this checkpoint.
+
+## Pi-aware NMEA Backbone status — same unuploaded build 110
+
+Shane then reported that the ⓘ screen still offered **FIX** while instruments
+were arriving through the Pi/tailnet/cloud. The row used only
+`NmeaListenerService.getStatus()`, which measures the phone's direct gateway
+socket. Pi-first transport deliberately leaves that socket disconnected while
+`NmeaStore` is receiving the vessel's instruments through a remote lane.
+
+Runtime commit **3bd549c50bdb** fixes that mismatch:
+
+- A usable, fresh Pi feed marks the backbone active and identifies the Pi,
+  tailnet or cloud route. An unused direct socket's old error cannot override it.
+- Both source and receipt timestamps must be current. Empty snapshots, old
+  metrics, invalid clocks and phone-sourced cloud positions do not prove an
+  active NMEA feed. Valid zero readings do count.
+- The panel subscribes to store and socket changes, ages cached data every
+  five seconds, and rechecks immediately on foreground. Unchanged diagnoses
+  retain their React state rather than repainting on every instrument sample.
+- Opening the panel retains the existing shared cloud reader; closing or
+  unmounting releases that interest. Existing RLS/source ordering is unchanged.
+- Only diagnosed gateway faults offer **Fix**; inactive/quiet/stale feeds offer
+  **View**. Direct-socket sentence-rate charts stay hidden for Pi/cloud feeds.
+
+No gateway settings, yacht software, cloud data or sharing permissions changed.
+The existing cloud service's in-flight-poll lifecycle was not redesigned here;
+after its last release an already-running read can still finish once. This
+pre-existing transport caveat is separate from the corrected status inference.
+
+Verification on the corrected sources:
+
+- Focused status, Pi, cloud, GPS and legacy diagnosis regressions: **113 passed**.
+- Full unit suite: **9,815 passed**, three existing expected failures and five
+  skips; 1,101 files passed, four skipped; exit zero in 223.65 seconds.
+- TypeScript, changed-file ESLint and formatting checks passed.
+- `VITE_APP_BUILD=110 npm run ship:beta` passed, including iOS sync and all
+  **140 artifact release contracts**.
+
+Evidence: `/private/tmp/thalassa-build110-nmea-focused.log`,
+`/private/tmp/thalassa-build110-nmea-full-unit.log`,
+`/private/tmp/thalassa-build110-nmea-types.log`,
+`/private/tmp/thalassa-build110-nmea-ship.log`.
+
+Current synced candidate, replacing the earlier 7915248f bundle:
+
+- Main: `main-CNwCTRNp.js`.
+- SHA-256: `1c85a28b01590d8f298db02e0ad45b56210f43d25a9af5a6e5a780a3e418fcc3`.
+- CSS: `index-BmvGv2el.css`.
+- Entry contains `3bd549c50bdb` and `thalassa@1.2.0+110`.
+- Every `dist/assets` file matches its synced iOS counterpart byte-for-byte.
+
+Final production-bundle startup, Log and system-status browser checks:
+**15 passed, one existing conditional WebKit GPS skip**, zero retries, in
+33.2 seconds. Chromium and mobile WebKit both opened the real status panel and
+confirmed the neutral inactive row offers View, not Fix, without page errors.
+Evidence: `/private/tmp/thalassa-build110-nmea-smoke.log`.
+
+The 10,000-entry timeline harness was repeated against this candidate's CSS in
+both engines at 390/512 px. All four cases passed every page and manual
+edit/delete callback: at most 50 mounted rows, 1,246 elements, no overflow or
+page errors, 7–23 ms initial display and maximum observed timer gap 92 ms.
+Evidence: `/private/tmp/thalassa-build110-nmea-timeline-browser.log`.
+
+Physical-device acceptance: with live Pi instruments, open ⓘ and confirm the
+NMEA Backbone row identifies the actual route without FIX. Check LAN/tailnet,
+cloud-only and a disconnected feed. This code has not been exercised on
+Shane's physical iPhone; installed build 109 remains unchanged.
+
+This updated build 110 is built, synced, committed and pushed. It has not yet
+been archived, validated or uploaded to TestFlight.
