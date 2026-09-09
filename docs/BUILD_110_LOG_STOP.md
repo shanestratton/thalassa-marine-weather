@@ -1,5 +1,11 @@
 # Build 110 — End Voyage, Pi-aware status and recorded wind history
 
+**Final delivery:** the corrected `06de151d` archive was validated and uploaded
+to Apple at 09:44:46 AEST on 10 September 2026. Earlier packaging checkpoints
+below are historical, superseded candidates. See
+[final build 110 release evidence](BUILD_110_TESTFLIGHT.md) for exact hashes,
+test results and the remaining TestFlight availability check.
+
 Shane reported build 109 freezing on the Log screen after End Voyage on
 10 September 2026. The uploaded 109 archive is unchanged; this correction uses
 1.2.0 (110).
