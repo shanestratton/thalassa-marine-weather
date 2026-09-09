@@ -237,6 +237,7 @@ for (const size of cases) {
                             back: 'button[aria-label="Back"]',
                             locate: 'button[aria-label="Locate me"]',
                             mob: 'button[aria-label="Open Man Overboard emergency"]',
+                            layers: 'button[aria-label="Open layer menu"]',
                             tide: 'button[aria-label="Live tide depth is on — tap to return to chart datum"]',
                         };
                         return Object.fromEntries(
@@ -265,6 +266,7 @@ for (const size of cases) {
             const locate = page.getByRole('button', { name: 'Locate me', exact: true });
             const back = page.getByRole('button', { name: 'Back', exact: true });
             const mob = page.getByRole('button', { name: 'Open Man Overboard emergency', exact: true });
+            const layers = page.getByRole('button', { name: 'Open layer menu', exact: true });
             const attribution = page.locator('.thalassa-chart-map .mapboxgl-ctrl-attrib');
             const scale = page.locator('.thalassa-chart-map .mapboxgl-ctrl-scale');
             const logo = page.locator('.thalassa-chart-map .mapboxgl-ctrl-logo');
@@ -272,6 +274,7 @@ for (const size of cases) {
                 ['Locate', locate],
                 ['Back', back],
                 ['MOB', mob],
+                ['Layers', layers],
                 ['Mapbox attribution', attribution],
                 ['map scale', scale],
                 ['Mapbox logo', logo],
@@ -296,7 +299,8 @@ for (const size of cases) {
                     await expect(tideScrubber).toHaveCount(0);
                 }
             }
-            for (const control of [library, locate, back, mob, attribution, logo]) await expectHitTarget(control);
+            for (const control of [library, locate, back, mob, layers, attribution, logo])
+                await expectHitTarget(control);
             for (const tab of await nav.getByRole('tab').all()) {
                 await visibleBox(tab, page);
                 await expectHitTarget(tab);
