@@ -260,8 +260,9 @@ jobs:
             - name: Setup Pi cache runtime
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  # Matches the NodeSource runtime installed by install.sh.
-                  node-version: 20
+                  # Matches the NodeSource runtime installed by install.sh (22.x
+                  # since 2026-09-10; the boat Pi runs Node 22.23.2).
+                  node-version: 22
                   cache: 'npm'
                   cache-dependency-path: pi-cache/package-lock.json
 
