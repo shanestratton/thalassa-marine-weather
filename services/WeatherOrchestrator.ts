@@ -386,7 +386,7 @@ export class WeatherOrchestrator {
     }
 
     async loadCacheAndInit(): Promise<void> {
-        if (!this.isCurrentIdentity()) return;
+        if (!this.isCurrentIdentity() || this.locationEpoch !== 0) return;
         const locationEpoch = this.locationEpoch;
         const hasCachedData = await this.loadCache();
         if (!this.isCurrentIdentity() || locationEpoch !== this.locationEpoch) return;
@@ -418,7 +418,7 @@ export class WeatherOrchestrator {
             addBreadcrumb({ category: 'weather', message: 'Loading cached weather data', level: 'info' });
             const cached = await this.loadScopedCache<MarineWeatherReport>(this.cacheKeys.data, DATA_CACHE_KEY);
             this.assertCurrent();
-            if (cached && cached.locationName && locationEpoch === this.locationEpoch) {
+            if (cached && cached.locationName && locationEpoch === 0 && this.locationEpoch === 0) {
                 log.info(`[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`);
                 addBreadcrumb({
                     category: 'weather',

@@ -294,6 +294,21 @@ describe('WeatherOrchestrator identity fences', () => {
         expect(weatherMocks.saveLargeDataImmediate).not.toHaveBeenCalled();
     });
 
+    it('a cache load that starts after a user selection cannot resurrect the startup report', async () => {
+        const { state, callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        weatherMocks.loadLargeData.mockImplementation(async (key: string) =>
+            key === weatherCacheKeysForScope().data ? makeReport('Sydney') : null,
+        );
+        orchestrator.cancelPendingLocation();
+        state.weatherData = null;
+        await orchestrator.loadCache();
+        await orchestrator.loadCacheAndInit();
+        expect(state.weatherData).toBeNull();
+        expect(weatherMocks.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+
     it('uses the reachability probe as the offline authority even when navigator reports a network interface', async () => {
         const { state, callbacks } = callbackHarness({ satelliteMode: false });
         state.isOffline = true;
