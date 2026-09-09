@@ -28,11 +28,8 @@
  * named bands, not a measurement), and importing POS from sereneSailing.ts
  * (dead code with an inverted sign).
  *
- * 2026-09-09: the hardware came OFF the drawing at Shane's request ("can we have
- * the traveller and the yankee car off the vessel altogether … it just makes it
- * very messy for the sail area"). The colour-bug history above is kept because
- * it is why hue is pinned to the wind arrow alone; the marks it was about no
- * longer exist, and this file now pins their absence.
+ * Sept 10: hardware guides return BESIDE / BELOW the hull, never over the sails.
+ * The original colour and geometry invariants still apply.
  */
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -102,22 +99,23 @@ describe('the sail the pole is holding is on the pole side', () => {
 });
 
 describe('the hardware is off the boat', () => {
-    // Shane 2026-09-09. The traveller track, its car, the mainsheet, the
-    // yankee track, its car, the rail block and the yankee sheet are gone from
-    // the drawing; the trim prose under it still names them.
-    it('draws none of it, in any band, on either tack', () => {
+    it('puts the Yankee guide beyond the hull and traveller in a separate panel', () => {
         for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach', 'Running']) {
             for (const windAngle of [45, 315]) {
                 const c = draw({ band, windAngle });
-                for (const name of ['traveller-car', 'yankee-car', 'rail-block', 'mainsheet', 'yankee-sheet']) {
+                for (const name of ['yankee-car', 'rail-block', 'mainsheet', 'yankee-sheet']) {
                     expect(mark(c, name), `${name} ${band} @${windAngle}`).toBeNull();
                 }
-                expect(c.textContent, `${band} @${windAngle}`).not.toMatch(/TRAVELLER|YANKEE CAR|RAIL BLOCK/);
+                const guide = mark(c, 'yankee-car-guide').querySelector('rect')!;
+                const x = Number(guide.getAttribute('x'));
+                const right = x + Number(guide.getAttribute('width'));
+                expect(right < cx(c) - 58 || x > cx(c) + 58).toBe(true);
+                expect(mark(c, 'rig-diagram').querySelector('[data-mark="traveller-car"]')).toBeNull();
             }
         }
     });
 
-    it('and the tables that positioned it are gone with it', () => {
+    it('does not restore the misleading numeric POS table or shrink the hull', () => {
         const src = readFileSync('components/nmea/gauges/SailPlanDiagram.tsx', 'utf8');
         expect(src).not.toContain('TRAVELLER_POS');
         expect(src).not.toContain('YANKEE_LEAD');
@@ -232,7 +230,8 @@ describe('legibility, in rendered pixels rather than viewBox units', () => {
         const c = draw({ band: 'Running', windAngle: 180, prevent: true, runners: true });
         expect(c.textContent).toContain('PREVENTER ON');
         expect(c.textContent).toContain('RUNNERS ON');
-        expect(c.querySelectorAll('rect[fill="rgba(251,191,36,0.14)"]')).toHaveLength(2);
+        expect(c.querySelectorAll('[data-mark="sail-warning"]')).toHaveLength(2);
+        expect(c.querySelector('svg [data-mark="sail-warning"]')).toBeNull();
     });
 
     it('halos every label, because the boom sweeps across all of them', () => {
