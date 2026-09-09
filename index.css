@@ -3590,8 +3590,15 @@ body,
 /* Use one positioning property throughout. Tailwind's production optimizer
    folds translate:none into transform:none, which cannot cancel a separate
    utility-class translate. This badge therefore owns transform in both modes. */
-.thalassa-enc-tide-badge {
+.thalassa-enc-tide-badge,
+.thalassa-enc-tide-scrubber {
     transform: translateX(-50%);
+}
+
+/* Available tide data adds a real 44px slider and its labels. Reserve the
+   entire panel, including labels, rather than measuring only its track. */
+.thalassa-enc-coverage-notice--with-tide {
+    top: calc(6.4rem + 90px + env(safe-area-inset-top));
 }
 
 /* In short landscape (including a short iPad split pane), reserve both the
@@ -3608,6 +3615,42 @@ body,
         left: max(12px, env(safe-area-inset-left));
         max-width: calc(100% - 152px);
         white-space: normal;
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice--with-tide {
+        /* Below the slider and expanded credits, above the actual 4rem nav;
+           the left inset preserves the logo and the right inset Locate. */
+        top: auto;
+        bottom: calc(4rem + 2px + env(safe-area-inset-bottom));
+        left: calc(104px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 176px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        padding-block: 4px;
+    }
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice--with-tide {
+        width: min(390px, calc(100% - 256px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    }
+}
+
+/* Narrow portrait needs a wrapped station label. Keep both tide controls
+   left of MOB, and reserve the Back rail beside the longer warning. */
+@media (orientation: portrait) and (max-width: 360px) {
+    .thalassa-enc-tide-badge {
+        left: 12px;
+        max-width: calc(100% - 100px);
+        min-height: 44px;
+        white-space: normal;
+        transform: none;
+    }
+    .thalassa-enc-tide-scrubber {
+        top: calc(4rem + 64px);
+        left: 12px;
+        width: min(15rem, calc(100% - 100px));
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice--with-tide {
+        top: calc(4rem + 145px);
+        left: 64px;
+        width: calc(100% - 76px);
         transform: none;
     }
 }

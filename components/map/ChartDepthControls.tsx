@@ -111,7 +111,9 @@ export function ChartDepthControls({
                             : 'LIVE DEPTH — no tide data, showing chart datum'}
                     </button>
                     {tideOffsetInfo && (
-                        <div className="absolute left-1/2 top-[6.4rem] z-9989 w-60 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg">
+                        <div
+                            className={`absolute left-1/2 top-[6.4rem] z-9989 w-60 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg ${showCoverageNotice ? 'thalassa-enc-tide-scrubber' : '-translate-x-1/2'}`}
+                        >
                             <input
                                 type="range"
                                 min={0}
@@ -216,7 +218,7 @@ export function ChartDepthControls({
 
             {showCoverageNotice && (
                 <div
-                    className="thalassa-enc-coverage-notice absolute z-9980 flex items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs"
+                    className={`thalassa-enc-coverage-notice absolute z-9980 flex items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs ${tideDepthMode && tideOffsetInfo ? 'thalassa-enc-coverage-notice--with-tide' : ''}`}
                     role="status"
                     aria-label="ENC coverage"
                     aria-live="polite"
