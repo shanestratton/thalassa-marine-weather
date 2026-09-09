@@ -2,6 +2,10 @@
 
 Runtime source commit: `9ed309cd`.
 
+The artifact identifiers below describe this Sail Plan revision. Build 109 was
+later rebuilt with the [Glass gesture fix](BUILD_109_GLASS_GESTURES.md); that note
+contains the latest bundle identifiers. Sail Plan runtime code is unchanged.
+
 This follow-up updates the **unreleased** build 109 after its Scuttlebutt fixes.
 It does not alter build 108, archive/upload to Apple, or change GPS selection,
 connection-status diagnostics, Signal K, Supabase, or sailing recommendations.
