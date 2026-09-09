@@ -22,6 +22,7 @@ import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../servic
 import { existingMapLayerIds } from './mapLayerQueries';
 import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
 import { crumb } from '../../utils/flightRecorder';
+import { installPaneAwareAttribution } from './paneAwareAttribution';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -351,10 +352,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             style: mapStyle,
             center: startCenter,
             zoom: startZoom,
-            // Provider attribution and the Mapbox logo are mandatory map
-            // chrome, not optional decoration. Keep the native control so it
-            // automatically follows whichever style/source is visible.
-            attributionControl: true,
+            // Installed immediately below as a native pane-aware control.
+            // Provider/source credits and the default Mapbox logo stay intact.
+            attributionControl: false,
             // Deep zoom-in stays available; zoom-OUT floors at z3 (Shane
             // 2026-08-04: "prevent the zoom from going past level 3"). The
             // min() keeps the AU+NZ opening frame reachable on portrait
@@ -514,6 +514,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                 return { url };
             },
         });
+
+        const refreshAttribution = installPaneAwareAttribution(map, containerRef.current);
 
         // Match container background to ocean color — hides any sub-pixel WebGL tile seams
         if (containerRef.current) {
@@ -1553,6 +1555,7 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         // ResizeObserver — recalculate fill-width minZoom on resize
         const resizeObserver = new ResizeObserver(() => {
+            refreshAttribution();
             map.resize();
             refineAusNzFitZoom();
         });

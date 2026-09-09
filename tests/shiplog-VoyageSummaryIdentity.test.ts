@@ -49,6 +49,7 @@ interface QueryCall {
     columns: string | null;
     filters: Array<[string, unknown]>;
     range: [number, number] | null;
+    signal?: AbortSignal;
 }
 
 function deferred<T>() {
@@ -79,6 +80,10 @@ function queryFor(table: string, response: Promise<QueryResponse>, calls: QueryC
             return query;
         },
         or() {
+            return query;
+        },
+        abortSignal(signal: AbortSignal) {
+            call.signal = signal;
             return query;
         },
         then<TResult1 = QueryResponse, TResult2 = never>(
@@ -296,5 +301,55 @@ describe('VoyageSummary exact identity isolation', () => {
                 ['voyage_id', 'voyage-a'],
             ]),
         );
+    });
+
+    it('hard-bounds compatibility reads to one expected-count-plus-one range', async () => {
+        const calls: QueryCall[] = [];
+        mocks.from.mockImplementation((table: string) =>
+            queryFor(
+                table,
+                Promise.resolve({
+                    data: Array.from({ length: 4 }, (_, i) => dbRow('account-a', 'route', i)),
+                    error: null,
+                }),
+                calls,
+            ),
+        );
+        await expect(getVoyageEntries('route', false, { maxRows: 4, requireComplete: true })).resolves.toEqual([]);
+        expect(calls).toHaveLength(1);
+        expect(calls[0].range).toEqual([0, 3]);
+        expect(mocks.filterTombstones).not.toHaveBeenCalled(); // overflow must not become "complete" after filtering
+    });
+
+    it('accepts a complete small route below the hard cap', async () => {
+        const calls: QueryCall[] = [];
+        mocks.from.mockImplementation((table: string) =>
+            queryFor(
+                table,
+                Promise.resolve({
+                    data: Array.from({ length: 3 }, (_, i) => dbRow('account-a', 'route', i)),
+                    error: null,
+                }),
+                calls,
+            ),
+        );
+        await expect(getVoyageEntries('route', false, { maxRows: 4, requireComplete: true })).resolves.toHaveLength(3);
+        expect(calls).toHaveLength(1);
+        expect(calls[0].range).toEqual([0, 3]);
+    });
+
+    it('drops an aborted native result and never starts another page even if fetch ignored abort', async () => {
+        const page = deferred<QueryResponse>();
+        const calls: QueryCall[] = [];
+        const controller = new AbortController();
+        mocks.from.mockImplementation((table: string) => queryFor(table, page.promise, calls));
+        const request = getVoyageEntries('route', false, { maxRows: 1001, signal: controller.signal });
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        expect(calls[0].signal).toBe(controller.signal);
+        controller.abort();
+        page.resolve({ data: Array.from({ length: 1000 }, (_, i) => dbRow('account-a', 'route', i)), error: null });
+        await expect(request).resolves.toEqual([]);
+        expect(calls).toHaveLength(1);
+        expect(mocks.filterTombstones).not.toHaveBeenCalled();
     });
 });

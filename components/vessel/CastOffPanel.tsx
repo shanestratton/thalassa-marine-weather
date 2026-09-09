@@ -2,7 +2,7 @@
  * CastOffPanel — Manual voyage activation flow.
  *
  * Three-step process:
- *  1. Select Draft Voyage from list
+ *  1. Choose a saved route or prepare a new passage (memory only)
  *  2. Pre-Departure Summary (crew, stores, weather)
  *  3. Safety Confirm toggle + CAST OFF button
  *
@@ -16,7 +16,6 @@ import {
     endVoyage,
     createVoyage,
     updateActiveVoyageDetails,
-    updateVoyage,
     type Voyage,
 } from '../../services/VoyageService';
 import {
@@ -24,7 +23,8 @@ import {
     formatStoredPlannedRouteName,
 } from '../../services/shiplog/plannedRouteNaming';
 import { destNameFromRouteName, loadSavedTraces, stripLegBadge } from '../../services/routeTracer';
-import { TRACE_STUB_ID_PREFIX, buildTraceStubRows, traceVerificationNote } from '../../services/savedRouteRows';
+import { traceVerificationNote } from '../../services/savedRouteRows';
+import { castOffRouteChoices, createCastOffSetup, isUnsavedCastOffSetup } from '../../services/castOffSetup';
 import { vesselCrewAboard } from '../../services/units';
 import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } from '../../services/VoyageLegService';
 import type { PassageLeg } from '../../types/navigation';
@@ -81,8 +81,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [selected, setSelected] = useState<Voyage | null>(null);
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(null);
     const [loading, setLoading] = useState(true);
-    /** Trace stub being materialised into a real voyage row on tap. */
-    const [selectingId, setSelectingId] = useState<string | null>(null);
     const [casting, setCasting] = useState(false);
     const [ending, setEnding] = useState(false);
     const [error, setError] = useState('');
@@ -114,7 +112,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [newFrom, setNewFrom] = useState('');
     const [newTo, setNewTo] = useState('');
     const [newCrew, setNewCrew] = useState(2);
-    const [creating, setCreating] = useState(false);
 
     // Passage legs state
     const [currentLeg, setCurrentLeg] = useState<PassageLeg | null>(null);
@@ -136,13 +133,37 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     );
     // The draft list gets the same treatment: N rows, one parse per drafts change.
     const draftNames = useMemo(() => new Map(drafts.map((v) => [v.id, displayVoyageName(v)])), [drafts]);
+    // The existing preset path loads the boat's standing roster without
+    // querying the database with a temporary, non-voyage ID.
+    const setupFloatPlan = useMemo(() => {
+        if (!selected || !isUnsavedCastOffSetup(selected)) return undefined;
+        const trace = selected.saved_route_id
+            ? loadSavedTraces().find((item) => item.id === selected.saved_route_id)
+            : undefined;
+        return {
+            route: {
+                name: selectedDisplayName ?? selected.voyage_name,
+                from: selected.departure_port ?? undefined,
+                to: selected.destination_port ?? undefined,
+                waypoints: trace?.points.map(({ lat, lon }) => ({ lat, lon })),
+            },
+            departureMs: selected.departure_time ? Date.parse(selected.departure_time) : Date.now(),
+            etaMs: selected.eta ? Date.parse(selected.eta) : null,
+            personsOnBoard: selected.crew_count,
+        };
+    }, [selected, selectedDisplayName]);
     const vesselName = useSettingsStore((s) => s.settings.vessel?.name);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
+    const panelScopeRef = useRef(getAuthIdentityScope());
+    const castingRef = useRef(false);
     const endingRef = useRef(false);
+    const handleClose = useCallback(() => {
+        if (!castingRef.current) onClose();
+    }, [onClose]);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
-        onEscape: onClose,
+        onEscape: handleClose,
     });
 
     useEffect(() => {
@@ -163,10 +184,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setLoading(true);
             const [d, active] = await Promise.all([getDraftVoyages(), getActiveVoyage()]);
             if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
-            // The Plan page's saved routes are the truth for this list too:
-            // a route with no planning row of its own still belongs here,
-            // and materialises on tap (Shane 2026-08-27).
-            setDrafts([...d, ...buildTraceStubRows(loadSavedTraces(), d, useSettingsStore.getState().settings.vessel)]);
+            setDrafts(castOffRouteChoices(d, loadSavedTraces(), useSettingsStore.getState().settings.vessel));
             if (active) {
                 setActiveVoyage(active);
                 // Load leg state
@@ -217,105 +235,88 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         };
     }, [initialVoyageId]);
 
-    const handleSelect = useCallback(
-        async (voyage: Voyage) => {
-            triggerHaptic('light');
-            let chosen = voyage;
-            // A trace stub is a saved route with no voyage row yet — the Plan
-            // page's library is the truth for this list, so the row is minted
-            // on the way into the pre-departure check rather than the route
-            // being hidden until some other screen happens to create one.
-            if (voyage.id.startsWith(TRACE_STUB_ID_PREFIX)) {
-                const operationScope = getAuthIdentityScope();
-                setSelectingId(voyage.id);
-                try {
-                    const trace = voyage.saved_route_id
-                        ? loadSavedTraces().find((t) => t.id === voyage.saved_route_id)
-                        : undefined;
-                    const note = traceVerificationNote(trace);
-                    const { voyage: created, error: createError } = await createVoyage({
-                        voyage_name: voyage.voyage_name,
-                        departure_port: voyage.departure_port,
-                        destination_port: voyage.destination_port,
-                        crew_count: vesselCrewAboard(useSettingsStore.getState().settings.vessel),
-                        departure_time: voyage.departure_time,
-                        eta: voyage.eta,
-                        saved_route_id: voyage.saved_route_id ?? undefined,
-                        ...(note ? { notes: note } : {}),
-                    });
-                    if (!mountedRef.current || !isAuthIdentityScopeCurrent(operationScope)) return;
-                    if (!created) {
-                        setError(createError || 'Could not open this saved route');
-                        return;
-                    }
-                    chosen = created;
-                    setDrafts((prev) => prev.map((row) => (row.id === voyage.id ? created : row)));
-                } catch {
-                    if (!mountedRef.current) return;
-                    setError('Could not open this saved route');
-                    return;
-                } finally {
-                    if (mountedRef.current) setSelectingId(null);
-                }
-            }
-            setSelected(chosen);
-            setStep('preflight');
-            setSafetyConfirmed(false);
-
-            // Fire-and-forget: create private voyage channel for planning
-            ChatService.createVoyageChannel(chosen.id, chosen.voyage_name).catch(() => {
-                /* non-critical — channel can be created later */
-            });
-        },
-        [setError],
-    );
-
-    const handleCreateVoyage = useCallback(async () => {
-        if (!newName.trim()) return;
-        setCreating(true);
+    const handleSelect = useCallback((voyage: Voyage) => {
+        triggerHaptic('light');
+        setSelected(voyage);
+        setStep('preflight');
+        setSafetyConfirmed(false);
+        setShowFloatPlan(false);
         setError('');
-        try {
-            const result = await createVoyage({
-                voyage_name: newName.trim(),
-                departure_port: newFrom.trim() || null,
-                destination_port: newTo.trim() || null,
-                crew_count: newCrew,
-            });
-            if (result.voyage) {
-                setDrafts((prev) => [...prev, result.voyage!]);
-                setStep('select');
-                setNewName('');
-                setNewFrom('');
-                setNewTo('');
-                setNewCrew(2);
-                triggerHaptic('medium');
-            } else {
-                setError(result.error || 'Failed to create voyage');
-            }
-        } catch (e) {
-            console.warn('Suppressed:', e);
-            setError('Failed to create voyage');
-        }
-        setCreating(false);
+    }, []);
+
+    const handleCreateVoyage = useCallback(() => {
+        if (!newName.trim()) return;
+        setError('');
+        setSelected(
+            createCastOffSetup(
+                {
+                    voyage_name: newName.trim(),
+                    departure_port: newFrom.trim() || null,
+                    destination_port: newTo.trim() || null,
+                    crew_count: newCrew,
+                },
+                getAuthIdentityScope().userId,
+            ),
+        );
+        setStep('preflight');
+        setSafetyConfirmed(false);
+        setNewName('');
+        setNewFrom('');
+        setNewTo('');
+        setNewCrew(2);
+        triggerHaptic('medium');
     }, [newName, newFrom, newTo, newCrew]);
 
     const handleCastOff = useCallback(async () => {
-        if (!selected || !safetyConfirmed) return;
+        if (!selected || !safetyConfirmed || castingRef.current) return;
+        if (!isAuthIdentityScopeCurrent(panelScopeRef.current)) {
+            setError('Your account changed. Close this screen and start Cast Off again.');
+            return;
+        }
         const operationScope = getAuthIdentityScope();
         const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
+        castingRef.current = true;
         setCasting(true);
         setError('');
         triggerHaptic('heavy');
         let activatedVoyage: Voyage | null = null;
 
         try {
+            let chosen = selected;
+            if (isUnsavedCastOffSetup(chosen)) {
+                const trace = chosen.saved_route_id
+                    ? loadSavedTraces().find((item) => item.id === chosen.saved_route_id)
+                    : undefined;
+                const note = traceVerificationNote(trace);
+                const result = await createVoyage({
+                    voyage_name: chosen.voyage_name,
+                    departure_port: chosen.departure_port,
+                    destination_port: chosen.destination_port,
+                    crew_count: chosen.crew_count,
+                    departure_time: chosen.departure_time,
+                    eta: chosen.eta,
+                    saved_route_id: chosen.saved_route_id ?? undefined,
+                    ...(note ? { notes: note } : {}),
+                });
+                if (!operationIsCurrent()) return;
+                if (!result.voyage) {
+                    setError(result.error || 'Could not start this passage. Please retry Cast Off.');
+                    return;
+                }
+                chosen = result.voyage;
+                // Keep the exact server ID for response-loss retries. Once
+                // activation was attempted it may already be a live voyage:
+                // never delete it merely because a response did not arrive.
+                setSelected(chosen);
+                setDrafts((previous) => previous.map((row) => (row.id === selected.id ? chosen : row)));
+            }
             // The one-live-voyage rule is the SERVER'S (cast_off_voyage
             // refuses a second active row) — not the skipper's problem
             // (Shane 2026-08-27: "i dont think that it is necessary to
             // enforce it"). A stale active passage is ended & archived as
             // part of this same gesture; the preflight caution named it,
             // so nothing here is a surprise.
-            if (activeVoyage && activeVoyage.id !== selected.id) {
+            if (activeVoyage && activeVoyage.id !== chosen.id) {
                 const ended = await endVoyage(activeVoyage.id, 'completed');
                 if (!operationIsCurrent()) return;
                 if (!ended) {
@@ -341,10 +342,13 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 setCurrentLeg(null);
                 setCompletedLegs([]);
             }
-            const result = await castOff(selected.id);
+            const result = await castOff(chosen.id);
             if (!operationIsCurrent()) return;
             if (result.ok && result.voyage) {
                 activatedVoyage = result.voyage;
+                // No chat/crew artefacts are minted by opening or abandoning
+                // preflight. The private voyage channel begins only at sea.
+                void ChatService.createVoyageChannel(activatedVoyage.id, activatedVoyage.voyage_name).catch(() => {});
                 // Hand off to the Log page IMMEDIATELY (Shane 2026-08-26:
                 // "press the cast off button and the next button after that,
                 // it goes to the log page"). The old flow dwelt here while a
@@ -365,7 +369,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     publishRoute: publishPublic,
                     // The selected row carries the backfilled canonical
                     // trace link even when the table row predates it.
-                    savedRouteId: selected.saved_route_id ?? activatedVoyage.saved_route_id ?? null,
+                    savedRouteId: chosen.saved_route_id ?? activatedVoyage.saved_route_id ?? null,
                 });
                 void startHandoffGps();
                 onCastOff?.(activatedVoyage);
@@ -378,7 +382,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 cause instanceof Error && cause.message.trim() ? cause.message.trim() : 'Cast Off failed unexpectedly.';
             setError(`Cast Off could not be completed. ${detail}`);
         } finally {
-            if (operationIsCurrent()) setCasting(false);
+            castingRef.current = false;
+            // Busy state is local UI, not account data. A changed account
+            // must still be able to close the mounted panel after old work
+            // settles; the synchronous ref prevents a newer cast-off here.
+            if (mountedRef.current) setCasting(false);
         }
     }, [selected, safetyConfirmed, publishPublic, activeVoyage, onCastOff]);
 
@@ -413,10 +421,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setStep('select');
             const d = await getDraftVoyages();
             if (operationIsCurrent())
-                setDrafts([
-                    ...d,
-                    ...buildTraceStubRows(loadSavedTraces(), d, useSettingsStore.getState().settings.vessel),
-                ]);
+                setDrafts(castOffRouteChoices(d, loadSavedTraces(), useSettingsStore.getState().settings.vessel));
         } catch (cause) {
             if (!operationIsCurrent()) return;
             const detail = cause instanceof Error && cause.message.trim() ? ` ${cause.message.trim()}` : '';
@@ -483,12 +488,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
 
     // Standard header back navigation — every step has a chevron home.
     const handleBack = useCallback(() => {
+        if (castingRef.current) return;
         triggerHaptic('light');
         if (step === 'create') {
             setStep('select');
         } else if (step === 'preflight') {
             setStep('select');
             setSelected(null);
+            setShowFloatPlan(false);
         } else if (step === 'arrive' || step === 'depart_leg') {
             setArrivalPort('');
             setStep('active');
@@ -607,6 +614,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         <button
                             type="button"
                             onClick={handleBack}
+                            disabled={casting}
                             className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 text-gray-400 hover:bg-white/10"
                             aria-label="Back"
                         >
@@ -648,14 +656,15 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                           ? 'Passage Legs'
                                           : step === 'depart_leg'
                                             ? 'Passage Legs'
-                                            : 'Draft Voyages'}
+                                            : 'Saved Routes'}
                             </p>
                         </div>
                     </div>
                     <button
                         type="button"
                         ref={closeButtonRef}
-                        onClick={onClose}
+                        onClick={handleClose}
+                        disabled={casting}
                         className="flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-gray-400 hover:bg-white/10"
                         aria-label="Close dialog"
                     >
@@ -1057,7 +1066,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     </div>
                 )}
 
-                {/* ── Step 1: Draft Selection ── */}
+                {/* ── Step 1: Saved Route Selection ── */}
                 {step === 'select' && !loading && (
                     <div className="p-5 pt-2 space-y-3">
                         {/* The other steps render `error`; this one did not, so a
@@ -1071,8 +1080,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         {drafts.length === 0 ? (
                             <EmptyState
                                 icon="🗺️"
-                                title="No draft voyages yet"
-                                subtitle="Create your first passage to get started"
+                                title="Ready for a new passage?"
+                                subtitle="Start fresh now, or save a route in Plan. Nothing is saved until you Cast Off."
                                 actionLabel="+ New Voyage"
                                 onAction={() => {
                                     setStep('create');
@@ -1086,7 +1095,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     <button
                                         key={v.id}
                                         onClick={() => void handleSelect(v)}
-                                        disabled={selectingId !== null}
                                         className="w-full p-4 rounded-xl bg-white/3 border border-white/6 text-left hover:bg-white/5 hover:border-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 group"
                                     >
                                         <div className="flex items-start justify-between">
@@ -1099,11 +1107,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                                 </p>
                                             </div>
                                             <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
-                                                {selectingId === v.id
-                                                    ? 'Opening…'
-                                                    : v.id.startsWith(TRACE_STUB_ID_PREFIX)
-                                                      ? 'Saved route'
-                                                      : 'Draft'}
+                                                Saved route
                                             </span>
                                         </div>
                                         <div className="flex gap-3 mt-2 text-[11px] text-gray-500">
@@ -1209,10 +1213,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         <div className="space-y-2">
                             <button
                                 onClick={handleCreateVoyage}
-                                disabled={!newName.trim() || creating}
+                                disabled={!newName.trim()}
                                 className="w-full py-3.5 bg-linear-to-r from-amber-500 to-orange-500 rounded-xl text-sm font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 shadow-lg shadow-amber-500/20"
                             >
-                                {creating ? '⏳ Creating…' : '✨ Create Draft Voyage'}
+                                Continue to Cast Off
                             </button>
                             <button
                                 onClick={() => setStep('select')}
@@ -1348,7 +1352,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         </button>
 
                         {showFloatPlan && selected && (
-                            <FloatPlanSheet voyage={selected} onClose={() => setShowFloatPlan(false)} />
+                            <FloatPlanSheet
+                                voyage={setupFloatPlan ? undefined : selected}
+                                preset={setupFloatPlan}
+                                onClose={() => setShowFloatPlan(false)}
+                            />
                         )}
 
                         {error && (
@@ -1394,13 +1402,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 {casting ? '⏳ Casting Off…' : '⚓ CAST OFF'}
                             </button>
                             <button
-                                onClick={() => {
-                                    setStep('select');
-                                    setSelected(null);
-                                }}
+                                onClick={handleBack}
+                                disabled={casting}
                                 className="w-full py-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
                             >
-                                ← Back to Draft Selection
+                                ← Back to Routes
                             </button>
                         </div>
                     </div>

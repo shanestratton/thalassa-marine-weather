@@ -3258,7 +3258,11 @@ export const MapHub: React.FC<MapHubProps> = ({
             {!pickerMode && <RouteEnhancementChip />}
             {/* Map container — 70% on tablet during passage, full otherwise */}
             <div className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}>
-                <div ref={containerRef} className="thalassa-chart-map w-full h-full" />
+                <div
+                    ref={containerRef}
+                    data-map-pane={isHelmSplit ? 'split' : undefined}
+                    className="thalassa-chart-map w-full h-full"
+                />
 
                 {pickerMode && (
                     <div

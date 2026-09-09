@@ -16,6 +16,7 @@ const castOffMocks = vi.hoisted(() => ({
     startTracking: vi.fn(),
     stopTracking: vi.fn(),
     createVoyage: vi.fn(),
+    createVoyageChannel: vi.fn(),
 }));
 
 vi.mock('../../utils/createLogger', () => ({
@@ -52,6 +53,9 @@ vi.mock('../../services/ShipLogService', () => ({
         stopTracking: castOffMocks.stopTracking,
     },
 }));
+vi.mock('../../services/ChatService', () => ({
+    ChatService: { createVoyageChannel: castOffMocks.createVoyageChannel },
+}));
 
 import { CastOffPanel } from '../../components/vessel/CastOffPanel';
 import { clearCastOffHandoff, peekCastOffHandoff } from '../../services/castOffHandoff';
@@ -72,6 +76,7 @@ describe('CastOffPanel', () => {
         castOffMocks.startTracking.mockResolvedValue(undefined);
         castOffMocks.stopTracking.mockResolvedValue(undefined);
         castOffMocks.createVoyage.mockResolvedValue({ voyage: null, error: null });
+        castOffMocks.createVoyageChannel.mockResolvedValue(null);
         localStorage.clear();
     });
 
@@ -81,7 +86,7 @@ describe('CastOffPanel', () => {
 
     const renderSettled = async () => {
         const result = render(<CastOffPanel onClose={vi.fn()} />);
-        await screen.findByText('No draft voyages yet');
+        await screen.findByText('Ready for a new passage?');
         return result;
     };
 
@@ -556,7 +561,7 @@ describe('CastOffPanel', () => {
             expect(castOffMocks.startTracking).toHaveBeenCalledWith(true, 'voyage-active', expect.anything(), false),
         );
     });
-    it('a saved route with no voyage row is still offered here, and materialises on tap', async () => {
+    it('a saved route stays memory-only until confirmed Cast Off', async () => {
         // Shane 2026-08-27: "a route is not removed from the list in the cast
         // off list or the passage planning page, unless it is removed from
         // the plan page". This list only ever showed status='planning' rows,
@@ -598,11 +603,141 @@ describe('CastOffPanel', () => {
 
         fireEvent.click(row);
 
-        await vi.waitFor(() => expect(castOffMocks.createVoyage).toHaveBeenCalledTimes(1));
+        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
+        expect(castOffMocks.createVoyage).not.toHaveBeenCalled();
+        expect(castOffMocks.createVoyageChannel).not.toHaveBeenCalled();
+        const savedRoutesBefore = localStorage.getItem(authScopedStorageKey('thalassa_traced_routes_v1'));
+        fireEvent.click(screen.getByRole('button', { name: /Back to Routes/ }));
+        fireEvent.click(await screen.findByRole('button', { name: /Newport - Mackay/ }));
+        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
+        expect(castOffMocks.createVoyage).not.toHaveBeenCalled();
+        expect(localStorage.getItem(authScopedStorageKey('thalassa_traced_routes_v1'))).toBe(savedRoutesBefore);
+        castOffMocks.castOff.mockResolvedValue({ ok: false, error: 'Controlled activation failure' });
+        fireEvent.click(screen.getByRole('checkbox', { name: /Confirm Safety/ }));
+        fireEvent.click(screen.getByRole('button', { name: /CAST OFF/ }));
+        await screen.findByText('Controlled activation failure');
+        expect(castOffMocks.createVoyage).toHaveBeenCalledTimes(1);
         expect(castOffMocks.createVoyage).toHaveBeenCalledWith(
             expect.objectContaining({ saved_route_id: 'trace-1', voyage_name: 'Newport - Mackay' }),
         );
-        // …and it lands in the pre-departure check like any other draft.
-        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
+        expect(castOffMocks.castOff).toHaveBeenCalledWith('voyage-materialised');
+        expect(castOffMocks.createVoyageChannel).not.toHaveBeenCalled();
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: /CAST OFF/ })));
+        expect(castOffMocks.castOff).toHaveBeenCalledTimes(2);
+        expect(castOffMocks.createVoyage).toHaveBeenCalledTimes(1);
+    });
+
+    it('abandoning a quick passage saves no draft or chat channel and reopening starts fresh', async () => {
+        const onClose = vi.fn();
+        const opened = render(<CastOffPanel onClose={onClose} />);
+        fireEvent.click(await screen.findByRole('button', { name: '+ New Voyage' }));
+        fireEvent.change(screen.getByPlaceholderText('e.g. Tangalooma Day Trip'), {
+            target: { value: 'Abandoned Musgrave setup' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to Cast Off' }));
+        await screen.findByText('Confirm Safety');
+        fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        opened.unmount();
+        render(<CastOffPanel onClose={vi.fn()} />);
+        await screen.findByText('Ready for a new passage?');
+        expect(screen.queryByText('Abandoned Musgrave setup')).not.toBeInTheDocument();
+        expect(castOffMocks.createVoyage).not.toHaveBeenCalled();
+        expect(castOffMocks.castOff).not.toHaveBeenCalled();
+        expect(castOffMocks.createVoyageChannel).not.toHaveBeenCalled();
+    });
+
+    it('legacy abandoned setups are not route choices, while saved plans remain available', async () => {
+        castOffMocks.getDraftVoyages.mockResolvedValue([
+            { id: 'abandoned', voyage_name: 'Never sailed this', status: 'planning' },
+            { id: 'saved', voyage_name: 'Saved Lady Musgrave route', status: 'planning', saved_route_id: 'route-1' },
+        ]);
+        render(<CastOffPanel onClose={vi.fn()} />);
+        expect(await screen.findByRole('button', { name: /Saved Lady Musgrave route/ })).toBeInTheDocument();
+        expect(screen.queryByText('Never sailed this')).not.toBeInTheDocument();
+        expect(screen.queryByText('Draft Voyages')).not.toBeInTheDocument();
+        expect(castOffMocks.createVoyage).not.toHaveBeenCalled();
+    });
+
+    it('starts a quick passage once only, and only creates its channel after confirmed activation', async () => {
+        let resolveCreate!: (result: { voyage: object }) => void;
+        castOffMocks.createVoyage.mockReturnValue(
+            new Promise((resolve) => {
+                resolveCreate = resolve;
+            }),
+        );
+        const onClose = vi.fn();
+        const onCastOff = vi.fn();
+        render(<CastOffPanel onClose={onClose} onCastOff={onCastOff} />);
+        fireEvent.click(await screen.findByRole('button', { name: '+ New Voyage' }));
+        fireEvent.change(screen.getByPlaceholderText('e.g. Tangalooma Day Trip'), {
+            target: { value: 'Musgrave morning' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to Cast Off' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /Confirm Safety/ }));
+        const start = screen.getByRole('button', { name: /CAST OFF/ });
+        fireEvent.click(start);
+        fireEvent.click(start);
+        expect(castOffMocks.createVoyage).toHaveBeenCalledTimes(1);
+        expect(castOffMocks.castOff).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'Close dialog' })).toBeDisabled();
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(onClose).not.toHaveBeenCalled();
+        const voyage = {
+            id: 'actual-voyage',
+            user_id: 'account-a',
+            voyage_name: 'Musgrave morning',
+            departure_port: null,
+            destination_port: null,
+            crew_count: 2,
+            status: 'active',
+        };
+        castOffMocks.castOff.mockResolvedValue({ ok: true, voyage });
+        await act(async () => resolveCreate({ voyage: { ...voyage, status: 'planning' } }));
+        await vi.waitFor(() => expect(onCastOff).toHaveBeenCalledWith(voyage));
+        expect(castOffMocks.castOff).toHaveBeenCalledExactlyOnceWith('actual-voyage');
+        expect(castOffMocks.createVoyageChannel).toHaveBeenCalledExactlyOnceWith('actual-voyage', 'Musgrave morning');
+    });
+
+    it('does not create the old account’s in-memory setup under a new account', async () => {
+        render(<CastOffPanel onClose={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('button', { name: '+ New Voyage' }));
+        fireEvent.change(screen.getByPlaceholderText('e.g. Tangalooma Day Trip'), {
+            target: { value: 'Account A setup' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to Cast Off' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /Confirm Safety/ }));
+        setAuthIdentityScope('account-b');
+        fireEvent.click(screen.getByRole('button', { name: /CAST OFF/ }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Your account changed');
+        expect(castOffMocks.createVoyage).not.toHaveBeenCalled();
+    });
+
+    it('does not activate or start tracking when the account changes during final creation', async () => {
+        let finishCreate!: (result: { voyage: object }) => void;
+        castOffMocks.createVoyage.mockReturnValue(
+            new Promise((resolve) => {
+                finishCreate = resolve;
+            }),
+        );
+        const onClose = vi.fn();
+        render(<CastOffPanel onClose={onClose} />);
+        fireEvent.click(await screen.findByRole('button', { name: '+ New Voyage' }));
+        fireEvent.change(screen.getByPlaceholderText('e.g. Tangalooma Day Trip'), {
+            target: { value: 'Account A setup' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to Cast Off' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /Confirm Safety/ }));
+        fireEvent.click(screen.getByRole('button', { name: /CAST OFF/ }));
+        await act(async () => {
+            setAuthIdentityScope('account-b');
+            finishCreate({ voyage: { id: 'a-created-voyage', user_id: 'account-a', status: 'planning' } });
+        });
+        expect(castOffMocks.castOff).not.toHaveBeenCalled();
+        expect(castOffMocks.startTracking).not.toHaveBeenCalled();
+        expect(castOffMocks.createVoyageChannel).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'Close dialog' })).toBeEnabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
     });
 });

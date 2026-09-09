@@ -260,3 +260,138 @@ running yacht services and installed build 109 have not been changed. First
 activation must collect observations before a full hour exists. Device
 acceptance must then confirm LAN/cloud backfill after leaving/reopening the
 page and app, while disconnected/expired data stays honestly unavailable.
+
+## Transient Glass GPS loss — same unuploaded build 110
+
+Shane reported the Glass briefly replacing its forecast with a large red
+"Phone GPS unavailable" card, then recovering. The five-second GPS follower
+set a page-level error after one unsuccessful receiver read; App rendered that
+error instead of the forecast even when the existing report remained usable.
+The phone reader returns no fix for several native failure modes, so this is
+not a claim that a particular timeout or permission error was observed on his
+phone.
+
+Runtime **047ae1f6** retains only a report associated with an actual accepted
+fix for the same receiver, selection epoch and authenticated identity. Its
+position must remain within the follower's existing half-nautical-mile
+name-update radius; ordinary GPS drift must not turn a subsequent missed fix
+into a page failure. A loading placeholder does not qualify. First-use failures,
+unknown caches, newly selected receivers and known distant positions continue
+to expose the unavailable state rather than borrowing another location.
+
+The retained forecast keeps its original values, coordinates and generated
+time. The existing location field says **Last location · [name]** and its left
+icon becomes a compact retry button. No extra header row is added. GPS remains
+explicitly unavailable; the status panel reports the original fix's age.
+Automatic recovery clears the retained label. No fallback from phone to vessel
+or vice versa, automatic permission prompt, background GPS watcher or yacht
+service change was introduced.
+
+The focused seven-suite check passed **145 tests**. The placeholder regression
+was observed failing before its guard, then passing. Other retention tests were
+first run after implementation; no pre-fix red run is claimed for those.
+Changed-file ESLint and Prettier passed. Evidence:
+`/private/tmp/thalassa-110-gps-focused-final.log` and
+`/private/tmp/thalassa-110-gps-placeholder-before.log`.
+
+The full unit run completed with **9,897 passed**, three existing expected
+failures and five skips (1,106 files passed, four skipped; 222.58 seconds).
+The small placeholder guard was completed during that run and verified again
+in the focused suite; final frozen-source release tests follow the remaining
+Log/Cast Off/map fixes. `VITE_APP_BUILD=110 npm run ship:beta` passed, including
+TypeScript, iOS sync and all 140 artifact release contracts.
+
+The new production browser test first reproduced the old bundle's error
+takeover after accepting a working phone fix. Against the corrected bundle,
+the five-file startup/Log/status/GPS matrix passed **21 checks**, one existing
+conditional WebKit GPS skip, zero retries, in 51.8 seconds. Both Chromium and
+mobile WebKit kept the forecast, original metrics and location-card height
+through a timeout and unsuccessful compact retry, then recovered automatically.
+The mobile screenshot was inspected. These are desktop browser-engine checks,
+not a claim of native iPhone acceptance.
+
+Evidence: `/private/tmp/thalassa-110-gps-full-unit.log`,
+`/private/tmp/thalassa-110-gps-ship.log`,
+`/private/tmp/thalassa-110-gps-browser-before.log`,
+`/private/tmp/thalassa-110-gps-browser-final.log` and
+`/private/tmp/thalassa-110-gps-browser-final-results/`.
+
+Shane then supplied the additional Log route-duplicate, abandoned Cast Off
+setup and split-pane map-attribution issues, and confirmed full internal
+TestFlight delivery after these corrections. No build 110 archive has been
+uploaded at this checkpoint.
+
+## Approved yacht wind-history activation — 10 September 2026
+
+Shane explicitly approved Pi activation and supplied the correct connection,
+`shanes@100.86.90.84`. The saved `serene-summer` SSH alias pointed elsewhere
+and rejected authentication; no changes were made there. The supplied host
+was verified as `calypso`, Raspberry Pi 5, running the cache as `shanes` from
+`/opt/thalassa-pi-cache`.
+
+The installed `server.ts` and `trackSignalk.ts` exactly matched the pre-wind
+commit. The package manifest and compiler configuration matched; the yacht's
+existing dependency lockfile was retained. The validated, separately built
+wind patch replaced only these two modules plus new `windHistory`, including
+their source/declaration/map artifacts. Target Node 22 syntax and a staged
+read of the real Signal K wind source passed before installation. No dependency
+upgrade, broad pull, native app bundle deployment or producer change occurred.
+
+Immediately before restart the anchor relay was verified **off**, with no
+assignment. The approved `thalassa-cache` restart completed at **09:16:11 AEST**.
+It remains off; the skipper must enable and confirm a current assignment in
+the app before relying on it. Signal K was not restarted (its original
+09:07:41 start time was retained). The track recorder stayed enabled/running
+and loaded all 1,306 prior stored points, then recorded point 1,307.
+
+The environment, Pi identity and TLS certificate were byte-verified unchanged.
+Exact replaced software originals remain recoverable at
+`/home/shanes/thalassa-wind-backup.yX7tzD/`; staging remains at
+`/home/shanes/thalassa-wind-stage.yxc3Yw/`. These are software rollback backups,
+not a pre-update backup of the track database. Local execution evidence is in
+`/private/tmp/thalassa-wind-activation.2R2pRm/`.
+
+Verified LAN telemetry carried `wind_history_v: 1`, fresh original wind times,
+source `ydwg-tcp.YD`, stable Pi identity and growing sample counts with both
+peak windows. Heel and trim remained present. The existing cloud publisher
+returned `sent` with a new post-restart timestamp. This verifies successful
+publication acknowledgement, not an independent authenticated read of the
+stored Supabase row. Native/cloud-only display acceptance awaits build 110.
+No pre-activation readings are invented; a full preceding-hour window needs
+one hour of valid collection.
+
+## Final Log / Cast Off / split-map corrections
+
+The Log following-route picker previously exposed legacy planned-log mirrors
+which Plan already reconciled with saved routes. It now uses canonical links
+or a complete, direction-sensitive route-geometry match. Stored full curves
+take precedence over sparse waypoint rows; names, distance and shared endpoints
+alone cannot merge routes. Whole passages remain distinct from their first-leg
+anchor. Grouping identity is separate from geometry proven safe to follow.
+Unresolved or ambiguous rows remain visible; no database rows are deleted.
+
+Compatibility reads are restricted to twelve suspected small planned mirrors,
+three workers, with an actual query limit of expected count plus one (at most
+401 rows). Overruns are rejected, reads abort after six seconds or unmount,
+and account-change fences prevent late results entering another session. All
+other voyage readers retain their existing default limits. Eight focused suites
+passed 98 tests, including complete-curve, passage, bounded-read and abort cases.
+There is no evidence that these display duplicates caused the earlier lock-up.
+
+Cast Off now keeps new preflight setup in memory until confirmed Cast Off.
+Selecting a route, entering details and backing out no longer create a draft
+or private voyage channel. The chooser offers saved routes, not abandoned
+unlinked setup rows; old planning/crew/log records remain intact. Explicit
+Passage Planning selections still work. A successfully created server ID is
+retained for activation retries; a failed activation never deletes a potentially
+live voyage. Loss of the create response itself can still leave an unknown
+server planning row; this change does not claim globally idempotent creation.
+The focused Cast Off set passed 77 tests. Cross-review additionally corrected
+busy-control cleanup after an account change, without applying old-account data.
+
+Map attribution uses Mapbox's genuine compact control in map containers at or
+below 640 px, or split panes narrower than 960 px. The existing resize observer
+refreshes the control as pane geometry changes. All source credits, their
+expandable control and the Mapbox logo remain; no attribution is hidden by CSS.
+Eleven focused tests passed. Production-browser acceptance and the final frozen
+110 archive/delivery checks are recorded in the final release handoff.
