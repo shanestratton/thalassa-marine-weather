@@ -115,7 +115,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                     )}
                 </div>
 
-                <h3 id={titleId} className="text-lg font-black text-white text-center mb-2">
+                <h3 id={titleId} className="ui-dialog-title text-lg font-extrabold text-white text-center mb-2">
                     {title}
                 </h3>
                 <p className="text-sm text-gray-300 text-center mb-6">{message}</p>
@@ -132,7 +132,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                         aria-label={loading ? confirmLabel : undefined}
                         onClick={handleConfirm}
                         disabled={loading}
-                        className={`flex-1 py-3 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}
+                        className={`ui-confirm-action flex-1 py-3 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}
                     >
                         {loading ? (
                             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />

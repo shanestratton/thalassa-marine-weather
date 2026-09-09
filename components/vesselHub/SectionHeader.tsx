@@ -42,7 +42,10 @@ export const SectionHeader: React.FC<{
             aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
         >
             <div className="w-1.5 h-4 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-xs font-black uppercase tracking-[0.2em] flex-1 text-left" style={{ color }}>
+            <span
+                className="ui-section-heading text-xs font-bold uppercase tracking-[0.2em] flex-1 text-left"
+                style={{ color }}
+            >
                 {label}
             </span>
             <svg

@@ -101,7 +101,10 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                     button, and break-words lets a long title (an email
                     address, say) wrap instead of running under the X. */}
                 {title && (
-                    <h3 id={modalId} className="text-lg font-black text-white mb-4 pr-12 break-words">
+                    <h3
+                        id={modalId}
+                        className="ui-dialog-title text-lg font-extrabold text-white mb-4 pr-12 break-words"
+                    >
                         {title}
                     </h3>
                 )}

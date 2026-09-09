@@ -307,7 +307,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
                     {name && (
                         <div
                             style={{
-                                fontSize: '11px',
+                                fontSize: '12px',
                                 color: 'var(--day-ui-muted, #94a3b8)',
                                 fontWeight: 600,
                                 textTransform: 'uppercase',
@@ -331,7 +331,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
             >
                 {category && (
                     <>
-                        <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                        <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                             Category
                         </span>
                         <span style={{ fontWeight: 600 }}>{category}</span>
@@ -340,7 +340,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
 
                 {shape && (
                     <>
-                        <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                        <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                             Shape
                         </span>
                         <span style={{ fontWeight: 600 }}>{shape}</span>
@@ -349,7 +349,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
 
                 {lightChars && (
                     <>
-                        <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                        <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                             Light
                         </span>
                         <span
@@ -367,7 +367,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
 
                 {topmark && (
                     <>
-                        <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                        <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                             Topmark
                         </span>
                         <span style={{ fontWeight: 600 }}>{topmark.charAt(0).toUpperCase() + topmark.slice(1)}</span>
@@ -376,7 +376,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
 
                 {radarReflector && (
                     <>
-                        <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                        <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                             Radar
                         </span>
                         <span style={{ fontWeight: 600 }}>{radarReflector === 'yes' ? '✅ Reflector' : '—'}</span>
@@ -385,7 +385,7 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
 
                 {fogSignal && (
                     <>
-                        <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                        <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                             Fog
                         </span>
                         <span style={{ fontWeight: 600 }}>
@@ -397,14 +397,14 @@ export function SeamarkPopup({ seamarkType, name, tags, coordinates }: SeamarkPo
 
                 {/* Position — always shown */}
                 <>
-                    <span style={{ color: 'var(--day-ui-muted, #64748b)', fontWeight: 700, fontSize: '11px' }}>
+                    <span style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontWeight: 700, fontSize: '12px' }}>
                         Position
                     </span>
                     <span
                         style={{
                             fontWeight: 600,
                             fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: '11px',
+                            fontSize: '12px',
                             color: 'var(--day-ui-muted, #94a3b8)',
                         }}
                     >

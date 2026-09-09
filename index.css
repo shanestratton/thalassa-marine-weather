@@ -1,6 +1,9 @@
 @import 'tailwindcss';
 @import './styles/daylight.css';
 @import './styles/daylight-surfaces.css';
+@import './styles/legibility.css';
+@import './styles/action-legibility.css';
+@import './styles/glass-legibility.css';
 @import './styles/split-pane.css';
 
 /*
@@ -3978,25 +3981,25 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    fixing contrast by deleting the palette. Onshore now gets its own warm
    AA-compliant value.
 
-   Values are chosen to clear 4.5:1 while staying visibly darker than the
-   -400 step above them (5.3-5.7:1 against ~8:1), so the three-tier muted
-   ramp survives. Lifting straight to -400 would have met AA by
-   collapsing two tiers into one.
+   Build 107's uniform-caption follow-up uses the shared secondary ink
+   from styles/legibility.css. The old values only cleared the page base,
+   not raised slate-800 cards or the night scrim. Weight and sizing now
+   distinguish captions from titles; onshore retains its warm ink.
 
    Sunlight mode is excluded — it remaps these to dark-on-light itself.
    ──────────────────────────────────────────────────────────────── */
 :root:not(.display-light):not(.theme-onshore) .text-gray-500 {
-    color: rgb(124 134 148); /* 5.47:1 on slate-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 :root:not(.display-light):not(.theme-onshore) .text-slate-500 {
-    color: rgb(122 138 158); /* 5.72:1 on slate-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 :root:not(.display-light).theme-onshore .text-gray-500,
 :root:not(.display-light).theme-onshore .text-slate-500 {
-    color: rgb(139 131 125); /* warm stone, 5.31:1 on stone-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary)); /* warm onshore caption ink */
 }
 :root:not(.display-light) .text-white\/40 {
-    color: rgb(255 255 255 / 0.62);
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 
 /* ────────────────────────────────────────────────────────────────

@@ -30,10 +30,10 @@ const CardDetail: React.FC<{ card: ReferenceCard; onBack: () => void }> = ({ car
         <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-slate-950/85 backdrop-blur-xl border-b border-white/10 pt-[env(safe-area-inset-top)]">
             <BackButton onClick={onBack} />
             <div className="flex-1 min-w-0">
-                <h1 className="text-[15px] font-bold tracking-tight truncate">
+                <h1 className="ui-page-title text-xl font-extrabold tracking-tight break-words">
                     {card.emoji} {card.title}
                 </h1>
-                <p className="text-[11px] text-slate-400 truncate">{card.subtitle}</p>
+                <p className="ui-caption text-xs text-slate-400">{card.subtitle}</p>
             </div>
         </div>
 
@@ -105,8 +105,8 @@ export const SkipperReference: React.FC<{ onBack: () => void }> = ({ onBack }) =
             <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-slate-950/85 backdrop-blur-xl border-b border-white/10 pt-[env(safe-area-inset-top)]">
                 <BackButton onClick={onBack} />
                 <div className="flex-1">
-                    <h1 className="text-[15px] font-bold tracking-tight">Skipper's Reference</h1>
-                    <p className="text-[11px] text-slate-400">Read the weather like a passage-maker</p>
+                    <h1 className="ui-page-title text-xl font-extrabold tracking-tight">Skipper's Reference</h1>
+                    <p className="ui-caption text-xs text-slate-400">Read the weather like a passage-maker</p>
                 </div>
             </div>
 

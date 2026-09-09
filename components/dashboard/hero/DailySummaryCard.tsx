@@ -24,9 +24,11 @@ interface DailySummaryCardProps {
 
 const Metric: React.FC<{ label: string; value: string; sub?: string }> = ({ label, value, sub }) => (
     <div className="flex flex-col items-center text-center px-2">
-        <span className="text-[11px] uppercase tracking-wider text-white/45">{label}</span>
+        <span className="glass-forecast-caption text-[11px] font-semibold uppercase tracking-wider text-white/45">
+            {label}
+        </span>
         <span className="text-xl font-bold text-white tabular-nums">{value}</span>
-        {sub ? <span className="text-[11px] text-white/55">{sub}</span> : null}
+        {sub ? <span className="glass-forecast-caption text-[11px] text-white/55">{sub}</span> : null}
     </div>
 );
 
@@ -49,7 +51,9 @@ const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
 /** Wind-direction cell: arrow with the cardinal underneath. */
 const DirCell: React.FC<{ deg: number }> = ({ deg }) => (
     <div className="flex flex-col items-center text-center px-2">
-        <span className="text-[11px] uppercase tracking-wider text-white/45">Dir</span>
+        <span className="glass-forecast-caption text-[11px] font-semibold uppercase tracking-wider text-white/45">
+            Dir
+        </span>
         <WindArrow deg={deg} />
         <span className="text-[11px] font-semibold text-white/80">{degreesToCardinal(deg)}</span>
     </div>
@@ -85,7 +89,7 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
                     <span className="text-4xl font-black tabular-nums">
                         {high !== '--' ? `${high}${tempUnit}` : '--'}
                     </span>
-                    <span className="text-xl font-semibold text-white/45 tabular-nums">
+                    <span className="glass-forecast-caption text-xl font-semibold text-white/45 tabular-nums">
                         {low !== '--' ? `${low}${tempUnit}` : '--'}
                     </span>
                 </div>

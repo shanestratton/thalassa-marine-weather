@@ -13,6 +13,27 @@
 
 The future per-screen introductions and “Don't show again” workflow are **not included**. This work changes presentation and interaction containment, not vessel data, navigation calculations, warning thresholds or live service configuration.
 
+## Follow-up — uniform labels across the app
+
+**Follow-up verification:** 70/70 Chromium/WebKit source browser checks passed; formatting, lint (63 existing warnings) and 126 source release contracts passed. The first full unit run passed 9,544 tests and caught two safety-label sizing contracts; restoring the intentionally compact sizing passed all 21 focused follow-up tests. A fresh full unit run and type check are pending. The bundle/identity recorded below is the earlier 107 artifact, not this unbuilt follow-up. Per Shane's direction, wait for the other task's final source commit before the combined build and sync.
+
+The Glass review exposed a real compositing gap: its translucent cells sit over the daylight slate background, not plain white. The live metric headings measured about **3.85:1**, and the clear-weather status about **4:1**. Those labels now use stronger, opaque daylight ink. Forecast captions and canvas time labels are also stronger; the tide plot coordinates and card heights are unchanged.
+
+The app-wide source sweep covered **30 route destinations** (28 registered views plus Dashboard and Map), the seven settings panels, and shared forms/dialogs:
+
+- Main tabs: Glass, Charts, Plan, Ship's Log and Vessel.
+- Safety/reference: Warnings, Anchor Watch, Weather Window, Skipper's Reference, Radio and MOB.
+- Binder: Stores, Maintenance, Equipment, Documents, Diary, Crew, Checklists and Galley.
+- Navigation/hardware: Polars, NMEA Gateway, Instrument Panel, Boat Network, ENC Library and GPX Import.
+- Community/settings: Scuttlebutt, Calypso, Music, Guardian and Settings, including the feature-gated hold pages.
+- Settings: Preferences, Vessel Profile, Locations, Notifications, Account & Cloud, Voyage Log and Boat Pi.
+
+Shared text roles now provide 20px page titles, 18px dialog titles, 13px section/form labels and 12px captions, with solid theme-aware ink. Existing data/gauge scales are not forced into the title scale. Warm onshore colours, meaningful warning hues, disabled/stale states and the night scrim remain. Hover cues remain distinct from neutral caption text.
+
+Targeted exceptions include gradient settings headings, faded inactive-service descriptions, track labels and log coordinates, polar/anchor chart labels and inline map-popup text. The four dense Vessel safety captions deliberately retain their existing 9.5px sizing: their regression tests preserve the complete word **OVERBOARD** in the narrowest tile. They are not swept into the generic 12px floor. Active-weather warnings and their count badge use deeper red/white contrast; form errors and confirmation actions also remain readable under night dimming. Warning selection, counts, thresholds and confirmation behaviour are unchanged.
+
+New browser fixtures mount the real Glass grids, forecast/tide/warning components and shared page/form/settings/dialog components at **320, 390 and 669px**. They measure composed colours, ancestor opacity, actual canvas fills and night overlays, plus clipping, typography, disabled states, hover cues and live theme changes. Source coverage is **not** a claim to have visually navigated every authenticated or hardware-dependent state on all 30 pages. Physical sunlight/iPad checks remain required.
+
 ## Verification
 
 Browser tests use local fixtures with simulated keyboard geometry, not an actual iOS software keyboard or a live yacht connection.

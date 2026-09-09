@@ -60,7 +60,9 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
             {onBack && <BackButton onClick={onBack} />}
 
             <div className="flex-1 min-w-0">
-                <h1 className="text-xl font-extrabold text-white uppercase tracking-wider truncate">{title}</h1>
+                <h1 className="ui-page-title text-xl font-extrabold text-white uppercase tracking-wider truncate">
+                    {title}
+                </h1>
                 {subtitle &&
                     (typeof subtitle === 'string' ? (
                         // Bumped 11 → 12 px 2026-05-17. PageHeader sits at
@@ -69,7 +71,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                         // they're in the right place. At 11 px with the
                         // tracking-widest + uppercase + 400-weight grey it
                         // was sliding into illegibility on glare/spray.
-                        <p className="text-xs text-gray-300 font-bold uppercase tracking-widest">{subtitle}</p>
+                        <p className="ui-caption text-xs text-gray-300 uppercase tracking-widest">{subtitle}</p>
                     ) : (
                         subtitle
                     ))}

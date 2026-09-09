@@ -66,7 +66,7 @@ export const PerfDowntierToast: React.FC<PerfDowntierToastProps> = ({ visible })
                     </span>
                     <span
                         className="leading-tight mt-0.5"
-                        style={{ color: 'var(--day-ui-muted, rgba(255,255,255,0.75))', fontSize: 10 }}
+                        style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontSize: 12 }}
                     >
                         Particle density turned down for smoother performance on this device.
                     </span>
