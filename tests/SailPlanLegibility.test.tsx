@@ -27,6 +27,12 @@
  * discrete reef points), a degree ring on the wind arrow (BOOM_ANGLE is five
  * named bands, not a measurement), and importing POS from sereneSailing.ts
  * (dead code with an inverted sign).
+ *
+ * 2026-09-09: the hardware came OFF the drawing at Shane's request ("can we have
+ * the traveller and the yankee car off the vessel altogether … it just makes it
+ * very messy for the sail area"). The colour-bug history above is kept because
+ * it is why hue is pinned to the wind arrow alone; the marks it was about no
+ * longer exist, and this file now pins their absence.
  */
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -50,29 +56,17 @@ const mark = (c: HTMLElement, name: string) => c.querySelector(`[data-mark="${na
 const cx = (c: HTMLElement) => Number((c.querySelector('[data-mark="mast"]') as SVGElement).getAttribute('cx'));
 
 describe('hue means exactly one thing: which side the wind is on', () => {
-    it('never paints hardware port or starboard', () => {
+    it('paints nothing but the wind arrow and the headsail tint port or starboard', () => {
         for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach', 'Running']) {
             for (const windAngle of [45, 315]) {
                 const c = draw({ band, windAngle });
-                for (const name of ['traveller-car', 'yankee-car', 'rail-block']) {
-                    const el = mark(c, name);
-                    if (!el) continue;
-                    const fill = el.getAttribute('fill');
-                    expect(fill, `${name} ${band} @${windAngle}`).not.toBe(PORT);
-                    expect(fill, `${name} ${band} @${windAngle}`).not.toBe(STBD);
-                }
+                // The only hard PORT/STBD fills are the arrow's two parts.
+                const hard = [...c.querySelectorAll('[fill], [stroke]')].filter((el) =>
+                    [el.getAttribute('fill'), el.getAttribute('stroke')].some((v) => v === PORT || v === STBD),
+                );
+                expect(hard.length, `${band} @${windAngle}`).toBe(2);
             }
         }
-    });
-
-    it('the beam-reach car is drawn to leeward — the state the old fill got wrong', () => {
-        // Wind at 45 is on the starboard bow, so the rig is to PORT and the
-        // beam-reach traveller goes to leeward with it. The old code filled
-        // this starboard green.
-        const c = draw({ band: 'Beam reach', windAngle: 45 });
-        const car = mark(c, 'traveller-car');
-        expect(Number(car.getAttribute('x'))).toBeLessThan(cx(c));
-        expect(car.getAttribute('fill')).not.toBe(STBD);
     });
 
     it('still uses port and starboard where they belong — the wind arrow', () => {
@@ -107,35 +101,28 @@ describe('the sail the pole is holding is on the pole side', () => {
     });
 });
 
-describe('the marks that answer the question are drawn, not implied', () => {
-    it('draws the mainsheet, so the traveller has a stated purpose', () => {
-        expect(mark(draw(), 'mainsheet')).not.toBeNull();
-    });
-
-    it('draws the yankee sheet to whichever fitting is live', () => {
-        for (const band of ['Beating', 'Beam reach', 'Running']) {
-            expect(mark(draw({ band }), 'yankee-sheet'), band).not.toBeNull();
+describe('the hardware is off the boat', () => {
+    // Shane 2026-09-09. The traveller track, its car, the mainsheet, the
+    // yankee track, its car, the rail block and the yankee sheet are gone from
+    // the drawing; the trim prose under it still names them.
+    it('draws none of it, in any band, on either tack', () => {
+        for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach', 'Running']) {
+            for (const windAngle of [45, 315]) {
+                const c = draw({ band, windAngle });
+                for (const name of ['traveller-car', 'yankee-car', 'rail-block', 'mainsheet', 'yankee-sheet']) {
+                    expect(mark(c, name), `${name} ${band} @${windAngle}`).toBeNull();
+                }
+                expect(c.textContent, `${band} @${windAngle}`).not.toMatch(/TRAVELLER|YANKEE CAR|RAIL BLOCK/);
+            }
         }
     });
 
-    it('ghosts the traveller car on a run instead of claiming a position', () => {
-        // The table parks it at centre to mean "not the control that matters
-        // here". A filled car at dead centre is still a claim about where a
-        // physical thing is.
-        const run = mark(draw({ band: 'Running' }), 'traveller-car');
-        expect(run.getAttribute('fill')).toBe('none');
-        expect(run.getAttribute('stroke-dasharray')).toBeTruthy();
-        const reach = mark(draw({ band: 'Beam reach' }), 'traveller-car');
-        expect(reach.getAttribute('fill')).not.toBe('none');
-    });
-
-    it('keeps the traveller track inside the hull', () => {
-        // A track hanging off the topsides is a lie about the boat, and
-        // lengthening it to make the car easier to read would buy legibility
-        // with accuracy. The car got bigger instead.
+    it('and the tables that positioned it are gone with it', () => {
         const src = readFileSync('components/nmea/gauges/SailPlanDiagram.tsx', 'utf8');
-        expect(src).toMatch(/const TRACK_HALF = 50;/);
-        // Half-beam at the widest station in the hull path.
+        expect(src).not.toContain('TRAVELLER_POS');
+        expect(src).not.toContain('YANKEE_LEAD');
+        // Half-beam at the widest station in the hull path — the hull itself
+        // is unchanged.
         expect(src).toContain('CX + 58} 236');
     });
 });
@@ -199,7 +186,7 @@ describe('nothing runs off the frame', () => {
         }
     });
 
-    it('keeps the hull and the traveller track inside it', () => {
+    it('keeps the hull inside it', () => {
         for (const windAngle of [45, 315]) {
             const c = draw({ windAngle });
             const centre = cx(c);

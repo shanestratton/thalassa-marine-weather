@@ -42,6 +42,14 @@
  * discrete reef points), a degree ring around the wind arrow (BOOM_ANGLE is
  * five named bands, not a measurement), the preventer's actual route, and
  * importing POS from sereneSailing.ts (dead code, and its sign is inverted).
+ *
+ * HARDWARE OFF THE BOAT, 2026-09-09. Shane: "can we have the traveller and the
+ * yankee car off the vessel altogether. we know what they are, but it just
+ * makes it very messy for the sail area." So the traveller track, its car and
+ * the mainsheet, and the yankee track, its car, the rail block and the yankee
+ * sheet are gone from the drawing. The words below the picture still carry
+ * the traveller and car advice verbatim; the picture is now sails, boom, wind
+ * and — because it puts a sail on the OTHER side of the boat — the pole.
  */
 import React from 'react';
 import '../instrumentDaylight.css';
@@ -96,36 +104,8 @@ const BOOM_ANGLE: Record<string, number> = {
     Running: 88,
 };
 
-/* Traveller car along its track, -1 fully to windward … +1 fully to leeward.
-   Beating puts it up to windward so the sheet can set the leech; running
-   makes it irrelevant, which the diagram says by parking it at centre and
-   letting the preventer flag carry the message instead. */
-const TRAVELLER_POS: Record<string, number> = {
-    Beating: -0.6,
-    'Close reach': -0.15,
-    'Beam reach': 0.35,
-    'Broad reach': 0.8,
-    Running: 0,
-};
-
-/**
- * Where the yankee sheet actually leads, which is NOT the same question as
- * where the car is — and the prose is emphatic about it. On the wind the car
- * is left alone and sheet tension does the work. Reaching, the lead wants to
- * go outboard and the track cannot do outboard, so it comes off to a snatch
- * block on the toe rail. Running, the sail is poled to windward. Drawing a
- * car sliding along a track through all of that would illustrate the
- * opposite of the advice.
- *
- * `car` is the position along the track, 0 forward … 1 aft.
- */
-const YANKEE_LEAD: Record<string, { car: number; mode: 'track' | 'rail' | 'poled' }> = {
-    Beating: { car: 0.42, mode: 'track' },
-    'Close reach': { car: 0.55, mode: 'track' },
-    'Beam reach': { car: 0.62, mode: 'rail' },
-    'Broad reach': { car: 0.62, mode: 'rail' },
-    Running: { car: 0.62, mode: 'poled' },
-};
+/* Running is the one band that puts the yankee on the pole, to windward. */
+const POLED_BANDS = new Set(['Running']);
 
 const PORT = '#ef5350';
 const STBD = '#25b167';
@@ -133,11 +113,8 @@ const INK = '#ffffff';
 const INK_2 = '#d8d6cc';
 const MUTED = '#8f8d86';
 const GRID = '#2c2c2a';
-/* Tracks are metal, not background. At GRID they read as a shadow, which is
-   why the car looked like it was floating on the deck. */
+/* Hull and stowed-sail strokes. Metal, not background. */
 const METAL = '#6f6b62';
-/* Hardware. Bright and neutral — see the colour note in the header. */
-const HARDWARE = '#f1f0ea';
 const CASING = '#0b0b0a';
 const WARN = '#fbbf24';
 
@@ -178,13 +155,6 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
        sits centred. */
     const CX = W / 2 - (hasWind ? lee * CENTRE_SHIFT : 0);
     const boomDeg = BOOM_ANGLE[band] ?? 45;
-    const travel = (TRAVELLER_POS[band] ?? 0) * lee;
-
-    /* On a run the traveller is not the control that matters — the preventer
-       is — and the table parks it at centre to say so. A filled car at dead
-       centre is still a CLAIM about where a physical thing is, so it is drawn
-       hollow instead: present, and visibly not the answer. */
-    const runningBand = band === 'Running';
     const mainDown = main === 'Down';
     const yankeeSet = yankee !== 'Furled' && yankee !== 'Down';
     const staySet = stay === true || stay === 'storm';
@@ -198,38 +168,11 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
     const boomX = CX + BOOM_LEN * Math.sin(boomRad) * lee;
     const boomY = MAST_Y + BOOM_LEN * Math.cos(boomRad);
 
-    /* Traveller track, athwartships abaft the mast at the widest station.
-       TRACK_HALF stays INSIDE the hull's half-beam there (58): a track drawn
-       hanging off the topsides is a lie about the boat, and lengthening it
-       further to make the car's position easier to read would be buying
-       legibility with accuracy. The car got bigger instead. */
-    const TRACK_HALF = 50;
-    const TRACK_Y = 236;
-    const carX = CX + travel * TRACK_HALF;
-
-    // Yankee sheet track — fore-and-aft along the leeward side deck.
-    const lead = YANKEE_LEAD[band] ?? { car: 0.55, mode: 'track' as const };
-    const YT_FWD = 116;
-    const YT_AFT = 208;
-    const ytX = CX + lee * 44;
-    const ytCarY = YT_FWD + (YT_AFT - YT_FWD) * lead.car;
-    const railX = CX + lee * 56;
-    const poled = lead.mode === 'poled';
+    const poled = POLED_BANDS.has(band);
     /* POLED PUTS THE SAIL TO WINDWARD. Everything else on this drawing sets to
-       leeward, and the yankee was drawn there in every state — including the
-       one where it is goose-winged out on the pole, on the opposite side to
-       the mainsail. The pole was drawn correctly and the sail it carries was
-       not. */
+       leeward; on the pole the yankee is goose-winged out on the opposite side
+       to the mainsail. */
     const headSide = poled ? -lee : lee;
-    /* Where the yankee's clew is, so its sheet can be drawn TO something.
-       The sheet is what makes the car/rail/pole distinction legible: without
-       it the three are just marks in different places. */
-    const clew: [number, number] = [CX + headSide * 16, 178];
-    const liveLead: [number, number] = poled
-        ? [CX - lee * 84, MAST_Y - 50]
-        : lead.mode === 'rail'
-          ? [railX, ytCarY]
-          : [ytX, ytCarY];
 
     return (
         <svg
@@ -403,186 +346,39 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 strokeLinecap="round"
                 opacity={mainDown ? 0.5 : 1}
             />
-            {/* THE MAINSHEET, from the traveller car to the boom. Without it
-                the car is a chip on a rail with no stated purpose; with it,
-                "where the traveller is" and "what it is doing to the boom"
-                are one picture. Drawn to 0.6 along the boom, which is where
-                the sheet actually leads, not to the end. */}
-            {!mainDown && (
-                <line
-                    data-mark="mainsheet"
-                    x1={carX.toFixed(1)}
-                    y1={TRACK_Y}
-                    x2={(CX + (boomX - CX) * 0.6).toFixed(1)}
-                    y2={(MAST_Y + (boomY - MAST_Y) * 0.6).toFixed(1)}
-                    stroke={INK_2}
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    opacity={0.85}
-                />
-            )}
             <circle data-mark="mast" cx={CX} cy={MAST_Y} r={7} fill={INK} stroke={CASING} strokeWidth={2} />
 
-            {/* ── traveller: track, then the car on it ── */}
-            <line
-                x1={CX - TRACK_HALF}
-                y1={TRACK_Y}
-                x2={CX + TRACK_HALF}
-                y2={TRACK_Y}
-                stroke={METAL}
-                strokeWidth={9}
-                strokeLinecap="round"
-            />
-            {/* End stops and a centre notch. The car's reading is a FRACTION
-                of the track, and a fraction needs a scale — without the ends
-                and the middle marked, "a bit to windward" and "hard up" look
-                the same at a glance. */}
-            {[-1, 1].map((side) => (
-                <line
-                    key={side}
-                    x1={CX + side * TRACK_HALF}
-                    y1={TRACK_Y - 8}
-                    x2={CX + side * TRACK_HALF}
-                    y2={TRACK_Y + 8}
-                    stroke={METAL}
-                    strokeWidth={3}
-                    strokeLinecap="round"
-                />
-            ))}
-            <line x1={CX} y1={TRACK_Y - 6} x2={CX} y2={TRACK_Y + 6} stroke={CASING} strokeWidth={2} />
-            {/* NEUTRAL, not port/starboard. See the colour note in the header:
-                this was filled by which side the WIND was on while being
-                positioned on the LEEWARD side, so on a beam reach it sat to
-                starboard painted port red. Hue means one thing here. */}
-            <rect
-                data-mark="traveller-car"
-                x={(carX - 13).toFixed(1)}
-                y={TRACK_Y - 9}
-                width={26}
-                height={18}
-                rx={4}
-                fill={runningBand ? 'none' : HARDWARE}
-                stroke={runningBand ? MUTED : CASING}
-                strokeWidth={2}
-                strokeDasharray={runningBand ? '4 4' : undefined}
-            />
-            <text x={CX} y={TRACK_Y + 32} textAnchor="middle" fill={MUTED} fontSize={15} fontWeight={800} style={LABEL}>
-                TRAVELLER
-            </text>
-
-            {/* ── yankee sheet lead ── */}
-            {yankeeSet && (
-                <g>
+            {/* ── the pole, when the yankee is out on it ──
+                The only piece of gear left on the drawing (2026-09-09): it
+                goes to WINDWARD, the opposite side to everything else, and it
+                is why the yankee is drawn on that side. The traveller, its
+                car, the mainsheet, the yankee car, its track and the rail
+                block came off the boat — "we know what they are". */}
+            {yankeeSet && poled && (
+                <>
                     <line
-                        x1={ytX.toFixed(1)}
-                        y1={YT_FWD}
-                        x2={ytX.toFixed(1)}
-                        y2={YT_AFT}
-                        stroke={METAL}
-                        strokeWidth={7}
+                        data-mark="pole"
+                        x1={CX}
+                        y1={MAST_Y - 8}
+                        x2={(CX - lee * 84).toFixed(1)}
+                        y2={(MAST_Y - 50).toFixed(1)}
+                        stroke={INK}
+                        strokeWidth={5}
                         strokeLinecap="round"
                     />
-                    {/* On the track the car IS the lead. Off it, the car is
-                        drawn hollow and parked — "the car itself stays put" —
-                        and the live lead is the block on the rail. */}
-                    {/* THE YANKEE SHEET, clew to whichever fitting is live.
-                        The whole point of this trio is the difference between
-                        a car parked on its track, a live lead out on the rail,
-                        and a sail poled to windward — and three marks in three
-                        places do not state a difference. A line to the one
-                        that is working does. */}
-                    <line
-                        data-mark="yankee-sheet"
-                        x1={clew[0].toFixed(1)}
-                        y1={clew[1]}
-                        x2={liveLead[0].toFixed(1)}
-                        y2={liveLead[1].toFixed(1)}
-                        stroke={INK_2}
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        opacity={0.85}
-                    />
-                    <rect
-                        data-mark="yankee-car"
-                        x={(ytX - 8).toFixed(1)}
-                        y={(ytCarY - 11).toFixed(1)}
-                        width={16}
-                        height={22}
-                        rx={4}
-                        fill={lead.mode === 'track' ? HARDWARE : 'none'}
-                        stroke={lead.mode === 'track' ? CASING : MUTED}
-                        strokeWidth={2}
-                    />
-                    {lead.mode === 'rail' && (
-                        <>
-                            <circle
-                                data-mark="rail-block"
-                                cx={railX.toFixed(1)}
-                                cy={ytCarY.toFixed(1)}
-                                r={8.5}
-                                fill={HARDWARE}
-                                stroke={CASING}
-                                strokeWidth={2}
-                            />
-                            <text
-                                x={railX.toFixed(1)}
-                                y={(ytCarY + 18).toFixed(1)}
-                                textAnchor="middle"
-                                fill={INK_2}
-                                fontSize={15}
-                                fontWeight={800}
-                                style={LABEL}
-                            >
-                                RAIL BLOCK
-                            </text>
-                        </>
-                    )}
-                    {lead.mode === 'poled' && (
-                        <>
-                            {/* The pole goes to WINDWARD — the opposite side to
-                                everything else here, which is exactly why it is
-                                worth drawing rather than describing. */}
-                            <line
-                                data-mark="pole"
-                                x1={CX}
-                                y1={MAST_Y - 8}
-                                x2={(CX - lee * 84).toFixed(1)}
-                                y2={(MAST_Y - 50).toFixed(1)}
-                                stroke={INK}
-                                strokeWidth={5}
-                                strokeLinecap="round"
-                            />
-                            <text
-                                x={(CX - lee * 84).toFixed(1)}
-                                y={(MAST_Y - 62).toFixed(1)}
-                                textAnchor="middle"
-                                fill={INK_2}
-                                fontSize={15}
-                                fontWeight={800}
-                                style={LABEL}
-                            >
-                                POLED
-                            </text>
-                        </>
-                    )}
-                    {/* Anchored outboard, not centred on the track. Centred,
-                        a 10-character label reaches back across the hull and
-                        lands on TRAVELLER — which is what the screenshot
-                        shows. */}
                     <text
-                        x={(ytX + lee * 14).toFixed(1)}
-                        y={(YT_AFT + 22).toFixed(1)}
-                        textAnchor={lee > 0 ? 'start' : 'end'}
-                        fill={MUTED}
+                        x={(CX - lee * 84).toFixed(1)}
+                        y={(MAST_Y - 62).toFixed(1)}
+                        textAnchor="middle"
+                        fill={INK_2}
                         fontSize={15}
                         fontWeight={800}
                         style={LABEL}
                     >
-                        YANKEE CAR
+                        POLED
                     </text>
-                </g>
+                </>
             )}
-
             {/* ── the two things that hurt people ──
                 These were the SMALLEST text in the drawing at 11px, under
                 marks four times their weight. An unexpected boom is the injury
