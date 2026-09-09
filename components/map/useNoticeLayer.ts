@@ -119,14 +119,14 @@ export function localNoticePopupHtml(n: LocalNotice): string {
     const tag = n.permanent ? 'STANDING NOTICE' : (n.issued ?? 'NOTICE');
     const sourceUrl = safeExternalHttpUrl(n.sourceUrl, true);
     const src = sourceUrl
-        ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#38bdf8;text-decoration:underline;">${esc(n.sourceName ?? 'Current notices')}</a>`
+        ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:var(--day-ui-accent, #38bdf8);text-decoration:underline;">${esc(n.sourceName ?? 'Current notices')}</a>`
         : '';
     return `
-      <div style="font-family:inherit;color:#e2e8f0;max-width:250px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#fcd34d;margin-bottom:2px;">📄 ${esc(tag)}</div>
+      <div style="font-family:inherit;color:var(--day-ui-text, #e2e8f0);max-width:250px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-amber, #fcd34d);margin-bottom:2px;">📄 ${esc(tag)}</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(n.title)}</div>
-        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">${esc(n.summary)}</div>
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">${esc(n.detail)}</div>
+        <div style="font-size:11px;color:var(--day-ui-muted, #cbd5e1);margin-bottom:4px;">${esc(n.summary)}</div>
+        <div style="font-size:11px;color:var(--day-ui-muted, #94a3b8);margin-bottom:6px;">${esc(n.detail)}</div>
         ${src ? `<div style="font-size:11px;">${src}</div>` : ''}
       </div>`;
 }
@@ -139,9 +139,9 @@ export function qldNoticeGroupPopupHtml(label: string, group: readonly QldNotice
             return pdfUrl
                 ? `
         <div style="margin-bottom:7px;">
-          <a href="${esc(pdfUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#38bdf8;text-decoration:underline;font-size:12px;font-weight:700;">${esc(n.number)}</a>
-          <span style="font-size:10px;color:#64748b;"> · ${esc(n.dateStr)}</span>
-          <div style="font-size:11px;color:#cbd5e1;">${esc(n.subject)}</div>
+          <a href="${esc(pdfUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:var(--day-ui-accent, #38bdf8);text-decoration:underline;font-size:12px;font-weight:700;">${esc(n.number)}</a>
+          <span style="font-size:10px;color:var(--day-ui-muted, #64748b);"> · ${esc(n.dateStr)}</span>
+          <div style="font-size:11px;color:var(--day-ui-muted, #cbd5e1);">${esc(n.subject)}</div>
         </div>`
                 : '';
         })
@@ -149,13 +149,13 @@ export function qldNoticeGroupPopupHtml(label: string, group: readonly QldNotice
     const datasetUrl = safeExternalHttpUrl(group[0]?.datasetUrl, true);
     const more =
         datasetUrl && group.length > 4
-            ? `<div style="font-size:10px;"><a href="${esc(datasetUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#94a3b8;text-decoration:underline;">+${group.length - 4} more — all ${esc(group[0].region)} notices</a></div>`
+            ? `<div style="font-size:10px;"><a href="${esc(datasetUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:var(--day-ui-muted, #94a3b8);text-decoration:underline;">+${group.length - 4} more — all ${esc(group[0].region)} notices</a></div>`
             : datasetUrl
-              ? `<div style="font-size:10px;"><a href="${esc(datasetUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#94a3b8;text-decoration:underline;">All ${esc(group[0].region)} notices</a></div>`
+              ? `<div style="font-size:10px;"><a href="${esc(datasetUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:var(--day-ui-muted, #94a3b8);text-decoration:underline;">All ${esc(group[0].region)} notices</a></div>`
               : '';
     return `
-      <div style="font-family:inherit;color:#e2e8f0;max-width:260px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#fcd34d;margin-bottom:2px;">📄 NOTICES TO MARINERS — MSQ</div>
+      <div style="font-family:inherit;color:var(--day-ui-text, #e2e8f0);max-width:260px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-amber, #fcd34d);margin-bottom:2px;">📄 NOTICES TO MARINERS — MSQ</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:6px;">${esc(label)}</div>
         ${items}
         ${more}
@@ -171,22 +171,22 @@ function packSectionHtml(pack: NtmRoutingPack, status: NtmPackStatus, optedOut: 
     const depths = pack.zones.map((z) => `${esc(z.label)} ${z.depthM.toFixed(1)} m`).join(' · ');
     let action: string;
     if (status.status === 'superseded') {
-        action = `<div style="font-size:11px;color:#f87171;">Superseded by ${esc(status.liveNumber)} — routing guidance disabled until this app's transcription is updated to the new notice. Read the current PDF above.</div>`;
+        action = `<div style="font-size:11px;color:var(--day-ui-danger, #f87171);">Superseded by ${esc(status.liveNumber)} — routing guidance disabled until this app's transcription is updated to the new notice. Read the current PDF above.</div>`;
     } else if (status.status === 'unverified') {
-        action = `<div style="font-size:11px;color:#fbbf24;">Can't verify this notice is still current (${esc(status.reason)}) — routing guidance disabled. It re-enables when the notice feed refreshes.</div>`;
+        action = `<div style="font-size:11px;color:var(--day-ui-amber, #fbbf24);">Can't verify this notice is still current (${esc(status.reason)}) — routing guidance disabled. It re-enables when the notice feed refreshes.</div>`;
     } else if (optedOut) {
-        action = `<div style="font-size:11px;color:#94a3b8;">Removed from routing by you — the route uses chart-edition data here.</div>
+        action = `<div style="font-size:11px;color:var(--day-ui-muted, #94a3b8);">Removed from routing by you — the route uses chart-edition data here.</div>
           <button id="ntm-apply-${esc(pack.id)}" style="margin-top:4px;font-size:11px;font-weight:700;padding:6px 10px;background:#7c3aed;color:#f5f3ff;border:none;border-radius:7px;cursor:pointer;">Re-apply to routing</button>`;
     } else {
-        action = `<div style="font-size:11px;color:#4ade80;">✓ Applied to routing — surveyed depths + the promulgated track.</div>
-          <button id="ntm-revoke-${esc(pack.id)}" style="margin-top:4px;font-size:10px;padding:3px 8px;background:transparent;color:#94a3b8;border:1px solid rgba(148,163,184,0.4);border-radius:6px;cursor:pointer;">Remove from routing</button>`;
+        action = `<div style="font-size:11px;color:var(--day-ui-success, #4ade80);">✓ Applied to routing — surveyed depths + the promulgated track.</div>
+          <button id="ntm-revoke-${esc(pack.id)}" style="margin-top:4px;font-size:10px;padding:3px 8px;background:transparent;color:var(--day-ui-muted, #94a3b8);border:1px solid rgba(148,163,184,0.4);border-radius:6px;cursor:pointer;">Remove from routing</button>`;
     }
     return `
       <div style="margin-top:8px;padding-top:7px;border-top:1px solid rgba(148,163,184,0.25);">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#c084fc;margin-bottom:3px;">⚓ ROUTING GUIDANCE — SURVEYED ${esc(pack.surveyed)}</div>
-        <div style="font-size:11px;color:#cbd5e1;margin-bottom:5px;">${depths}</div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-purple, #c084fc);margin-bottom:3px;">⚓ ROUTING GUIDANCE — SURVEYED ${esc(pack.surveyed)}</div>
+        <div style="font-size:11px;color:var(--day-ui-muted, #cbd5e1);margin-bottom:5px;">${depths}</div>
         ${action}
-        <div style="font-size:9px;color:#64748b;margin-top:5px;">Guidance only — never a substitute for the notice itself, your own eyes, or local knowledge. Coastal bars change rapidly.</div>
+        <div style="font-size:9px;color:var(--day-ui-muted, #64748b);margin-top:5px;">Guidance only — never a substitute for the notice itself, your own eyes, or local knowledge. Coastal bars change rapidly.</div>
       </div>`;
 }
 
@@ -217,11 +217,11 @@ function virtualMarkEl(): HTMLDivElement {
 
 function virtualMarkPopupHtml(pack: NtmRoutingPack, name: string): string {
     return `
-      <div style="font-family:inherit;color:#e2e8f0;max-width:230px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#e879f9;margin-bottom:2px;">◈ VIRTUAL NAVIGATION AID</div>
+      <div style="font-family:inherit;color:var(--day-ui-text, #e2e8f0);max-width:230px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-magenta, #e879f9);margin-bottom:2px;">◈ VIRTUAL NAVIGATION AID</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(name)}</div>
-        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">AIS virtual reference mark from NtM ${esc(pack.noticeKey)} — promulgated for an alternative route. There is NO physical mark in the water.</div>
-        <div style="font-size:10px;color:#94a3b8;">Guidance only — do not rely on it as your only means of navigation.</div>
+        <div style="font-size:11px;color:var(--day-ui-muted, #cbd5e1);margin-bottom:4px;">AIS virtual reference mark from NtM ${esc(pack.noticeKey)} — promulgated for an alternative route. There is NO physical mark in the water.</div>
+        <div style="font-size:10px;color:var(--day-ui-muted, #94a3b8);">Guidance only — do not rely on it as your only means of navigation.</div>
       </div>`;
 }
 
@@ -250,21 +250,21 @@ function bridgePopupHtml(b: LowBridge, airDraftM: number | null): string {
     const blocked = airDraftM !== null && b.clearanceM !== null && airDraftM > b.clearanceM;
     const verdict =
         b.clearanceM === null
-            ? '<span style="color:#fbbf24;font-weight:700;">No published clearance — verify locally before passing. Routing is NOT gated here.</span>'
+            ? '<span style="color:var(--day-ui-amber, #fbbf24);font-weight:700;">No published clearance — verify locally before passing. Routing is NOT gated here.</span>'
             : airDraftM === null
-              ? '<span style="color:#94a3b8;">Set your air draft in Vessel settings for clearance checks.</span>'
+              ? '<span style="color:var(--day-ui-muted, #94a3b8);">Set your air draft in Vessel settings for clearance checks.</span>'
               : blocked
-                ? `<span style="color:#f87171;font-weight:700;">IMPASSABLE for your ${airDraftM.toFixed(1)} m air draft — routes are blocked here.</span>`
-                : `<span style="color:#4ade80;">Clears your ${airDraftM.toFixed(1)} m air draft.</span>`;
+                ? `<span style="color:var(--day-ui-danger, #f87171);font-weight:700;">IMPASSABLE for your ${airDraftM.toFixed(1)} m air draft — routes are blocked here.</span>`
+                : `<span style="color:var(--day-ui-success, #4ade80);">Clears your ${airDraftM.toFixed(1)} m air draft.</span>`;
     const clearanceLine =
         b.clearanceM === null
             ? 'Vertical clearance not charted'
             : `Vertical clearance ${b.clearanceM.toFixed(1)} m${b.estimated ? ' (estimated — verify locally)' : ''}`;
     return `
-      <div style="font-family:inherit;color:#e2e8f0;max-width:240px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#94a3b8;margin-bottom:2px;">🌉 FIXED BRIDGE</div>
+      <div style="font-family:inherit;color:var(--day-ui-text, #e2e8f0);max-width:240px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-muted, #94a3b8);margin-bottom:2px;">🌉 FIXED BRIDGE</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(b.name)}</div>
-        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">${clearanceLine}</div>
+        <div style="font-size:11px;color:var(--day-ui-muted, #cbd5e1);margin-bottom:4px;">${clearanceLine}</div>
         <div style="font-size:11px;">${verdict}</div>
       </div>`;
 }
@@ -273,10 +273,10 @@ function broadcastPopupHtml(n: Notice): string {
     const text = typeof n.text === 'string' ? n.text : '';
     const body = text.length > 700 ? `${text.slice(0, 700)}…` : text;
     return `
-      <div style="font-family:inherit;color:#e2e8f0;max-width:250px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#94a3b8;margin-bottom:2px;">📄 ${esc(n.areaLabel)} ${esc(String(n.msgNumber))}/${esc(String(n.msgYear))}</div>
+      <div style="font-family:inherit;color:var(--day-ui-text, #e2e8f0);max-width:250px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-muted, #94a3b8);margin-bottom:2px;">📄 ${esc(n.areaLabel)} ${esc(String(n.msgNumber))}/${esc(String(n.msgYear))}</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(n.title)}</div>
-        <div style="font-size:11px;color:#94a3b8;white-space:pre-wrap;max-height:180px;overflow-y:auto;">${esc(body)}</div>
+        <div style="font-size:11px;color:var(--day-ui-muted, #94a3b8);white-space:pre-wrap;max-height:180px;overflow-y:auto;">${esc(body)}</div>
       </div>`;
 }
 

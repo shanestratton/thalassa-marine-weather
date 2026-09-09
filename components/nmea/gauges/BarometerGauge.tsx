@@ -19,6 +19,7 @@
  * why the tendency, not the band, carries the advice elsewhere on the page.
  */
 import React, { useMemo } from 'react';
+import '../instrumentDaylight.css';
 import { describeArc, polarToCart, uprightRotation } from './gaugeGeometry';
 
 interface BarometerGaugeProps {
@@ -95,7 +96,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
     const needleTail = polarToCart(CX, CY, 18, needleAngle + 180);
 
     return (
-        <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
+        <div className="nmea-instrument relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
             <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Barometer">
                 <defs>
                     <radialGradient id="baro-face" cx="50%" cy="42%" r="72%">

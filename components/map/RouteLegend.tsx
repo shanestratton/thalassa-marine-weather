@@ -54,10 +54,10 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
         >
             <div
                 style={{
-                    background: 'rgba(15, 23, 42, 0.75)',
+                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                     borderRadius: 14,
                     padding: '10px 12px',
                 }}
@@ -67,7 +67,7 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
                     style={{
                         fontSize: 11,
                         fontWeight: 800,
-                        color: 'rgba(255,255,255,0.6)',
+                        color: 'var(--day-ui-muted, rgba(255,255,255,0.6))',
                         letterSpacing: '0.1em',
                         textTransform: 'uppercase',
                         marginBottom: 6,
@@ -102,7 +102,7 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
                                 style={{
                                     fontSize: 12,
                                     fontWeight: 700,
-                                    color: 'rgba(255,255,255,0.75)',
+                                    color: 'var(--day-ui-muted, rgba(255,255,255,0.75))',
                                     letterSpacing: '0.02em',
                                     lineHeight: 1,
                                 }}

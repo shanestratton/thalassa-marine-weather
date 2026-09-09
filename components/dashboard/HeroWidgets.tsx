@@ -166,7 +166,7 @@ const DirectionArrow: React.FC<{ degrees: number | null; size?: number }> = ({ d
             className="shrink-0 opacity-70"
             style={{ transform: `rotate(${degrees}deg)`, transition: 'transform 1s ease' }}
         >
-            <path d="M12 2L8 14h8L12 2Z" fill="rgba(94,234,212,0.7)" />
+            <path d="M12 2L8 14h8L12 2Z" fill="var(--day-ui-accent, rgba(94,234,212,0.7))" />
             <path d="M12 22L8 14h8L12 22Z" fill="rgba(148,163,184,0.25)" />
         </svg>
     );

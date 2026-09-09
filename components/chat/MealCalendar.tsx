@@ -7,6 +7,7 @@
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import {
     scheduleMeal,
     unscheduleMeal,
@@ -127,6 +128,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
     onCrewCountChange,
     onShoppingChanged,
 }) => {
+    const portalTarget = usePanePortalTarget();
     const [slotPicker, setSlotPicker] = useState<{ date: string; slot: MealSlot } | null>(null);
     const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
 
@@ -619,7 +621,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             className="w-full max-w-lg bg-slate-950 border border-amber-500/20 rounded-3xl shadow-2xl p-5 space-y-4 max-h-full overflow-y-auto"
                             onClick={(e) => e.stopPropagation()}
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-label={`${contextMenu.action === 'copy' ? 'Copy' : 'Move'} ${contextMenu.meal.title}`}
                         >
                             {/* Header */}
@@ -704,7 +706,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             </Button>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
         </div>
     );
@@ -720,6 +722,7 @@ const SlotPicker: React.FC<{
     onScheduled: () => void;
     onClose: () => void;
 }> = ({ date, slot, crewCount, voyageId, ownerUserId, onScheduled, onClose }) => {
+    const portalTarget = usePanePortalTarget();
     const [searchQuery, setSearchQuery] = useState('');
     const [results, setResults] = useState<GalleyMeal[]>([]);
     const [searching, setSearching] = useState(false);
@@ -826,7 +829,7 @@ const SlotPicker: React.FC<{
                 <div
                     ref={dialogRef}
                     role="dialog"
-                    aria-modal="true"
+                    aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                     aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
                     className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl flex flex-col overflow-y-auto shadow-2xl animate-in zoom-in-95 duration-200"
                     style={{ maxHeight: keyboardHeight ? `calc(100dvh - ${keyboardHeight}px - 2rem)` : '80vh' }}
@@ -1069,7 +1072,7 @@ const SlotPicker: React.FC<{
                     layer="nested"
                     ref={recipeLibraryDialogRef}
                     role="dialog"
-                    aria-modal="true"
+                    aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                     aria-labelledby="recipe-library-title"
                     className="bg-slate-950 flex flex-col"
                 >

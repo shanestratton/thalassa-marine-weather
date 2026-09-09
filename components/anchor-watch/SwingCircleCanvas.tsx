@@ -70,6 +70,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             const cx = W / 2;
             const cy = H / 2;
             const isAlarm = snapshot.state === 'alarm';
+            const daylight = canvas.closest('.display-light') !== null;
 
             // Clear
             ctx.clearRect(0, 0, W, H);
@@ -80,9 +81,9 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
 
             // ── Ocean depth background gradient ──
             const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
-            bgGrad.addColorStop(0, 'rgba(8, 47, 73, 0.4)');
-            bgGrad.addColorStop(0.5, 'rgba(7, 33, 54, 0.25)');
-            bgGrad.addColorStop(1, 'rgba(2, 6, 23, 0.1)');
+            bgGrad.addColorStop(0, daylight ? '#ffffff' : 'rgba(8, 47, 73, 0.4)');
+            bgGrad.addColorStop(0.5, daylight ? '#f1f5f9' : 'rgba(7, 33, 54, 0.25)');
+            bgGrad.addColorStop(1, daylight ? '#e2e8f0' : 'rgba(2, 6, 23, 0.1)');
             ctx.fillStyle = bgGrad;
             ctx.fillRect(0, 0, W, H);
 
@@ -97,7 +98,13 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                 ctx.beginPath();
                 ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
                 ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
-                ctx.strokeStyle = isMajor ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.2)';
+                ctx.strokeStyle = daylight
+                    ? isMajor
+                        ? '#475569'
+                        : 'rgba(71, 85, 105, 0.4)'
+                    : isMajor
+                      ? 'rgba(148, 163, 184, 0.5)'
+                      : 'rgba(100, 116, 139, 0.2)';
                 ctx.lineWidth = isMajor ? 1.5 : 0.5;
                 ctx.stroke();
             }
@@ -108,10 +115,10 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             const cardinals = [
-                { label: 'N', angle: -90, color: 'rgba(248, 113, 113, 0.8)' },
-                { label: 'E', angle: 0, color: 'rgba(148, 163, 184, 0.5)' },
-                { label: 'S', angle: 90, color: 'rgba(148, 163, 184, 0.5)' },
-                { label: 'W', angle: 180, color: 'rgba(148, 163, 184, 0.5)' },
+                { label: 'N', angle: -90, color: daylight ? '#b91c1c' : 'rgba(248, 113, 113, 0.8)' },
+                { label: 'E', angle: 0, color: daylight ? '#475569' : 'rgba(148, 163, 184, 0.5)' },
+                { label: 'S', angle: 90, color: daylight ? '#475569' : 'rgba(148, 163, 184, 0.5)' },
+                { label: 'W', angle: 180, color: daylight ? '#475569' : 'rgba(148, 163, 184, 0.5)' },
             ];
             cardinals.forEach(({ label, angle, color }) => {
                 const rad = (angle * Math.PI) / 180;
@@ -254,7 +261,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                     const accRadius = snapshot.gpsAccuracy * scale;
                     ctx.beginPath();
                     ctx.arc(vx, vy, accRadius, 0, Math.PI * 2);
-                    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+                    ctx.strokeStyle = daylight ? 'rgba(71, 85, 105, 0.45)' : 'rgba(148, 163, 184, 0.12)';
                     ctx.lineWidth = 0.5;
                     ctx.setLineDash([2, 3]);
                     ctx.stroke();

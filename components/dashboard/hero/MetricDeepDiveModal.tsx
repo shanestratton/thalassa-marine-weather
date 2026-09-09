@@ -236,7 +236,11 @@ function buildSeries(samples: HourlyForecast[], pick: MetricConfig['pick']): Pt[
 }
 
 const accentHex = (accent: string): string =>
-    accent.includes('emerald') ? '#6ee7b7' : accent.includes('amber') ? '#fcd34d' : '#7dd3fc';
+    accent.includes('emerald')
+        ? 'var(--day-ui-success, #6ee7b7)'
+        : accent.includes('amber')
+          ? 'var(--day-ui-amber, #fcd34d)'
+          : 'var(--day-ui-accent, #7dd3fc)';
 
 /** Smooth Catmull-Rom path through a set of screen points. */
 function smoothPath(s: { x: number; y: number }[]): string {
@@ -335,8 +339,8 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
                     y1={PAD}
                     x2={tx}
                     y2={H - PAD}
-                    stroke="#ffffff"
-                    strokeOpacity={0.05}
+                    stroke="var(--day-ui-grid, #ffffff)"
+                    strokeOpacity="var(--day-ui-line-opacity, 0.05)"
                     strokeWidth={1}
                 />
             ))}
@@ -389,13 +393,13 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
                         y1={PAD - 2}
                         x2={nowX}
                         y2={H - PAD}
-                        stroke="#ffffff"
-                        strokeOpacity="0.4"
+                        stroke="var(--day-ui-guide, #ffffff)"
+                        strokeOpacity="var(--day-ui-line-opacity, 0.4)"
                         strokeWidth={1}
                         strokeDasharray="2 3"
                     />
                     <circle cx={nowX} cy={nowY} r={7} fill={stroke} opacity={0.3} />
-                    <circle cx={nowX} cy={nowY} r={2.8} fill="#fff" />
+                    <circle cx={nowX} cy={nowY} r={2.8} fill="var(--day-ui-text, #fff)" />
                 </>
             )}
         </svg>
@@ -416,7 +420,7 @@ const DirArrow: React.FC<{ deg: number | null; size?: number }> = ({ deg, size =
             opacity: deg == null ? 0.25 : 1,
         }}
     >
-        <path d="M12 3L8 14h8L12 3Z" fill="rgba(110,231,183,0.92)" />
+        <path d="M12 3L8 14h8L12 3Z" fill="var(--day-ui-success, rgba(110,231,183,0.92))" />
         <path d="M12 21L8 14h8L12 21Z" fill="rgba(148,163,184,0.3)" />
     </svg>
 );

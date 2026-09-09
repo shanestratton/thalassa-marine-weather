@@ -13,6 +13,7 @@
  */
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { WindIcon, WaveIcon, GaugeIcon, DropletIcon, SunIcon, EyeIcon, CompassIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
 import { Button } from '../ui/Button';
@@ -77,18 +78,19 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
     onClose,
     locationType,
 }) => {
+    const portalTarget = usePanePortalTarget();
     const visibleMetrics = filterForLocation(PINNABLE_METRICS, locationType);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
 
     // Lock body scroll while open
     useEffect(() => {
-        if (!visible) return;
+        if (!visible || portalTarget !== document.body) return;
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
             document.body.style.overflow = prev;
         };
-    }, [visible]);
+    }, [visible, portalTarget]);
 
     if (!visible) return null;
 
@@ -97,7 +99,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
             className="fixed inset-0 z-9998 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
-            aria-modal="true"
+            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
             aria-label="Pin a metric to the hero slot"
             ref={dialogRef}
         >
@@ -211,7 +213,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                 </div>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 };
 

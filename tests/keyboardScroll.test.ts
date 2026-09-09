@@ -435,4 +435,41 @@ describe('keyboard positioning regressions', () => {
         Object.assign(window.visualViewport!, { scale: 2 });
         expect(getKeyboardViewport().keyboardHeight).toBe(0);
     });
+
+    it('does not move an outer app scroller while rescuing a field inside a split pane', () => {
+        setViewport({ height: 500 });
+        const outer = document.createElement('div');
+        outer.style.overflowY = 'auto';
+        const outerScroll = vi.fn();
+        Object.assign(outer, { scrollBy: outerScroll });
+        document.body.append(outer);
+        const pane = document.createElement('section');
+        pane.dataset.splitPane = 'right';
+        outer.append(pane);
+        const { form, scrollBy } = scrollableForm();
+        pane.append(form);
+        const input = document.createElement('input');
+        form.append(input);
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(600));
+        keepEditableAboveKeyboard(input);
+        expect(scrollBy).toHaveBeenCalledOnce();
+        expect(outerScroll).not.toHaveBeenCalled();
+    });
+
+    it('never falls back to scrolling the window for a pane field without a scroller', () => {
+        setViewport({ height: 500 });
+        const pane = document.createElement('section');
+        pane.dataset.panePortal = 'left';
+        document.body.append(pane);
+        const input = document.createElement('input');
+        pane.append(input);
+        const scrollIntoView = vi.fn();
+        Object.assign(input, { scrollIntoView });
+        const windowScroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(600));
+        keepEditableAboveKeyboard(input);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+        expect(windowScroll).not.toHaveBeenCalled();
+        windowScroll.mockRestore();
+    });
 });

@@ -8,7 +8,7 @@
  * - Loading state on confirm button
  * - Accessible keyboard and screen reader support
  */
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useId } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from './Button';
 import { OverlayPortal } from './OverlayPortal';
@@ -43,6 +43,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     onCancel,
 }) => {
     const [loading, setLoading] = useState(false);
+    const titleId = useId();
     const cancelRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
         initialFocusRef: cancelRef,
@@ -70,12 +71,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             onClick={onCancel}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="confirm-title"
+            aria-labelledby={titleId}
             ref={dialogRef}
         >
             <div className="absolute inset-0 bg-black/60" />
             <div
-                className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl p-6 animate-in fade-in zoom-in-95 duration-200"
+                data-pane-dialog-panel
+                className="relative w-full max-w-sm max-h-full overflow-y-auto bg-slate-900 border border-white/10 rounded-2xl p-6 animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Icon */}
@@ -113,7 +115,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                     )}
                 </div>
 
-                <h3 id="confirm-title" className="text-lg font-black text-white text-center mb-2">
+                <h3 id={titleId} className="text-lg font-black text-white text-center mb-2">
                     {title}
                 </h3>
                 <p className="text-sm text-gray-300 text-center mb-6">{message}</p>

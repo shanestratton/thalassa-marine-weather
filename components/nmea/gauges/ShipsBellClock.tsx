@@ -17,6 +17,8 @@
  * gap between the pairs is the same gap you would hear.
  */
 import React, { useMemo } from 'react';
+import '../instrumentDaylight.css';
+import { CLOCK_MAX_WIDTH } from '../instrumentLayout';
 import { polarToCart } from './gaugeGeometry';
 import { bellsAt, bellsSpoken, watchAt } from '../../../utils/shipsBells';
 
@@ -85,12 +87,12 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
     // it fits the entire width of the screen. shrink and grow depending on the
     // punters screen").
     //
-    // min(100%, 70vh) is what makes it behave on BOTH axes: on a phone, where
+    // Capping against 70% of the available height makes it behave on BOTH axes: on a phone, where
     // the section is taller than it is wide, 100% wins and the face spans the
-    // screen; on a short or landscape screen 70vh wins, so a square that fills
+    // screen; on a short or landscape screen the height wins, so a square that fills
     // the width can never run off the bottom.
     return (
-        <div className="relative mx-auto w-full" style={{ maxWidth: 'min(100%, 70vh)', aspectRatio: '1' }}>
+        <div className="nmea-clock relative mx-auto w-full" style={{ maxWidth: CLOCK_MAX_WIDTH, aspectRatio: '1' }}>
             <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Ship's bell clock">
                 <defs>
                     <linearGradient id="bell-bezel" x1="0" y1="0" x2="0" y2="1">

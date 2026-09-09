@@ -44,9 +44,13 @@ const PAST_MS = 6 * 3_600_000;
 const FWD_MS = 12 * 3_600_000;
 
 const SEVERITY_UI: Record<TendencySeverity, { pill: string; dot: string; line: string }> = {
-    calm: { pill: 'bg-emerald-400/15 text-emerald-300', dot: '#6ee7b7', line: 'text-emerald-300' },
-    watch: { pill: 'bg-amber-400/15 text-amber-200', dot: '#fcd34d', line: 'text-amber-200' },
-    warn: { pill: 'bg-red-400/15 text-red-300', dot: '#fca5a5', line: 'text-red-300' },
+    calm: {
+        pill: 'bg-emerald-400/15 text-emerald-300',
+        dot: 'var(--day-ui-success, #6ee7b7)',
+        line: 'text-emerald-300',
+    },
+    watch: { pill: 'bg-amber-400/15 text-amber-200', dot: 'var(--day-ui-amber, #fcd34d)', line: 'text-amber-200' },
+    warn: { pill: 'bg-red-400/15 text-red-300', dot: 'var(--day-ui-danger, #fca5a5)', line: 'text-red-300' },
 };
 
 const fmtPressure = (hpa: number | null, unit: barometer.PressureUnit): string => {
@@ -146,8 +150,8 @@ const Trace: React.FC<{
                     y1={0}
                     x2={x(nowT + h * 3_600_000)}
                     y2={H}
-                    stroke="#ffffff"
-                    strokeOpacity={0.06}
+                    stroke="var(--day-ui-grid, #ffffff)"
+                    strokeOpacity="var(--day-ui-line-opacity, 0.06)"
                     strokeWidth={1}
                 />
             ))}
@@ -158,8 +162,8 @@ const Trace: React.FC<{
                 <path
                     d={forecastPath}
                     fill="none"
-                    stroke="#ffffff"
-                    strokeOpacity={0.35}
+                    stroke="var(--day-ui-guide, #ffffff)"
+                    strokeOpacity="var(--day-ui-line-opacity, 0.35)"
                     strokeWidth={1.4}
                     strokeDasharray="3 3"
                     strokeLinecap="round"
@@ -177,11 +181,19 @@ const Trace: React.FC<{
                 />
             )}
 
-            <line x1={nowX} y1={0} x2={nowX} y2={H} stroke="#ffffff" strokeOpacity={0.28} strokeWidth={1} />
+            <line
+                x1={nowX}
+                y1={0}
+                x2={nowX}
+                y2={H}
+                stroke="var(--day-ui-guide, #ffffff)"
+                strokeOpacity="var(--day-ui-line-opacity, 0.28)"
+                strokeWidth={1}
+            />
             {lastMeasured && (
                 <>
                     <circle cx={x(lastMeasured.t)} cy={y(lastMeasured.v)} r={5} fill={accent} opacity={0.28} />
-                    <circle cx={x(lastMeasured.t)} cy={y(lastMeasured.v)} r={2.4} fill="#fff" />
+                    <circle cx={x(lastMeasured.t)} cy={y(lastMeasured.v)} r={2.4} fill="var(--day-ui-text, #fff)" />
                 </>
             )}
         </svg>
@@ -378,7 +390,7 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
     const calibrated = !usingBoat && offsetHpa != null;
 
     const sev = tendency ? SEVERITY_UI[tendency.severity] : SEVERITY_UI.calm;
-    const accent = tendency ? sev.dot : '#6ee7b7';
+    const accent = tendency ? sev.dot : 'var(--day-ui-success, #6ee7b7)';
 
     const sourceChip = usingBoat
         ? { text: 'BOAT', cls: 'bg-teal-400/15 text-teal-300' }

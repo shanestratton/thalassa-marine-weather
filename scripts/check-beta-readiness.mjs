@@ -778,8 +778,8 @@ check(
         "tone: '#60a5fa'",
         'Verify current fishing and anchoring rules with the managing authority',
         'not legal advice and not for navigation',
-        '<div style="font-size: 11px; color: #cbd5e1; padding-top: 6px;',
-        '<div style="font-size: 11px; color: #b6c2d1; margin-top: 6px; font-style: italic;">',
+        '<div style="font-size: 11px; color: var(--day-ui-muted, #cbd5e1); padding-top: 6px;',
+        '<div style="font-size: 11px; color: var(--day-ui-muted, #b6c2d1); margin-top: 6px; font-style: italic;">',
         '.mpa-popup-close:focus-visible',
         'aria-label="Close"',
         'width: 44px',
@@ -796,7 +796,7 @@ check(
         !mpaPopupSource.includes('Recreational fishing usually permitted') &&
         includesAll(mpaSafetyLanguageTest, [
             'never turns indicative CAPAD class %s into permission',
-            'uses readable class and metadata tones on the dark popup surface',
+            'preserves readable dark-popup tones as the daylight-token fallbacks',
             'preserves tiny positive official areas instead of rounding them to zero',
             'puts the verified CAPAD snapshot date beside the authority warning',
         ]),

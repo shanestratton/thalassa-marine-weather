@@ -27,6 +27,7 @@
  */
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { panePopoverStyle, usePanePortalTarget } from '../context/PanePortalContext';
 
 import { AnchorIcon, CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
 import { useSettings } from '../context/SettingsContext';
@@ -71,6 +72,7 @@ const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 8;
 
 export const LocationStarMenu: React.FC = () => {
+    const portalTarget = usePanePortalTarget();
     const { settings, updateSettings } = useSettings();
     const { weatherData, selectLocation } = useWeather();
 
@@ -115,19 +117,23 @@ export const LocationStarMenu: React.FC = () => {
     // Anchor the popover to the button's viewport rect; re-measure on
     // open + scroll/resize so it follows the header.
     useLayoutEffect(() => {
-        if (!open) return;
+        if (!open || !portalTarget) return;
         const measure = () => {
             const rect = buttonRef.current?.getBoundingClientRect();
             if (rect) setAnchorRect(rect);
         };
         measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(portalTarget);
+        if (buttonRef.current) observer.observe(buttonRef.current);
         window.addEventListener('scroll', measure, true);
         window.addEventListener('resize', measure);
         return () => {
+            observer.disconnect();
             window.removeEventListener('scroll', measure, true);
             window.removeEventListener('resize', measure);
         };
-    }, [open]);
+    }, [open, portalTarget]);
 
     // Close on outside-click (check both button + popover since
     // the popover lives in a portal).
@@ -214,22 +220,10 @@ export const LocationStarMenu: React.FC = () => {
     };
 
     // Anchor to the button's right edge; clamp 8px from each viewport edge.
-    const popoverStyle: React.CSSProperties = anchorRect
-        ? (() => {
-              const viewportW = window.innerWidth;
-              const rightEdge = viewportW - anchorRect.right;
-              const minRight = 8;
-              const maxRight = Math.max(minRight, viewportW - POPOVER_WIDTH - 8);
-              return {
-                  position: 'fixed',
-                  top: anchorRect.bottom + POPOVER_GAP,
-                  right: Math.min(Math.max(rightEdge, minRight), maxRight),
-                  width: POPOVER_WIDTH,
-                  maxWidth: 'calc(100vw - 16px)',
-                  zIndex: 9999,
-              };
-          })()
-        : { display: 'none' };
+    const popoverStyle: React.CSSProperties =
+        anchorRect && portalTarget
+            ? panePopoverStyle(portalTarget, anchorRect, POPOVER_WIDTH, POPOVER_GAP)
+            : { display: 'none' };
 
     const rowBase =
         'flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/5 active:bg-white/10';
@@ -255,6 +249,7 @@ export const LocationStarMenu: React.FC = () => {
             </button>
 
             {open &&
+                portalTarget &&
                 createPortal(
                     <div
                         id={menuId}
@@ -395,7 +390,7 @@ export const LocationStarMenu: React.FC = () => {
                             </div>
                         )}
                     </div>,
-                    document.body,
+                    portalTarget,
                 )}
         </>
     );

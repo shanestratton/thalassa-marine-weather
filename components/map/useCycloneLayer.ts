@@ -20,6 +20,7 @@ import { mountCloudOverlay, removeCloudOverlay } from './cloudOverlay';
 import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /**
  * The zoom the storm view opens at (Shane 2026-08-23: "can we start the storm
@@ -2300,8 +2301,8 @@ export function createStormSwitcher(
     bar.dataset.stormSwitcher = stormSwitcherSignature(storms, current);
     bar.style.cssText = `
         display:flex;align-items:center;justify-content:space-between;gap:6px;
-        background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);
-        -webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.12);
+        background:var(--day-ui-surface, rgba(10,15,30,0.92));backdrop-filter:blur(20px);
+        -webkit-backdrop-filter:blur(20px);border:1px solid var(--day-ui-border, rgba(255,255,255,0.12));
         border-radius:12px;padding:4px;pointer-events:auto;
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
         box-shadow:0 6px 20px rgba(0,0,0,0.6);
@@ -2320,7 +2321,7 @@ export function createStormSwitcher(
         // 44px minimum: this is a helm control on a moving boat.
         b.style.cssText = `
             min-width:44px;min-height:36px;border:0;border-radius:9px;
-            background:rgba(255,255,255,0.06);color:#fff;font-size:15px;
+            background:var(--day-ui-surface-soft, rgba(255,255,255,0.06));color:var(--day-ui-text, #fff);font-size:15px;
             line-height:1;cursor:pointer;flex-shrink:0;
         `;
         b.textContent = label;
@@ -2337,7 +2338,7 @@ export function createStormSwitcher(
 
     const label = document.createElement('div');
     label.style.cssText = `
-        flex:1;min-width:0;text-align:center;color:rgba(255,255,255,0.75);
+        flex:1;min-width:0;text-align:center;color:var(--day-ui-muted, rgba(255,255,255,0.75));
         font-size:10px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     `;
@@ -2436,10 +2437,10 @@ interface StormBadgeData {
 function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: StormBadgeOpts): void {
     const card = document.createElement('div');
     card.style.cssText = `
-        background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);
+        background:var(--day-ui-surface, rgba(10,15,30,0.92));backdrop-filter:blur(20px);
         -webkit-backdrop-filter:blur(20px);border:1px solid ${d.accentColor}33;
         border-top:3px solid ${d.accentColor};border-radius:14px;
-        padding:0;color:#fff;
+        padding:0;color:var(--day-ui-text, #fff);
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
         min-width:200px;max-width:320px;z-index:760;
         box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
@@ -2459,19 +2460,19 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
 
     const titleEl = document.createElement('div');
     titleEl.style.cssText = `
-        font-size:15px;font-weight:800;color:#fff;line-height:1.2;
+        font-size:15px;font-weight:800;color:var(--day-ui-text, #fff);line-height:1.2;
         text-transform:capitalize;
     `;
     titleEl.textContent = d.stormName;
     headerLeft.appendChild(titleEl);
 
     const subtitleEl = document.createElement('div');
-    subtitleEl.style.cssText = `font-size:10px;color:${d.accentColor};font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:0.5px;`;
+    subtitleEl.style.cssText = `font-size:10px;color:${daylightUiColor(d.accentColor)};font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:0.5px;`;
     subtitleEl.textContent = d.classification;
     headerLeft.appendChild(subtitleEl);
 
     const metaEl = document.createElement('div');
-    metaEl.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;';
+    metaEl.style.cssText = 'font-size:11px;color:var(--day-ui-muted, rgba(255,255,255,0.6));margin-top:2px;';
     metaEl.textContent = `${d.basinStr} · ${d.sid} · ${d.latStr} ${d.lonStr}`;
     headerLeft.appendChild(metaEl);
 
@@ -2482,7 +2483,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     chevron.style.cssText = `
         width:24px;height:24px;display:flex;align-items:center;justify-content:center;
         flex-shrink:0;margin-left:8px;transition:transform 0.2s ease;
-        color:rgba(255,255,255,0.4);
+        color:var(--day-ui-muted, rgba(255,255,255,0.4));
     `;
     chevron.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
     if (opts?.expanded === true) chevron.style.transform = 'rotate(180deg)';
@@ -2525,14 +2526,15 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         for (const col of cols) {
             const hd = document.createElement('div');
             hd.style.cssText = `
-                font-size:11px;font-weight:700;color:rgba(255,255,255,0.6);
+                font-size:11px;font-weight:700;color:var(--day-ui-muted, rgba(255,255,255,0.6));
                 text-transform:uppercase;letter-spacing:0.8px;
                 text-align:${col === cols[0] ? 'left' : 'center'};
             `;
             hd.textContent = col.label;
             if (col.sub) {
                 const sub = document.createElement('div');
-                sub.style.cssText = 'font-size:8px;font-weight:500;color:rgba(255,255,255,0.2);letter-spacing:0;';
+                sub.style.cssText =
+                    'font-size:8px;font-weight:500;color:var(--day-ui-muted, rgba(255,255,255,0.2));letter-spacing:0;';
                 sub.textContent = col.sub;
                 hd.appendChild(sub);
             }
@@ -2552,25 +2554,25 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
 
             // Date
             const dateCell = document.createElement('div');
-            dateCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${adv.isLatest ? '#fff' : 'rgba(255,255,255,0.7)'};text-align:left;`;
+            dateCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${daylightUiColor(adv.isLatest ? '#fff' : 'rgba(255,255,255,0.7)')};text-align:left;`;
             dateCell.textContent = adv.date;
             row.appendChild(dateCell);
 
             // Time
             const timeCell = document.createElement('div');
-            timeCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${adv.isLatest ? '#fff' : 'rgba(255,255,255,0.6)'};text-align:center;`;
+            timeCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${daylightUiColor(adv.isLatest ? '#fff' : 'rgba(255,255,255,0.6)')};text-align:center;`;
             timeCell.textContent = adv.time;
             row.appendChild(timeCell);
 
             // Wind
             const windCell = document.createElement('div');
-            windCell.style.cssText = `font-size:11px;font-weight:700;color:${adv.isLatest ? d.accentColor : 'rgba(255,255,255,0.8)'};text-align:center;`;
+            windCell.style.cssText = `font-size:11px;font-weight:700;color:${daylightUiColor(adv.isLatest ? d.accentColor : 'rgba(255,255,255,0.8)')};text-align:center;`;
             windCell.textContent = adv.windKts != null ? String(adv.windKts) : '—';
             row.appendChild(windCell);
 
             // Pressure
             const presCell = document.createElement('div');
-            presCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${adv.isLatest ? '#fff' : 'rgba(255,255,255,0.6)'};text-align:center;`;
+            presCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${daylightUiColor(adv.isLatest ? '#fff' : 'rgba(255,255,255,0.6)')};text-align:center;`;
             presCell.textContent = adv.pressureMb != null ? String(adv.pressureMb) : '—';
             row.appendChild(presCell);
 
@@ -2584,9 +2586,9 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     const footer = document.createElement('div');
     footer.style.cssText = `
         padding:8px 14px 10px;
-        border-top:1px solid rgba(255,255,255,0.06);
+        border-top:1px solid var(--day-ui-border, rgba(255,255,255,0.06));
         display:flex;flex-direction:column;gap:4px;
-        background:rgba(0,0,0,0.15);
+        background:var(--day-ui-surface-soft, rgba(0,0,0,0.15));
     `;
 
     // Pressure trend pill
@@ -2601,7 +2603,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     const trendPill = document.createElement('span');
     trendPill.style.cssText = `
         display:inline-flex;align-items:center;gap:3px;
-        font-size:11px;font-weight:700;color:${trendColor};
+        font-size:11px;font-weight:700;color:${daylightUiColor(trendColor)};
         background:${trendColor}15;border:1px solid ${trendColor}30;
         padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px;
     `;
@@ -2615,7 +2617,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     const probPill = document.createElement('span');
     probPill.style.cssText = `
         display:inline-flex;align-items:center;gap:3px;
-        font-size:11px;font-weight:700;color:${probColor};
+        font-size:11px;font-weight:700;color:${daylightUiColor(probColor)};
         background:${probBgColor};border:1px solid ${probColor}30;
         padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;
     `;
@@ -2631,10 +2633,10 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     ageIcon.style.cssText = 'font-size:10px;width:14px;text-align:center;';
     ageIcon.textContent = '🕐';
     const ageTime = document.createElement('span');
-    ageTime.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.6);';
+    ageTime.style.cssText = 'font-size:11px;color:var(--day-ui-muted, rgba(255,255,255,0.6));';
     ageTime.textContent = d.dataTimeStr;
     const ageVal = document.createElement('span');
-    ageVal.style.cssText = 'font-size:11px;font-weight:700;color:#FFA500;margin-left:auto;';
+    ageVal.style.cssText = 'font-size:11px;font-weight:700;color:var(--day-ui-amber, #FFA500);margin-left:auto;';
     ageVal.className = 'cyclone-data-age';
     ageVal.dataset.advisoryTime = d.posTime;
     ageVal.textContent = d.dataAgeStr;
@@ -2650,10 +2652,11 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     advIcon.style.cssText = 'font-size:10px;width:14px;text-align:center;';
     advIcon.textContent = '📡';
     const advLabel = document.createElement('span');
-    advLabel.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.6);';
+    advLabel.style.cssText = 'font-size:11px;color:var(--day-ui-muted, rgba(255,255,255,0.6));';
     advLabel.textContent = 'Next advisory';
     const advVal = document.createElement('span');
-    advVal.style.cssText = 'font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin-left:auto;';
+    advVal.style.cssText =
+        'font-size:11px;font-weight:700;color:var(--day-ui-muted, rgba(255,255,255,0.7));margin-left:auto;';
     advVal.className = 'cyclone-next-adv';
     advVal.textContent = d.nextAdvStr;
     advRow.appendChild(advIcon);

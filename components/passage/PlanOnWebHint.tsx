@@ -19,6 +19,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { Capacitor } from '@capacitor/core';
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
@@ -32,6 +33,7 @@ const DISMISS_KEY = 'thalassa_plan_web_hint_dismissed';
 const GENERIC_URL = 'your-boat.thalassawx.app/plan';
 
 export const PlanOnWebHint: React.FC = () => {
+    const portalTarget = usePanePortalTarget();
     const [open, setOpen] = useState(false);
     const [dontShow, setDontShow] = useState(false);
     const [url, setUrl] = useState<string>(GENERIC_URL);
@@ -164,6 +166,6 @@ export const PlanOnWebHint: React.FC = () => {
                 </div>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 };

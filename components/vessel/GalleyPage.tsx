@@ -7,6 +7,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
 import {
@@ -54,6 +55,7 @@ function personalGalleyStatus(userId: string | null): PassageStatus {
 }
 
 export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
+    const portalTarget = usePanePortalTarget();
     const currentUserId = useAuthStore((state) => state.user?.id ?? null);
     const renderIdentityScope = getAuthIdentityScope();
     const [passageStatus, setPassageStatus] = useState<PassageStatus>(NO_PASSAGE_ACCESS);
@@ -233,7 +235,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 accessLoaded={visiblePassageAccessLoaded}
             />
         );
-        return typeof document !== 'undefined' ? createPortal(groceryList, document.body) : groceryList;
+        return typeof document !== 'undefined' ? createPortal(groceryList, portalTarget!) : groceryList;
     }
 
     return (
@@ -572,7 +574,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         onClose={closeCookingMode}
                         onComplete={closeCookingMode}
                     />,
-                    document.body,
+                    portalTarget!,
                 )}
         </div>
     );

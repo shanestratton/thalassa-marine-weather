@@ -67,7 +67,7 @@ const THEMES = {
     },
 };
 
-const THUMB_SIZE = 56; // px (w-14 h-14 = 3.5rem = 56px)
+const THUMB_SIZE = 56; // 48px thumb plus the track's 4px clearance at either end.
 const SLIDE_THRESHOLD = 0.85;
 
 export const SlideToAction: React.FC<SlideToActionProps> = ({
@@ -83,7 +83,16 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
     // Track geometry captured on pointerdown. The track is full-width with a
     // fixed height, so re-measuring on every pointermove — and again in the
     // render body — only forced synchronous layout for the same numbers.
-    const trackRectRef = useRef({ left: 0, maxTravel: 300 - THUMB_SIZE });
+    const trackRectRef = useRef({
+        left: 0,
+        width: 0,
+        maxTravel: 0,
+        startX: 0,
+        scaleX: 1,
+        viewportWidth: 0,
+        viewportHeight: 0,
+    });
+    const activePointerRef = useRef<number | null>(null);
     const [slideX, setSlideX] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
     // Live offset alongside state: the threshold check on release must
@@ -100,9 +109,41 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         setSlideX(v);
     }, []);
 
+    const resetGesture = useCallback(() => {
+        const pointerId = activePointerRef.current;
+        activePointerRef.current = null;
+        setIsDragging(false);
+        setSlide(0);
+        if (pointerId !== null) {
+            try {
+                trackRef.current?.releasePointerCapture?.(pointerId);
+            } catch {
+                /* Safari can release capture before delivering cancel. */
+            }
+        }
+    }, [setSlide]);
+
     const handlePointerDown = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
-            if (disabled || loading) return;
+            if (disabled || loading || activePointerRef.current !== null || e.button !== 0 || e.isPrimary === false)
+                return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const localWidth = e.currentTarget.offsetWidth || rect.width;
+            const scaleX = localWidth > 0 ? rect.width / localWidth : 1;
+            const maxTravel = Math.max(0, localWidth - THUMB_SIZE);
+            // Sliding must start at the thumb, never at the destination. Use
+            // the rendered track's coordinates, independent of viewport width.
+            if (maxTravel === 0 || e.clientX < rect.left || e.clientX - rect.left > THUMB_SIZE * scaleX) return;
+            activePointerRef.current = e.pointerId ?? -1;
+            trackRectRef.current = {
+                left: rect.left,
+                width: rect.width,
+                maxTravel,
+                startX: e.clientX,
+                scaleX,
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+            };
             // Capture the pointer: every subsequent move/up/cancel routes
             // to this element no matter where the finger wanders. Without
             // capture, touch sequences that left the element (or were
@@ -114,8 +155,6 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
             } catch {
                 /* capture is best-effort — jsdom and odd inputs lack it */
             }
-            const rect = e.currentTarget.getBoundingClientRect();
-            trackRectRef.current = { left: rect.left, maxTravel: rect.width - THUMB_SIZE };
             setIsDragging(true);
         },
         [disabled, loading],
@@ -123,37 +162,51 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
 
     const handlePointerMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
-            if (!isDragging || !trackRef.current) return;
-            const { left, maxTravel } = trackRectRef.current;
-            const offset = e.clientX - left - THUMB_SIZE / 2;
+            if (activePointerRef.current !== (e.pointerId ?? -1) || !trackRef.current) return;
+            const { maxTravel, startX, scaleX } = trackRectRef.current;
+            const offset = (e.clientX - startX) / scaleX;
             setSlide(Math.max(0, Math.min(offset, maxTravel)));
         },
-        [isDragging, setSlide],
+        [setSlide],
     );
 
-    const handlePointerUp = useCallback(() => {
-        if (!isDragging || !trackRef.current) return;
-        setIsDragging(false);
-        const ratio = slideXRef.current / trackRectRef.current.maxTravel;
-        if (ratio >= SLIDE_THRESHOLD) {
-            triggerHaptic('medium');
-            onConfirm();
-        }
-        setSlide(0);
-    }, [isDragging, onConfirm, setSlide]);
+    const handlePointerUp = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (activePointerRef.current !== (e.pointerId ?? -1) || !trackRef.current) return;
+            // WebKit can deliver pointerup before its queued resize event or
+            // ResizeObserver callback. Validate the current geometry at the
+            // release boundary too, so that ordering cannot confirm a drag.
+            const current = trackRef.current.getBoundingClientRect();
+            const captured = trackRectRef.current;
+            const geometryUnchanged =
+                Math.abs(current.left - captured.left) < 0.5 &&
+                Math.abs(current.width - captured.width) < 0.5 &&
+                window.innerWidth === captured.viewportWidth &&
+                window.innerHeight === captured.viewportHeight;
+            const ratio = slideXRef.current / trackRectRef.current.maxTravel;
+            resetGesture();
+            if (!disabled && !loading && geometryUnchanged && ratio >= SLIDE_THRESHOLD) {
+                triggerHaptic('medium');
+                onConfirm();
+            }
+        },
+        [disabled, loading, onConfirm, resetGesture],
+    );
 
-    const handlePointerCancel = useCallback(() => {
-        // iOS cancels (not ends) the touch for system gestures, incoming
-        // banners, palm rejection. Never confirm from a cancel — just
-        // spring back.
-        if (!isDragging) return;
-        setIsDragging(false);
-        setSlide(0);
-    }, [isDragging, setSlide]);
+    const handlePointerCancel = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            // iOS cancels (not ends) the touch for system gestures, incoming
+            // banners, palm rejection. Never confirm from a cancel — just
+            // spring back.
+            if (activePointerRef.current !== (e.pointerId ?? -1)) return;
+            resetGesture();
+        },
+        [resetGesture],
+    );
 
     const handleKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLDivElement>) => {
-            if (disabled || loading || (event.key !== 'Enter' && event.key !== ' ')) return;
+            if (disabled || loading || event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return;
             event.preventDefault();
             triggerHaptic('medium');
             onConfirm();
@@ -161,10 +214,36 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         [disabled, loading, onConfirm],
     );
 
-    // Belt-and-braces reset: any path that clears dragging clears the thumb.
+    // Rotation, iPad multitasking, a lost pointer, or a loading-state change
+    // invalidates the gesture. A stale full-width measurement must never drive
+    // a thumb inside the newly narrowed pane or confirm on the subsequent up.
     useEffect(() => {
-        if (!isDragging && slideXRef.current !== 0) setSlide(0);
-    }, [isDragging, setSlide]);
+        if (disabled || loading) resetGesture();
+    }, [disabled, loading, resetGesture]);
+
+    useEffect(() => {
+        if (!isDragging) return;
+        // ResizeObserver delivers an initial size even when nothing changed.
+        let initialWidth = trackRef.current?.getBoundingClientRect().width;
+        const geometryObserver =
+            typeof ResizeObserver === 'undefined'
+                ? null
+                : new ResizeObserver(() => {
+                      const width = trackRef.current?.getBoundingClientRect().width;
+                      if (width !== initialWidth) resetGesture();
+                      initialWidth = width;
+                  });
+        if (trackRef.current) geometryObserver?.observe(trackRef.current);
+        window.addEventListener('resize', resetGesture);
+        window.addEventListener('orientationchange', resetGesture);
+        window.addEventListener('blur', resetGesture);
+        return () => {
+            geometryObserver?.disconnect();
+            window.removeEventListener('resize', resetGesture);
+            window.removeEventListener('orientationchange', resetGesture);
+            window.removeEventListener('blur', resetGesture);
+        };
+    }, [isDragging, resetGesture]);
 
     if (loading) {
         return (
@@ -180,7 +259,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         );
     }
 
-    const labelOpacity = 1 - slideX / trackRectRef.current.maxTravel;
+    const labelOpacity = trackRectRef.current.maxTravel > 0 ? 1 - slideX / trackRectRef.current.maxTravel : 1;
 
     return (
         <div
@@ -196,6 +275,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
+            onLostPointerCapture={handlePointerCancel}
             onKeyDown={handleKeyDown}
             role="button"
             tabIndex={disabled ? -1 : 0}

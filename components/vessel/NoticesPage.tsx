@@ -16,6 +16,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { triggerHaptic } from '../../utils/system';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 import { NoticeToMarinersService, labelFor, type Notice } from '../../services/NoticeToMarinersService';
 import { GpsService } from '../../services/GpsService';
 import { calculateDistance } from '../../utils/navigationCalculations';
@@ -213,7 +214,7 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                         style={{
                             background: nearMe && vesselPos ? '#10b98124' : 'rgba(255,255,255,0.04)',
                             border: `1px solid ${nearMe && vesselPos ? '#10b98166' : 'rgba(255,255,255,0.08)'}`,
-                            color: nearMe && vesselPos ? '#10b981' : '#9ca3af',
+                            color: daylightUiColor(nearMe && vesselPos ? '#10b981' : '#9ca3af'),
                         }}
                     >
                         📍 Near me <span className="opacity-60 ml-1">{vesselPos ? nearMeCount : '…'}</span>
@@ -232,7 +233,7 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                                 style={{
                                     background: active ? `${f.color}24` : 'rgba(255,255,255,0.04)',
                                     border: `1px solid ${active ? f.color + '66' : 'rgba(255,255,255,0.08)'}`,
-                                    color: active ? f.color : '#9ca3af',
+                                    color: daylightUiColor(active ? f.color : '#9ca3af'),
                                 }}
                             >
                                 {f.short} <span className="opacity-60 ml-1">{count}</span>
@@ -324,17 +325,17 @@ const NoticeCard: React.FC<NoticeCardProps> = ({ notice, expanded, onToggle }) =
             onClick={onToggle}
             className="w-full text-left rounded-2xl transition-all active:scale-[0.995]"
             style={{
-                background: 'rgba(20, 25, 35, 0.6)',
+                background: 'var(--day-ui-surface, rgba(20, 25, 35, 0.6))',
                 backdropFilter: 'blur(16px)',
                 WebkitBackdropFilter: 'blur(16px)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08))',
             }}
         >
             <div className="p-3.5">
                 <div className="flex items-center gap-2 mb-1.5">
                     <span
                         className="px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest"
-                        style={{ background: `${color}24`, color }}
+                        style={{ background: `${color}24`, color: daylightUiColor(color) }}
                     >
                         {notice.areaLabel}
                     </span>

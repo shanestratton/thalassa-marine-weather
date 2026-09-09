@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { ChevronRight } from './icons';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /** Animated collapsible content wrapper */
 export const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }> = ({ open, children }) => (
@@ -20,7 +21,7 @@ export const CollapsibleContent: React.FC<{ open: boolean; children: React.React
 
 /** Divider between list rows */
 export const ListDivider: React.FC = () => (
-    <div className="mx-4" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }} />
+    <div className="mx-4" style={{ borderTop: '1px solid var(--day-ui-border, rgba(255,255,255,0.04))' }} />
 );
 
 /**
@@ -57,7 +58,7 @@ export const OfficeRow: React.FC<{
             disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3'
         }`}
     >
-        <div className="p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
+        <div className="p-1.5 rounded-lg" style={{ background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))' }}>
             {icon}
         </div>
         {/* min-w-0 + truncate: the label yields, so a long status can never
@@ -81,7 +82,7 @@ export const OfficeRow: React.FC<{
             size." A row's height must not depend on the text inside it. */}
         <span
             className="shrink-0 whitespace-nowrap text-[11px] font-bold uppercase tracking-widest"
-            style={{ color: statusColor }}
+            style={{ color: daylightUiColor(statusColor) }}
         >
             {status}
         </span>

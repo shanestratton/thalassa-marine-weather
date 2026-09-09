@@ -75,20 +75,20 @@ export function ChartDepthControls({
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
-                                      background: 'rgba(49, 27, 95, 0.92)',
+                                      background: 'var(--day-ui-purple-surface, rgba(49, 27, 95, 0.92))',
                                       borderColor: 'rgba(167, 139, 250, 0.5)',
-                                      color: '#c4b5fd',
+                                      color: 'var(--day-ui-purple, #c4b5fd)',
                                   }
                                 : tideOffsetInfo
                                   ? {
-                                        background: 'rgba(13, 63, 70, 0.92)',
+                                        background: 'var(--day-ui-success-surface, rgba(13, 63, 70, 0.92))',
                                         borderColor: 'rgba(45, 212, 191, 0.45)',
-                                        color: '#5eead4',
+                                        color: 'var(--day-ui-success, #5eead4)',
                                     }
                                   : {
-                                        background: 'rgba(69, 51, 8, 0.92)',
+                                        background: 'var(--day-ui-amber-surface, rgba(69, 51, 8, 0.92))',
                                         borderColor: 'rgba(251, 191, 36, 0.45)',
-                                        color: '#fcd34d',
+                                        color: 'var(--day-ui-amber, #fcd34d)',
                                     }
                         }
                     >
@@ -175,7 +175,9 @@ export function ChartDepthControls({
                     aria-pressed={nightDim}
                     className="absolute top-[104px] left-[224px] z-700 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
                     style={{
-                        background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
+                        background: nightDim
+                            ? 'rgba(220, 80, 60, 0.30)'
+                            : 'var(--day-ui-surface, rgba(15, 23, 42, 0.85))',
                         borderColor: 'rgba(220, 80, 60, 0.35)',
                         color: '#e07a5f',
                     }}

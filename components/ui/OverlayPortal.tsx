@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { PanePortalContext, usePaneModalLock, usePaneScope } from '../../context/PanePortalContext';
 
 export type OverlayLayer = 'modal' | 'nested' | 'critical';
 
@@ -33,6 +34,8 @@ export const OVERLAY_LAYER_CLASS: Record<OverlayLayer, string> = {
 
 interface OverlayPortalProps extends React.HTMLAttributes<HTMLDivElement> {
     layer?: OverlayLayer;
+    /** Account flows and global tools may deliberately cover the whole app. */
+    scope?: 'pane' | 'app';
 }
 
 /**
@@ -42,7 +45,10 @@ interface OverlayPortalProps extends React.HTMLAttributes<HTMLDivElement> {
  * returned inline and can be rendered without accessing the DOM.
  */
 export const OverlayPortal = React.forwardRef<HTMLDivElement, OverlayPortalProps>(
-    ({ layer = 'modal', className = '', children, style, ...props }, ref) => {
+    ({ layer = 'modal', scope = 'pane', className = '', children, style, ...props }, ref) => {
+        const pane = usePaneScope();
+        const appWide = layer === 'critical' || scope === 'app';
+        usePaneModalLock(!appWide);
         const overlay = (
             <div
                 ref={ref}
@@ -50,13 +56,17 @@ export const OverlayPortal = React.forwardRef<HTMLDivElement, OverlayPortalProps
                 className={`fixed inset-0 ${OVERLAY_LAYER_CLASS[layer]} ${className}`.trim()}
                 style={{ ...style, zIndex: OVERLAY_Z_INDEX[layer] }}
                 {...props}
+                aria-modal={!appWide && pane ? undefined : props['aria-modal']}
             >
                 {children}
             </div>
         );
 
         if (typeof document === 'undefined' || !document.body) return overlay;
-        return createPortal(overlay, document.body);
+        return createPortal(
+            appWide ? <PanePortalContext.Provider value={null}>{overlay}</PanePortalContext.Provider> : overlay,
+            !appWide && pane ? pane.host : document.body,
+        );
     },
 );
 

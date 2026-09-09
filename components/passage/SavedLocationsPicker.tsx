@@ -29,6 +29,7 @@
  */
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { panePopoverStyle, usePanePortalTarget } from '../../context/PanePortalContext';
 import { MapPinIcon, TrashIcon, StarIcon } from '../Icons';
 import { useSettings } from '../../context/SettingsContext';
 import {
@@ -64,6 +65,7 @@ const ACCENTS = {
 } as const;
 
 export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ value, onPick, target }) => {
+    const portalTarget = usePanePortalTarget();
     const { settings, updateSettings } = useSettings();
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
@@ -89,19 +91,23 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
     // open + on scroll/resize so the popover follows if the user
     // scrolls or rotates while it's up.
     useLayoutEffect(() => {
-        if (!open) return;
+        if (!open || !portalTarget) return;
         const measure = () => {
             const rect = buttonRef.current?.getBoundingClientRect();
             if (rect) setAnchorRect(rect);
         };
         measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(portalTarget);
+        if (buttonRef.current) observer.observe(buttonRef.current);
         window.addEventListener('scroll', measure, true);
         window.addEventListener('resize', measure);
         return () => {
+            observer.disconnect();
             window.removeEventListener('scroll', measure, true);
             window.removeEventListener('resize', measure);
         };
-    }, [open]);
+    }, [open, portalTarget]);
 
     // Close on outside-click. The popover lives in a portal
     // so we check BOTH the button AND the popover for the click
@@ -166,22 +172,10 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
     // Cap to 8px from each viewport edge so we never bleed off-screen.
     const POPOVER_WIDTH = 288;
     const POPOVER_GAP = 8;
-    const popoverStyle: React.CSSProperties = anchorRect
-        ? (() => {
-              const viewportW = window.innerWidth;
-              const rightEdge = viewportW - anchorRect.right;
-              const minRight = 8;
-              const maxRight = Math.max(minRight, viewportW - POPOVER_WIDTH - 8);
-              return {
-                  position: 'fixed',
-                  top: anchorRect.bottom + POPOVER_GAP,
-                  right: Math.min(Math.max(rightEdge, minRight), maxRight),
-                  width: POPOVER_WIDTH,
-                  maxWidth: 'calc(100vw - 16px)',
-                  zIndex: 9999,
-              };
-          })()
-        : { display: 'none' };
+    const popoverStyle: React.CSSProperties =
+        anchorRect && portalTarget
+            ? panePopoverStyle(portalTarget, anchorRect, POPOVER_WIDTH, POPOVER_GAP)
+            : { display: 'none' };
 
     return (
         <>
@@ -205,6 +199,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
             </button>
 
             {open &&
+                portalTarget &&
                 createPortal(
                     <div
                         id={menuId}
@@ -312,7 +307,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                             )}
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget,
                 )}
         </>
     );

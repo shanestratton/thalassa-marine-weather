@@ -91,13 +91,13 @@ export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) =
             <div
                 className="flex items-center gap-1.5 text-[10px] leading-tight font-semibold"
                 style={{
-                    background: 'rgba(15, 23, 42, 0.78)',
+                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.78))',
                     backdropFilter: 'blur(12px)',
                     WebkitBackdropFilter: 'blur(12px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                     borderRadius: 12,
                     padding: '4px 8px',
-                    color: 'rgba(255,255,255,0.85)',
+                    color: 'var(--day-ui-text, rgba(255,255,255,0.85))',
                 }}
             >
                 <span className={`inline-block h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />

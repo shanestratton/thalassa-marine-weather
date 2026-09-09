@@ -74,10 +74,10 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
         <div
             className="flex items-center gap-3 text-[11px] leading-tight text-white/85 pointer-events-auto chart-chip-up"
             style={{
-                background: 'rgba(15, 23, 42, 0.80)',
+                background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.80))',
                 backdropFilter: 'blur(20px)',
                 WebkitBackdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                 borderRadius: 16,
                 padding: '6px 12px',
             }}

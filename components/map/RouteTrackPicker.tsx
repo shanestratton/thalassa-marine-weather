@@ -132,12 +132,12 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                 // punter cannot see, which reads as "routes cannot be exited".
                 className="z-710 pointer-events-auto chart-chip-in flex flex-col max-h-full"
                 style={{
-                    background: 'rgba(15, 23, 42, 0.94)',
+                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.94))',
                     backdropFilter: 'blur(24px)',
                     WebkitBackdropFilter: 'blur(24px)',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.1))',
                     borderRadius: 16,
-                    boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+                    boxShadow: 'var(--day-ui-shadow, 0 12px 32px rgba(0,0,0,0.5))',
                     minWidth: sheetMinWidth,
                     maxWidth: `min(${sheetMaxWidth}px, calc(100vw - 24px))`,
                     maxHeight: 'min(560px, 100%)',
@@ -150,7 +150,10 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                 {/* Header */}
                 <div
                     className="flex items-center justify-between"
-                    style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+                    style={{
+                        padding: '10px 14px',
+                        borderBottom: '1px solid var(--day-ui-border, rgba(255,255,255,0.06))',
+                    }}
                 >
                     <span className="flex items-center gap-2">
                         <span
@@ -160,7 +163,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                         />
                         <span
                             className="font-semibold tracking-wide"
-                            style={{ color: 'rgba(255,255,255,0.92)', fontSize: titleFontSize }}
+                            style={{ color: 'var(--day-ui-text, rgba(255,255,255,0.92))', fontSize: titleFontSize }}
                         >
                             {meta.title}
                         </span>
@@ -170,7 +173,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                         onClick={onClose}
                         aria-label="Close picker"
                         className="hit-target-44 flex items-center justify-center opacity-60 hover:opacity-100"
-                        style={{ color: '#fff', padding: '0 4px' }}
+                        style={{ color: 'var(--day-ui-text, #fff)', padding: '0 4px' }}
                     >
                         <XIcon className="w-4 h-4" />
                     </button>
@@ -179,14 +182,17 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                 {/* Body */}
                 <div style={{ overflowY: 'auto', padding: '4px 6px' }}>
                     {loading && (
-                        <div className="text-[11px] opacity-70" style={{ padding: '14px 8px', color: '#94a3b8' }}>
+                        <div
+                            className="text-[11px] opacity-70"
+                            style={{ padding: '14px 8px', color: 'var(--day-ui-muted, #94a3b8)' }}
+                        >
                             Loading…
                         </div>
                     )}
                     {!loading && items && items.length === 0 && (
                         <div
                             className="text-[11px] leading-snug"
-                            style={{ padding: '14px 10px', color: 'rgba(255,255,255,0.7)' }}
+                            style={{ padding: '14px 10px', color: 'var(--day-ui-muted, rgba(255,255,255,0.7))' }}
                         >
                             {meta.emptyMsg}
                         </div>
@@ -195,7 +201,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                         <div
                             role="alert"
                             className="text-[11px] leading-snug"
-                            style={{ padding: '14px 10px', color: '#fbbf24' }}
+                            style={{ padding: '14px 10px', color: 'var(--day-ui-amber, #fbbf24)' }}
                         >
                             <div>{loadError}</div>
                             <button
@@ -227,12 +233,15 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                         marginBottom: 2,
                                     }}
                                 >
-                                    <span className="flex-1 min-w-0" style={{ color: 'rgba(255,255,255,0.9)' }}>
+                                    <span
+                                        className="flex-1 min-w-0"
+                                        style={{ color: 'var(--day-ui-text, rgba(255,255,255,0.9))' }}
+                                    >
                                         <span
                                             className="block font-semibold truncate"
                                             style={{
                                                 fontSize: labelFontSize,
-                                                color: active ? meta.accent : 'inherit',
+                                                color: active ? `var(--day-ui-accent, ${meta.accent})` : 'inherit',
                                             }}
                                         >
                                             {item.label}
@@ -248,7 +257,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                                     style={{
                                                         backgroundColor: 'rgba(245, 158, 11, 0.18)',
                                                         border: '1px solid rgba(245, 158, 11, 0.42)',
-                                                        color: 'rgb(252, 211, 77)',
+                                                        color: 'var(--day-ui-amber, rgb(252, 211, 77))',
                                                     }}
                                                     title="Saved on this device only — sign in to sync"
                                                 >
@@ -264,7 +273,10 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                         </span>
                                     </span>
                                     {active && (
-                                        <span aria-hidden style={{ color: meta.accent, fontWeight: 700 }}>
+                                        <span
+                                            aria-hidden
+                                            style={{ color: `var(--day-ui-accent, ${meta.accent})`, fontWeight: 700 }}
+                                        >
                                             ✓
                                         </span>
                                     )}
@@ -278,7 +290,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                     <div
                         style={{
                             padding: '6px 8px',
-                            borderTop: '1px solid rgba(255,255,255,0.06)',
+                            borderTop: '1px solid var(--day-ui-border, rgba(255,255,255,0.06))',
                         }}
                     >
                         <button
@@ -289,11 +301,11 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                             }}
                             className="w-full min-h-[44px] text-center text-[11px] font-semibold opacity-80 hover:opacity-100"
                             style={{
-                                color: 'rgba(255,255,255,0.7)',
+                                color: 'var(--day-ui-muted, rgba(255,255,255,0.7))',
                                 padding: '6px',
                                 borderRadius: 8,
                                 background: 'transparent',
-                                border: '1px solid rgba(255,255,255,0.08)',
+                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                             }}
                         >
                             Clear selection

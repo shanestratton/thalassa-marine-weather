@@ -18,6 +18,7 @@ import { onLocalAisChange } from './useAisLayer';
 import { LocationStore } from '../../stores/LocationStore';
 import { NmeaStore } from '../../services/NmeaStore';
 import { computeCpa } from '../../utils/cpaCalculation';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 import { AisGuardZone } from '../../services/AisGuardZone';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { VesselMetadataService } from '../../services/VesselMetadataService';
@@ -311,44 +312,44 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
     ].filter((value): value is string => value !== null);
     const dimensionsHtml =
         dims.length > 0
-            ? `<div style="display:flex;gap:8px;margin-bottom:10px;padding:6px 8px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:#94a3b8;">
+            ? `<div style="display:flex;gap:8px;margin-bottom:10px;padding:6px 8px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:var(--day-ui-muted, #94a3b8);">
                 ${dims.map((dimension) => `<span>${escapeAisPopupHtml(dimension)}</span>`).join('<span style="color:#334155;">•</span>')}
                </div>`
             : '';
     const upgradeBanner = !input.isPremium
-        ? `<button type="button" id="${escapeAisPopupHtml(input.detailBtnId)}" style="width:100%;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:10px;color:#38bdf8;cursor:pointer;">
+        ? `<button type="button" id="${escapeAisPopupHtml(input.detailBtnId)}" style="width:100%;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:10px;color:var(--day-ui-accent, #38bdf8);cursor:pointer;">
             🔒 Upgrade for vessel photo, dimensions &amp; registry data
            </button>`
         : '';
     const viewDetailsBtn =
         input.isPremium && input.hasDetails
-            ? `<button type="button" id="${escapeAisPopupHtml(input.detailBtnId)}" style="width:100%;margin-top:8px;padding:8px 12px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(14,165,233,0.25);border-radius:10px;color:#38bdf8;font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;text-transform:uppercase;transition:all 0.2s;">
+            ? `<button type="button" id="${escapeAisPopupHtml(input.detailBtnId)}" style="width:100%;margin-top:8px;padding:8px 12px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(14,165,233,0.25);border-radius:10px;color:var(--day-ui-accent, #38bdf8);font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;text-transform:uppercase;transition:all 0.2s;">
             View Full Details ›
            </button>`
             : '';
 
     return `
-        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:rgba(15,23,42,0.95);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;color:#e2e8f0;min-width:240px;max-width:300px;">
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--day-ui-surface, rgba(15,23,42,0.95));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--day-ui-border, rgba(255,255,255,0.1));border-radius:14px;padding:14px 16px;color:var(--day-ui-text, #e2e8f0);min-width:240px;max-width:300px;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
                 ${
                     thumbnail
-                        ? `<img src="${escapeAisPopupHtml(thumbnail)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,0.1);flex-shrink:0;" />`
-                        : `<div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${escapeAisPopupHtml(input.shipIcon)}</div>`
+                        ? `<img src="${escapeAisPopupHtml(thumbnail)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid var(--day-ui-border, rgba(255,255,255,0.1));flex-shrink:0;" />`
+                        : `<div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid var(--day-ui-border, rgba(255,255,255,0.08));display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${escapeAisPopupHtml(input.shipIcon)}</div>`
                 }
                 <div style="flex:1;min-width:0;">
                     <div data-vessel-name style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeAisPopupHtml(input.displayName)}</div>
-                    <div style="font-size:10px;color:#94a3b8;display:flex;align-items:center;gap:4px;">
+                    <div style="font-size:10px;color:var(--day-ui-muted, #94a3b8);display:flex;align-items:center;gap:4px;">
                         <span>${escapeAisPopupHtml(input.typeLabel)}</span>
-                        ${input.isVerified ? '<span style="color:#22c55e;font-size:9px;">✓ Verified</span>' : ''}
+                        ${input.isVerified ? '<span style="color:var(--day-ui-success, #22c55e);font-size:9px;">✓ Verified</span>' : ''}
                         ${input.flagCountry ? `<span style="color:#475569;">•</span><span data-vessel-flag>${escapeAisPopupHtml(input.flagCountry)}</span>` : ''}
                     </div>
                 </div>
                 <div style="width:10px;height:10px;border-radius:50%;background:${statusColor};box-shadow:0 0 8px ${statusColor};flex-shrink:0;"></div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;padding:4px 0;">
-                <span style="color:${statusColor};font-weight:700;font-size:11px;">${escapeAisPopupHtml(status)}</span>
+                <span style="color:${daylightUiColor(statusColor)};font-weight:700;font-size:11px;">${escapeAisPopupHtml(status)}</span>
                 <span style="color:#475569;">•</span>
-                <span style="font-size:11px;color:#94a3b8;">${escapeAisPopupHtml(input.sog)}</span>
+                <span style="font-size:11px;color:var(--day-ui-muted, #94a3b8);">${escapeAisPopupHtml(input.sog)}</span>
                 <span style="color:#475569;">•</span>
                 <span style="font-size:10px;color:${input.lastSeen === 'Live' ? '#22c55e' : '#64748b'};">${escapeAisPopupHtml(input.lastSeen)}</span>
             </div>
@@ -356,7 +357,7 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
             ${
                 input.needsOnDemandLookup
                     ? `<div id="${escapeAisPopupHtml(input.lookupSpinnerId)}" style="margin-bottom:10px;">
-                        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:#38bdf8;">
+                        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:var(--day-ui-accent, #38bdf8);">
                             <span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(56,189,248,0.3);border-top-color:#38bdf8;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
                             <span>Searching registry…</span>
                         </div>
@@ -366,18 +367,18 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
             ${dimensionsHtml}
             ${input.trustedCpaHtml}
             <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:11px;">
-                <span style="color:#64748b;">MMSI</span>
+                <span style="color:var(--day-ui-muted, #64748b);">MMSI</span>
                 <span style="font-family:monospace;font-size:10px;">${escapeAisPopupHtml(input.mmsi)}</span>
-                <span style="color:#64748b;">Call Sign</span>
+                <span style="color:var(--day-ui-muted, #64748b);">Call Sign</span>
                 <span>${escapeAisPopupHtml(input.callSign)}</span>
-                <span style="color:#64748b;">COG / Hdg</span>
+                <span style="color:var(--day-ui-muted, #64748b);">COG / Hdg</span>
                 <span>${escapeAisPopupHtml(input.cog)} / ${escapeAisPopupHtml(input.heading)}</span>
-                <span style="color:#64748b;">Destination</span>
-                <span style="font-weight:600;color:#e2e8f0;">${escapeAisPopupHtml(input.destination)}</span>
-                <span style="color:#64748b;">Source</span>
+                <span style="color:var(--day-ui-muted, #64748b);">Destination</span>
+                <span style="font-weight:600;color:var(--day-ui-text, #e2e8f0);">${escapeAisPopupHtml(input.destination)}</span>
+                <span style="color:var(--day-ui-muted, #64748b);">Source</span>
                 <span style="font-size:10px;">${escapeAisPopupHtml(input.source)}</span>
-                ${input.imoNumber ? `<span style="color:#64748b;">IMO</span><span style="font-family:monospace;font-size:10px;">${escapeAisPopupHtml(input.imoNumber)}</span>` : ''}
-                ${input.dataSource ? `<span style="color:#64748b;">Registry</span><span style="font-size:10px;color:#94a3b8;">${escapeAisPopupHtml(input.dataSource)}</span>` : ''}
+                ${input.imoNumber ? `<span style="color:var(--day-ui-muted, #64748b);">IMO</span><span style="font-family:monospace;font-size:10px;">${escapeAisPopupHtml(input.imoNumber)}</span>` : ''}
+                ${input.dataSource ? `<span style="color:var(--day-ui-muted, #64748b);">Registry</span><span style="font-size:10px;color:var(--day-ui-muted, #94a3b8);">${escapeAisPopupHtml(input.dataSource)}</span>` : ''}
             </div>
             ${viewDetailsBtn}
         </div>
@@ -422,15 +423,15 @@ export function buildAisVesselDetailHtml(data: AisVesselDetailData): string {
            </div>`
         : `<div style="padding:20px 16px 12px;text-align:center;">
             <div style="font-size:48px;margin-bottom:8px;">${escapeAisPopupHtml(data.flag)}</div>
-            <div style="font-size:20px;font-weight:900;color:#e2e8f0;">${escapeAisPopupHtml(data.name)}</div>
-            <div style="font-size:12px;color:#94a3b8;margin-top:4px;">${escapeAisPopupHtml(data.type)}${data.isVerified ? ' • ✓ Verified' : ''}</div>
+            <div style="font-size:20px;font-weight:900;color:var(--day-ui-text, #e2e8f0);">${escapeAisPopupHtml(data.name)}</div>
+            <div style="font-size:12px;color:var(--day-ui-muted, #94a3b8);margin-top:4px;">${escapeAisPopupHtml(data.type)}${data.isVerified ? ' • ✓ Verified' : ''}</div>
            </div>`;
     const row = (label: string, value: unknown, mono = false) => {
         if (value == null || value === '') return '';
         const valStyle = mono ? 'font-family:monospace;font-size:12px;' : 'font-weight:600;';
-        return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <span style="color:#64748b;font-size:12px;">${escapeAisPopupHtml(label)}</span>
-            <span style="color:#e2e8f0;font-size:12px;${valStyle}">${escapeAisPopupHtml(value)}</span>
+        return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--day-ui-border, rgba(255,255,255,0.06));">
+            <span style="color:var(--day-ui-muted, #64748b);font-size:12px;">${escapeAisPopupHtml(label)}</span>
+            <span style="color:var(--day-ui-text, #e2e8f0);font-size:12px;${valStyle}">${escapeAisPopupHtml(value)}</span>
         </div>`;
     };
     const dimension = (value: unknown): string | null => {
@@ -442,11 +443,11 @@ export function buildAisVesselDetailHtml(data: AisVesselDetailData): string {
     const heading = finiteAisDisplayNumber(data.heading);
 
     return `
-        <div style="width:100%;max-width:400px;max-height:90vh;background:rgba(15,23,42,0.98);border:1px solid rgba(255,255,255,0.1);border-radius:16px 16px 0 0;overflow-y:auto;color:#e2e8f0;animation:slideUp 0.3s ease-out;">
-            <button type="button" data-vessel-modal-close style="position:absolute;top:12px;right:12px;z-index:10;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;" aria-label="Close vessel details">✕</button>
+        <div style="width:100%;max-width:400px;max-height:90vh;background:var(--day-ui-surface, rgba(15,23,42,0.98));border:1px solid var(--day-ui-border, rgba(255,255,255,0.1));border-radius:16px 16px 0 0;overflow-y:auto;color:var(--day-ui-text, #e2e8f0);animation:slideUp 0.3s ease-out;">
+            <button type="button" data-vessel-modal-close style="position:absolute;top:12px;right:12px;z-index:10;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.5);border:1px solid var(--day-ui-border, rgba(255,255,255,0.15));color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;" aria-label="Close vessel details">✕</button>
             ${heroImg}
             <div style="padding:0 16px 16px;">
-                <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Vessel Specifications</div>
+                <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:1px;">Vessel Specifications</div>
                 ${row('MMSI', data.mmsi, true)}
                 ${row('IMO', data.imo, true)}
                 ${row('Call Sign', data.callSign)}
@@ -455,7 +456,7 @@ export function buildAisVesselDetailHtml(data: AisVesselDetailData): string {
                 ${row('LOA', dimension(data.loa))}
                 ${row('Beam', dimension(data.beam))}
                 ${row('Draft', dimension(data.draft))}
-                <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Navigation</div>
+                <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:1px;">Navigation</div>
                 ${row('Status', data.status)}
                 ${row('SOG', sog != null && sog > 0 ? `${sog.toFixed(1)} kn` : 'Stationary')}
                 ${row('COG', cog != null ? `${cog.toFixed(0)}°` : '—')}
@@ -463,7 +464,7 @@ export function buildAisVesselDetailHtml(data: AisVesselDetailData): string {
                 ${row('Destination', data.destination)}
                 ${row('Position', `${aisDisplayString(data.lat)}°, ${aisDisplayString(data.lon)}°`)}
                 ${row('Last Seen', data.lastSeen)}
-                <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Data Source</div>
+                <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:1px;">Data Source</div>
                 ${row('Source', data.source)}
                 ${row('Registry', data.dataSource)}
                 ${row('Verified', data.isVerified ? '✓ Yes' : '✗ No')}
@@ -1172,7 +1173,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                             spinnerEl.textContent = '';
                             const successDiv = document.createElement('div');
                             successDiv.style.cssText =
-                                'display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:10px;color:#22c55e;';
+                                'display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:10px;color:var(--day-ui-success, #22c55e);';
                             const checkSpan = document.createElement('span');
                             checkSpan.textContent = `\u2713 Found: ${result.flag_emoji || ''} ${result.vessel_name}`;
                             successDiv.appendChild(checkSpan);
@@ -1200,7 +1201,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                             spinnerEl.textContent = '';
                             const noDataDiv = document.createElement('div');
                             noDataDiv.style.cssText =
-                                'padding:6px 10px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.15);border-radius:8px;font-size:10px;color:#64748b;';
+                                'padding:6px 10px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.15);border-radius:8px;font-size:10px;color:var(--day-ui-muted, #64748b);';
                             noDataDiv.textContent = 'No registry data found';
                             spinnerEl.appendChild(noDataDiv);
                         }
@@ -1314,21 +1315,21 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
                 cpaSection = `
                     ${banner}
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--day-ui-border, rgba(255,255,255,0.06));">
                         <div style="text-align:center;">
-                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Distance</div>
-                            <div style="font-size:14px;font-weight:700;color:#e2e8f0;">${distance.toFixed(1)} NM</div>
+                            <div style="font-size:9px;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:0.5px;">Distance</div>
+                            <div style="font-size:14px;font-weight:700;color:var(--day-ui-text, #e2e8f0);">${distance.toFixed(1)} NM</div>
                         </div>
                         <div style="text-align:center;">
-                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Bearing</div>
-                            <div style="font-size:14px;font-weight:700;color:#e2e8f0;">${bearing.toFixed(0)}°</div>
+                            <div style="font-size:9px;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:0.5px;">Bearing</div>
+                            <div style="font-size:14px;font-weight:700;color:var(--day-ui-text, #e2e8f0);">${bearing.toFixed(0)}°</div>
                         </div>
                         <div style="text-align:center;">
-                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">CPA</div>
+                            <div style="font-size:9px;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:0.5px;">CPA</div>
                             <div style="font-size:14px;font-weight:700;color:${riskColor};">${cpa.toFixed(2)} NM</div>
                         </div>
                         <div style="text-align:center;">
-                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">TCPA</div>
+                            <div style="font-size:9px;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:0.5px;">TCPA</div>
                             <div style="font-size:14px;font-weight:700;color:${riskColor};">${tcpaStr}</div>
                         </div>
                     </div>

@@ -20,6 +20,7 @@
  * two being confused for one another.
  */
 import React from 'react';
+import '../instrumentDaylight.css';
 
 /* Type is sized against the RENDERED pixel, not the viewBox. At 640 wide in a
    420px box the scale is 0.656, so fontSize 15 lands at 9.8px and 17 at 11.2px
@@ -101,7 +102,7 @@ const Corner: React.FC<{ at: [number, number]; label: string; dx: number; dy: nu
 export const SailPartsDiagram: React.FC<{ className?: string }> = ({ className = '' }) => (
     <svg
         viewBox={`0 0 ${W} ${H}`}
-        className={className}
+        className={`nmea-instrument ${className}`}
         role="img"
         aria-label="Parts of a mainsail, and of a yankee headsail — the same names on both. head at the top, tack at the bottom of the luff, clew at the aft lower corner; the luff is the leading edge, the leech the trailing edge, the foot the bottom. The mainsail's leech curves out into the roach, held by battens. A yankee is cut high so its foot clears the deck."
     >

@@ -1,5 +1,6 @@
-import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NIGHT_SCRIM_Z_INDEX } from './components/ui/OverlayPortal';
+import { PanePortalScope } from './context/PanePortalContext';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
@@ -251,10 +252,7 @@ const App: React.FC = () => {
     // it off a phone in landscape, where 900px split in two is two useless
     // columns.
     //
-    // The chart is excluded on purpose. It is a deliberate singleton kept
-    // alive hidden (see the keep-alive note above) because two Mapbox
-    // spin-ups in one process killed the WebContent process. Putting it in a
-    // pane is the pairing worth having, but it is not worth guessing at.
+    // The chart remains a singleton kept alive below; split only repositions it.
     const [splitViewEnabled, setSplitViewEnabled] = useState(() => {
         try {
             return localStorage.getItem('thalassa_split_view') === '1';
@@ -308,6 +306,8 @@ const App: React.FC = () => {
     // this rectangle with position:fixed; guessing it from CSS would couple
     // this to every header tweak forever.
     const splitRightFrameRef = useRef<HTMLDivElement | null>(null);
+    const splitLeftFrameRef = useRef<HTMLElement | null>(null);
+    const chartContentRef = useRef<HTMLElement | null>(null);
     const [splitChartRect, setSplitChartRect] = useState<{
         top: number;
         left: number;
@@ -315,7 +315,7 @@ const App: React.FC = () => {
         height: number;
     } | null>(null);
     const splitChartActive = splitActive && currentView === 'map';
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!splitChartActive) {
             setSplitChartRect(null);
             return;
@@ -326,15 +326,38 @@ const App: React.FC = () => {
             const r = frame.getBoundingClientRect();
             // Inset by the frame's 1px border so its edge stays visible around
             // the chart rather than being painted over.
-            setSplitChartRect({ top: r.top + 1, left: r.left + 1, width: r.width - 2, height: r.height - 2 });
+            const next = {
+                top: r.top + 1,
+                left: r.left + 1,
+                width: Math.max(0, r.width - 2),
+                height: Math.max(0, r.height - 2),
+            };
+            setSplitChartRect((previous) =>
+                previous &&
+                previous.top === next.top &&
+                previous.left === next.left &&
+                previous.width === next.width &&
+                previous.height === next.height
+                    ? previous
+                    : next,
+            );
         };
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(frame);
+        if (frame.parentElement) observer.observe(frame.parentElement);
         window.addEventListener('resize', measure);
+        window.addEventListener('orientationchange', measure);
+        window.addEventListener('scroll', measure, true);
+        window.visualViewport?.addEventListener('resize', measure);
+        window.visualViewport?.addEventListener('scroll', measure);
         return () => {
             observer.disconnect();
             window.removeEventListener('resize', measure);
+            window.removeEventListener('orientationchange', measure);
+            window.removeEventListener('scroll', measure, true);
+            window.visualViewport?.removeEventListener('resize', measure);
+            window.visualViewport?.removeEventListener('scroll', measure);
         };
     }, [splitChartActive]);
 
@@ -1095,6 +1118,7 @@ const App: React.FC = () => {
                     <PullToRefresh
                         onRefresh={() => refreshData()}
                         disabled={
+                            splitActive ||
                             currentView === 'dashboard' ||
                             currentView === 'map' ||
                             PULL_REFRESH_DISABLED_VIEWS.has(currentView)
@@ -1116,65 +1140,75 @@ const App: React.FC = () => {
                                         }`}
                                     >
                                         {splitActive && (
-                                            <section
-                                                // The frame owns the border, the rounding and the clip;
-                                                // the aside inside keeps its negative-margin compensation
-                                                // and the frame's overflow-hidden clips the dead reserved
-                                                // band exactly as the app header used to cover it. The
-                                                // cyan edge marks the PINNED pane — the same neon the tab
-                                                // bar speaks — while the right pane stays neutral so the
-                                                // eye knows which side will change when a tab is pressed.
-                                                className="h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/50 bg-slate-950 shadow-[0_0_32px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]"
-                                            >
-                                                <aside
-                                                    aria-label="The Glass"
-                                                    // The Glass assumes it owns the viewport: its header is
-                                                    // `position: fixed; width: 100%`, which ignores `relative`
-                                                    // and painted straight over the right pane at full width.
-                                                    // `contain: paint` makes this box a containing block for
-                                                    // fixed descendants — the pane becomes the pane's viewport,
-                                                    // which is exactly what a split needs, and it does it
-                                                    // without touching the frozen Glass markup or forcing a
-                                                    // compositing layer the way a transform hack would.
-                                                    className="relative h-full w-full overflow-y-auto overflow-x-hidden"
-                                                    style={{
-                                                        contain: 'paint',
-                                                        // The Glass reserves `locationHeaderHeightPx` at its top —
-                                                        // the brand row plus the location card — because on a phone
-                                                        // that chrome sits inside its viewport. In split, App draws
-                                                        // that chrome ABOVE both panes, so the reservation is pure
-                                                        // dead space and the content floats in the middle with a
-                                                        // band above and the tide half off the bottom.
-                                                        //
-                                                        // The safe-area inset is double-counted for the same reason:
-                                                        // the header already cleared it. Pull the pane up by both,
-                                                        // give the height back, and the Glass's own arithmetic lands
-                                                        // where it expects. Using its own numbers, not guessed
-                                                        // pixels, so it stays correct if the layout is retuned.
-                                                        marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
-                                                        // Same correction at the bottom: the Glass anchors its footer at
-                                                        // fixed bottom safe-inset+74px and its hero at +124px, clearing a
-                                                        // tab bar that — in split — the frame has already cleared. Extend
-                                                        // the pane past the frame bottom by that allowance (less 8px so
-                                                        // the badge row keeps a breath of margin); the frame clips the
-                                                        // rest. INSHORE/ECMWF land at the visible bottom and the tide
-                                                        // graph stretches to meet them, exactly as on the phone.
-                                                        height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px + env(safe-area-inset-bottom) + 66px)`,
-                                                    }}
+                                            <PanePortalScope enabled paneId="glass" frameRef={splitLeftFrameRef}>
+                                                <section
+                                                    ref={splitLeftFrameRef}
+                                                    data-split-pane="glass"
+                                                    // The frame owns the border, the rounding and the clip;
+                                                    // the aside inside keeps its negative-margin compensation
+                                                    // and the frame's overflow-hidden clips the dead reserved
+                                                    // band exactly as the app header used to cover it. The
+                                                    // cyan edge marks the PINNED pane — the same neon the tab
+                                                    // bar speaks — while the right pane stays neutral so the
+                                                    // eye knows which side will change when a tab is pressed.
+                                                    className="h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/50 bg-slate-950 shadow-[0_0_32px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]"
                                                 >
-                                                    {glassContent}
-                                                </aside>
-                                            </section>
+                                                    <aside
+                                                        aria-label="The Glass"
+                                                        // The Glass assumes it owns the viewport: its header is
+                                                        // `position: fixed; width: 100%`, which ignores `relative`
+                                                        // and painted straight over the right pane at full width.
+                                                        // `contain: paint` makes this box a containing block for
+                                                        // fixed descendants — the pane becomes the pane's viewport,
+                                                        // which is exactly what a split needs, and it does it
+                                                        // without touching the frozen Glass markup or forcing a
+                                                        // compositing layer the way a transform hack would.
+                                                        className="relative h-full w-full overflow-y-auto overflow-x-hidden"
+                                                        style={{
+                                                            contain: 'paint',
+                                                            // The Glass reserves `locationHeaderHeightPx` at its top —
+                                                            // the brand row plus the location card — because on a phone
+                                                            // that chrome sits inside its viewport. In split, App draws
+                                                            // that chrome ABOVE both panes, so the reservation is pure
+                                                            // dead space and the content floats in the middle with a
+                                                            // band above and the tide half off the bottom.
+                                                            //
+                                                            // The safe-area inset is double-counted for the same reason:
+                                                            // the header already cleared it. Pull the pane up by both,
+                                                            // give the height back, and the Glass's own arithmetic lands
+                                                            // where it expects. Using its own numbers, not guessed
+                                                            // pixels, so it stays correct if the layout is retuned.
+                                                            marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
+                                                            // Same correction at the bottom: the Glass anchors its footer at
+                                                            // fixed bottom safe-inset+74px and its hero at +124px, clearing a
+                                                            // tab bar that — in split — the frame has already cleared. Extend
+                                                            // the pane past the frame bottom by that allowance (less 8px so
+                                                            // the badge row keeps a breath of margin); the frame clips the
+                                                            // rest. INSHORE/ECMWF land at the visible bottom and the tide
+                                                            // graph stretches to meet them, exactly as on the phone.
+                                                            height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px + env(safe-area-inset-bottom) + 66px)`,
+                                                        }}
+                                                    >
+                                                        {glassContent}
+                                                    </aside>
+                                                </section>
+                                            </PanePortalScope>
                                         )}
-                                        <div
-                                            ref={splitRightFrameRef}
-                                            className={
-                                                splitActive
-                                                    ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/25 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-                                                    : 'absolute inset-0'
-                                            }
+                                        <PanePortalScope
+                                            enabled={splitActive && currentView !== 'map'}
+                                            paneId="page"
+                                            frameRef={splitRightFrameRef}
                                         >
-                                            {/* Every page pads its own bottom to clear the tab bar that floats
+                                            <div
+                                                ref={splitRightFrameRef}
+                                                data-split-pane={splitActive ? 'page' : undefined}
+                                                className={
+                                                    splitActive
+                                                        ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/25 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                                                        : 'absolute inset-0'
+                                                }
+                                            >
+                                                {/* Every page pads its own bottom to clear the tab bar that floats
                                                 over it on the phone — but in split, the frame has already cleared
                                                 the bar, so that padding became a dead band (the Instrument
                                                 Panel's wind roses floated with "heaps of room" below them).
@@ -1182,74 +1216,75 @@ const App: React.FC = () => {
                                                 the container removed: pages behave as if the bar still overlaid
                                                 them, the frame clips the excess, and every page's own clearance
                                                 lands at the frame bottom. One rule, all pages. */}
-                                            <div
-                                                className="absolute inset-x-0 top-0"
-                                                style={
-                                                    splitActive
-                                                        ? {
-                                                              height: 'calc(100% + 4.5rem + env(safe-area-inset-bottom))',
-                                                          }
-                                                        : { height: '100%' }
-                                                }
-                                            >
-                                                <PageTransition
-                                                    pageKey={currentView}
-                                                    direction={transitionDirection}
-                                                    canSwipeBack={false}
-                                                    onSwipeBack={() => setPage('vessel')}
+                                                <div
+                                                    className="absolute inset-x-0 top-0"
+                                                    style={
+                                                        splitActive
+                                                            ? {
+                                                                  height: 'calc(100% + 4.5rem + env(safe-area-inset-bottom))',
+                                                              }
+                                                            : { height: '100%' }
+                                                    }
                                                 >
-                                                    <div className="h-full overflow-y-auto overflow-x-hidden">
-                                                        {/* Dashboard — special case with error/loading states */}
-                                                        {currentView === 'dashboard' && glassContent}
+                                                    <PageTransition
+                                                        pageKey={currentView}
+                                                        direction={transitionDirection}
+                                                        canSwipeBack={false}
+                                                        onSwipeBack={() => setPage('vessel')}
+                                                    >
+                                                        <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                            {/* Dashboard — special case with error/loading states */}
+                                                            {currentView === 'dashboard' && glassContent}
 
-                                                        {/* Registry-driven views — all non-dashboard/non-map pages */}
-                                                        {activeViewConfig &&
-                                                            (() => {
-                                                                const ViewComponent = activeViewConfig.component;
-                                                                const viewCtx: ViewContext = {
-                                                                    setPage,
-                                                                    previousView,
-                                                                    setIsUpgradeOpen,
-                                                                    settings: settings as unknown as Record<
-                                                                        string,
-                                                                        unknown
-                                                                    >,
-                                                                    updateSettings: updateSettings as unknown as (
-                                                                        u: Record<string, unknown>,
-                                                                    ) => void,
-                                                                    handleFavoriteSelect,
-                                                                    weatherAlerts: weatherData?.alerts || [],
-                                                                };
-                                                                const viewProps =
-                                                                    activeViewConfig.getProps?.(viewCtx) ?? {};
-                                                                const rendered = <ViewComponent {...viewProps} />;
-                                                                // If this view is gated, PaywallGate decides whether to
-                                                                // render the page or the upsell card based on the user's
-                                                                // subscription tier. See services/SubscriptionService for
-                                                                // the FEATURE_GATES table.
-                                                                const gated = activeViewConfig.gatedFeature ? (
-                                                                    <PaywallGate
-                                                                        feature={activeViewConfig.gatedFeature}
-                                                                        onUpgrade={() => setIsUpgradeOpen(true)}
-                                                                        onBack={() => setPage('vessel')}
-                                                                    >
-                                                                        {rendered}
-                                                                    </PaywallGate>
-                                                                ) : (
-                                                                    rendered
-                                                                );
-                                                                return (
-                                                                    <ErrorBoundary
-                                                                        boundaryName={activeViewConfig.boundaryName}
-                                                                    >
-                                                                        {gated}
-                                                                    </ErrorBoundary>
-                                                                );
-                                                            })()}
-                                                    </div>
-                                                </PageTransition>
+                                                            {/* Registry-driven views — all non-dashboard/non-map pages */}
+                                                            {activeViewConfig &&
+                                                                (() => {
+                                                                    const ViewComponent = activeViewConfig.component;
+                                                                    const viewCtx: ViewContext = {
+                                                                        setPage,
+                                                                        previousView,
+                                                                        setIsUpgradeOpen,
+                                                                        settings: settings as unknown as Record<
+                                                                            string,
+                                                                            unknown
+                                                                        >,
+                                                                        updateSettings: updateSettings as unknown as (
+                                                                            u: Record<string, unknown>,
+                                                                        ) => void,
+                                                                        handleFavoriteSelect,
+                                                                        weatherAlerts: weatherData?.alerts || [],
+                                                                    };
+                                                                    const viewProps =
+                                                                        activeViewConfig.getProps?.(viewCtx) ?? {};
+                                                                    const rendered = <ViewComponent {...viewProps} />;
+                                                                    // If this view is gated, PaywallGate decides whether to
+                                                                    // render the page or the upsell card based on the user's
+                                                                    // subscription tier. See services/SubscriptionService for
+                                                                    // the FEATURE_GATES table.
+                                                                    const gated = activeViewConfig.gatedFeature ? (
+                                                                        <PaywallGate
+                                                                            feature={activeViewConfig.gatedFeature}
+                                                                            onUpgrade={() => setIsUpgradeOpen(true)}
+                                                                            onBack={() => setPage('vessel')}
+                                                                        >
+                                                                            {rendered}
+                                                                        </PaywallGate>
+                                                                    ) : (
+                                                                        rendered
+                                                                    );
+                                                                    return (
+                                                                        <ErrorBoundary
+                                                                            boundaryName={activeViewConfig.boundaryName}
+                                                                        >
+                                                                            {gated}
+                                                                        </ErrorBoundary>
+                                                                    );
+                                                                })()}
+                                                        </div>
+                                                    </PageTransition>
+                                                </div>
                                             </div>
-                                        </div>
+                                        </PanePortalScope>
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>
@@ -1261,161 +1296,172 @@ const App: React.FC = () => {
                     id moves with visibility so main-content is never duplicated
                     while both mains exist. */}
                 {(chartKeepAlive || chartVisible) && (
-                    <main
-                        // In split, the OTHER main also renders (it draws the
-                        // frames), and it owns the main-content id — two
-                        // elements with one id is how skip-links break.
-                        id={chartVisible && !splitChartActive ? 'main-content' : undefined}
-                        className={
-                            splitChartActive && splitChartRect
-                                ? 'overflow-hidden rounded-2xl bg-slate-900'
-                                : 'grow w-full relative bg-slate-900 overflow-hidden'
-                        }
-                        style={
-                            // One node, three outfits. Full-bleed on the phone;
-                            // display:none while kept alive; and in split, FIXED
-                            // over the measured right frame — repositioned, never
-                            // remounted, because a second Mapbox spin-up is the
-                            // documented process killer.
-                            splitChartActive && splitChartRect
-                                ? {
-                                      position: 'fixed',
-                                      top: splitChartRect.top,
-                                      left: splitChartRect.left,
-                                      width: splitChartRect.width,
-                                      height: splitChartRect.height,
-                                      zIndex: 40,
-                                  }
-                                : chartVisible
-                                  ? undefined
-                                  : { display: 'none' }
-                        }
+                    <PanePortalScope
+                        enabled={splitChartActive}
+                        paneId="chart"
+                        frameRef={splitRightFrameRef}
+                        contentRef={chartContentRef}
                     >
-                        <ErrorBoundary boundaryName="MapView">
-                            <Suspense
-                                fallback={
-                                    <div className="flex items-center justify-center h-full text-white">
-                                        <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-                                    </div>
-                                }
-                            >
-                                <MapHub
-                                    mapboxToken={settings.mapboxToken}
-                                    homePort={settings.defaultLocation}
-                                    pickerMode={mapPickerActive}
-                                    pickerLabel="Tap the chart to choose your weather location"
-                                    onLocationSelect={(lat: number, lon: number, name?: string) => {
-                                        if (mapFromWxRef.current) {
-                                            mapFromWxRef.current = false;
-                                            setMapPickerActive(false);
-                                            handleMapTargetSelect(lat, lon, name);
-                                        } else {
-                                            handleMapStaySelect(lat, lon, name);
-                                        }
-                                    }}
-                                />
-                            </Suspense>
-                        </ErrorBoundary>
-                        {/* Offline chip — matches the wifi-slash chip in the App header
+                        <main
+                            ref={chartContentRef}
+                            data-split-pane={splitChartActive ? 'chart' : undefined}
+                            // In split, the OTHER main also renders (it draws the
+                            // frames), and it owns the main-content id — two
+                            // elements with one id is how skip-links break.
+                            id={chartVisible && !splitChartActive ? 'main-content' : undefined}
+                            className={
+                                splitChartActive && splitChartRect
+                                    ? 'overflow-hidden rounded-2xl bg-slate-900'
+                                    : 'grow w-full relative bg-slate-900 overflow-hidden'
+                            }
+                            style={
+                                // One node, three outfits. Full-bleed on the phone;
+                                // display:none while kept alive; and in split, FIXED
+                                // over the measured right frame — repositioned, never
+                                // remounted, because a second Mapbox spin-up is the
+                                // documented process killer.
+                                splitChartActive && splitChartRect
+                                    ? {
+                                          position: 'fixed',
+                                          top: splitChartRect.top,
+                                          left: splitChartRect.left,
+                                          width: splitChartRect.width,
+                                          height: splitChartRect.height,
+                                          zIndex: 40,
+                                      }
+                                    : splitChartActive
+                                      ? { position: 'fixed', visibility: 'hidden', width: 0, height: 0 }
+                                      : chartVisible
+                                        ? undefined
+                                        : { display: 'none' }
+                            }
+                        >
+                            <ErrorBoundary boundaryName="MapView">
+                                <Suspense
+                                    fallback={
+                                        <div className="flex items-center justify-center h-full text-white">
+                                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                                        </div>
+                                    }
+                                >
+                                    <MapHub
+                                        mapboxToken={settings.mapboxToken}
+                                        homePort={settings.defaultLocation}
+                                        pickerMode={mapPickerActive}
+                                        pickerLabel="Tap the chart to choose your weather location"
+                                        onLocationSelect={(lat: number, lon: number, name?: string) => {
+                                            if (mapFromWxRef.current) {
+                                                mapFromWxRef.current = false;
+                                                setMapPickerActive(false);
+                                                handleMapTargetSelect(lat, lon, name);
+                                            } else {
+                                                handleMapStaySelect(lat, lon, name);
+                                            }
+                                        }}
+                                    />
+                                </Suspense>
+                            </ErrorBoundary>
+                            {/* Offline chip — matches the wifi-slash chip in the App header
                             and the Glass page's location-pill chip. Sits at top-left, only
                             visible when offline. Replaces the previous full-width amber
                             "NO SIGNAL" floating pill which clashed with the subtle treatment
                             on every other page. */}
-                        {isOffline && (
-                            <div
-                                className="absolute z-601 pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
-                                style={{
-                                    top: 'calc(env(safe-area-inset-top) + 8px)',
-                                    // The zoom readout now shares this top row.
-                                    // Keep the offline indicator beside it rather
-                                    // than allowing the two left-side pills to
-                                    // overlap on a chart with no signal.
-                                    left: '88px',
-                                }}
-                                title="Offline — using cached charts"
-                                aria-label="Offline"
-                            >
-                                <svg
-                                    className="w-4 h-4"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                            {isOffline && (
+                                <div
+                                    className="absolute z-601 pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
+                                    style={{
+                                        top: 'calc(env(safe-area-inset-top) + 8px)',
+                                        // The zoom readout now shares this top row.
+                                        // Keep the offline indicator beside it rather
+                                        // than allowing the two left-side pills to
+                                        // overlap on a chart with no signal.
+                                        left: '88px',
+                                    }}
+                                    title="Offline — using cached charts"
+                                    aria-label="Offline"
                                 >
-                                    <path d="M1 1l22 22" />
-                                    <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
-                                    <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
-                                    <path d="M10.71 5.05A16 16 0 0122.58 9" />
-                                    <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
-                                    <path d="M8.53 16.11a6 6 0 016.95 0" />
-                                    <line x1="12" y1="20" x2="12.01" y2="20" />
-                                </svg>
-                            </div>
-                        )}
-                        {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right on map view.
-                            The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
-                        <div
-                            className="absolute z-601 pointer-events-auto flex items-center gap-2"
-                            style={{
-                                top: 'calc(env(safe-area-inset-top) + 8px)',
-                                right: '16px',
-                            }}
-                        >
-                            {canUseBosunVoice && !tracerActive && (
-                                <button
-                                    onClick={() => setPage('voice')}
-                                    className="w-12 h-12 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
-                                    aria-label="Open Calypso voice console"
-                                    title="Talk to Calypso"
-                                >
-                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                                        <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-                                    </svg>
-                                </button>
-                            )}
-                            <Suspense fallback={<SystemStatusFallback />}>
-                                <SystemStatusButton
-                                    currentView={currentView}
-                                    onNavigateAnchor={() => setPage('compass')}
-                                    // Fixed landmark on the chart — the helm
-                                    // menu below positions relative to it, so
-                                    // it must not come and go.
-                                    alwaysShow
-                                />
-                            </Suspense>
-                        </div>
-                        {/* Back chevron — middle-left of screen */}
-                        <div className="absolute z-601 px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
-                            <button
-                                onClick={() => {
-                                    // Clear pin-view state when leaving map
-
-                                    delete window.__thalassaPinView;
-                                    // Go back to wherever we came from
-                                    setPage(previousView || 'dashboard');
-                                }}
-                                aria-label="Back"
-                                className="w-12 h-12 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
-                            >
-                                <svg
-                                    className="w-5 h-5 text-white"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                >
-                                    <path
+                                    <svg
+                                        className="w-4 h-4"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
-                                        d="M15.75 19.5L8.25 12l7.5-7.5"
+                                    >
+                                        <path d="M1 1l22 22" />
+                                        <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+                                        <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+                                        <path d="M10.71 5.05A16 16 0 0122.58 9" />
+                                        <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+                                        <path d="M8.53 16.11a6 6 0 016.95 0" />
+                                        <line x1="12" y1="20" x2="12.01" y2="20" />
+                                    </svg>
+                                </div>
+                            )}
+                            {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right on map view.
+                            The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
+                            <div
+                                className="absolute z-601 pointer-events-auto flex items-center gap-2"
+                                style={{
+                                    top: 'calc(env(safe-area-inset-top) + 8px)',
+                                    right: '16px',
+                                }}
+                            >
+                                {canUseBosunVoice && !tracerActive && (
+                                    <button
+                                        onClick={() => setPage('voice')}
+                                        className="w-12 h-12 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
+                                        aria-label="Open Calypso voice console"
+                                        title="Talk to Calypso"
+                                    >
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                            <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
+                                        </svg>
+                                    </button>
+                                )}
+                                <Suspense fallback={<SystemStatusFallback />}>
+                                    <SystemStatusButton
+                                        currentView={currentView}
+                                        onNavigateAnchor={() => setPage('compass')}
+                                        // Fixed landmark on the chart — the helm
+                                        // menu below positions relative to it, so
+                                        // it must not come and go.
+                                        alwaysShow
                                     />
-                                </svg>
-                            </button>
-                        </div>
-                    </main>
+                                </Suspense>
+                            </div>
+                            {/* Back chevron — middle-left of screen */}
+                            <div className="absolute z-601 px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                                <button
+                                    onClick={() => {
+                                        // Clear pin-view state when leaving map
+
+                                        delete window.__thalassaPinView;
+                                        // Go back to wherever we came from
+                                        setPage(previousView || 'dashboard');
+                                    }}
+                                    aria-label="Back"
+                                    className="w-12 h-12 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
+                                >
+                                    <svg
+                                        className="w-5 h-5 text-white"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M15.75 19.5L8.25 12l7.5-7.5"
+                                        />
+                                    </svg>
+                                </button>
+                            </div>
+                        </main>
+                    </PanePortalScope>
                 )}
 
                 {/* BOTTOM FADE removed — was obscuring Start Tracking button on Log page */}

@@ -19,6 +19,7 @@
  *   angle, so N is readable at every heading rather than only northbound.
  */
 import React, { useMemo } from 'react';
+import '../instrumentDaylight.css';
 import { polarToCart } from './gaugeGeometry';
 import { useUnwrappedAngle } from './useUnwrappedAngle';
 
@@ -86,7 +87,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
     }, []);
 
     return (
-        <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
+        <div className="nmea-instrument relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
             <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={label}>
                 <defs>
                     <radialGradient id="heading-face" cx="50%" cy="42%" r="72%">

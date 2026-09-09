@@ -14,6 +14,7 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
@@ -70,6 +71,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
     onClose,
     onClearStorms,
 }) => {
+    const portalTarget = usePanePortalTarget();
     const closeButtonRef = React.useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
         initialFocusRef: closeButtonRef,
@@ -108,7 +110,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                         className="w-full max-w-md max-h-full bg-slate-900/95 backdrop-blur-xl border border-white/8 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
                         onClick={(e) => e.stopPropagation()}
                         role="dialog"
-                        aria-modal="true"
+                        aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                         aria-labelledby="storm-picker-title"
                         tabIndex={-1}
                     >
@@ -227,6 +229,6 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                 </motion.div>
             )}
         </AnimatePresence>,
-        document.body,
+        portalTarget!,
     );
 };

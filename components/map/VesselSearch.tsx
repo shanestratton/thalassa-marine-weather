@@ -236,8 +236,8 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
-                    background: 'rgba(15,23,42,0.95)',
-                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'var(--day-ui-surface, rgba(15,23,42,0.95))',
+                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.12))',
                     borderRadius: 14,
                     padding: '6px 12px',
                     marginBottom: 8,
@@ -255,7 +255,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                         background: 'transparent',
                         border: 'none',
                         outline: 'none',
-                        color: '#e2e8f0',
+                        color: 'var(--day-ui-text, #e2e8f0)',
                         fontSize: 15,
                         fontWeight: 600,
                         fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
@@ -275,9 +275,9 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                         width: 44,
                         height: 44,
                         borderRadius: 10,
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#94a3b8',
+                        background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.06))',
+                        border: '1px solid var(--day-ui-border, rgba(255,255,255,0.1))',
+                        color: 'var(--day-ui-muted, #94a3b8)',
                         fontSize: 14,
                         fontWeight: 700,
                         cursor: 'pointer',
@@ -327,12 +327,12 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                                 alignItems: 'center',
                                 gap: 10,
                                 padding: '10px 12px',
-                                background: 'rgba(15,23,42,0.9)',
-                                border: '1px solid rgba(255,255,255,0.08)',
+                                background: 'var(--day-ui-surface, rgba(15,23,42,0.9))',
+                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                                 borderRadius: 12,
                                 cursor: 'pointer',
                                 textAlign: 'left',
-                                color: '#e2e8f0',
+                                color: 'var(--day-ui-text, #e2e8f0)',
                                 transition: 'background 0.15s',
                                 fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
                             }}
@@ -351,17 +351,17 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                                 >
                                     {r.name || `MMSI ${r.mmsi}`}
                                 </div>
-                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
+                                <div style={{ fontSize: 12, color: 'var(--day-ui-muted, #94a3b8)', marginTop: 1 }}>
                                     MMSI {r.mmsi} • {r.sog > 0 ? `${r.sog.toFixed(1)} kts` : 'Stationary'}
                                 </div>
                             </div>
                             <span
                                 style={{
                                     fontSize: 12,
-                                    color: '#64748b',
+                                    color: 'var(--day-ui-muted, #64748b)',
                                     flexShrink: 0,
                                     padding: '2px 6px',
-                                    background: 'rgba(255,255,255,0.04)',
+                                    background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))',
                                     borderRadius: 6,
                                     fontWeight: 600,
                                 }}
@@ -376,14 +376,26 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 {error && (
                     <div
                         role="alert"
-                        style={{ textAlign: 'center', padding: '10px 16px', color: '#fbbf24', fontSize: 12 }}
+                        style={{
+                            textAlign: 'center',
+                            padding: '10px 16px',
+                            color: 'var(--day-ui-amber, #fbbf24)',
+                            fontSize: 12,
+                        }}
                     >
                         {error}
                     </div>
                 )}
 
                 {!loading && !searched && (
-                    <div style={{ textAlign: 'center', padding: 32, color: '#475569', fontSize: 12 }}>
+                    <div
+                        style={{
+                            textAlign: 'center',
+                            padding: 32,
+                            color: 'var(--day-ui-muted, #475569)',
+                            fontSize: 12,
+                        }}
+                    >
                         Search by vessel name, call sign, or 9-digit MMSI
                     </div>
                 )}

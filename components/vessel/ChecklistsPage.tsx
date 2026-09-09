@@ -6,6 +6,7 @@
  */
 import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('ChecklistsPage');
@@ -69,6 +70,7 @@ const STATUS_STYLES: Record<RunItemStatus, { bg: string; border: string; icon: s
 // ── Main Component ─────────────────────────────────────────────
 
 export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
+    const portalTarget = usePanePortalTarget();
     const initialScope = getAuthIdentityScope();
     const [entries, setEntries] = useState<ChecklistEntry[]>([]);
     const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
@@ -771,7 +773,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             className="fixed inset-0 z-999 bg-slate-950 flex flex-col"
                             style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby={runTitleId}
                         >
                             {/* Run header */}
@@ -995,7 +997,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </button>
                             </div>
                         </div>,
-                        document.body,
+                        portalTarget!,
                     )}
             </div>
         </div>

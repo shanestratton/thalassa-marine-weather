@@ -233,12 +233,13 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
             {/* Card */}
             <div
                 style={{
-                    background: 'linear-gradient(135deg, rgb(15,23,42), rgb(20,30,50))',
+                    background: 'var(--day-ui-surface, linear-gradient(135deg, rgb(15,23,42), rgb(20,30,50)))',
                     backdropFilter: 'blur(20px) saturate(1.4)',
                     WebkitBackdropFilter: 'blur(20px) saturate(1.4)',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.1))',
                     borderRadius: 16,
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset',
+                    boxShadow:
+                        'var(--day-ui-shadow, 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset)',
                 }}
                 className="p-3 relative"
             >

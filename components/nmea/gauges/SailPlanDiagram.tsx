@@ -44,6 +44,7 @@
  * importing POS from sereneSailing.ts (dead code, and its sign is inverted).
  */
 import React from 'react';
+import '../instrumentDaylight.css';
 
 export interface SailPlanDiagramProps {
     /** 'Beating' | 'Close reach' | 'Beam reach' | 'Broad reach' | 'Running' */
@@ -146,7 +147,7 @@ const WARN = '#fbbf24';
    halo for exactly this. */
 const HALO: React.CSSProperties = {
     paintOrder: 'stroke',
-    stroke: CASING,
+    stroke: `var(--nmea-label-halo, ${CASING})`,
     strokeWidth: 4,
     strokeLinejoin: 'round',
 };
@@ -233,7 +234,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
     return (
         <svg
             viewBox={`0 0 ${W} ${H}`}
-            className={className}
+            className={`nmea-instrument nmea-sail-plan ${className}`}
             role="img"
             aria-label={`Sail plan: ${band}. Main ${main}, yankee ${yankee}, ${
                 staySet ? (stayStorm ? 'storm jib set' : 'staysail set') : 'staysail stowed'

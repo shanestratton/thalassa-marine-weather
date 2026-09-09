@@ -4,6 +4,7 @@
  */
 import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { t } from '../../theme';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
@@ -16,6 +17,7 @@ interface ShoreWatchModalProps {
 
 export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
     ({ sessionCode, onSessionCodeChange, onJoin, onClose }) => {
+        const portalTarget = usePanePortalTarget();
         const inputRef = useRef<HTMLInputElement>(null);
         const dialogRef = useFocusTrap<HTMLDivElement>(true, {
             initialFocusRef: inputRef,
@@ -31,7 +33,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                 <div
                     ref={dialogRef}
                     role="dialog"
-                    aria-modal="true"
+                    aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                     aria-labelledby="shore-watch-title"
                     className="anchor-shore-watch-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/8 bg-slate-900/95 shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
@@ -130,7 +132,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     </div>
                 </div>
             </div>,
-            document.body,
+            portalTarget!,
         );
     },
 );
