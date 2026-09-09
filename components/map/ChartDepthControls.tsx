@@ -56,6 +56,8 @@ export function ChartDepthControls({
     onToggleChartKey,
     onOpenEncLibrary,
 }: ChartDepthControlsProps) {
+    const showCoverageNotice =
+        encNoCoverage && encReferenceCellCount === 0 && encHydration.remaining === 0 && encVisible && surfaceVisible;
     return (
         <>
             {tideDepthMode && surfaceVisible && (
@@ -71,7 +73,7 @@ export function ChartDepthControls({
                                 ? 'Depths shown at a future tide — tap to return to now'
                                 : 'Live tide depth is on — tap to return to chart datum'
                         }
-                        className="absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95"
+                        className={`absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95 ${showCoverageNotice ? 'thalassa-enc-tide-badge' : ''}`}
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
@@ -212,21 +214,19 @@ export function ChartDepthControls({
                 </div>
             )}
 
-            {encNoCoverage &&
-                encReferenceCellCount === 0 &&
-                encHydration.remaining === 0 &&
-                encVisible &&
-                surfaceVisible && (
-                    <div
-                        className="absolute bottom-6 left-1/2 z-9980 flex w-[min(390px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs"
-                        aria-live="polite"
-                    >
-                        <span className="leading-snug">
-                            {encCellCount === 0
-                                ? 'No verified ENC charts installed. Library imports are reference-only.'
-                                : `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`}
-                        </span>
-                        {/* The Library button is offered ONLY when there are no
+            {showCoverageNotice && (
+                <div
+                    className="thalassa-enc-coverage-notice absolute z-9980 flex items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs"
+                    role="status"
+                    aria-label="ENC coverage"
+                    aria-live="polite"
+                >
+                    <span className="leading-snug">
+                        {encCellCount === 0
+                            ? 'No verified ENC charts installed. Library imports are reference-only.'
+                            : `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`}
+                    </span>
+                    {/* The Library button is offered ONLY when there are no
                             charts at all.
                             
                             With charts installed but none covering the view,
@@ -239,21 +239,21 @@ export function ChartDepthControls({
                             different kind of chart. Saying how many they have
                             and where the gap is answers the question the banner
                             actually raises. */}
-                        {encCellCount === 0 && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onOpenEncLibrary();
-                                }}
-                                className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
-                                aria-label="Open on-device ENC Library"
-                            >
-                                ENC Library
-                            </button>
-                        )}
-                    </div>
-                )}
+                    {encCellCount === 0 && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onOpenEncLibrary();
+                            }}
+                            className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
+                            aria-label="Open on-device ENC Library"
+                        >
+                            ENC Library
+                        </button>
+                    )}
+                </div>
+            )}
         </>
     );
 }
