@@ -31,21 +31,40 @@
   Now remains visible and enabled after a reset or repeated presses. Date/time
   edits still apply immediately; Now keeps the existing picker-dismissal,
   account-scoped reset and identity-tagged event behaviour.
+- The Vessel page's Diary/Scuttlebutt row has a native proximity snap point at
+  its original top inset. The lower Settings group has an end target so Safari
+  can reach its controls without pulling every scroll back to the top. Existing
+  page dimensions, tuck-under scrolling and the separate fixed safety deck are
+  unchanged; no mandatory snapping, touch interception or extra spacer is added.
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `cee90a5311f5b3a4e2284505385f6ba2f566ca7c`.
+- Compiled source: `ef8e50363cf31f396c16da6c0a77e5e53dba5c84`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-CANlwg56.js`, SHA-256
-  `d6615b727e4e7c2dfd8322f9930326adffaeba4a5ca2d77c264571abb0a99302`.
+- Main entry: `main-Dc1cBqY6.js`, SHA-256
+  `b003c03f3a94f983039caf6a71ea2a433596be7796424124bdb7f02e766e7285`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
 - Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
-- **25 focused unit tests** passed for the departure follow-up, covering the
+- **38 focused unit tests** passed for the Vessel follow-up, covering scroll
+  targets, layout ordering, fixed safety controls, anchor/underway presentation,
+  passage-planning placement and Skipper-device identity/GPS/Pi behaviour.
+  Targeted ESLint, formatting and the build's TypeScript check passed.
+- **14/14 source-level browser tests** passed in Chromium and WebKit. The real
+  app is exercised at 390×650, 390×844, 430×932 and 768×768, plus daylight/night
+  phone cases. Checks measure complete return-to-home geometry, unchanged safety
+  deck position and reachable expanded Settings controls, with native desktop
+  wheel gestures in both engines. Mobile WebKit's geometry is tested, not a
+  physical iPhone's touch momentum.
+- **34/34 production browser tests** passed against this rebuilt bundle in
+  Chromium and mobile WebKit: the same 14 Vessel cases, plus the 20 dashboard,
+  route-planner and OBS regressions described below. The desktop-wheel case
+  deliberately disables mobile emulation because mobile WebKit has no wheel API.
+- The preceding departure revision passed **25 focused unit tests**, covering the
   persistent Now action, immediate edits, account-scoped resets/events, remount,
   route-planner interactions, departure-window identity and timezone handling.
   Targeted ESLint and formatting passed; the build's TypeScript check passed.
@@ -67,15 +86,17 @@
   card/model-strip geometry, pinned close, keyboard focus/scrolling and desktop
   wheel containment. Mobile WebKit was also visually inspected. These browser
   checks do not substitute for testing a physical iPhone's touch gestures.
-- **20/20 production browser tests** passed in Chromium and mobile WebKit against
-  this rebuilt bundle. They verify that the planner's comfort card is absent
+- The preceding departure revision passed **20/20 production browser tests** in
+  Chromium and mobile WebKit. They verify that the planner's comfort card is absent
   while its departure, route and header-menu controls remain available. Now
   remains enabled and the same size after repeated resets, with OK absent.
   They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-departure108.pPH0pA/ship-beta.log`,
-  `focused-tests.log` and `production-e2e.log` in that same directory.
+- Current logs: `/private/tmp/thalassa-vessel-snap108.DlzhSD/ship-beta.log`,
+  `focused-tests.log`, `vessel-final.log` and `production-e2e.log` in that same
+  directory.
+  Departure-button revision evidence remains in `/private/tmp/thalassa-departure108.pPH0pA/`.
   Planner-card revision evidence remains in `/private/tmp/thalassa-comfort108.We11Wh/`.
   Wind/tide revision evidence remains in `/private/tmp/thalassa-wind-tide108.aGI0tS/`.
   The earlier local 108 candidates were not uploaded and are superseded by this
