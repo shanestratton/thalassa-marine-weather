@@ -2,7 +2,8 @@
 
 The production artifact below is the original Scuttlebutt build. Build 109 was
 subsequently rebuilt, still unreleased, with the
-[Sail Plan layout follow-up](BUILD_109_SAIL_PLAN.md); use that note for the latest
+[Sail Plan layout follow-up](BUILD_109_SAIL_PLAN.md) and
+[Glass gesture fix](BUILD_109_GLASS_GESTURES.md); use the latter for the latest
 bundle identifiers. The Scuttlebutt verification recorded here remains historical
 evidence for its unchanged runtime code.
 
