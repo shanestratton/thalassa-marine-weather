@@ -575,8 +575,11 @@ const App: React.FC = () => {
     // Cardinal formats (e.g. "27.47°S, 153.03°E") are already human-readable — leave them.
     // WeatherContext owns both the selected GPS source and its resolved name.
     // A global map/GPS store may describe a different receiver or an older pick.
+    const retainedLocationWeather = Boolean(
+        positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData,
+    );
     const rawTitle =
-        positionSource?.status === 'unavailable'
+        positionSource?.status === 'unavailable' && !retainedLocationWeather
             ? `${positionSource.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`
             : weatherData
               ? weatherData.locationName
@@ -603,6 +606,11 @@ const App: React.FC = () => {
             displayTitle = `WP ${rawTitle}`;
         }
     }
+
+    const positionRetryLabel = retainedLocationWeather
+        ? `${positionSource?.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Showing forecast for last location: ${displayTitle}. Retrying automatically; tap to retry now. ${positionSource?.target === 'boat' ? 'Check the boat’s GPS connection' : 'Check location access'} if this continues.`
+        : undefined;
+    if (retainedLocationWeather) displayTitle = `Last location · ${displayTitle}`;
 
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     const showHeader = !['map', 'warnings'].includes(currentView);
@@ -1053,12 +1061,36 @@ const App: React.FC = () => {
                                             // invisible). The offline state is communicated via
                                             // the amber wifi-off chip on the left, so the bar
                                             // itself doesn't need to shout.
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold ${retainedLocationWeather ? 'text-base' : 'text-xl'} tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
                                         />
-                                        {/* Left adornment: swap between the usual search icon
-                                            and a wifi-off glyph when offline. Keeps the layout
-                                            stable (same slot) while giving a clear visual cue. */}
-                                        {isOffline ? (
+                                        {/* Reuse the left icon slot for GPS retry without adding
+                                            another header row or overlapping the saved-location star.
+                                            Its hit area follows the existing card height, including
+                                            the deliberately shorter landscape layout. */}
+                                        {retainedLocationWeather ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => refreshData()}
+                                                aria-label={positionRetryLabel}
+                                                title={positionRetryLabel}
+                                                data-testid="weather-position-retry"
+                                                className="absolute left-0 top-0 flex h-full w-12 items-center justify-center rounded-l-2xl text-amber-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 active:bg-amber-500/15"
+                                            >
+                                                <svg
+                                                    className="h-5 w-5"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M20 7v5h-5" />
+                                                    <path d="M20 12a8 8 0 1 0-2.35 5.65" />
+                                                </svg>
+                                            </button>
+                                        ) : isOffline ? (
                                             <div
                                                 className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 bg-amber-500/15 p-1 rounded-md"
                                                 title="Offline — showing cached data"

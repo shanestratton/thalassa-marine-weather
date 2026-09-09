@@ -134,6 +134,21 @@ function mount() {
     );
 }
 
+async function establishPhoneFollow() {
+    world.gps.mockImplementation(async () => ({
+        latitude: -27.21,
+        longitude: 153.1,
+        timestamp: Date.now(),
+    }));
+    mount();
+    await act(async () => {
+        await current.selectLocation('Current Location');
+    });
+    expect(current.positionSource).toMatchObject({ kind: 'phone', target: 'phone', status: 'live' });
+    expect(current.weatherData?.coordinates).toEqual({ lat: -27.21, lon: 153.1 });
+    return { saved: current.weatherData!, fixTimestamp: current.positionSource!.timestamp };
+}
+
 beforeEach(() => {
     vi.clearAllMocks();
     world.settings = { defaultLocation: 'Initial port', forecastModel: 'gfs', satelliteMode: false };
@@ -402,6 +417,266 @@ describe('weather receiver selection boundaries', () => {
         expect(current.loading).toBe(false);
         expect(world.boat).not.toHaveBeenCalled();
         expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['unavailable', 'failed'])(
+        'retains proven same-phone weather through a %s follower read and recovers',
+        async (outcome) => {
+            vi.useFakeTimers();
+            const { saved, fixTimestamp } = await establishPhoneFollow();
+            world.fetch.mockClear();
+            if (outcome === 'failed') world.gps.mockRejectedValue(new Error('Temporary GPS acquisition failure'));
+            else world.gps.mockResolvedValue(null);
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(5_000);
+            });
+            expect(current.weatherData).toBe(saved);
+            expect(current.weatherData?.coordinates).toEqual(saved.coordinates);
+            expect(current.weatherData?.generatedAt).toBe(saved.generatedAt);
+            expect(current.error).toBeNull();
+            expect(current.positionSource).toMatchObject({
+                kind: 'phone',
+                target: 'phone',
+                status: 'unavailable',
+                timestamp: fixTimestamp,
+                retainedWeather: true,
+            });
+            expect(world.boat).not.toHaveBeenCalled();
+            expect(world.requestGps).not.toHaveBeenCalled();
+            expect(world.fetch).not.toHaveBeenCalled();
+
+            world.gps.mockImplementation(async () => ({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() }));
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(5_000);
+            });
+            expect(current.positionSource).toMatchObject({ kind: 'phone', target: 'phone', status: 'live' });
+            expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+            expect(current.error).toBeNull();
+            expect(current.weatherData?.coordinates).toEqual(saved.coordinates);
+        },
+    );
+
+    it('keeps an established phone report while manual refresh awaits GPS and after a null result', async () => {
+        vi.useFakeTimers();
+        const { saved, fixTimestamp } = await establishPhoneFollow();
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        world.fetch.mockClear();
+        await act(async () => {
+            current.refreshData(true);
+        });
+        expect(current.weatherData).toBe(saved);
+        expect(current.error).toBeNull();
+        await act(async () => {
+            pending.resolve(null);
+        });
+        expect(current.weatherData).toBe(saved);
+        expect(current.weatherData?.generatedAt).toBe(saved.generatedAt);
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toMatchObject({
+            kind: 'phone',
+            target: 'phone',
+            status: 'unavailable',
+            timestamp: fixTimestamp,
+            retainedWeather: true,
+        });
+        expect(world.fetch).not.toHaveBeenCalled();
+        expect(world.requestGps).not.toHaveBeenCalled();
+    });
+
+    it('does not treat an unproven startup cache as a successful same-phone fix', async () => {
+        vi.useFakeTimers();
+        world.settings.defaultLocation = 'Current Location';
+        world.initial = report('Unverified cached port', -33.86, 151.2);
+        await act(async () => {
+            mount();
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'phone', status: 'unavailable' });
+        expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+        expect(world.requestGps).not.toHaveBeenCalled();
+    });
+
+    it('does not grant retained-weather status to a report whose coordinates differ from the proven phone fix', async () => {
+        vi.useFakeTimers();
+        await establishPhoneFollow();
+        await act(async () => {
+            await current.fetchWeather('Different point', false, { lat: -20.2, lon: 148.7 });
+        });
+        world.gps.mockResolvedValue(null);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'phone', status: 'unavailable' });
+        expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+    });
+
+    it('does not retain an unfinished loading placeholder as a forecast after GPS acquisition fails', async () => {
+        vi.useFakeTimers();
+        world.initial = { ...report('Loading...'), loading: true, modelUsed: 'Loading...' };
+        await establishPhoneFollow();
+        expect(current.weatherData).toMatchObject({ loading: true });
+        world.gps.mockResolvedValue(null);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'phone', status: 'unavailable' });
+        expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+    });
+
+    it('retains the same local forecast after a genuine 200-metre phone drift followed by an acquisition miss', async () => {
+        vi.useFakeTimers();
+        const { saved } = await establishPhoneFollow();
+        world.gps.mockImplementation(async () => ({ latitude: -27.2118, longitude: 153.1, timestamp: Date.now() }));
+        world.fetch.mockClear();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        const lastFixAt = Date.now();
+        expect(current.weatherData).toBe(saved);
+        expect(current.weatherData?.coordinates).toEqual({ lat: -27.21, lon: 153.1 });
+        world.gps.mockResolvedValue(null);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.weatherData).toBe(saved);
+        expect(current.weatherData?.generatedAt).toBe(saved.generatedAt);
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toMatchObject({
+            kind: 'phone',
+            target: 'phone',
+            status: 'unavailable',
+            retainedWeather: true,
+            timestamp: lastFixAt,
+        });
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('does not retain the old forecast as same-place weather after the phone is genuinely far away', async () => {
+        vi.useFakeTimers();
+        const { saved } = await establishPhoneFollow();
+        useUIStore.setState({ isOffline: true });
+        world.gps.mockImplementation(async () => ({
+            latitude: -20.2,
+            longitude: 148.7,
+            timestamp: Date.now(),
+        }));
+        world.fetch.mockClear();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.weatherData?.coordinates).toEqual(saved.coordinates);
+        world.gps.mockResolvedValue(null);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('keeps a persistent outage visibly unavailable without pretending the fix or report refreshed', async () => {
+        vi.useFakeTimers();
+        const { saved, fixTimestamp } = await establishPhoneFollow();
+        world.gps.mockResolvedValue(null);
+        world.fetch.mockClear();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(3 * 60_000);
+        });
+        expect(current.weatherData).toBe(saved);
+        expect(current.weatherData?.generatedAt).toBe(saved.generatedAt);
+        expect(current.positionSource).toMatchObject({
+            kind: 'phone',
+            target: 'phone',
+            status: 'unavailable',
+            timestamp: fixTimestamp,
+            retainedWeather: true,
+        });
+        expect(current.error).toBeNull();
+        expect(world.requestGps).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+        expect(world.boat).not.toHaveBeenCalled();
+    });
+
+    it.each(['unavailable', 'recovered'])(
+        'a pending same-phone refresh cannot overwrite a favourite when it later becomes %s',
+        async (outcome) => {
+            vi.useFakeTimers();
+            await establishPhoneFollow();
+            const pending = deferred<unknown>();
+            world.gps.mockReturnValue(pending.promise);
+            await act(async () => {
+                current.refreshData(true);
+                current.setHistoryCache({ Mackay: report('Mackay', -21.1, 149.2) });
+            });
+            await act(async () => {
+                await current.selectLocation('Mackay', { lat: -21.1, lon: 149.2 });
+            });
+            const selected = current.weatherData;
+            await act(async () => {
+                pending.resolve(
+                    outcome === 'recovered' ? { latitude: -27.21, longitude: 153.1, timestamp: Date.now() } : null,
+                );
+            });
+            expect(current.weatherData).toBe(selected);
+            expect(current.weatherData?.locationName).toBe('Mackay');
+            expect(current.positionSource).toBeNull();
+            expect(current.error).toBeNull();
+        },
+    );
+
+    it('does not retain phone weather for an unavailable boat even though both selections say Current Location', async () => {
+        vi.useFakeTimers();
+        await establishPhoneFollow();
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        await act(async () => {
+            current.refreshData(true);
+        });
+        await act(async () => {
+            setWeatherFollowTarget('boat');
+            await current.selectLocation('Current Location');
+        });
+        await act(async () => {
+            pending.resolve({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() });
+        });
+        expect(current.weatherData).toBeNull();
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'boat', status: 'unavailable' });
+        expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+        expect(current.error).toBe('Boat GPS unavailable');
+    });
+
+    it('clears retained phone weather across accounts and ignores a late recovery from the old account', async () => {
+        vi.useFakeTimers();
+        setAuthIdentityScope('account-a');
+        await establishPhoneFollow();
+        world.gps.mockResolvedValue(null);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        expect(current.positionSource).toMatchObject({ retainedWeather: true });
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        await act(async () => {
+            current.refreshData(true);
+        });
+        await act(async () => {
+            world.initial = null;
+            world.settings = { ...world.settings, defaultLocation: 'Account B port' };
+            setAuthIdentityScope('account-b');
+        });
+        expect(current.weatherData).toBeNull();
+        expect(current.positionSource).toBeNull();
+        await act(async () => {
+            pending.resolve({ latitude: -27.21, longitude: 153.1, timestamp: Date.now() });
+        });
+        expect(current.weatherData).toBeNull();
+        expect(current.positionSource).toBeNull();
+        expect(current.error).toBeNull();
     });
 
     it('manual refresh in vessel mode resolves the boat, never the phone', async () => {
