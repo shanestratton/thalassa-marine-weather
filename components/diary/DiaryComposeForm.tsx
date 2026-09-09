@@ -10,7 +10,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
-import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { keepEditableAboveKeyboard, scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { DiaryPhoto } from './DiaryPhoto';
 import { DiaryVideo } from './DiaryVideo';
@@ -87,21 +87,14 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         const videoRef = useRef<HTMLInputElement>(null);
         const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-        // FIRST-TAP RACE (Shane 2026-08-25: "still doing the scroll up thing,
-        // however, once you click into the box a second time. it comes
-        // good"): the focus handler's tail-scroll fired before the keyboard
-        // height published, so it scrolled pre-keyboard geometry; the bottom
-        // padding then grew underneath it and left the void. The tail-scroll
-        // must chase the KEYBOARD, not the tap — whenever the measured height
-        // changes while the body is focused, re-pin the column to its tail
-        // (one rAF after the padding paints).
+        // Re-check the focused editor after keyboard padding has painted.
+        // The video now follows the editor, so scrolling to the column's tail
+        // would expose the video and hide the very field the skipper is typing.
         useEffect(() => {
             const body = bodyRef.current;
             if (!body || document.activeElement !== body) return;
-            const scroller = body.closest('.overflow-auto');
-            if (!scroller) return;
             const raf = requestAnimationFrame(() => {
-                scroller.scrollTop = scroller.scrollHeight;
+                if (document.activeElement === body) keepEditableAboveKeyboard(body);
             });
             return () => cancelAnimationFrame(raf);
         }, [keyboardHeight]);
@@ -302,9 +295,32 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             ))}
                         </div>
                     </div>
-                    {/* Video — one clip, a minute at most. The preview plays the
-                        local blob so the skipper can check the clip BEFORE it
-                        costs anything; upload happens on save via the drain. */}
+                    {/* Polishing indicator */}
+                    {polishing && (
+                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
+                            <span className="text-sm animate-pulse">✨</span>
+                            <span className="text-xs font-bold text-purple-300">Styling your entry…</span>
+                        </div>
+                    )}
+
+                    {/* Writing comes before video. Keep real height in the
+                        flex column so a preview cannot collapse or overlap the
+                        editor on a short phone; overflow stays in this panel. */}
+                    <div className="flex-1 min-h-40">
+                        <textarea
+                            ref={bodyRef}
+                            aria-label="Diary entry text"
+                            placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
+                            value={body}
+                            onChange={(e) => onSetBody(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
+                            disabled={polishing}
+                            className="block w-full h-full min-h-40 bg-slate-900 border border-white/8 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-hidden focus:border-sky-500/30 transition-colors disabled:opacity-60"
+                        />
+                    </div>
+                    {/* Video follows the content box, including its Add button,
+                        so attaching a clip never moves the writing field down.
+                        Preview stays local; upload still happens on save. */}
                     <div className="shrink-0">
                         {videoUrl ? (
                             <div className="relative rounded-xl overflow-hidden border border-violet-500/20">
@@ -329,34 +345,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 <span>Add a video — up to 1 minute</span>
                             </button>
                         )}
-                    </div>
-                    {/* Polishing indicator */}
-                    {polishing && (
-                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
-                            <span className="text-sm animate-pulse">✨</span>
-                            <span className="text-xs font-bold text-purple-300">Styling your entry…</span>
-                        </div>
-                    )}
-
-                    {/* Body text — the big box. Editable, and it rides above
-                        the keyboard: the form's paddingBottom tracks the shared
-                        keyboard measurement and the focus handler scrolls the
-                        caret clear (the KeyboardResize.None trap). LAST in
-                        the column on purpose (Shane 2026-08-25 screenshot: the
-                        box scrolled to the top and left a void above the
-                        buttons): it must sit JUST ABOVE Cancel/Save, so focus
-                        scrolls the column to its tail — never to a void. */}
-                    <div className="flex-1 min-h-0">
-                        <textarea
-                            ref={bodyRef}
-                            aria-label="Diary entry text"
-                            placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
-                            value={body}
-                            onChange={(e) => onSetBody(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            disabled={polishing}
-                            className="w-full h-full min-h-40 bg-slate-900 border border-white/8 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-hidden focus:border-sky-500/30 transition-colors disabled:opacity-60"
-                        />
                     </div>
                 </div>
 
