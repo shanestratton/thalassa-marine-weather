@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 test.use({
@@ -12,13 +12,24 @@ test.use({
 
 const EMPTY_ENC_NOTICE = 'No verified ENC charts installed. Library imports are reference-only.';
 
-async function openEmptyChart(page: Page, baseURL: string) {
+async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo) {
     const origin = new URL(baseURL).origin;
+    const errors: string[] = [];
+    const styleRequests: string[] = [];
+    const recordError = (message: string) => {
+        if (errors.length < 40)
+            errors.push(message.replace(/([?&](?:access_token|token|key)=)[^&\s]+/g, '$1[redacted]'));
+    };
+    page.on('pageerror', (error) => recordError(error.message));
+    page.on('console', (message) => {
+        if (message.type() === 'error') recordError(message.text());
+    });
     await page.route('**/*', async (route) => {
         const url = new URL(route.request().url());
         if (url.origin === origin) {
             await route.continue();
         } else if (url.hostname.endsWith('.mapbox.com') && /^\/styles\/v1\/[^/]+\/[^/]+\/?$/.test(url.pathname)) {
+            styleRequests.push(url.pathname);
             // Keep the real Mapbox canvas, load event and native controls.
             // The empty style avoids live imagery/account requests; a fresh
             // anonymous browser has no licensed or reference ENC inventory.
@@ -52,7 +63,35 @@ async function openEmptyChart(page: Page, baseURL: string) {
     // fixed nav, not an empty bottom edge.
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
     await expect(charts).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByText(EMPTY_ENC_NOTICE, { exact: true })).toBeVisible();
+    try {
+        await expect(page.getByText(EMPTY_ENC_NOTICE, { exact: true })).toBeVisible();
+    } catch (error) {
+        const mapState = await page.evaluate(() => {
+            const map = (
+                window as unknown as {
+                    __thalassaMap?: {
+                        _loaded?: boolean;
+                        loaded: () => boolean;
+                        isStyleLoaded: () => boolean;
+                        painter?: { context?: { gl?: { isContextLost: () => boolean } } };
+                    };
+                }
+            ).__thalassaMap;
+            if (!map) return { mapAvailable: false };
+            return {
+                mapAvailable: true,
+                internalLoaded: map._loaded,
+                loaded: map.loaded(),
+                styleLoaded: map.isStyleLoaded(),
+                contextLost: map.painter?.context?.gl?.isContextLost(),
+            };
+        });
+        await testInfo.attach('map-load-diagnostics', {
+            contentType: 'application/json',
+            body: JSON.stringify({ errors, styleRequests, mapState }),
+        });
+        throw error;
+    }
     await page.evaluate(() => document.fonts.ready);
 }
 
@@ -133,7 +172,7 @@ for (const size of cases) {
             },
             { mode: size.mode, split: size.split === true, tideDepth: size.tideDepth === true },
         );
-        await openEmptyChart(page, baseURL!);
+        await openEmptyChart(page, baseURL!, testInfo);
 
         const library = page.getByRole('button', { name: 'Open on-device ENC Library', exact: true });
         // Existing text/CTA identify the production warning too, so the old
