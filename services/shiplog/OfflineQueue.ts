@@ -2942,20 +2942,31 @@ export async function getOfflineQueueCount(): Promise<number> {
  * Get offline queued entries for display (when not connected to database).
  * Adds temporary IDs for rendering.
  */
-export async function getOfflineEntries(): Promise<ShipLogEntry[]> {
+export async function getOfflineEntries(
+    options: { voyageId?: string; expectedScope?: AuthIdentityScope } = {},
+): Promise<ShipLogEntry[]> {
     try {
-        const state = getQueueState();
+        const scope = options.expectedScope ?? getAuthIdentityScope();
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        const state = getQueueState(scope);
         const [queue, voyageStones, entryStones] = await Promise.all([
             loadQueue(state),
             loadTombstones(state),
             loadEntryTombstones(state),
         ]);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
         // The display id encodes the immutable queue operation id. Index-based
         // offline_0 ids changed after every deletion and could never be mapped
         // back to the queued record.
         return queue
-            .filter((entry) => !isTombstoned(voyageStones, entry) && entryStones[entry.queue_id] === undefined)
+            .filter(
+                (entry) =>
+                    entry.owner_user_id === scope.userId &&
+                    (options.voyageId === undefined || entry.voyageId === options.voyageId) &&
+                    !isTombstoned(voyageStones, entry) &&
+                    entryStones[entry.queue_id] === undefined,
+            )
             .map(
                 (entry) =>
                     ({
