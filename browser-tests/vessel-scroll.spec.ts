@@ -27,6 +27,25 @@ async function contained(element: Locator, port: Locator) {
     return !!inner && !!outer && inner.y >= outer.y - 1 && inner.y + inner.height <= outer.y + outer.height + 1;
 }
 
+async function waitForSettledScroll(port: Locator) {
+    let previousTop = Number.NaN;
+    let stableReadings = 0;
+    // SectionHeader schedules its native smooth scroll after 280ms. Four
+    // stable 100ms intervals cover that delay as well as the scroll itself;
+    // completing the CSS expansion alone does not mean the port is at rest.
+    await expect
+        .poll(
+            async () => {
+                const { top } = await geometry(port);
+                stableReadings = Math.abs(top - previousTop) < 0.5 ? stableReadings + 1 : 0;
+                previousTop = top;
+                return stableReadings;
+            },
+            { intervals: [100] },
+        )
+        .toBeGreaterThanOrEqual(4);
+}
+
 for (const size of [
     { width: 390, height: 650 },
     { width: 390, height: 844 },
@@ -62,6 +81,7 @@ for (const size of [
         // Both snap targets have staggered entrance transforms. Measure only
         // after every direct child's entrance has settled, not just the first.
         await port.evaluate(async (el) => {
+            await document.fonts.ready;
             await Promise.all(
                 Array.from(el.children).flatMap((child) =>
                     child.getAnimations().map((animation) => animation.finished),
@@ -103,6 +123,7 @@ for (const size of [
             await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
         });
         await expect.poll(() => contained(account, port)).toBe(true);
+        await waitForSettledScroll(port);
         await expect.poll(async () => (await geometry(port)).max).toBeGreaterThan(before.max);
         await port.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }));
         await expect.poll(async () => (await geometry(port)).top).toBeGreaterThan(0);

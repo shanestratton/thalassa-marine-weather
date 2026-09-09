@@ -253,11 +253,67 @@
   tombstone counts are intentionally cumulative; those rows are deletion
   metadata, not retained diary bodies. Cloud storage counts measure actual files.
 
-This is a built and synced local candidate, **not an archived, Apple-validated or
-uploaded TestFlight release**. The full application test suite and remote CI were
-not rerun to completion during this narrow change; run the release-wide checks
-before submitting 108, including the OBS banner/navigation issue above. The
-uploaded 107 archive and IPA were not rebuilt or
-modified. Later evidence-only commits do not change the compiled source above.
-This record verifies local artifacts; it does not certify a live production
-website deployment.
+## Native delivery attempt — 9 September 2026, upload held
+
+Shane requested uploading 108 to TestFlight. **No TestFlight upload was made**:
+the final release-wide browser check reproduced the OBS banner/navigation
+blocker. The signed archive and distribution IPA are preserved for evidence,
+not approved for submission. Build 107 remains untouched.
+
+- Runtime source remains `4023fd56a6afdd662f1c3e4232d2264b6bcc9f7f`;
+  archive-time HEAD was `522dd89d182eeca311cf972caa957c14aaafa847`, differing
+  only in this release document. No app code or compiled bundle changed during
+  the delivery checks. The later scroll-test adjustment below is test-only.
+- Fresh pre-archive verification passed **140 artifact contracts**. Full Node
+  **24.19.0** unit suite passed: **9,626 tests**, **3 expected failures** and
+  **5 skips**; **1,092 files passed**, **4 skipped** (377.24 seconds).
+  Full lint passed with 0 errors and 61 existing warnings, all **162 migration
+  checks** passed, and full formatting passed.
+- No full GitHub CI run exists for the exact runtime source or archive-time
+  HEAD. This branch is outside the CI push filter; the recorded HEAD status
+  also had a failed Vercel deployment and skipped hosted smoke checks. Local
+  checks do not certify a hosted deployment or exact-source CI success.
+- The first concurrent browser run was stopped after 43 passes, 3 failures
+  and 1 interruption, with 81 cases not run. The quieter complete rerun passed
+  **120**, skipped **7**, and failed the Chromium 430px Vessel expanded-settings
+  return-to-home check (14px remained instead of at most 1px).
+- Three unchanged isolated Vessel tests and three geometry probes passed.
+  Expanded scroll range measured 118px, not 14px; one probe showed automatic
+  scrolling still moving after the test's CSS-animation wait. The exact cause
+  of the earlier 14px failure was not established. The test now awaits fonts
+  and four stable 100ms scroll intervals, covering SectionHeader's separate
+  280ms delayed smooth scroll. Both 24px inputs and all exact-home, tile,
+  reachability and fixed-safety-deck assertions remain unchanged. No forced
+  input, hidden warning or app change was used.
+- The final full browser run passed **120**, skipped the **7 existing
+  conditional cases**, and failed **1**: mobile Safari, OBS **dark** revisit,
+  `e2e/weather-map.spec.ts:65`. All Vessel cases passed. The Glass tab is visible
+  and enabled, but the `aria-live` **No verified ENC charts installed** banner
+  (`components/map/ChartDepthControls.tsx:221`) intercepts its click throughout
+  the timeout. This reproduces the earlier OBS blocker in another display
+  mode; isolated passes do not clear it. **Fix/rebuild/revalidate before upload,
+  or obtain an explicit decision to accept the known defect for internal use.**
+- Archive completed **17:25:23 AEST**, Xcode **26.6 (17F113)**:
+  `/Users/shanestratton/Library/Developer/Xcode/Archives/2026-09-09/Thalassa-1.2.0-108-4023fd56.xcarchive`.
+  Verified **1.2.0 (108)**, `com.thalassa.weather`, iOS 17 minimum, **419 public
+  files** identical to the synced app, both entry hashes recorded above,
+  **23 matching binary/dSYM pairs**, no source maps or embedded Watch/PlugIns,
+  and strict/deep signature validation with macOS certificate-trust access.
+- Apple validation passed **17:29:10 AEST** (`Validated App / EXPORT SUCCEEDED`).
+  Distribution export passed **17:30:18 AEST**. Automatic version/build
+  management remained disabled; validation is not a TestFlight upload.
+- IPA: `/Users/shanestratton/Documents/Temporary Projects/Thalassa Releases/1.2.0-108-4023fd56/Thalassa Marine Weather.ipa`;
+  SHA-256 `358d829c0816c2f715c9e128d709e9b6111e838267fba1075f6873b1e7d3c4c0`.
+  The exported app passed the same file/dSYM checks and strict/deep signature
+  validation. Entitlements include `get-task-allow=false`, APNs `production`,
+  `beta-reports-active=true`, and the expected application identifier.
+- Delivery evidence: `/private/tmp/thalassa-upload108.VcR5Zy/`, including
+  `full-unit.log`, `lint.log`, `format.log`, `full-production-e2e.log`,
+  `full-production-final.log`, `vessel430-probe.log`,
+  `full-production-settled.log`, `archive.log`, `archive-verification.json`,
+  `validation.log`, `export.log`, `export-verification.json` and signatures.
+  The final failure screenshot and trace context are in
+  `production-settled-results/weather-map-OBS-dark-displ-96b34-oice-when-revisiting-Charts-mobile-safari/`.
+
+No tester-group, public-link, yacht or production-service settings were changed.
+The existing Pi deployment and media-upload-race caveats above remain open.
