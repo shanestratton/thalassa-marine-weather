@@ -158,11 +158,18 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                     const r = speedToRadius((i + 1) * ringStep);
                     return (
                         <g key={`ring-${i}`}>
-                            <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+                            <circle
+                                cx={cx}
+                                cy={cy}
+                                r={r}
+                                fill="none"
+                                stroke="var(--day-ui-grid, rgba(255,255,255,0.08))"
+                                strokeWidth="1"
+                            />
                             <text
                                 x={cx + 4}
                                 y={cy - r - 2}
-                                fill="rgba(255,255,255,0.3)"
+                                fill="var(--day-ui-muted, rgba(255,255,255,0.3))"
                                 fontSize="9"
                                 fontFamily="monospace"
                                 fontWeight="bold"
@@ -186,7 +193,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                                 y1={cy}
                                 x2={lx}
                                 y2={ly}
-                                stroke="rgba(255,255,255,0.05)"
+                                stroke="var(--day-ui-grid, rgba(255,255,255,0.05))"
                                 strokeWidth="1"
                                 strokeDasharray="4 4"
                             />
@@ -195,14 +202,14 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                                 y1={cy}
                                 x2={mlx}
                                 y2={mly}
-                                stroke="rgba(255,255,255,0.05)"
+                                stroke="var(--day-ui-grid, rgba(255,255,255,0.05))"
                                 strokeWidth="1"
                                 strokeDasharray="4 4"
                             />
                             <text
                                 x={x}
                                 y={y}
-                                fill="rgba(255,255,255,0.25)"
+                                fill="var(--day-ui-muted, rgba(255,255,255,0.25))"
                                 fontSize="8"
                                 fontWeight="bold"
                                 textAnchor="middle"
@@ -213,7 +220,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                             <text
                                 x={mx}
                                 y={my}
-                                fill="rgba(255,255,255,0.25)"
+                                fill="var(--day-ui-muted, rgba(255,255,255,0.25))"
                                 fontSize="8"
                                 fontWeight="bold"
                                 textAnchor="middle"
@@ -225,12 +232,12 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                     );
                 })}
 
-                <circle cx={cx} cy={cy} r="3" fill="rgba(255,255,255,0.3)" />
+                <circle cx={cx} cy={cy} r="3" fill="var(--day-ui-muted, rgba(255,255,255,0.3))" />
 
                 <text
                     x={cx}
                     y={12}
-                    fill="rgba(255,255,255,0.3)"
+                    fill="var(--day-ui-muted, rgba(255,255,255,0.3))"
                     fontSize="9"
                     fontWeight="bold"
                     textAnchor="middle"
@@ -310,7 +317,7 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                     <text
                         x={cx}
                         y={cy}
-                        fill="rgba(255,255,255,0.2)"
+                        fill="var(--day-ui-muted, rgba(255,255,255,0.2))"
                         fontSize="12"
                         textAnchor="middle"
                         dominantBaseline="middle"

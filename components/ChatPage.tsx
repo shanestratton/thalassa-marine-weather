@@ -1059,7 +1059,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 <div
                     className="fixed bottom-28 left-1/2 -translate-x-1/2 z-9998 px-5 py-3 rounded-xl shadow-2xl border max-w-[320px] text-center"
                     style={{
-                        background: trackImportStatus!.startsWith('✅') ? 'rgba(6,78,59,0.95)' : 'rgba(127,29,29,0.95)',
+                        background: trackImportStatus!.startsWith('✅')
+                            ? 'var(--day-ui-success-surface, rgba(6,78,59,0.95))'
+                            : 'var(--day-ui-danger-surface, rgba(127,29,29,0.95))',
                         borderColor: trackImportStatus!.startsWith('✅')
                             ? 'rgba(16,185,129,0.3)'
                             : 'rgba(239,68,68,0.3)',

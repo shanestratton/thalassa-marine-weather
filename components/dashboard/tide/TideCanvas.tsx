@@ -45,6 +45,9 @@ export const TideCanvas = React.memo(
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
             ctx.scale(dpr, dpr);
+            // Canvas pixels do not inherit the daylight stylesheet. Read the
+            // effective display class on each draw, including theme switches.
+            const daylight = container.closest('.display-light') !== null;
 
             // Chart area with margins matching old Recharts layout
             const marginTop = 20;
@@ -70,7 +73,7 @@ export const TideCanvas = React.memo(
             for (let hour = 0; hour <= 24; hour += 2) {
                 const gx = toX(hour);
                 ctx.save();
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+                ctx.strokeStyle = daylight ? 'rgba(51, 65, 85, 0.28)' : 'rgba(255, 255, 255, 0.06)';
                 ctx.lineWidth = 0.5;
                 ctx.beginPath();
                 ctx.moveTo(gx, marginTop);
@@ -79,7 +82,7 @@ export const TideCanvas = React.memo(
 
                 // Label every 4 hours
                 if (hour % 4 === 0 && hour < 24) {
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                    ctx.fillStyle = daylight ? '#475569' : 'rgba(255, 255, 255, 0.45)';
                     ctx.font = '11px system-ui, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
@@ -90,6 +93,15 @@ export const TideCanvas = React.memo(
             // --- Height-to-color helper (neon gradient: cyan at high, orange at low) ---
             const getHeightColor = (height: number): { r: number; g: number; b: number } => {
                 const t = (height - yMin) / (yMax - yMin); // 0 = bottom, 1 = top
+                if (daylight) {
+                    // The same amber-to-cyan height cue, with enough pigment
+                    // to remain distinct against the white daylight card.
+                    return {
+                        r: Math.round(146 + (14 - 146) * t),
+                        g: Math.round(64 + (116 - 64) * t),
+                        b: Math.round(14 + (144 - 14) * t),
+                    };
+                }
                 return {
                     r: Math.round(251 + (34 - 251) * t),
                     g: Math.round(146 + (211 - 146) * t),
@@ -122,7 +134,7 @@ export const TideCanvas = React.memo(
             // Pass 1: Single glow underlay
             ctx.save();
             ctx.shadowColor = 'rgba(34, 211, 238, 0.4)';
-            ctx.shadowBlur = 12;
+            ctx.shadowBlur = daylight ? 0 : 12;
             ctx.lineWidth = 5;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -164,7 +176,7 @@ export const TideCanvas = React.memo(
 
                 // Hairline vertical line (30% opacity)
                 ctx.save();
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.strokeStyle = daylight ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.3)';
                 ctx.lineWidth = 0.5;
                 ctx.beginPath();
                 ctx.moveTo(cx, marginTop);
@@ -192,7 +204,7 @@ export const TideCanvas = React.memo(
                 // Solid white center (4px)
                 ctx.beginPath();
                 ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-                ctx.fillStyle = '#ffffff';
+                ctx.fillStyle = daylight ? '#0f172a' : '#ffffff';
                 ctx.fill();
             }
         }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
@@ -204,7 +216,12 @@ export const TideCanvas = React.memo(
 
             const ro = new ResizeObserver(() => draw());
             ro.observe(container);
-            return () => ro.disconnect();
+            const themeObserver = new MutationObserver(() => draw());
+            themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+            return () => {
+                ro.disconnect();
+                themeObserver.disconnect();
+            };
         }, [draw]);
 
         return (

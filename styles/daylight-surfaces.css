@@ -1,0 +1,25 @@
+/* Component-owned inline/SVG colours opt into these only in day mode.
+   Each use retains its original dark/night colour as a CSS fallback. */
+.display-light {
+    --day-ui-surface: #ffffff;
+    --day-ui-surface-soft: #edf3f8;
+    --day-ui-text: #0f172a;
+    --day-ui-muted: #475569;
+    --day-ui-border: #cbd5e1;
+    --day-ui-accent: #0369a1;
+    --day-ui-amber: #92400e;
+    --day-ui-danger: #b91c1c;
+    --day-ui-success: #065f46;
+    --day-ui-purple: #6d28d9;
+    --day-ui-magenta: #86198f;
+    --day-ui-orange: #9a3412;
+    --day-ui-success-surface: #ecfdf5;
+    --day-ui-amber-surface: #fffbeb;
+    --day-ui-danger-surface: #fee2e2;
+    --day-ui-purple-surface: #ede9fe;
+    --day-ui-alarm-surface: linear-gradient(180deg, #fee2e2 0%, #fff1f2 60%, #ffffff 100%);
+    --day-ui-grid: rgba(51, 65, 85, 0.28);
+    --day-ui-guide: rgba(15, 23, 42, 0.6);
+    --day-ui-line-opacity: 1;
+    --day-ui-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}

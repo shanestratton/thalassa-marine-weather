@@ -17,6 +17,8 @@
  * values when no live NMEA data is connected so the panel remains testable.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import './instrumentDaylight.css';
+import { POSITION_FONT_SIZE, WIND_CELL_STYLE, windHeroStyle } from './instrumentLayout';
 import { useCrewInstrumentShare } from '../../hooks/useCrewInstrumentShare';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
@@ -140,7 +142,7 @@ const SparklineComponent: React.FC<SparklineProps> = ({
     const fillPoints = `${firstX},${bottomY} ${points} ${lastX},${bottomY}`;
 
     return (
-        <svg width={width} height={height} className="block">
+        <svg width={width} height={height} className="nmea-instrument block">
             <defs>
                 <linearGradient id={`spark-fill-${label}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={color} stopOpacity={0.4} />
@@ -254,7 +256,7 @@ const FlankMetricComponent: React.FC<{
             <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
             <p
                 data-testid={`flank-${label.toLowerCase()}`}
-                style={sideTone ? { color: sideTone } : undefined}
+                style={sideTone ? { color: `var(--nmea-${shown! < 0 ? 'port' : 'stbd'}, ${sideTone})` } : undefined}
                 className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
             >
                 {display}
@@ -387,7 +389,7 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
     }, [min, max, majorTick]);
 
     return (
-        <svg viewBox="0 0 200 200" className="w-full h-full">
+        <svg viewBox="0 0 200 200" className="nmea-instrument w-full h-full">
             <defs>
                 <filter id={`hero-glow-${label}`} x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="3" result="blur" />
@@ -583,7 +585,7 @@ const BARO_SEVERITY: Record<TendencySeverity, { pill: string; text: string }> = 
 
 /* Hoisted so the cell-sized instruments are handed the SAME style object on
    every tick — a fresh literal here defeats any memo below it. */
-const ROSE_CELL_STYLE: React.CSSProperties = { maxHeight: '19vh' };
+const ROSE_CELL_STYLE = WIND_CELL_STYLE;
 
 const SectionPlateComponent: React.FC<{ title: string }> = ({ title }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0" aria-hidden="true">
@@ -1443,7 +1445,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         />
                                     </div>
                                     <div
-                                        className="rounded-full p-[3px]"
+                                        className="nmea-wind-bezel rounded-full p-[3px]"
                                         style={{
                                             background:
                                                 'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
@@ -1452,14 +1454,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         }}
                                     >
                                         <div
-                                            className="rounded-full p-[2px]"
+                                            className="nmea-wind-rim rounded-full p-[2px]"
                                             style={{
                                                 background:
                                                     'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
                                             }}
                                         >
                                             <div
-                                                className="rounded-full p-2"
+                                                className="nmea-wind-face rounded-full p-2"
                                                 style={{
                                                     background:
                                                         'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
@@ -1476,13 +1478,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 roses off the bottom of a snap panel that
                                                 cannot scroll (Shane 2026-08-28). min() makes
                                                 the biggest element the one that yields. */}
-                                                <div
-                                                    className="relative"
-                                                    style={{
-                                                        width: `min(${heroGaugeSize}px, 19vh)`,
-                                                        height: `min(${heroGaugeSize}px, 19vh)`,
-                                                    }}
-                                                >
+                                                <div className="relative" style={windHeroStyle(heroGaugeSize)}>
                                                     {renderWindInstrument(windHero, 'hero')}
                                                     {/* Only a promoted ROSE needs naming — the dial
                                                         prints its own "TWS" inside its SVG. Absolutely
@@ -1749,8 +1745,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                            longest string here is 11 monospace characters
                                                            and this section cannot scroll — an overflowing
                                                            longitude would simply be cut off. */
-                                                        fontSize: 'clamp(1.75rem, 11vw, 3rem)',
-                                                        textShadow: '0 0 30px rgba(52, 211, 153, 0.35)',
+                                                        fontSize: POSITION_FONT_SIZE,
+                                                        textShadow:
+                                                            'var(--nmea-position-shadow, 0 0 30px rgba(52, 211, 153, 0.35))',
                                                     }}
                                                 >
                                                     {text}

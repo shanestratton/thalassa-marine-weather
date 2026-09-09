@@ -57,12 +57,12 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     alignItems: 'center',
                     gap: 12,
                     padding: '6px 14px',
-                    background: 'rgba(15, 23, 42, 0.85)',
+                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.85))',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08))',
                     borderRadius: 20,
-                    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)',
+                    boxShadow: 'var(--day-ui-shadow, 0 4px 24px rgba(0, 0, 0, 0.4))',
                     whiteSpace: 'nowrap',
                     maxWidth: 'calc(100vw - 24px)',
                     overflowX: 'auto',
@@ -106,7 +106,9 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         style={{
                             fontSize: 12,
                             fontWeight: 800,
-                            color: guardState.enabled ? '#fca5a5' : '#64748b',
+                            color: guardState.enabled
+                                ? 'var(--day-ui-danger, #fca5a5)'
+                                : 'var(--day-ui-muted, #64748b)',
                             letterSpacing: 0.3,
                             fontFamily: '-apple-system, system-ui, sans-serif',
                         }}
@@ -124,9 +126,9 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         width: 28,
                         height: 28,
                         borderRadius: 12,
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                         background: showRadiusPicker ? 'rgba(56,189,248,0.15)' : 'transparent',
-                        color: showRadiusPicker ? '#7dd3fc' : '#64748b',
+                        color: showRadiusPicker ? 'var(--day-ui-accent, #7dd3fc)' : 'var(--day-ui-muted, #64748b)',
                         cursor: 'pointer',
                         flexShrink: 0,
                     }}
@@ -135,7 +137,9 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                 </button>
 
                 {/* Divider */}
-                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)' }} />
+                <div
+                    style={{ width: 1, height: 14, background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.08))' }}
+                />
 
                 {/* Status colour dots */}
                 {STATUS_ITEMS.map(({ color, label }) => (
@@ -154,7 +158,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                             style={{
                                 fontSize: 10,
                                 fontWeight: 600,
-                                color: '#94a3b8',
+                                color: 'var(--day-ui-muted, #94a3b8)',
                                 letterSpacing: 0.2,
                                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
                             }}
@@ -177,12 +181,12 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         display: 'flex',
                         gap: 6,
                         padding: '6px 10px',
-                        background: 'rgba(15, 23, 42, 0.95)',
+                        background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.95))',
                         backdropFilter: 'blur(16px)',
                         WebkitBackdropFilter: 'blur(16px)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.1))',
                         borderRadius: 14,
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+                        boxShadow: 'var(--day-ui-shadow, 0 8px 32px rgba(0, 0, 0, 0.5))',
                         animation: 'aisLegendIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
                     }}
                     role="group"
@@ -201,8 +205,13 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                                 borderRadius: 10,
                                 border: 'none',
                                 background:
-                                    r === guardState.radiusNm ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.05)',
-                                color: r === guardState.radiusNm ? '#fca5a5' : '#94a3b8',
+                                    r === guardState.radiusNm
+                                        ? 'rgba(239, 68, 68, 0.3)'
+                                        : 'var(--day-ui-surface-soft, rgba(255,255,255,0.05))',
+                                color:
+                                    r === guardState.radiusNm
+                                        ? 'var(--day-ui-danger, #fca5a5)'
+                                        : 'var(--day-ui-muted, #94a3b8)',
                                 fontSize: 11,
                                 fontWeight: 700,
                                 cursor: 'pointer',

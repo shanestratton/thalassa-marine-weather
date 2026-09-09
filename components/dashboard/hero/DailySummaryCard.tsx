@@ -41,7 +41,7 @@ const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
         className="shrink-0"
         style={{ transform: `rotate(${deg + 180}deg)` }}
     >
-        <path d="M12 3L8 14h8L12 3Z" fill="rgba(125,211,252,0.95)" />
+        <path d="M12 3L8 14h8L12 3Z" fill="var(--day-ui-accent, rgba(125,211,252,0.95))" />
         <path d="M12 21L8 14h8L12 21Z" fill="rgba(148,163,184,0.3)" />
     </svg>
 );

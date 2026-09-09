@@ -1,0 +1,54 @@
+/* A pane is the containing block for inline fixed controls as well as pages. */
+[data-split-pane] {
+    contain: layout paint;
+    overscroll-behavior: contain;
+    min-height: 0;
+}
+
+[data-split-pane] :is(.overflow-y-auto, .overflow-auto),
+.pane-portal-host :is(.overflow-y-auto, .overflow-auto) {
+    overscroll-behavior: contain;
+}
+
+/* Body portals escape page scroll/animation while retaining pane geometry. */
+.pane-portal-host {
+    /* The host already ends above the keyboard: children must not subtract
+       the screen's keyboard height a second time. */
+    --thalassa-keyboard-height: 0px;
+    position: fixed;
+    z-index: 1100;
+    contain: layout paint;
+    overflow: hidden;
+    border-radius: 1rem;
+    isolation: isolate;
+    pointer-events: none;
+    overscroll-behavior: contain;
+}
+
+.pane-portal-host > * {
+    pointer-events: auto;
+}
+
+/* Older sheets use viewport-based max heights. Bound their scroll panel to
+   the host, whose height already clears a software keyboard in either pane. */
+html .pane-portal-host [data-modal-sheet],
+html .pane-portal-host [data-pane-dialog-panel],
+html .pane-portal-host [role='dialog']:not(.fixed),
+html .pane-portal-host > .fixed.inset-0 > :is(.max-h-full, .overflow-y-auto, .overflow-hidden) {
+    max-height: max(1px, calc(var(--pane-height) - 2rem)) !important;
+    overscroll-behavior: contain;
+}
+
+/* These backdrops already clear the app chrome because the measured frame
+   does. Restore symmetric centering, including older sheets with inline
+   keyboard padding and their own safe-area/tab-bar reservations. */
+html .pane-portal-host > .fixed.inset-0:is(.items-center, .items-end),
+html .pane-portal-host .fixed.inset-0:has(> [role='dialog']) {
+    padding-top: 1rem !important;
+    padding-bottom: 1rem !important;
+}
+
+html .pane-portal-host .thalassa-keyboard-safe-sheet {
+    margin-bottom: 0;
+    max-height: max(1px, calc(var(--pane-height) - 2rem)) !important;
+}

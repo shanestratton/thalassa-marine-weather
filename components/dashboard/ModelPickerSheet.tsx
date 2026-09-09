@@ -12,6 +12,7 @@
  */
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { WeatherModel } from '../../types';
 import {
     AUTO_MODEL,
@@ -57,6 +58,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     spitfireLocationName,
     publishedModels,
 }) => {
+    const portalTarget = usePanePortalTarget();
     // Intersect, but never present an EMPTY picker: a publisher outage must
     // degrade to the built-in list, not to a sheet with nothing to choose.
     const grids =
@@ -70,13 +72,13 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
 
     // Lock body scroll while open
     useEffect(() => {
-        if (!visible) return;
+        if (!visible || portalTarget !== document.body) return;
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
             document.body.style.overflow = prev;
         };
-    }, [visible]);
+    }, [visible, portalTarget]);
 
     if (!visible) return null;
 
@@ -125,7 +127,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             className="fixed inset-0 z-9998 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
-            aria-modal="true"
+            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
             aria-label="Choose a forecast model"
             ref={dialogRef}
         >
@@ -193,7 +195,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 </div>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 };
 

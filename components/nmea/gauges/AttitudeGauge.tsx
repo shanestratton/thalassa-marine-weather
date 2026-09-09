@@ -1,4 +1,5 @@
 import React, { useId } from 'react';
+import '../instrumentDaylight.css';
 import { polarToCart } from './gaugeGeometry';
 
 /** A signed attitude indicator. Positive roll is starboard; positive pitch is bow up. */
@@ -19,7 +20,7 @@ export const AttitudeGauge: React.FC<{ angle: number | null; axis: 'heel' | 'pit
     const color = dead ? '#64748b' : axis === 'heel' && value < -0.3 ? '#fb7185' : '#22d3ee';
     const tilt = Math.max(-60, Math.min(60, value)) * (axis === 'pitch' ? -1 : 1);
     return (
-        <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
+        <div className="nmea-instrument relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
             <svg
                 viewBox="0 0 300 300"
                 role="img"

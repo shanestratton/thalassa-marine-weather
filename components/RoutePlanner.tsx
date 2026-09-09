@@ -3,6 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('RoutePlanner');
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../context/PanePortalContext';
 import {
     MapPinIcon,
     MapIcon,
@@ -87,6 +88,7 @@ export const RoutePlanner: React.FC<{
      *  is the chrome around the form. */
     embedded?: boolean;
 }> = ({ onTriggerUpgrade, onBack, embedded = false }) => {
+    const portalTarget = usePanePortalTarget();
     const {
         origin,
         setOrigin,
@@ -576,7 +578,7 @@ export const RoutePlanner: React.FC<{
                     >
                         <div
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-label="Route Planner actions"
                             className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
@@ -599,7 +601,7 @@ export const RoutePlanner: React.FC<{
                             </button>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
             {/* "Plot on the big screen" nudge. Gated on !embedded so it fires on
                 the PLAN page itself and not on the planner's embedded uses, and
@@ -616,7 +618,7 @@ export const RoutePlanner: React.FC<{
                     <div
                         ref={mapDialogRef}
                         role="dialog"
-                        aria-modal="true"
+                        aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                         aria-label={
                             mapSelectionTarget
                                 ? `Select ${mapSelectionTarget === 'origin' ? 'origin' : 'destination'} on map`
@@ -684,7 +686,7 @@ export const RoutePlanner: React.FC<{
                             </button>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
 
             {/* ═══ FORM INPUTS — always visible at top ═══
@@ -705,7 +707,7 @@ export const RoutePlanner: React.FC<{
             <div
                 className="route-planner-form shrink-0 overflow-y-auto px-4"
                 style={{
-                    maxHeight: '60dvh',
+                    maxHeight: 'calc(var(--pane-height, 100dvh) * 0.6)',
                     paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0.75rem',
                     transition: 'padding-bottom 200ms ease-out',
                 }}
@@ -1239,7 +1241,7 @@ export const RoutePlanner: React.FC<{
                         <div
                             ref={routePickerDialogRef}
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby="route-picker-title"
                             className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
@@ -1359,7 +1361,7 @@ export const RoutePlanner: React.FC<{
                             </div>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
         </div>
     );

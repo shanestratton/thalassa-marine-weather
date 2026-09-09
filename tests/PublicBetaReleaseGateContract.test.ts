@@ -278,8 +278,8 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain("tone: '#f87171'");
         expect(gate).toContain("tone: '#fbbf24'");
         expect(gate).toContain("tone: '#60a5fa'");
-        expect(gate).toContain('<div style="font-size: 11px; color: #cbd5e1;');
-        expect(gate).toContain('<div style="font-size: 11px; color: #b6c2d1;');
+        expect(gate).toContain('<div style="font-size: 11px; color: var(--day-ui-muted, #cbd5e1);');
+        expect(gate).toContain('<div style="font-size: 11px; color: var(--day-ui-muted, #b6c2d1);');
         expect(gate).toContain('.mpa-popup .mapboxgl-popup-content {');
         expect(gate).toContain("!mpaPopupSource.includes('Recreational fishing usually permitted')");
         expect(gate).toContain('MPA helm control stays neutral about access, anchoring, and fishing rules');

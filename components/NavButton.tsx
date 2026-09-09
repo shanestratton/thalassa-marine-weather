@@ -159,7 +159,9 @@ export const NavButton: React.FC<NavButtonProps> = ({
                     fontWeight: 900,
                     textTransform: 'uppercase',
                     letterSpacing: '0.1em',
-                    color: active ? 'rgba(255, 255, 255, 0.92)' : 'rgba(255, 255, 255, 0.68)',
+                    color: active
+                        ? 'var(--day-ui-text, rgba(255, 255, 255, 0.92))'
+                        : 'var(--day-ui-muted, rgba(255, 255, 255, 0.68))',
                     marginTop: 4,
                     lineHeight: 1,
                     transition: 'color 0.2s ease',
@@ -175,7 +177,7 @@ export const NavButton: React.FC<NavButtonProps> = ({
                 // visible against the dark nav bar without needing a glow.
                 <div
                     className="absolute bottom-0.5 w-1 h-1 rounded-full pointer-events-none"
-                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.85)' }}
+                    style={{ backgroundColor: 'var(--day-ui-accent, rgba(255, 255, 255, 0.85))' }}
                     aria-hidden="true"
                 />
             )}

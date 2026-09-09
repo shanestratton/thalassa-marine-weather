@@ -409,7 +409,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     return (
         <div
             className="w-full h-full flex flex-col slide-up-enter overflow-y-auto"
-            style={{ background: 'linear-gradient(180deg, #450a0a 0%, #020617 60%)' }}
+            style={{ background: 'var(--day-ui-alarm-surface, linear-gradient(180deg, #450a0a 0%, #020617 60%))' }}
         >
             <PageHeader
                 title="MOB ACTIVE"

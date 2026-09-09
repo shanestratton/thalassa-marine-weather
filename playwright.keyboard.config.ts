@@ -2,11 +2,16 @@ import { defineConfig, devices } from '@playwright/test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** Isolated source-level layout tests: no account, backend writes or production build. */
+/** Isolated source-level layout/theme tests: no account or backend writes. */
 export default defineConfig({
     testDir: './browser-tests',
-    testMatch: 'keyboard-layout.spec.ts',
-    outputDir: join(tmpdir(), 'thalassa-keyboard-e2e'),
+    testMatch: [
+        'keyboard-layout.spec.ts',
+        'daylight-layout.spec.ts',
+        'split-pane-layout.spec.ts',
+        'nmea-daylight.spec.ts',
+    ],
+    outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
     reporter: 'list',
     use: { baseURL: 'http://127.0.0.1:4199', screenshot: 'only-on-failure' },

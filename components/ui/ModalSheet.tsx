@@ -1,9 +1,8 @@
 /**
  * ModalSheet — Shared modal/bottom-sheet wrapper.
  *
- * Renders via React Portal into document.body so that parent
- * containers with overflow:hidden/auto, transforms, or scroll
- * contexts cannot affect the fixed positioning.
+ * Renders outside page scrolling/transforms, within its owning pane in split
+ * view and across the app otherwise.
  *
  * Keyboard-aware: consumes the shared native/web keyboard measurement and
  * shrinks the panel and centres it in the visible area above the keyboard.
@@ -12,6 +11,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
+import { usePaneModalLock, usePaneScope } from '../../context/PanePortalContext';
 
 interface ModalSheetProps {
     /** Whether the modal is visible */
@@ -37,6 +37,9 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     zIndex = 'z-999',
 }) => {
     const keyboardHeight = useKeyboardOffset(isOpen);
+    const titleId = React.useId();
+    const pane = usePaneScope();
+    usePaneModalLock(isOpen);
     const panelRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });
 
     if (!isOpen) return null;
@@ -45,13 +48,17 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
     // When keyboard is open: shrink the panel to the available height.
     // When closed: center vertically with generous clearance.
-    const panelMaxHeight = kbOpen ? `calc(100dvh - ${keyboardHeight}px - 2rem)` : 'calc(100dvh - 12rem)';
+    const panelMaxHeight = pane
+        ? 'calc(var(--pane-height) - 2rem)'
+        : kbOpen
+          ? `calc(100dvh - ${keyboardHeight}px - 2rem)`
+          : 'calc(100dvh - 12rem)';
 
     // Keyboard padding removes the covered region from the flex layout, so
     // short forms centre in the visible screen rather than hugging its top.
     const alignment = 'items-center';
 
-    const modalId = title ? `modal-title-${title.replace(/\s+/g, '-').toLowerCase()}` : undefined;
+    const modalId = title ? titleId : undefined;
 
     const modal = (
         <div
@@ -59,7 +66,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
             className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`}
             onClick={onClose}
             role="dialog"
-            aria-modal="true"
+            aria-modal={pane ? undefined : true}
             aria-labelledby={modalId}
         >
             {/* Backdrop */}
@@ -104,6 +111,5 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
         </div>
     );
 
-    // Portal to document.body — escapes all parent overflow/transform contexts
-    return createPortal(modal, document.body);
+    return createPortal(modal, pane?.host ?? document.body);
 };

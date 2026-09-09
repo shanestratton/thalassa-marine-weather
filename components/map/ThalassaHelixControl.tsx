@@ -14,6 +14,7 @@
  */
 import React, { useRef, useCallback, useEffect, memo, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 import { PauseIcon, PlayIcon } from '../Icons';
 import { CHL_GRADIENT, CURRENT_WAVE_GRADIENT, MLD_GRADIENT, SST_GRADIENT } from './marineLayerRamps';
 import { WIND_GRADIENT } from './windRamp';
@@ -449,10 +450,10 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                         <div
                             className="flex flex-col items-center gap-1 animate-in fade-in duration-200"
                             style={{
-                                background: 'rgba(15, 23, 42, 0.75)',
+                                background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
                                 backdropFilter: 'blur(16px)',
                                 WebkitBackdropFilter: 'blur(16px)',
-                                border: '1px solid rgba(255,255,255,0.08)',
+                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                                 borderRadius: 14,
                                 padding: '8px 6px',
                             }}
@@ -499,10 +500,10 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             onClick={() => setShowLegend(true)}
                             className="w-12 h-12 flex items-center justify-center rounded-xl transition-colors"
                             style={{
-                                background: 'rgba(15, 23, 42, 0.75)',
+                                background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
                                 backdropFilter: 'blur(16px)',
                                 WebkitBackdropFilter: 'blur(16px)',
-                                border: '1px solid rgba(255,255,255,0.08)',
+                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                             }}
                             aria-label="Show legend"
                         >
@@ -524,10 +525,10 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                 >
                     <div
                         style={{
-                            background: 'rgba(15, 23, 42, 0.80)',
+                            background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.80))',
                             backdropFilter: 'blur(20px)',
                             WebkitBackdropFilter: 'blur(20px)',
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                             borderRadius: 16,
                             padding: hasScrubber ? '8px 12px' : '6px 12px',
                             minWidth: hasScrubber ? 200 : 120,
@@ -544,7 +545,10 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                         borderTopColor: accent,
                                     }}
                                 />
-                                <span className="text-[11px] font-bold" style={{ color: `${accent}cc` }}>
+                                <span
+                                    className="text-[11px] font-bold"
+                                    style={{ color: daylightUiColor(`${accent}cc`) }}
+                                >
                                     Loading…
                                 </span>
                             </div>
@@ -662,7 +666,9 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                             // their sublabel), not on the label text — 'Today · Daily
                                             // mean' and every 'Past' frame painted in the forecast
                                             // accent (audit 2026-09-02).
-                                            color: /\bForecast\b/.test(sublabel) ? forecastAccent : `${accent}90`,
+                                            color: daylightUiColor(
+                                                /\bForecast\b/.test(sublabel) ? forecastAccent : `${accent}90`,
+                                            ),
                                         }}
                                     >
                                         {sublabel}
@@ -678,7 +684,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                 <span className="text-[11px] font-black text-white">{config.label}</span>
                                 <span
                                     className="ml-auto text-[11px] font-bold uppercase tracking-widest"
-                                    style={{ color: `${accent}90` }}
+                                    style={{ color: daylightUiColor(`${accent}90`) }}
                                 >
                                     {frameLabel === 'Live' ? '● Live' : frameLabel}
                                 </span>
@@ -725,10 +731,10 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded, t
                         onClick={() => setExpanded(true)}
                         className="w-11 h-11 flex items-center justify-center rounded-xl transition-colors"
                         style={{
-                            background: 'rgba(15, 23, 42, 0.75)',
+                            background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
                             backdropFilter: 'blur(16px)',
                             WebkitBackdropFilter: 'blur(16px)',
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                         }}
                         aria-label={`Show ${LAYER_CONFIGS[layer]?.label ?? layer} legend`}
                     >
@@ -758,10 +764,10 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded, t
                         aria-label={`Hide ${config.label} legend`}
                         className="flex flex-col items-center gap-1"
                         style={{
-                            background: 'rgba(15, 23, 42, 0.75)',
+                            background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
                             backdropFilter: 'blur(16px)',
                             WebkitBackdropFilter: 'blur(16px)',
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                             borderRadius: 14,
                             padding: '8px 6px',
                         }}

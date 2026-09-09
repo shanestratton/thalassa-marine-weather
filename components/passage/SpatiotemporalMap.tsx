@@ -245,7 +245,7 @@ const WaypointBadge: React.FC<{
             {/* Label */}
             <div
                 style={{
-                    background: 'rgba(4, 13, 26, 0.85)',
+                    background: 'var(--day-ui-surface, rgba(4, 13, 26, 0.85))',
 
                     padding: '2px 6px',
                     borderRadius: 4,

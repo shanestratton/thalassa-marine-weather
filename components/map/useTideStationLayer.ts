@@ -12,6 +12,7 @@ import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 
 import mapboxgl from 'mapbox-gl';
 import type { Root } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 
 const log = createLogger('TideStations');
 
@@ -212,7 +213,8 @@ export function buildTideStationPopupHtml(
 
     let tideRows = '';
     if (loading) {
-        tideRows = '<p style="color:#64748b;font-size:11px;margin:8px 0 0;">Loading predictions...</p>';
+        tideRows =
+            '<p style="color:var(--day-ui-muted, #64748b);font-size:11px;margin:8px 0 0;">Loading predictions...</p>';
     } else if (predictions && predictions.length > 0) {
         const now = Date.now();
         tideRows = normaliseTideExtremes(predictions)
@@ -226,14 +228,15 @@ export function buildTideStationPopupHtml(
                 const color = p.type === 'High' ? '#38bdf8' : '#94a3b8';
                 const opacity = isPast ? '0.4' : '1';
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;opacity:${opacity}">
-                    <span style="color:${color};font-size:11px;font-weight:700;">${icon} ${escapeTidePopupHtml(p.type.toUpperCase())}</span>
-                    <span style="color:#e2e8f0;font-size:11px;font-family:monospace;">${p.height.toFixed(1)}m</span>
-                    <span style="color:#64748b;font-size:10px;">${dayStr} ${timeStr}</span>
+                    <span style="color:${daylightUiColor(color)};font-size:11px;font-weight:700;">${icon} ${escapeTidePopupHtml(p.type.toUpperCase())}</span>
+                    <span style="color:var(--day-ui-text, #e2e8f0);font-size:11px;font-family:monospace;">${p.height.toFixed(1)}m</span>
+                    <span style="color:var(--day-ui-muted, #64748b);font-size:10px;">${dayStr} ${timeStr}</span>
                 </div>`;
             })
             .join('');
     } else {
-        tideRows = '<p style="color:#64748b;font-size:11px;margin:8px 0 0;">No predictions available</p>';
+        tideRows =
+            '<p style="color:var(--day-ui-muted, #64748b);font-size:11px;margin:8px 0 0;">No predictions available</p>';
     }
 
     return `
@@ -241,11 +244,11 @@ export function buildTideStationPopupHtml(
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
                 <span style="font-size:16px;">🌊</span>
                 <div>
-                    <p style="margin:0;color:#f1f5f9;font-size:13px;font-weight:800;">${escapeTidePopupHtml(station.name)}</p>
-                    <p style="margin:2px 0 0;color:#64748b;font-size:10px;">${escapeTidePopupHtml(distLabel)}</p>
+                    <p style="margin:0;color:var(--day-ui-text, #f1f5f9);font-size:13px;font-weight:800;">${escapeTidePopupHtml(station.name)}</p>
+                    <p style="margin:2px 0 0;color:var(--day-ui-muted, #64748b);font-size:10px;">${escapeTidePopupHtml(distLabel)}</p>
                 </div>
             </div>
-            <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;">
+            <div style="border-top:1px solid var(--day-ui-border, rgba(255,255,255,0.08));padding-top:6px;">
                 ${tideRows}
             </div>
         </div>
