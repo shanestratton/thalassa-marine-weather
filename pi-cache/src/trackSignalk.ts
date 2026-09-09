@@ -211,6 +211,30 @@ function firstChildNumber(doc: unknown, collectionPath: string, leaf: string): n
 export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
     const nowMs = now();
     const extra: Record<string, number | string> = {};
+    // The wind record must deduplicate the actual sensor envelope, not a
+    // freshly fetched copy of Signal K's cached value or its current GPS clock.
+    const twsAt = timestampAt(selfDocument, 'environment.wind.speedTrue', false);
+    const twsKts = knots(num(selfDocument, 'environment.wind.speedTrue'));
+    if (
+        twsAt !== null &&
+        twsAt > 0 &&
+        twsAt <= nowMs &&
+        nowMs - twsAt <= 20_000 &&
+        twsKts !== null &&
+        twsKts >= 0 &&
+        twsKts <= 150
+    ) {
+        const twsSource = valueAt(selfDocument, 'environment.wind.speedTrue.$source');
+        if (
+            typeof twsSource === 'string' &&
+            twsSource.trim() &&
+            twsSource.length <= 120 &&
+            !/\p{Cc}/u.test(twsSource)
+        ) {
+            extra.wind_tws_at_ms = twsAt;
+            extra.wind_tws_source = twsSource.trim();
+        }
+    }
     const attitude = (axis: 'roll' | 'pitch', key: 'heel_at' | 'pitch_at'): number | null => {
         const path = `navigation.attitude.${axis}`;
         const at = timestampAt(selfDocument, path);

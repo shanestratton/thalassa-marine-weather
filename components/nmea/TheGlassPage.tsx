@@ -78,6 +78,7 @@ import {
 import { closeHauledDegFor, pointOfSail } from '../../services/sailing/pointOfSail';
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { CloudTelemetryService } from '../../services/CloudTelemetryService';
+import { WindHistoryStats } from './WindHistoryStats';
 
 /** Picker value meaning “wherever the boat is”. */
 const SHIP_ZONE_AUTO = 'auto';
@@ -732,17 +733,12 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     }, [state.depth.value, state.depth.freshness, state.depth.lastUpdated]);
     const depthTrend = shoalRate(depthTrackRef.current, DEPTH_FALLBACK_OFFSET);
 
-    // Rolling 10-min TWS peak as the live gust proxy for the sail plan —
-    // labelled as such; a forecast gust would claim knowledge we lack here.
-    const gustRef = useRef<Array<{ t: number; v: number }>>([]);
-    useEffect(() => {
-        if (state.tws.value !== null && state.tws.freshness === 'live') {
-            const now = Date.now();
-            gustRef.current.push({ t: now, v: state.tws.value });
-            while (gustRef.current.length > 0 && now - gustRef.current[0].t > 600_000) gustRef.current.shift();
-        }
-    }, [state.tws.value, state.tws.freshness, state.tws.lastUpdated]);
-    const recentGust = gustRef.current.length > 0 ? Math.max(...gustRef.current.map((e) => e.v)) : null;
+    // Recorded by the feed/Pi, not by this page. The Pi's preceding hour can
+    // arrive on first open; direct gateways keep a bounded app-wide record.
+    // Recompute on the clock too, so an old peak expires even during silence.
+    // Sail advice still uses the existing ten-minute sampled-wind peak.
+    const windHistory = NmeaStore.getWindHistory(nowMs);
+    const recentGust = windHistory?.gust10m?.kts ?? null;
 
     const awaUnsigned = awa.value !== null ? ((awa.value % 360) + 360) % 360 : null;
     const twaUnsigned = twaSigned.value !== null ? ((twaSigned.value % 360) + 360) % 360 : null;
@@ -843,15 +839,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 : { history: [] as number[], min: 0, max: 1 },
         [depthReal.history, depthReal.max],
     );
-
-    // TWS max tracker
-    const [twsMax, setTwsMax] = useState<number>(0);
-    useEffect(() => {
-        if (state.tws.value !== null && state.tws.value > twsMax) {
-            setTwsMax(state.tws.value);
-        }
-    }, [state.tws.value, twsMax]);
-    const twsMaxDisplay: number | null = twsMax > 0 ? twsMax : null;
 
     // Trip distance accumulator (SOG × dt).
     //
@@ -1255,6 +1242,19 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </p>
                             </div>
                         )}
+                        <div className="rounded-xl border border-white/10 bg-white/4 p-3">
+                            <p className="text-sm font-bold text-white">Recorded wind</p>
+                            <p className="mt-1 text-sm leading-relaxed text-gray-300">
+                                Max is the highest recorded true wind in the preceding hour. Gust is the highest sampled
+                                true wind in the preceding ten minutes, not a separate gust sensor. Recording does not
+                                depend on leaving this screen open.
+                            </p>
+                            <p className="mt-2 text-sm leading-relaxed text-gray-300">
+                                {windHistory
+                                    ? `${windHistory.sampleCount} readings in the available record, spanning ${Math.max(0, Math.floor((windHistory.latestAt - windHistory.since) / 60_000))} minutes. Gaps or a newly started recorder mean the record may cover less than a full hour.`
+                                    : 'No recent wind history is available yet. Missing readings are not treated as calm wind.'}
+                            </p>
+                        </div>
                     </div>
                 </ModalSheet>
 
@@ -1505,35 +1505,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         {formatFix(latitude.value, longitude.value) ?? '— no fix —'}
                                     </p>
                                 </div>
-                                <div className="w-full grid grid-cols-3 gap-2 items-center">
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            AWS
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-sky-300">
-                                            {fmt(aws.value)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/4 border border-white/8 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Max
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-amber-400">
-                                            {fmt(twsMaxDisplay)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Gust 10m
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-white">
-                                            {fmt(recentGust)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                </div>
+                                <WindHistoryStats
+                                    apparentWind={aws.value}
+                                    history={windHistory}
+                                    onShowDetails={() => setShowDiagnosis(true)}
+                                />
                                 {/* Both roses on the one page (Shane 2026-08-28).
                                     APPARENT is bow-relative — what the sails are
                                     trimmed to — so it carries no heading and the

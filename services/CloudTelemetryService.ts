@@ -25,7 +25,7 @@ import { NmeaStore, type RemoteInstrumentSnapshot } from './NmeaStore';
 import { PiTelemetryService } from './PiTelemetryService';
 import { snapshotFromWire } from './telemetryWire';
 import { satelliteModeActive } from './networkPolicy';
-import { subscribeAuthIdentityScope } from './authIdentityScope';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentityScope } from './authIdentityScope';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('CloudTelemetry');
@@ -86,12 +86,14 @@ class CloudTelemetryServiceClass {
     private timer: ReturnType<typeof setInterval> | null = null;
     private latest: CloudTelemetry | null = null;
     private listeners = new Set<Listener>();
-    private polling = false;
+    private polling: symbol | null = null;
+    private generation = 0;
 
     constructor() {
         subscribeAuthIdentityScope(() => {
             // Another account must never see the previous one's boat. The LAN
             // lane is the paired Pi's, not the account's, and stays.
+            this.invalidatePending();
             this.setLatest(null);
             NmeaStore.clearRemote('cloud');
         });
@@ -133,13 +135,15 @@ class CloudTelemetryServiceClass {
      */
     async readOnce(): Promise<CloudTelemetry | null> {
         if (!supabase) return null;
-        const userId = await getCurrentUserId();
-        if (!userId) return null;
+        const scope = getAuthIdentityScope();
+        const userId = await getCurrentUserId(scope);
+        if (!isAuthIdentityScopeCurrent(scope) || !userId) return null;
         const { data, error } = await supabase
             .from('vessel_telemetry')
             .select('*')
             .order('reported_at', { ascending: false })
             .limit(5);
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
         if (error) {
             log.warn('vessel_telemetry read failed:', error.message);
             return null;
@@ -150,17 +154,26 @@ class CloudTelemetryServiceClass {
 
     private start(): void {
         if (this.timer) return;
+        this.invalidatePending();
         void this.poll();
         this.timer = setInterval(() => void this.poll(), this.pollInterval());
     }
 
     private stop(): void {
+        this.invalidatePending();
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
         }
         NmeaStore.clearRemote('cloud');
         this.setLatest(null);
+    }
+
+    private invalidatePending(): void {
+        ++this.generation;
+        // A replacement reader must not wait for an obsolete account's slow
+        // HTTP request. Its eventual finally block cannot unlock the new one.
+        this.polling = null;
     }
 
     private pollInterval(): number {
@@ -173,18 +186,27 @@ class CloudTelemetryServiceClass {
     }
 
     private async poll(): Promise<void> {
-        if (this.polling || !supabase) return;
+        if (this.retainCount === 0 || this.polling || !supabase) return;
         // (a) beats (b): a connected gateway socket is the boat itself. (The
         // LAN lane is handled by the store, which refuses a cloud snapshot
         // while the LAN is arriving; the row is still read so the Skipper
         // Device card knows the Pi is publishing.)
         if (NmeaStore.getState().connectionStatus === 'connected') return;
-        this.polling = true;
+        const request = Symbol('cloud-telemetry-read');
+        this.polling = request;
+        const generation = this.generation;
+        const scope = getAuthIdentityScope();
+        const current = () =>
+            this.retainCount > 0 &&
+            this.generation === generation &&
+            this.polling === request &&
+            isAuthIdentityScopeCurrent(scope);
         try {
-            const userId = await getCurrentUserId();
+            const userId = await getCurrentUserId(scope);
+            if (!current()) return;
             if (!userId) {
                 this.setLatest(null);
-                NmeaStore.clearRemote('cloud');
+                if (current()) NmeaStore.clearRemote('cloud');
                 return;
             }
             const { data, error } = await supabase
@@ -192,6 +214,7 @@ class CloudTelemetryServiceClass {
                 .select('*')
                 .order('reported_at', { ascending: false })
                 .limit(5);
+            if (!current()) return;
             if (error) {
                 log.warn('vessel_telemetry read failed:', error.message);
                 return; // keep what we have; the store's own freshness will age it out
@@ -199,15 +222,18 @@ class CloudTelemetryServiceClass {
             const row = pickRow((data ?? []) as TelemetryRow[], userId);
             const telemetry = row ? rowToTelemetry(row) : null;
             this.setLatest(telemetry);
+            // Subscribers can synchronously release the last reader or change
+            // identity while reacting to this publication.
+            if (!current()) return;
             if (telemetry && Date.now() - telemetry.reportedAt <= CLOUD_TELEMETRY_LIVE_MAX_AGE_MS) {
                 NmeaStore.ingestRemote(telemetry.snapshot);
             } else {
                 NmeaStore.clearRemote('cloud');
             }
         } catch (error) {
-            log.warn('vessel_telemetry poll failed:', error);
+            if (current()) log.warn('vessel_telemetry poll failed:', error);
         } finally {
-            this.polling = false;
+            if (this.polling === request) this.polling = null;
         }
     }
 }

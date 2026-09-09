@@ -7,6 +7,7 @@
  * wire a reading came down, and NmeaStore ranks the LAN above the cloud.
  */
 import type { RemoteInstrumentSnapshot, RemoteVia } from './NmeaStore';
+import { parseWindHistorySummary } from '../utils/windHistory';
 
 export type TelemetryWire = Record<string, unknown>;
 
@@ -29,6 +30,17 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
     const source = wire.source === 'device' ? 'device' : 'pi';
     const deviceLabel =
         typeof wire.device_label === 'string' && wire.device_label.trim() ? wire.device_label.trim() : null;
+    const extra =
+        wire.extra && typeof wire.extra === 'object' && !Array.isArray(wire.extra)
+            ? (wire.extra as Record<string, unknown>)
+            : {};
+    const windHistory = source === 'pi' ? parseWindHistorySummary(extra) : null;
+    const boundedText = (value: unknown): string | undefined =>
+        typeof value === 'string' && value.trim().length > 0 && value.length <= 120 && !/\p{Cc}/u.test(value)
+            ? value.trim()
+            : undefined;
+    const windIdentity = boundedText(extra.wind_history_identity);
+    const windSampleSource = boundedText(extra.wind_tws_source);
     return {
         source,
         deviceLabel,
@@ -56,6 +68,12 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             rudderDeg: wireNumber(wire.rudder_deg),
             rpm: wireNumber(wire.rpm),
             voltageV: wireNumber(wire.voltage_v),
+            ...(windHistory ? { windHistory } : {}),
+            // Never substitute reported_at (often the GPS clock) for the wind
+            // sensor's own timestamp: cached wind would become new history.
+            ...(wireNumber(extra.wind_tws_at_ms) !== null ? { windSampleAt: wireNumber(extra.wind_tws_at_ms)! } : {}),
+            ...(windIdentity ? { windHistoryIdentity: windIdentity } : {}),
+            ...(windSampleSource ? { windSampleSource } : {}),
         },
     };
 }
