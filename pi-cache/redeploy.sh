@@ -35,6 +35,7 @@ INSTALL_DIR="/opt/thalassa-pi-cache"
 SERVICE_NAME="thalassa-cache"
 HEALTH_URL="https://localhost:3001/health"
 PROBE_URL="https://localhost:3001/api/enc/route-prepped"
+ADMIN_PROBE_URL="https://localhost:3001/api/charts/jobs"
 # The Pi serves TLS with a certificate issued from its pairing key. Validating
 # the probes AGAINST that certificate — rather than passing -k — makes this a
 # real check that the cert the app will pin is the one being served, on every
@@ -160,21 +161,43 @@ else
     echo -e "${YELLOW}      ⚠ /health → HTTP ${HEALTH_CODE}${NC}"
 fi
 
-# Private route — 503 is the public-beta safe default. An explicitly unsafe
-# development server returns 400 for this intentionally empty body.
+# Two gates, two probes (the split of 2026-08-30; see server.ts):
+#
+#   THALASSA_PI_APP_API      defaults ON  — pairing, ENC, OSM, diary, track: what the
+#                            phones need. An empty unsigned POST to a signed route is
+#                            refused with 400. That 400 is the HEALTHY answer.
+#   THALASSA_UNSAFE_ADMIN_API defaults OFF — the raw upstream proxy and the raster-chart
+#                            download/delete API. 503 means it is off, which is right
+#                            for a boat.
+#
+# Until 2026-09-10 this script read the 400 as "unsafe development API enabled",
+# which was true before the split and false after it — the boat Pi has the unsafe
+# flag OFF and was being warned about it at every redeploy.
 PROBE_CODE=$(curl -s "${CURL_TLS[@]}" -o /dev/null -w "%{http_code}" \
     -X POST "$PROBE_URL" \
     -H "Content-Type: application/json" \
     -d '{}')
-if [[ "$PROBE_CODE" == "503" ]]; then
-    echo -e "      ${GREEN}✓${NC} /api/enc/route-prepped → HTTP 503 (private API disabled — safe default)"
-elif [[ "$PROBE_CODE" == "400" ]]; then
-    echo -e "      ${YELLOW}⚠${NC} /api/enc/route-prepped → HTTP 400 (unsafe development API enabled)"
+if [[ "$PROBE_CODE" == "400" ]]; then
+    echo -e "      ${GREEN}✓${NC} /api/enc/route-prepped → HTTP 400 (app API on; unsigned empty body refused)"
+elif [[ "$PROBE_CODE" == "503" ]]; then
+    echo -e "      ${YELLOW}⚠${NC} /api/enc/route-prepped → HTTP 503 (app API DISABLED — THALASSA_PI_APP_API=0; phones cannot pair, load ENC/OSM or relay the diary)"
 elif [[ "$PROBE_CODE" == "404" ]]; then
     echo -e "${RED}      ✗ /api/enc/route-prepped → HTTP 404 — dist may be stale${NC}"
     exit 1
 else
     echo -e "${YELLOW}      ⚠ /api/enc/route-prepped → HTTP ${PROBE_CODE} (unexpected)${NC}"
+fi
+
+ADMIN_CODE=$(curl -s "${CURL_TLS[@]}" -o /dev/null -w "%{http_code}" "$ADMIN_PROBE_URL")
+if [[ "$ADMIN_CODE" == "503" ]]; then
+    echo -e "      ${GREEN}✓${NC} /api/charts/jobs → HTTP 503 (unsafe admin API disabled — safe default)"
+elif [[ "$ADMIN_CODE" == "200" ]]; then
+    echo -e "      ${YELLOW}⚠${NC} /api/charts/jobs → HTTP 200 (UNSAFE development API enabled — THALASSA_UNSAFE_ADMIN_API=1; only for an isolated trusted bench)"
+elif [[ "$ADMIN_CODE" == "404" ]]; then
+    echo -e "${RED}      ✗ /api/charts/jobs → HTTP 404 — dist may be stale${NC}"
+    exit 1
+else
+    echo -e "${YELLOW}      ⚠ /api/charts/jobs → HTTP ${ADMIN_CODE} (unexpected)${NC}"
 fi
 
 echo ""
