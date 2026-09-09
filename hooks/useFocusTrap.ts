@@ -69,6 +69,8 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
 
     useLayoutEffect(() => {
         if (!isActive || typeof document === 'undefined') return;
+        const container = containerRef.current;
+        if (!pane?.host || !container || !pane.host.contains(container)) return;
         // A child portal acquires its inert lock before parent passive effects.
         // WebKit immediately blurs the opener when its pane becomes inert, so
         // capture the restore target before those locks run. Initial autofocus
@@ -84,7 +86,15 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
         // Capture this activation's restore target in the cleanup closure:
         // a later layout pass can prepare the next pane before this passive
         // effect has cleaned up the previous one.
-        const previousFocus = previousFocusRef.current;
+        // App-wide dialogs keep the original passive capture timing: a
+        // closing tutorial may restore its launcher during cleanup just
+        // before the next tutorial mounts. Critical portals also take this
+        // path even when their calling component inherited a pane context.
+        const previousFocus = pane?.host.contains(container)
+            ? previousFocusRef.current
+            : document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
 
         const descendants = focusableElements(container);
         const preferred = optionsRef.current.initialFocusRef?.current;

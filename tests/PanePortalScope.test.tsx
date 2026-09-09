@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PanePortalScope, panePopoverStyle } from '../context/PanePortalContext';
 import { ModalSheet } from '../components/ui/ModalSheet';
 import { OverlayPortal } from '../components/ui/OverlayPortal';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 function Pane({ id, enabled = true, children }: { id: string; enabled?: boolean; children: React.ReactNode }) {
     const ref = useRef<HTMLDivElement>(null);
@@ -22,6 +23,37 @@ const rect = (left: number, top: number, width: number, height: number) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe('PanePortalScope', () => {
+    it('keeps passive opener capture for successive critical dialogs launched from a pane', () => {
+        function CriticalDialog({ name, onClose }: { name: string; onClose: () => void }) {
+            const ref = useFocusTrap<HTMLDivElement>(true, { onEscape: onClose });
+            return (
+                <OverlayPortal layer="critical" role="alertdialog" aria-label={name} aria-modal="true" ref={ref}>
+                    <button onClick={onClose}>Continue</button>
+                </OverlayPortal>
+            );
+        }
+        function Harness() {
+            const [step, setStep] = useState(0);
+            return (
+                <Pane id="right">
+                    <button onClick={() => setStep(1)}>Launch alarms</button>
+                    {step === 1 && <CriticalDialog name="First alarm" onClose={() => setStep(2)} />}
+                    {step === 2 && <CriticalDialog name="Second alarm" onClose={() => setStep(0)} />}
+                </Pane>
+            );
+        }
+        render(<Harness />);
+        const opener = screen.getByRole('button', { name: 'Launch alarms' });
+        opener.focus();
+        fireEvent.click(opener);
+        expect(screen.getByRole('alertdialog', { name: 'First alarm' }).parentElement).toBe(document.body);
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+        expect(screen.getByRole('alertdialog', { name: 'Second alarm' })).toHaveAttribute('aria-modal', 'true');
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+        expect(opener).toHaveFocus();
+        expect(screen.getByTestId('right')).not.toHaveAttribute('inert');
+    });
+
     it('measures both pane hosts and follows a resized frame without remounting portal contents', () => {
         let width = 600;
         vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
