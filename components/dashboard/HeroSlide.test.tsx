@@ -152,7 +152,7 @@ describe('HeroSlide', () => {
         expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Show wind versus tide' })).not.toBeInTheDocument();
 
-        fireEvent.click(screen.getByText('+12h'));
+        fireEvent.click(screen.getByText('Stream from modelled current'));
         expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Back to tide graph' }));
         expect(screen.queryByRole('region', { name: 'Wind versus tide details' })).not.toBeInTheDocument();

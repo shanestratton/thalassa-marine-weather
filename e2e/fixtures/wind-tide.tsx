@@ -29,8 +29,17 @@ function Fixture() {
     const height = Number(params.get('height') || 180);
     const split = params.has('split');
     const mode = params.get('mode') || 'light';
+    const samples: Record<string, React.ComponentProps<typeof WindVsTideView>['now']> = {
+        default: { windDeg: 45, windKts: 6, currentDir: 0, currentKts: 0 },
+        measured: { windDeg: 45, windKts: 18, currentDir: 45, currentKts: 1.5 },
+        inferred: { windDeg: 45, windKts: 18, currentDir: 45 },
+        unknown: { windDeg: 45, windKts: 15, currentDir: 45 },
+        missing: {},
+        with: { windDeg: 225, windKts: 6, currentDir: 45, currentKts: 0 },
+    };
+    const sample = samples[params.get('scenario') || 'default'];
     const [open, setOpen] = useState(false);
-    const [flood, setFlood] = useState<number | undefined>();
+    const [flood, setFlood] = useState<number | undefined>(params.has('customFlood') ? 345 : undefined);
     const [escapedKeys, setEscapedKeys] = useState(0);
     const cardRef = useRef<HTMLDivElement>(null);
     const pendingFocus = useRef<'details' | 'graph' | null>(null);
@@ -58,7 +67,10 @@ function Fixture() {
                         className="overflow-y-auto snap-y snap-mandatory"
                         style={{ height }}
                         onKeyDown={(event) => {
-                            if (event.key.startsWith('Arrow')) {
+                            if (
+                                event.key.startsWith('Arrow') ||
+                                ['PageUp', 'PageDown', 'Home', 'End'].includes(event.key)
+                            ) {
                                 event.preventDefault();
                                 setEscapedKeys((value) => value + 1);
                             }
@@ -89,7 +101,7 @@ function Fixture() {
                                         {open ? (
                                             <WindVsTideView
                                                 tideSeries={tideSeries}
-                                                now={{ windDeg: 45, windKts: 6, currentDir: 0, currentKts: 0 }}
+                                                now={sample}
                                                 nowMs={nowMs}
                                                 units={units}
                                                 floodDirection={flood}
