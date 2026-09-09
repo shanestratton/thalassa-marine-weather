@@ -53,26 +53,42 @@
   Phone safe areas and dynamic viewport height are respected. The fast public
   instrument poll pauses while its panel is off-screen; historical voyages
   still cannot display present-tense instruments.
+- Settings → Voyage Log no longer has a **Public tracks** section. The
+  per-voyage visibility switches, manual passage picker and its replacement
+  dialog are removed, together with their now-unused state and loading calls.
+  The main **Public Voyage Log** opt-in/out switch remains. Existing hidden
+  voyages are not made public, no logs or privacy settings are deleted, and
+  automatic passage links and separate instrument consent are unchanged.
 
 ## Verified local candidate — 9 September 2026
 
-- Compiled source: `c444e6961f83a1725e0b744881741eada7a2dab5`.
+- Compiled source: `6d85014915462d2bf9b2a328b39500d7858d432f`.
 - Version: **1.2.0 (108)**. All four native target/configuration counters are 108.
 - Build command: `VITE_APP_BUILD=108 npm run ship:beta` on the supported Node 24
   runtime with the pinned Ruby/Bundler toolchain.
-- Main entry: `main-Cm0pUb6O.js`, SHA-256
-  `2307d56674ff15f4516cf8a83bee1bee879853f2776eb03c27446cb6da7de827`.
+- Main entry: `main-B1iG77Vx.js`, SHA-256
+  `ece9abff33229ee7faee5df29186dd568ddfeedee9f8665ef0aaf0e12dc12d78`.
   The dist and iOS embedded main files have matching hashes.
 - TypeScript, production build, local deep-route/asset verification, route audit,
   bundle budgets, client-secret scans and Capacitor iOS sync passed (19 plugins).
   All **140** embedded-artifact release contracts passed.
-- Bundle: **13.30 MB**, JavaScript **9.84 MB**, within the unchanged budgets.
+- Bundle: **13.30 MB**, JavaScript **9.83 MB**, within the unchanged budgets.
   Public entry: `logs-ukiRNjW9.js`.
-- **161 public-page unit tests across 20 files** passed, including mobile
+- **125 focused unit tests across 12 files** passed for the Public tracks
+  removal: absence/no retired reads or writes, confirmed opt-in/out and failed
+  saves, retained instrument/AIS/live-track choices, account-switch races,
+  backend exclusions, published-diary privacy, automatic passage linking,
+  author stamps, durable retries and live-trickle consent. Targeted lint and
+  formatting passed; the build's TypeScript check passed.
+- **22/22 compiled-build browser smoke checks** passed in Chromium and mobile
+  WebKit: app startup/navigation/theme roots and the 16 public mobile/desktop
+  cases. These are targeted checks, not a rerun of the full application suite;
+  the separately recorded OBS banner/navigation issue below remains open.
+- The preceding public-mobile revision passed **161 unit tests across 20 files**, including mobile
   navigation, keyboard marker focus, map persistence, historical restrictions,
   consent revocation, fast-feed activation/abort, stale data and host routing.
   Targeted ESLint, formatting and the build's TypeScript check passed.
-- **16/16 source browser tests** passed in Chromium and WebKit at 320×568,
+- That revision passed **16/16 source browser tests** in Chromium and WebKit at 320×568,
   390×844, 430×932, 740×360, 844×390, 768×1024 and desktop 1280×900.
   They verify compact phone headers, expansion/restoration, 44px controls,
   no document overflow, long diary/detail scrolling, persistent bottom tabs,
@@ -80,13 +96,13 @@
   Screenshots were visually inspected. Local API/Mapbox-style fixtures are
   used without external writes; this does not revalidate live reef imagery
   or replace a physical iPhone check.
-- The first broader production run passed 51/52, with a WebKit native-wheel
+- Its first broader production run passed 51/52, with a WebKit native-wheel
   test racing card entrance/scroll settling. A test-only follow-up waits for
   entrance animations and a stable down-scroll before computing its reverse
   delta; the original home-position assertions are unchanged. Six isolated
   repeats passed across Chromium/WebKit. No Vessel app code or compiled
   runtime artifact changed during that correction.
-- The final compiled-build batch passed **51/52**: all **16 public mobile
+- Its final compiled-build batch passed **51/52**: all **16 public mobile
   scenarios** passed, as did the corrected Vessel wheel test. The remaining
   failure is WebKit's OBS night-mode revisit: the existing **No verified ENC
   charts installed** banner intercepts the bottom **The Glass** tab click
@@ -155,9 +171,9 @@
   They also exercise the dashboard, theme roots, real map host, light/dark/night defaults,
   manual base selection, and leaving/reopening OBS without losing that choice.
   These are browser checks, not a physical iPhone or live yacht navigation test.
-- Current logs: `/private/tmp/thalassa-public-mobile108.jVM2Z5/ship-beta.log`,
-  `public-unit.log`, `production-e2e.log`, `production-final.log` and
-  `vessel-wheel-settled.log` in that same directory.
+- Current logs: `/private/tmp/thalassa-public-tracks108.zhlMPE/ship-beta.log`,
+  `focused-tests.log` and `production-e2e.log` in that same directory.
+  Public-mobile revision evidence remains in `/private/tmp/thalassa-public-mobile108.jVM2Z5/`.
   Static-tide revision evidence remains in `/private/tmp/thalassa-tide-static108.emZsOk/`.
   Vessel-scroll revision evidence remains in `/private/tmp/thalassa-vessel-snap108.DlzhSD/`.
   Departure-button revision evidence remains in `/private/tmp/thalassa-departure108.pPH0pA/`.
