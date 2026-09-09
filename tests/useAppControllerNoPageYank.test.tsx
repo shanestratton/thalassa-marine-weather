@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { Preferences } from '@capacitor/preferences';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
@@ -157,5 +157,46 @@ describe('useAppController — the boot steer must not yank a working skipper', 
         renderHook(() => useAppController());
         await waitFor(() => expect(h.fetchWeather).toHaveBeenCalled());
         expect(steeredToDashboard()).toBeGreaterThan(0);
+    });
+
+    it.each(['map', 'vessel', 'details'])('resets a pinned Glass without replacing its %s neighbour', async (view) => {
+        h.currentView = view;
+        const { result } = renderHook(() => useAppController());
+        await waitFor(() => expect(h.fetchWeather).toHaveBeenCalled());
+        h.setPage.mockClear();
+        const reset = vi.fn();
+        window.addEventListener('hero-reset-scroll', reset);
+        try {
+            act(() => result.current.handleTabDashboard(true));
+            await waitFor(() => expect(reset).toHaveBeenCalledTimes(1));
+            expect(h.setPage).not.toHaveBeenCalled();
+        } finally {
+            window.removeEventListener('hero-reset-scroll', reset);
+        }
+    });
+
+    it('still navigates to Glass on an ordinary single-screen tap', async () => {
+        h.currentView = 'vessel';
+        const { result } = renderHook(() => useAppController());
+        await waitFor(() => expect(h.fetchWeather).toHaveBeenCalled());
+        h.setPage.mockClear();
+        act(() => result.current.handleTabDashboard());
+        expect(h.setPage).toHaveBeenCalledExactlyOnceWith('dashboard');
+    });
+
+    it('still resets the full-screen Glass when tapped again', async () => {
+        h.currentView = 'dashboard';
+        const { result } = renderHook(() => useAppController());
+        await waitFor(() => expect(h.fetchWeather).toHaveBeenCalled());
+        h.setPage.mockClear();
+        const reset = vi.fn();
+        window.addEventListener('hero-reset-scroll', reset);
+        try {
+            act(() => result.current.handleTabDashboard());
+            await waitFor(() => expect(reset).toHaveBeenCalledTimes(1));
+            expect(h.setPage).not.toHaveBeenCalled();
+        } finally {
+            window.removeEventListener('hero-reset-scroll', reset);
+        }
     });
 });
