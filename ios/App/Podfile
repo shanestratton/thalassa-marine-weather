@@ -57,6 +57,16 @@ end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
+
+  # Stamp the generated Pods project as already upgraded, so Xcode stops
+  # offering "Update to recommended settings" for it. Accepting that offer
+  # (Shane, 2026-09-09 09:53, on the 106 archive) rewrites Pods.xcodeproj
+  # with ENABLE_MODULE_VERIFIER = YES on every framework target — undoing the
+  # NO set below — and the archive then dies in "Verify Modularization of
+  # Cordova.framework" on Capacitor's own quoted includes (21 errors, none
+  # ours). CocoaPods writes 1600 here; any real Xcode is newer, hence the
+  # prompt. Pods/ is regenerated on every install, so nothing else is lost.
+  installer.pods_project.root_object.attributes['LastUpgradeCheck'] = '2700'
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
       config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
