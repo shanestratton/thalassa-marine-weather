@@ -1,5 +1,11 @@
 # Build 109 — Scuttlebutt composers and blocking
 
+The production artifact below is the original Scuttlebutt build. Build 109 was
+subsequently rebuilt, still unreleased, with the
+[Sail Plan layout follow-up](BUILD_109_SAIL_PLAN.md); use that note for the latest
+bundle identifiers. The Scuttlebutt verification recorded here remains historical
+evidence for its unchanged runtime code.
+
 ## Scope
 
 Build 108 remains the previously uploaded TestFlight build. These changes prepare
