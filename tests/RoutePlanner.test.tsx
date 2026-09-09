@@ -4,6 +4,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { SavedTrace } from '../services/routeTracer';
+import type { ComfortParams } from '../types';
 
 const routePlannerState = vi.hoisted(() => ({
     isMapOpen: false,
@@ -20,6 +22,7 @@ const plannerMocks = vi.hoisted(() => ({
     deleteTrace: vi.fn(),
     canonicalRoutes: [] as Array<Record<string, unknown>>,
     mergedRoutes: [] as Array<Record<string, unknown>>,
+    savedTraces: [] as SavedTrace[],
 }));
 
 vi.mock('../utils/createLogger', () => ({
@@ -86,7 +89,7 @@ vi.mock('../services/savedRouteLibrary', () => ({
 }));
 vi.mock('../services/routeTracer', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../services/routeTracer')>();
-    return { ...actual, deleteTrace: plannerMocks.deleteTrace };
+    return { ...actual, deleteTrace: plannerMocks.deleteTrace, loadSavedTraces: () => plannerMocks.savedTraces };
 });
 vi.mock('../components/map/MapHub', () => ({
     MapHub: (props: { cleanPlanningMap?: boolean }) => (
@@ -108,6 +111,9 @@ vi.mock('../components/Icons', () => ({
 }));
 
 import { RoutePlanner } from '../components/RoutePlanner';
+import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
+import { authScopedStorageKey } from '../services/authIdentityScope';
+import { localDateStr } from '../components/passage/TimePicker24';
 
 /**
  * Perform the right-to-left reveal gesture on a saved-route row.
@@ -130,6 +136,7 @@ describe('RoutePlanner', () => {
         routePlannerState.voyagePlan = null;
         plannerMocks.canonicalRoutes = [];
         plannerMocks.mergedRoutes = [];
+        plannerMocks.savedTraces = [];
         plannerMocks.consumeSavedRoutesLibraryOpen.mockReturnValue(false);
         plannerMocks.deleteLogbookRouteFromLibrary.mockResolvedValue(true);
         plannerMocks.deleteTrace.mockReturnValue(true);
@@ -179,6 +186,77 @@ describe('RoutePlanner', () => {
         const { container } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
+
+    it.each([false, true])(
+        'temporarily hides Comfort without a gap, disabling planning or resetting limits (embedded=%s)',
+        async (embedded) => {
+            await awaitSettingsLoaded();
+            const previousSettings = useSettingsStore.getState().settings;
+            const comfortParams: ComfortParams = {
+                maxWindKts: 22,
+                maxWaveM: 1.5,
+                preferredAngles: ['beam_reach', 'broad_reach'],
+            };
+            useSettingsStore.setState({ settings: { ...previousSettings, comfortParams } });
+            const departureKey = authScopedStorageKey('thalassa_trace_departure_ms');
+            const previousDeparture = sessionStorage.getItem(departureKey);
+            plannerMocks.savedTraces = [
+                {
+                    id: 'comfort-hidden-trip',
+                    name: 'Newport - Musgrave',
+                    createdAt: '2026-09-09T00:00:00Z',
+                    points: [
+                        { lat: -27.2, lon: 153.1 },
+                        { lat: -23.9, lon: 152.4 },
+                    ],
+                },
+            ];
+            const { container, unmount } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} embedded={embedded} />);
+            try {
+                expect(screen.queryByRole('button', { name: /Comfort/i })).not.toBeInTheDocument();
+                expect(screen.queryByText('Comfort', { exact: true })).not.toBeInTheDocument();
+                expect(screen.queryByLabelText('Max acceptable wind speed')).not.toBeInTheDocument();
+
+                const tripPicker = screen.getByRole('combobox', { name: 'Pick a trip or route to continue' });
+                // The hidden card's wrapper must disappear too: an empty
+                // first sibling still earns space-y margin above the Trip.
+                const firstFormCard = container.querySelector('.route-planner-form > div')?.firstElementChild;
+                expect(firstFormCard).toContainElement(tripPicker);
+                fireEvent.change(tripPicker, { target: { value: 'comfort-hidden-trip' } });
+                fireEvent.click(screen.getByRole('button', { name: /Newport - Musgrave/ }));
+                expect(plannerMocks.requestTracerOpen).toHaveBeenLastCalledWith(
+                    { kind: 'load-saved', id: 'comfort-hidden-trip' },
+                    expect.objectContaining({ key: 'anonymous' }),
+                );
+                fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+
+                const date = localDateStr(new Date(Date.now() + 3 * 86_400_000));
+                fireEvent.change(screen.getByLabelText('Departure date'), { target: { value: date } });
+                fireEvent.change(screen.getByLabelText('Departure hour (24-hour)'), { target: { value: '13' } });
+                fireEvent.change(screen.getByLabelText('Departure minutes'), { target: { value: '35' } });
+                expect(screen.getByLabelText('Departure date')).toHaveValue(date);
+                expect(screen.getByLabelText('Departure hour (24-hour)')).toHaveValue('13');
+                expect(screen.getByLabelText('Departure minutes')).toHaveValue('35');
+
+                expect(screen.getByRole('button', { name: /From a past voyage/ })).toBeEnabled();
+                fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
+                expect(await screen.findByRole('dialog', { name: /Saved routes/i })).toBeInTheDocument();
+                fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+
+                const plot = screen.getByRole('button', { name: 'Slide to Start Plotting' });
+                expect(plot).toHaveAttribute('aria-disabled', 'false');
+                fireEvent.keyDown(plot, { key: 'Enter' });
+                expect(plannerMocks.requestTracerOpen).toHaveBeenLastCalledWith();
+                expect(plannerMocks.setPage).toHaveBeenLastCalledWith('map');
+                expect(useSettingsStore.getState().settings.comfortParams).toBe(comfortParams);
+            } finally {
+                unmount();
+                useSettingsStore.setState({ settings: previousSettings });
+                if (previousDeparture === null) sessionStorage.removeItem(departureKey);
+                else sessionStorage.setItem(departureKey, previousDeparture);
+            }
+        },
+    );
 
     it('exposes the short-landscape layout hooks that keep the CTA out of the departure controls', () => {
         const { container } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);

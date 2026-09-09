@@ -34,11 +34,15 @@ import { PlanOnWebHint } from './passage/PlanOnWebHint';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
-// — Comfort + Trip/Leg stay up top, then Departure, then the three ways in
+// — Trip/Leg stays up top, then Departure, then the three ways in
 // (paste a mate's coords / a past voyage / saved routes), and the slider opens
 // the chart plotting. The old origin/destination/date form + calculate flow is
 // PARKED behind this flag (wiring intact) — flip to true to resurrect.
 const LEGACY_PLANNER_FORM = false;
+// Temporarily parked at the skipper's request (2026-09-09). This hides only
+// the card; saved comfort thresholds and routing calculations remain active.
+// Keep the controlled accordion wiring intact so it is simple to restore.
+const SHOW_PLANNER_COMFORT_CARD = false;
 // Lazy, like App.tsx: with the legacy form parked neither <MapHub> site below
 // can render, so the Plan tab must not pull the map chunk (mapbox-gl + leaflet)
 // on open. If the form is ever flipped back on, the map still mounts behind a
@@ -728,9 +732,11 @@ export const RoutePlanner: React.FC<{
                         Wrapped in a ref so handleFormPointerDown can tell
                         "tap inside Comfort, keep it open" from "tap on
                         another box, close it". */}
-                    <div ref={comfortRef}>
-                        <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
-                    </div>
+                    {SHOW_PLANNER_COMFORT_CARD && (
+                        <div ref={comfortRef}>
+                            <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
+                        </div>
+                    )}
 
                     {/* Multi-leg passage helper — the voyage-based picker
                         belongs to the parked legacy From/To form; the tracer
