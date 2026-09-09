@@ -22,6 +22,19 @@ and proven identity; it is not skipped or quarantined. Seven focused contract,
 picker and gate suites passed all 50 checks after the test-only correction.
 Evidence: `full-unit-final.log` in the directory below.
 
+The complete quiet rerun on `f7373bee` passed **9,932 tests**, with three
+existing expected failures and five skips: 1,109 files passed, four skipped,
+exit zero in 180.58 seconds. Evidence: `full-unit-verified.log`.
+
+The first packaging attempt then stopped before compilation because its
+source gate hardcoded Mapbox's old `attributionControl: true` arrangement.
+The new pane-aware implementation explicitly installs a native attribution
+control instead. The gate now requires that installation, resize refresh,
+all four provider-credit declarations and absence of global CSS hiding the
+attribution or logo. Its 126 source and 132 release contracts pass; 38 focused
+gate/attribution tests pass. No app runtime changed and no gate was bypassed.
+The failed attempt remains in `ship-beta-final.log`.
+
 ## Delivery checkpoint
 
 Version is 1.2.0 and all four native counters are 110. Final packaging, signed
