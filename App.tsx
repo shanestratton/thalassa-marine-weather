@@ -576,7 +576,7 @@ const App: React.FC = () => {
     // WeatherContext owns both the selected GPS source and its resolved name.
     // A global map/GPS store may describe a different receiver or an older pick.
     const rawTitle =
-        !weatherData && positionSource?.status === 'unavailable'
+        positionSource?.status === 'unavailable'
             ? `${positionSource.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`
             : weatherData
               ? weatherData.locationName
