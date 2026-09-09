@@ -32,9 +32,20 @@ describe('Log follow steers the geometry it verified', () => {
     const body = followFn.slice(0, followFn.indexOf('\n    );'));
 
     it('substitutes the trace waypoints before checking', () => {
-        const substitute = body.indexOf('tracedRouteFollowGeometry(logRoute)');
+        // Grouping a full passage under its first leg does not prove the two
+        // geometries match. Only the separately proven geometry identity may
+        // fill a legacy log route's missing link before waypoint substitution.
+        const identity = body.indexOf('const pickerTraceId = plannedRouteGeometryIds.get(voyageId)');
+        const link = body.indexOf('const linkedRoute =');
+        const substitute = body.indexOf('const steerRoute = tracedRouteFollowGeometry(linkedRoute)');
         const check = body.indexOf('tracedRouteDirectUseBlockReason(');
-        expect(substitute).toBeGreaterThan(-1);
+        expect(identity).toBeGreaterThan(-1);
+        expect(link).toBeGreaterThan(identity);
+        expect(body).toContain(
+            '!logRoute.savedRouteId && pickerTraceId ? { ...logRoute, savedRouteId: pickerTraceId } : logRoute',
+        );
+        expect(body).not.toContain('const pickerTraceId = plannedRouteLinkIds.get(voyageId)');
+        expect(substitute).toBeGreaterThan(link);
         expect(check).toBeGreaterThan(substitute);
     });
 
