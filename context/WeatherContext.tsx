@@ -51,6 +51,7 @@ import {
     type WeatherFix,
     type WeatherFixKind,
     type WeatherFollowTarget,
+    type WeatherPositionResolution,
 } from '../services/weatherPosition';
 import type { BoatFixRung } from '../services/boatPositionChain';
 import { useWeatherStore } from '../stores/weatherStore';
@@ -221,8 +222,10 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const [loadingMessage, setLoadingMessage] = useState('Initializing Weather Data...');
     const [backgroundUpdating, setBackgroundUpdating] = useState(false);
     const [staleRefresh, setStaleRefresh] = useState(false);
-    // Initial mode derived from settings — 'Current Location' = GPS
-    // tracking, anything else = locked to that named port. Was
+    // Initial mode derived from settings — only 'Current Location' opts into
+    // GPS tracking. An empty first run waits for a location choice; publishing
+    // a missing phone fix there would hide the welcome actions behind an error.
+    // A named location stays locked to that port. Was
     // hardcoded 'gps' previously, which meant that on cold boot for
     // returning users with a saved port (e.g. 'Newport, QLD'), the
     // 30-second auto-refresh would fire fetchWeather('Current
@@ -231,7 +234,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     // 'Current Location' or worse. A sync useEffect below keeps it
     // consistent if defaultLocation is restored after this init runs.
     const [locationMode, setLocationMode] = useState<'gps' | 'selected'>(
-        settings.defaultLocation && settings.defaultLocation !== 'Current Location' ? 'selected' : 'gps',
+        settings.defaultLocation === 'Current Location' ? 'gps' : 'selected',
     );
     const [error, setError] = useState<string | null>(null);
     const [debugInfo] = useState<import('../types').DebugInfo | null>(null);
@@ -572,11 +575,9 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         [isCurrentScope, orchestrator],
     );
 
-    const resolveFollowFix = useCallback(
-        async (requestPhonePermission = false) => {
-            const epoch = selectionEpochRef.current;
-            const target = getWeatherFollowTarget();
-            const resolution = await resolveWeatherPosition(
+    const readFollowPosition = useCallback(
+        (target: WeatherFollowTarget, requestPhonePermission = false) =>
+            resolveWeatherPosition(
                 async () => {
                     const position = requestPhonePermission
                         ? await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 10_000 })
@@ -586,7 +587,15 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                         : null;
                 },
                 { target },
-            );
+            ),
+        [],
+    );
+
+    const resolveFollowFix = useCallback(
+        async (requestPhonePermission = false) => {
+            const epoch = selectionEpochRef.current;
+            const target = getWeatherFollowTarget();
+            const resolution = await readFollowPosition(target, requestPhonePermission);
             if (
                 !isCurrentScope() ||
                 selectionEpochRef.current !== epoch ||
@@ -600,7 +609,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             setError(resolution.fix ? null : describeWeatherFix(null, Date.now(), target));
             return resolution.fix;
         },
-        [isCurrentScope, publishPositionSource],
+        [isCurrentScope, publishPositionSource, readFollowPosition],
     );
 
     const refreshFollowWeather = useCallback(
@@ -682,10 +691,32 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         ) => {
             if (!isCurrentScope()) return;
             if (options?.onlyIfUnselected && selectionEpochRef.current !== 0) return;
+            const target = getWeatherFollowTarget();
+            let bootResolution: WeatherPositionResolution | null = null;
+            if (options?.onlyIfUnselected && location === 'Current Location') {
+                if (useUIStore.getState().isOffline) return;
+                // Open at the receiver when a passive fix is available. Until
+                // then retain the saved port (or the first-run empty state),
+                // without selecting GPS, clearing its report, or raising an
+                // unavailable error. Explicit GPS choices still do all three.
+                const bootEpoch = selectionEpochRef.current;
+                try {
+                    bootResolution = await readFollowPosition(target);
+                } catch {
+                    return;
+                }
+                if (
+                    !bootResolution.fix ||
+                    !isCurrentScope() ||
+                    useUIStore.getState().isOffline ||
+                    selectionEpochRef.current !== bootEpoch ||
+                    target !== getWeatherFollowTarget()
+                )
+                    return;
+            }
             const epoch = ++selectionEpochRef.current;
             selectionResolvingRef.current = false;
             followRefreshInFlightRef.current = null;
-            const target = getWeatherFollowTarget();
             orchestrator.cancelPendingLocation();
             namePointRef.current = null;
             nameResolvedRef.current = false;
@@ -704,7 +735,9 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 publishPositionSource(null, target);
                 setWeatherData(null);
                 setBackgroundUpdating(true);
-                const fix = await resolveFollowFix(options?.requestPhonePermission === true);
+                const fix = bootResolution
+                    ? bootResolution.fix
+                    : await resolveFollowFix(options?.requestPhonePermission === true);
                 if (!isCurrentScope() || selectionEpochRef.current !== epoch || target !== getWeatherFollowTarget())
                     return;
                 selectionResolvingRef.current = false;
@@ -713,6 +746,12 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                     setStaleRefresh(false);
                     setBackgroundUpdating(false);
                     return;
+                }
+                if (bootResolution) {
+                    publishPositionSource(fix, target);
+                    lastHeldRef.current = bootResolution.held;
+                    lastPhoneRef.current = bootResolution.phone;
+                    setError(null);
                 }
                 coords = { lat: fix.lat, lon: fix.lon };
             } else {
@@ -868,6 +907,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             isCurrentScope,
             orchestrator,
             publishPositionSource,
+            readFollowPosition,
             resolveFollowFix,
             setWeatherData,
             updateSettings,

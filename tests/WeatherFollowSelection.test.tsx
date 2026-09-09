@@ -97,6 +97,7 @@ vi.mock('../services/WeatherOrchestrator', () => ({
 
 import { WeatherProvider, useWeather } from '../context/WeatherContext';
 import { setWeatherFollowTarget } from '../services/weatherPosition';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { useUIStore } from '../stores/uiStore';
 
 let current: ReturnType<typeof useWeather>;
@@ -147,10 +148,185 @@ beforeEach(() => {
 });
 afterEach(() => {
     cleanup();
+    setAuthIdentityScope(null);
     vi.useRealTimers();
 });
 
 describe('weather receiver selection boundaries', () => {
+    it('leaves the first-run location choice empty without polling an unselected receiver', async () => {
+        vi.useFakeTimers();
+        world.settings.defaultLocation = '';
+        world.initial = null;
+        mount();
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+
+        expect(current.weatherData).toBeNull();
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toBeNull();
+        expect(world.gps).not.toHaveBeenCalled();
+        expect(world.boat).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['unavailable', 'failed'])('retains the saved port when the passive boot fix is %s', async (outcome) => {
+        world.settings.defaultLocationCoords = { lat: -27.21, lon: 153.1 };
+        if (outcome === 'failed') world.gps.mockRejectedValue(new Error('Location unavailable'));
+        mount();
+        const savedReport = current.weatherData;
+
+        await act(async () => {
+            await current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+
+        expect(current.weatherData).toBe(savedReport);
+        expect(world.settings.defaultLocation).toBe('Initial port');
+        expect(world.settings.defaultLocationCoords).toEqual({ lat: -27.21, lon: 153.1 });
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toBeNull();
+        expect(current.backgroundUpdating).toBe(false);
+        expect(world.requestGps).not.toHaveBeenCalled();
+        expect(world.cancel).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('enters GPS follow using the successful passive boot fix without waiting for another fix', async () => {
+        world.gps
+            .mockResolvedValueOnce({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() })
+            .mockReturnValue(new Promise(() => {}));
+        mount();
+
+        await act(async () => {
+            await current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+
+        expect(world.settings.defaultLocation).toBe('Current Location');
+        expect(current.weatherData?.coordinates).toEqual({ lat: -27.2, lon: 153.08 });
+        expect(current.positionSource).toMatchObject({ kind: 'phone', target: 'phone', status: 'live' });
+        expect(world.requestGps).not.toHaveBeenCalled();
+        expect(world.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps cached port weather on an offline boot without probing GPS', async () => {
+        useUIStore.setState({ isOffline: true });
+        mount();
+        const savedReport = current.weatherData;
+
+        await act(async () => {
+            await current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+
+        expect(current.weatherData).toBe(savedReport);
+        expect(world.settings.defaultLocation).toBe('Initial port');
+        expect(world.gps).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('retains the cached port if the WAN goes offline while the passive boot fix is pending', async () => {
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        mount();
+        const savedReport = current.weatherData;
+        let boot!: Promise<void>;
+        act(() => {
+            boot = current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+
+        await act(async () => {
+            useUIStore.setState({ isOffline: true });
+            pending.resolve({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() });
+            await boot;
+        });
+
+        expect(current.weatherData).toBe(savedReport);
+        expect(world.settings.defaultLocation).toBe('Initial port');
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toBeNull();
+        expect(world.cancel).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('discards a passive boot fix from the previous account before touching the new account', async () => {
+        setAuthIdentityScope('account-a');
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        mount();
+        let boot!: Promise<void>;
+        act(() => {
+            boot = current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+
+        await act(async () => {
+            world.initial = report('Account B port', -20.2, 148.7);
+            world.settings = { ...world.settings, defaultLocation: 'Account B port' };
+            setAuthIdentityScope('account-b');
+        });
+        await act(async () => {
+            pending.resolve({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() });
+            await boot;
+        });
+
+        expect(current.weatherData?.locationName).toBe('Account B port');
+        expect(world.settings.defaultLocation).toBe('Account B port');
+        expect(current.positionSource).toBeNull();
+        expect(world.cancel).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('keeps the saved report during a boot probe and preserves a favourite picked before it returns', async () => {
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        mount();
+        const savedReport = current.weatherData;
+        let boot!: Promise<void>;
+        act(() => {
+            boot = current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+        expect(current.weatherData).toBe(savedReport);
+        expect(world.settings.defaultLocation).toBe('Initial port');
+        expect(current.positionSource).toBeNull();
+
+        await act(async () => {
+            current.setHistoryCache({ Newport: report('Newport', -27.2, 153.08) });
+        });
+        await act(async () => {
+            await current.selectLocation('Newport', { lat: -27.2, lon: 153.08 });
+        });
+        await act(async () => {
+            pending.resolve({ latitude: -20.2, longitude: 148.7, timestamp: Date.now() });
+            await boot;
+        });
+
+        expect(current.weatherData?.locationName).toBe('Newport');
+        expect(world.settings.defaultLocation).toBe('Newport');
+        expect(current.positionSource).toBeNull();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
+    it('discards a passive boot phone fix after the selected receiver changes', async () => {
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        mount();
+        const savedReport = current.weatherData;
+        let boot!: Promise<void>;
+        act(() => {
+            boot = current.selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        });
+
+        await act(async () => {
+            setWeatherFollowTarget('boat');
+            pending.resolve({ latitude: -27.2, longitude: 153.08, timestamp: Date.now() });
+            await boot;
+        });
+
+        expect(current.weatherData).toBe(savedReport);
+        expect(world.settings.defaultLocation).toBe('Initial port');
+        expect(current.positionSource).toBeNull();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
     it('a delayed boot continuation cannot replace an explicit favourite', async () => {
         mount();
         await act(async () => {
