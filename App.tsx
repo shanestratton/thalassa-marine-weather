@@ -1043,7 +1043,7 @@ const App: React.FC = () => {
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
                                         <input
                                             type="text"
-                                            value={query}
+                                            value={displayTitle}
                                             readOnly
                                             placeholder="Saved locations ★"
                                             aria-label="Current location"
