@@ -3577,11 +3577,11 @@ body,
     bottom: calc(4rem + 73px + env(safe-area-inset-bottom));
 }
 
-/* Keep the coverage notice below the top/MOB controls, not bottom-anchored
+/* Keep the coverage notice below the top/MOB/layer controls, not bottom-anchored
    to a full-bleed map that extends behind navigation. This also leaves the
    Locate/scale/attribution stack intact on narrow phones. */
 .thalassa-enc-coverage-notice {
-    top: calc(160px + env(safe-area-inset-top));
+    top: calc(260px + env(safe-area-inset-top));
     left: 50%;
     width: min(390px, calc(100% - 24px));
     transform: translateX(-50%);
@@ -3595,10 +3595,12 @@ body,
     transform: translateX(-50%);
 }
 
-/* Available tide data adds a real 44px slider and its labels. Reserve the
-   entire panel, including labels, rather than measuring only its track. */
-.thalassa-enc-coverage-notice--with-tide {
-    top: calc(6.4rem + 90px + env(safe-area-inset-top));
+@media (min-height: 601px) {
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice {
+        left: 72px;
+        width: min(390px, calc(100% - 152px));
+        transform: none;
+    }
 }
 
 /* In short landscape (including a short iPad split pane), reserve both the
@@ -3647,8 +3649,8 @@ body,
         width: min(15rem, calc(100% - 100px));
         transform: none;
     }
-    .thalassa-enc-coverage-notice--with-tide {
-        top: calc(4rem + 145px);
+    .thalassa-enc-coverage-notice {
+        top: calc(4rem + 200px);
         left: 64px;
         width: calc(100% - 76px);
         transform: none;
