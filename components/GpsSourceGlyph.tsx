@@ -34,12 +34,20 @@ export function resolveGpsSourceState(input: {
     storeStatus: 'connected' | 'connecting' | 'disconnected' | 'error' | 'remote';
     remoteVia: 'lan' | 'cloud' | null;
     target?: WeatherFollowTarget;
-    status?: 'live' | 'last-known' | 'unavailable';
+    status?: 'live' | 'last-known' | 'unavailable' | 'resolving';
     retainedWeather?: boolean;
     timestamp?: number;
     hasWeatherContext?: boolean;
 }): GpsSourceState {
     const { weatherKind, storeStatus, remoteVia, target, status, timestamp } = input;
+    if (status === 'resolving') {
+        return {
+            glyph: target ?? 'none',
+            tone: 'none',
+            label: `Position: finding ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS location`,
+            canChoose: false,
+        };
+    }
     if (status === 'unavailable') {
         const now = Date.now();
         const fixAge =

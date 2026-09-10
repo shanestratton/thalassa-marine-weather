@@ -168,6 +168,105 @@ afterEach(() => {
 });
 
 describe('weather receiver selection boundaries', () => {
+    it('shows a pending boat lookup, not the previous phone failure, until the vessel responds', async () => {
+        mount();
+        await act(async () => {
+            await current.selectLocation('Current Location');
+        });
+        expect(current.error).toBe('Phone GPS unavailable');
+        const pending = deferred<unknown>();
+        world.boat.mockReturnValue(pending.promise);
+        world.gps.mockClear();
+        let selection!: Promise<void>;
+        await act(async () => {
+            setWeatherFollowTarget('boat');
+            selection = current.selectLocation('Current Location');
+        });
+        expect(current.error).toBeNull();
+        expect(current.weatherData).toBeNull();
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'boat', status: 'resolving', timestamp: 0 });
+        expect(current.backgroundUpdating).toBe(true);
+        expect(world.gps).not.toHaveBeenCalled();
+        expect(world.requestGps).not.toHaveBeenCalled();
+        await act(async () => {
+            pending.resolve({ lat: -20.2, lon: 148.7, timestamp: Date.now() });
+            await selection;
+        });
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toMatchObject({ kind: 'pi', target: 'boat', status: 'live' });
+        expect(current.weatherData?.coordinates).toEqual({ lat: -20.2, lon: 148.7 });
+    });
+
+    it.each(['boat', 'phone'] as const)(
+        'reports actual %s unavailability only after its pending selection finishes',
+        async (target) => {
+            mount();
+            const pending = deferred<unknown>();
+            (target === 'boat' ? world.boat : world.gps).mockReturnValue(pending.promise);
+            let selection!: Promise<void>;
+            await act(async () => {
+                setWeatherFollowTarget(target);
+                selection = current.selectLocation('Current Location');
+            });
+            expect(current.error).toBeNull();
+            expect(current.positionSource).toMatchObject({ kind: null, target, status: 'resolving' });
+            await act(async () => {
+                pending.resolve(null);
+                await selection;
+            });
+            expect(current.error).toBe(`${target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`);
+            expect(current.positionSource).toMatchObject({ kind: null, target, status: 'unavailable' });
+            expect(current.backgroundUpdating).toBe(false);
+            expect(current.weatherData).toBeNull();
+        },
+    );
+
+    it('a late phone failure cannot interrupt the pending boat transition', async () => {
+        const phone = deferred<unknown>();
+        const boat = deferred<unknown>();
+        world.gps.mockReturnValue(phone.promise);
+        world.boat.mockReturnValue(boat.promise);
+        mount();
+        let oldSelection!: Promise<void>;
+        let boatSelection!: Promise<void>;
+        await act(async () => {
+            oldSelection = current.selectLocation('Current Location');
+        });
+        await act(async () => {
+            setWeatherFollowTarget('boat');
+            boatSelection = current.selectLocation('Current Location');
+        });
+        await act(async () => {
+            phone.resolve(null);
+            await oldSelection;
+        });
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'boat', status: 'resolving' });
+        expect(current.error).toBeNull();
+        expect(current.weatherData).toBeNull();
+        expect(world.fetch).not.toHaveBeenCalled();
+        await act(async () => {
+            boat.resolve({ lat: -20.2, lon: 148.7, timestamp: Date.now() });
+            await boatSelection;
+        });
+        expect(current.positionSource).toMatchObject({ kind: 'pi', target: 'boat', status: 'live' });
+        expect(current.error).toBeNull();
+    });
+
+    it('keeps a denied phone request visible as a genuine failure, never using the boat', async () => {
+        world.requestGps.mockRejectedValue(new Error('Location permission denied'));
+        world.boat.mockResolvedValue({ lat: -20.2, lon: 148.7, timestamp: Date.now() });
+        mount();
+        await act(async () => {
+            await current.selectLocation('Current Location', undefined, { requestPhonePermission: true });
+        });
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'phone', status: 'unavailable' });
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.backgroundUpdating).toBe(false);
+        expect(current.weatherData).toBeNull();
+        expect(world.boat).not.toHaveBeenCalled();
+        expect(world.fetch).not.toHaveBeenCalled();
+    });
+
     it('leaves the first-run location choice empty without polling an unselected receiver', async () => {
         vi.useFakeTimers();
         world.settings.defaultLocation = '';

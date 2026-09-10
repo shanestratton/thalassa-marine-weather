@@ -2635,6 +2635,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         initialCenter: weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : undefined,
         onLocationSelect,
         pickerMode,
+        encVisible,
         settingPoint: passage.settingPoint,
         showPassage: passage.showPassage,
         departure: passage.departure,

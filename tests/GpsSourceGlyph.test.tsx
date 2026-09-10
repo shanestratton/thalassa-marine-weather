@@ -15,7 +15,7 @@ const world = vi.hoisted(() => ({
         positionSource: {
             kind: string | null;
             target?: 'phone' | 'boat';
-            status?: 'live' | 'last-known' | 'unavailable';
+            status?: 'live' | 'last-known' | 'unavailable' | 'resolving';
             timestamp?: number;
             retainedWeather?: boolean;
         } | null;
@@ -70,6 +70,20 @@ describe('resolveGpsSourceState', () => {
             tone: 'none',
             label: 'Position: the boat’s GPS unavailable',
         });
+    });
+
+    it.each(['boat', 'phone'] as const)('a pending %s selection is neither unavailable nor live', (target) => {
+        const state = resolveGpsSourceState({
+            weatherKind: null,
+            target,
+            status: 'resolving',
+            storeStatus: 'remote',
+            remoteVia: 'lan',
+            timestamp: 0,
+        });
+        expect(state).toMatchObject({ glyph: target, tone: 'none', canChoose: false });
+        expect(state.label).toBe(`Position: finding ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS location`);
+        expect(state.label).not.toMatch(/unavailable|live|last fix/);
     });
 
     it('an older phone fix is explicitly last-known and carries its age', () => {
@@ -205,6 +219,19 @@ describe('retained-weather location bar wiring', () => {
         expect(title).toContain('weatherData.locationName');
         expect(title).toContain('if (retainedLocationWeather) displayTitle = `Last location · ${displayTitle}`');
         expect(app).toContain('value={displayTitle}');
+    });
+
+    it('uses a neutral selected-receiver label during lookup without a premature no-data error', () => {
+        expect(title).toContain("const resolvingLocation = positionSource?.status === 'resolving'");
+        expect(title).toContain("Finding ${positionSource?.target === 'boat' ? 'boat' : 'phone'} location…");
+        const pending = app.slice(
+            app.indexOf(') : resolvingLocation ? ('),
+            app.indexOf(') : !weatherData && !loading && !settings.defaultLocation'),
+        );
+        expect(pending).toContain('role="status"');
+        expect(pending).toContain('data-testid="weather-position-resolving"');
+        expect(pending).toContain('{resolvingLocationLabel}');
+        expect(pending).not.toMatch(/Retry|unavailable|bg-red/);
     });
 
     it('reuses the icon slot and existing refresh action without adding permission requests', () => {
