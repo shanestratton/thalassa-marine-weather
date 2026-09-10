@@ -1,5 +1,5 @@
 /**
- * PiCacheTab — Settings panel for the Raspberry Pi Cache Server.
+ * PiCacheTab — advanced Boat Network controls for the Raspberry Pi Cache Server.
  *
  * Skipper-only (owner tier). The flow:
  *   1. Skipper flips the toggle
