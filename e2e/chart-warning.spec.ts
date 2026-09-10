@@ -196,7 +196,14 @@ function expectSeparate(
     ).toBe(true);
 }
 
-const cases: { width: number; height: number; mode: string; split?: boolean; tide?: TideFixture }[] = [
+const cases: {
+    width: number;
+    height: number;
+    mode: string;
+    split?: boolean;
+    tide?: TideFixture;
+    wideFont?: boolean;
+}[] = [
     { width: 320, height: 568, mode: 'dark' },
     { width: 390, height: 844, mode: 'dark' },
     { width: 430, height: 932, mode: 'dark' },
@@ -212,10 +219,17 @@ const cases: { width: number; height: number; mode: string; split?: boolean; tid
     { width: 568, height: 320, mode: 'dark', tide: 'available' },
     { width: 667, height: 375, mode: 'dark', tide: 'available' },
     { width: 320, height: 568, mode: 'dark', tide: 'available' },
+    // Fallback fonts differ between macOS, Linux and devices without cached
+    // web fonts. Also exercise a wider installed fallback, including reflow
+    // after mount; no text-size reduction or collision tolerance is allowed.
+    { width: 320, height: 568, mode: 'dark', wideFont: true },
+    { width: 667, height: 375, mode: 'dark', wideFont: true },
+    { width: 568, height: 320, mode: 'dark', tide: 'available', wideFont: true },
+    { width: 320, height: 568, mode: 'dark', tide: 'available', wideFont: true },
 ];
 
 for (const size of cases) {
-    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide depth ${size.tide}` : ''}`, async ({
+    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide depth ${size.tide}` : ''}${size.wideFont ? ' wide fallback font' : ''}`, async ({
         page,
         baseURL,
     }, testInfo) => {
@@ -239,6 +253,38 @@ for (const size of cases) {
             { mode: size.mode, split: size.split === true, tideDepth: size.tide !== undefined },
         );
         const glyphDiagnostics = await openEmptyChart(page, baseURL!, testInfo, size.tide);
+        if (size.wideFont) {
+            await page.addStyleTag({ content: ':root { --font-sans: Verdana, sans-serif; }' });
+            await page.evaluate(() => document.fonts.ready);
+        }
+        await testInfo.attach('enc-warning-text-metrics', {
+            contentType: 'application/json',
+            body: JSON.stringify(
+                await page.evaluate(() =>
+                    Object.fromEntries(
+                        [
+                            '[aria-label="ENC coverage"]',
+                            '[aria-label="ENC coverage"] > span',
+                            '[aria-label="Open on-device ENC Library"]',
+                        ].map((selector) => {
+                            const element = document.querySelector(selector);
+                            if (!element) return [selector, null];
+                            const style = getComputedStyle(element);
+                            return [
+                                selector,
+                                {
+                                    box: element.getBoundingClientRect().toJSON(),
+                                    fontFamily: style.fontFamily,
+                                    fontSize: style.fontSize,
+                                    lineHeight: style.lineHeight,
+                                    letterSpacing: style.letterSpacing,
+                                },
+                            ];
+                        }),
+                    ),
+                ),
+            ),
+        });
 
         const library = page.getByRole('button', { name: 'Open on-device ENC Library', exact: true });
         // Existing text/CTA identify the production warning too, so the old
