@@ -2,7 +2,10 @@
 
 Build 110 was uploaded on 10 September 2026 and remains immutable. These
 changes are the next native candidate, 1.2.0 (111), not a replacement 110.
-No 111 archive or TestFlight upload is claimed here.
+The historical preparation results below are superseded by the current
+[native release evidence](BUILD_111_TESTFLIGHT.md), including the reconciled
+source, rebuilt bundle and Apple validation. Keep the earlier candidate's
+hashes and CI status separate from that final release record.
 
 ## Fixed: phone error during vessel selection
 
@@ -116,7 +119,7 @@ single-polygon clone, the 80-by-80 crossing-strip operation, and an admitted
 exception incorrectly treating empty strips as a whole-bounding-box clip.
 Small exact clips, aggregate budget boundaries and cleanup remain covered.
 
-Final source candidate: `a25fd660d39a9e2a9c58c5d2ff69d52f916f1707`, pushed to
+Pre-merge source candidate: `a25fd660d39a9e2a9c58c5d2ff69d52f916f1707`, pushed to
 `codex/build-107-daylight-split-view`.
 
 - Full unit suite: **9,968 passed**, three existing expected failures and five
@@ -141,10 +144,11 @@ chart warnings/attribution, and OBS map mounting/styles. These use controlled
 browser fixtures rather than the physical phone's licensed chart inventory.
 Local release evidence is in `/private/tmp/thalassa-111-final.MJ6uHX/`.
 
-GitHub's draft PR #38 reports `CONFLICTING` / `DIRTY` against `master`, and
-there is no CI workflow run attached to this source commit. Local test/build
-success must not be described as GitHub CI success. No merge, conflict
-resolution, native archive or TestFlight upload was performed in this task.
+At the end of that initial preparation, GitHub's draft PR #38 reported
+`CONFLICTING` / `DIRTY` against `master`, with no CI workflow run attached to
+that source commit. Those local results were not GitHub CI success. The
+subsequently authorised reconciliation and native release are recorded in
+[the superseding release evidence](BUILD_111_TESTFLIGHT.md).
 
 Desktop/browser checks cannot establish that the physical iOS memory issue is
 closed. Acceptance still requires Town Common → OBS on the new native build,
