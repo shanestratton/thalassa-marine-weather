@@ -232,7 +232,8 @@ describe('public-beta release gate contract', () => {
             {
                 job: 'pi-cache',
                 workingDirectory: 'pi-cache',
-                nodeVersion: '20',
+                // 22 since 2026-09-10: the boat Pi moved to NodeSource 22.x for Signal K 2.32.
+                nodeVersion: '22',
                 commands: ['npm ci', 'npm audit --audit-level=high', 'npm ls --all', 'npm run build', 'npm test'],
             },
         ];
@@ -278,7 +279,7 @@ describe('public-beta release gate contract', () => {
             ).toEqual([workingDirectory, workingDirectory, workingDirectory]);
         }
         expect(read('workers/ais-ingest/Dockerfile')).toContain('FROM node:22-slim');
-        expect(read('pi-cache/install.sh')).toContain('https://deb.nodesource.com/setup_20.x');
+        expect(read('pi-cache/install.sh')).toContain('https://deb.nodesource.com/setup_22.x');
     });
 
     it('makes production manifests and retired Railway state source release gates', () => {
