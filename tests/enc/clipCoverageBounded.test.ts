@@ -13,6 +13,7 @@ import {
     coverageVertexCount,
     emptyClipStats,
     GLAZE_MARTINEZ_VERTEX_CAP,
+    martinezAdmissionWork,
     type CoverageGeom,
     type FineCoverage,
 } from '../../services/enc/clipDepareOverlap';
@@ -209,10 +210,10 @@ describe('clipFeatureOutsideCoverage — bounded pairs', () => {
         expect(covered(out, 1, 5)).toBe(true); // but only the strip
     });
 
-    it('exact pairs consume the job budget by their vertex count', () => {
-        const budget = { remaining: 100 };
+    it('exact pairs preconsume the conservative edge-interaction work budget', () => {
+        const budget = { remaining: 1_000 };
         clipFeatureOutsideCoverage(coarseBand(), [fineL()], GLAZE_MARTINEZ_VERTEX_CAP, undefined, budget);
-        expect(budget.remaining).toBe(100 - 12); // subject 5 + coverage 7
+        expect(budget.remaining).toBe(1_000 - martinezAdmissionWork(12)); // subject 5 + coverage 7
     });
 
     it('subject growth from an earlier clip feeds the next pair gate', () => {

@@ -11,6 +11,7 @@
  * feature, and (c) is structured-cloned back to the main thread.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
     GLAZE_MARTINEZ_VERTEX_CAP,
     GLAZE_RESULT_EXPANSION_FLOOR,
@@ -65,17 +66,21 @@ describe('glaze result bound', () => {
         expect(branch).not.toContain('return null');
     });
 
-    it('charges the job budget what the pair actually cost', () => {
-        // The budget was charged pairVerts — the INPUT — so a run of
-        // cheap-input/expensive-output pairs consumed a fraction of the
-        // budget it actually spent.
+    it('admits and charges conservative work before a result or exception can occur', () => {
+        // A post-result charge cannot protect against allocations INSIDE
+        // diff. The shared budget now reserves every potential interaction
+        // before calling the library, even if its output is discarded.
         const src = readSrc();
-        expect(src).toContain('budget.remaining -= Math.max(pairVerts, outVerts)');
-        expect(src).toContain('budget.remaining -= outVerts;');
+        const clip = src.slice(src.indexOf('export function clipFeatureOutsideCoverage('));
+        const charge = clip.indexOf('budget.remaining -= admissionWork;');
+        const call = clip.indexOf('const out = martinezDiff(');
+        expect(clip.slice(0, charge)).toContain('admissionWork <= budget.remaining');
+        expect(charge).toBeGreaterThan(0);
+        expect(charge).toBeLessThan(call);
+        expect(clip.match(/budget\.remaining -=/g)).toHaveLength(1);
     });
 });
 
 function readSrc(): string {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('node:fs').readFileSync('services/enc/clipDepareOverlap.ts', 'utf8');
+    return readFileSync('services/enc/clipDepareOverlap.ts', 'utf8');
 }
