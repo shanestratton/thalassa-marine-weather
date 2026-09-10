@@ -189,13 +189,18 @@ for (const outcome of ['live', 'timeout'] as const) {
         await expect(pending).toHaveCount(0);
         if (outcome === 'live') {
             await expect(metrics).toBeVisible();
+            await expect(metrics.getByLabel(/^WIND: 12 kts\./)).toBeVisible();
             // External geocoding is blocked, so the acquired point is named
             // by its coordinates while the matching forecast remains usable.
             await expect(location).toHaveValue('33.8688°S, 151.2093°E');
             await expect(fullScreenFailure).toHaveCount(0);
             await expect(page.getByTestId('weather-position-retry')).toHaveCount(0);
             if (testInfo.project.name === 'mobile-safari') {
-                await page.screenshot({ path: testInfo.outputPath('cold-start-recovered.png'), fullPage: true });
+                await page.screenshot({
+                    path: testInfo.outputPath('cold-start-recovered.png'),
+                    fullPage: true,
+                    animations: 'disabled',
+                });
             }
         } else {
             await expect(location).toHaveValue('Phone GPS unavailable');
