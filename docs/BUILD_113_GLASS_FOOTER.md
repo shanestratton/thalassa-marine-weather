@@ -3,6 +3,10 @@
 This extends the unshipped 1.2.0 (113) candidate containing the Guardian and
 cold-start GPS fixes. It does not upload or change the installed TestFlight build.
 
+The radio-console addition now extends this candidate. Its final bundle identity
+and verification are recorded in [BUILD_113_RADIO_CONSOLE.md](BUILD_113_RADIO_CONSOLE.md);
+the footer-stage bundle below is retained only as historical evidence.
+
 ## Correction
 
 The location badge included the legacy offshore model label, while the adjacent
