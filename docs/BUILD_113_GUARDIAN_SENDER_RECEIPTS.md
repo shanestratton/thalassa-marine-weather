@@ -9,6 +9,11 @@ existing installed app's RPCs. The immediate receipt UI is prepared in
 **1.2.0 (113)**; this build has not been archived or uploaded to TestFlight.
 Delivered build 112 and its archive are unchanged.
 
+This records the Guardian preparation at `9b9c2d4d`. The subsequent
+[cold-start GPS correction](BUILD_113_COLD_START_GPS.md) is included in the same
+unshipped 113 candidate and supersedes the bundle identity and build-test
+snapshot below. Use that document for the final rebuilt artifact.
+
 ## Root cause and changes
 
 - The live `guardian_alerts_nearby` function referenced unqualified `radius_nm`

@@ -168,6 +168,76 @@ afterEach(() => {
 });
 
 describe('weather receiver selection boundaries', () => {
+    it.each(['phone', 'boat'] as const)(
+        'keeps cold-start %s acquisition neutral until its first fix arrives',
+        async (target) => {
+            world.settings.defaultLocation = 'Current Location';
+            world.initial = null;
+            world.target = target;
+            const pending = deferred<unknown>();
+            (target === 'phone' ? world.gps : world.boat).mockReturnValue(pending.promise);
+            await act(async () => {
+                mount();
+            });
+            expect(current.error).toBeNull();
+            expect(current.positionSource).toMatchObject({ kind: null, target, status: 'resolving', timestamp: 0 });
+            expect(current.weatherData).toBeNull();
+            expect(world.fetch).not.toHaveBeenCalled();
+            expect(world.requestGps).not.toHaveBeenCalled();
+
+            await act(async () => {
+                pending.resolve(
+                    target === 'phone'
+                        ? { latitude: -27.21, longitude: 153.1, timestamp: Date.now() }
+                        : { lat: -27.21, lon: 153.1, timestamp: Date.now() },
+                );
+            });
+            expect(current.error).toBeNull();
+            expect(current.positionSource).toMatchObject({
+                kind: target === 'phone' ? 'phone' : 'pi',
+                target,
+                status: 'live',
+            });
+            expect(current.weatherData?.coordinates).toEqual({ lat: -27.21, lon: 153.1 });
+        },
+    );
+
+    it('reports a genuine cold-start failure after acquisition finishes, without borrowing cached weather', async () => {
+        world.settings.defaultLocation = 'Current Location';
+        world.initial = report('Unverified cached port', -33.86, 151.2);
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        await act(async () => {
+            mount();
+        });
+        expect(current.error).toBeNull();
+        expect(current.positionSource?.status).toBe('resolving');
+        await act(async () => {
+            pending.resolve(null);
+        });
+        expect(current.error).toBe('Phone GPS unavailable');
+        expect(current.positionSource).toMatchObject({ kind: null, target: 'phone', status: 'unavailable' });
+        expect(current.positionSource).not.toMatchObject({ retainedWeather: true });
+    });
+
+    it('cannot restore a cold-start GPS failure after the user chooses a named place', async () => {
+        world.settings.defaultLocation = 'Current Location';
+        world.initial = null;
+        const pending = deferred<unknown>();
+        world.gps.mockReturnValue(pending.promise);
+        await act(async () => {
+            mount();
+        });
+        expect(current.positionSource?.status).toBe('resolving');
+        await act(async () => {
+            await current.selectLocation('Newport', { lat: -27.21, lon: 153.1 });
+            pending.resolve(null);
+        });
+        expect(current.error).toBeNull();
+        expect(current.positionSource).toBeNull();
+        expect(current.weatherData?.locationName).toBe('Newport');
+    });
+
     it('shows a pending boat lookup, not the previous phone failure, until the vessel responds', async () => {
         mount();
         await act(async () => {

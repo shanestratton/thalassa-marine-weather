@@ -1257,6 +1257,11 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             // cloud row, then her held last fix) when the skipper picked her
             // row in the ★ menu — see services/weatherPosition (2026-09-08).
             // The phone read stays the passive, already-granted one.
+            // Cold boot has no explicit selection transition to publish this
+            // state. A first fix is still being acquired, not yet unavailable;
+            // the foreground reader may need to skip iOS's stale first sample.
+            // Do not clear a genuine later outage on every background retry.
+            if (positionSourceRef.current === null) publishResolvingPosition(target);
             readFollowPosition(target)
                 .then(async (resolved) => {
                     if (!isCurrentTick()) return;
@@ -1408,6 +1413,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         locationMode,
         setWeatherData,
         publishPositionSource,
+        publishResolvingPosition,
         readFollowPosition,
         setWeatherError,
     ]);
