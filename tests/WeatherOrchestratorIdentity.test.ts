@@ -601,6 +601,59 @@ describe('WeatherOrchestrator identity fences', () => {
 });
 
 describe('cached paint is independent of the settings store', () => {
+    it.each(['same-forecast GPS rename', 'newer forecast'])(
+        'does not let delayed startup cache overwrite a %s published during its read',
+        async (update) => {
+            const cached = makeReport('Sydney, NSW', -33.8688, 151.2093);
+            cached.generatedAt = new Date(Date.now() - 1_000).toISOString();
+            const result = deferred<MarineWeatherReport | null>();
+            const { state, callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
+            state.locationMode = 'gps';
+            state.weatherData = cached;
+            const keys = weatherCacheKeysForScope();
+            weatherMocks.loadLargeData.mockImplementation((key: string) =>
+                key === keys.data ? result.promise : Promise.resolve(null),
+            );
+            const orchestrator = new WeatherOrchestrator(callbacks);
+            const loading = orchestrator.loadCacheAndInit();
+            const current = {
+                ...cached,
+                locationName: '33.8688°S, 151.2093°E',
+                ...(update === 'newer forecast'
+                    ? { generatedAt: new Date().toISOString(), current: { ...cached.current, windSpeed: 14 } }
+                    : {}),
+            };
+            callbacks.setWeatherData(current);
+            result.resolve(cached);
+            await loading;
+
+            expect(state.weatherData).toBe(current);
+            expect(state.weatherData?.locationName).toBe('33.8688°S, 151.2093°E');
+            expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+            expect(weatherMocks.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not resurrect startup cache after a pending read is superseded by a location selection', async () => {
+        const result = deferred<MarineWeatherReport | null>();
+        const { state, callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
+        const keys = weatherCacheKeysForScope();
+        weatherMocks.loadLargeData.mockImplementation((key: string) =>
+            key === keys.data ? result.promise : Promise.resolve(null),
+        );
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        const loading = orchestrator.loadCacheAndInit();
+        orchestrator.cancelPendingLocation();
+        const selected = makeReport('Selected port');
+        callbacks.setWeatherData(selected);
+        result.resolve(makeReport('Sydney, NSW'));
+        await loading;
+
+        expect(state.weatherData).toBe(selected);
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+        expect(weatherMocks.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+    });
+
     /**
      * The Glass page's first paint used to be queued behind settings
      * hydration: loadCacheAndInit was the only way to read the weather cache,

@@ -87,6 +87,30 @@ of the skipper's actual cold-start native callback.
 
 Local test/build evidence: `/private/tmp/thalassa-113-cold-gps.ckSTU7/`.
 
+## CI startup-cache race correction
+
+CI run `34539392314` at `90717317` exposed a separate WebKit startup race,
+not a reason to relax the GPS browser assertion. Its retry trace shows the
+correct `33.8688°S, 151.2093°E` label at trace time `609220.886`, the asynchronous
+weather-cache read completing at `609231.824`, then the label reverting to
+cached `Sydney, NSW` at `609238.508`. The follower had already recorded its
+naming attempt, so its normal one-minute name retry did not repair the title
+within the browser assertion's 15-second window.
+
+`WeatherOrchestrator.doLoadCache` now captures the displayed report when its
+read starts and paints the result only if that report is still unchanged.
+An in-flight cache read therefore cannot overwrite a GPS rename or newer
+forecast. Existing account and explicit-location epoch fences remain in force;
+an unchanged initial state still receives the valid cache normally. No GPS
+freshness, permissions, receiver source, browser assertion, or timeout is loosened.
+
+Two deterministic delayed-cache regressions failed before this correction.
+Afterward, all **34** orchestrator/context identity tests passed under Node 24,
+including an added pending-location-selection fence check and the existing
+initial-cache, single-flight, and account-transition coverage. Combined release
+build and packaged-browser verification are recorded with the final candidate;
+these unit tests are not physical-device GPS evidence.
+
 The JavaScript deadline bounds the caller's wait. Capacitor has no cancellation
 API for an outstanding one-shot request, so a late native completion is ignored
 rather than cancelled. The initial permission-status query remains outside
