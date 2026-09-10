@@ -29,20 +29,95 @@ visible-chart loading and plotting remain enabled. No memory limits were
 changed and no chart records were deleted. A merge already admitted may be
 shared with the ordinary renderer and is not cancelled by this narrow fix.
 
-## Open: Town Common → OBS restart
+## Confirmed: Town Common → OBS memory-limit termination
 
-The user's reported restart has **not yet been reproduced or attributed**.
-Map/ENC errors are normally handled locally. Installed Capacitor reloads its
-web view after WebContent termination; the separate `lazyRetry` path can also
-reload after a lazy-module rejection. Either can return to the normal Glass
-boot page. Source inspection alone does not establish which occurred here.
+After the phone was unlocked, targeted read-only diagnostic retrieval succeeded.
+Two iOS Jetsam reports on 10 September 2026, at 15:14:10 and 16:24:12 AEST,
+identify Thalassa's WebContent process as `per-process-limit`. The second was
+the user's fresh Town Common → OBS reproduction. Its WebContent process used
+131,134 resident 16-KiB pages (about 2,049 MiB), while the native app remained
+alive at about 122 MiB. Capacitor reloads the terminated web view, explaining
+the return to the default Glass screen without exiting to the home screen.
 
-The phone was detected but targeted diagnostic reads were blocked because it
-was locked. No phone crash logs or local-storage diagnostics were obtained.
-The flight recorder and census remain in code, but their former “Last Flight”
-card was removed in build 105; it is not available for a screenshot in 110.
+This establishes the restart mechanism, not the precise allocating function.
+It is stronger evidence than an unclean-exit flag or a missing error-boundary
+record. Neither a generic lazy-module retry nor a native-app crash explains
+these two matched Jetsam events.
 
-After unlocking, collect the relevant WebKit/Jetsam report and, if permitted,
-only Thalassa's diagnostic storage keys. Preserve the distinction between an
-unclean exit and a proven memory-limit termination. Reproduce named Town
-Common → OBS with the same installed chart inventory before claiming closure.
+The saved fatal trail shows an 11-cell, 20.5-MB chart merge followed by a
+six-cell glaze-worker dispatch; the old reported clone weight was 125,115.
+A later nine-cell merge was superseded/failed before termination. A census
+JSON recovered from historical SQLite bytes is timestamped 0.84 seconds before
+the second kill: 13 chart cells, one live WebGL context, about 14 MB of canvas
+backing storage and 35 MB estimated raster textures. These counters do **not**
+measure parsed chart objects, geometry-worker heaps or Mapbox's vector indexes.
+The recovered historical census is a forensic candidate, not a transactionally
+validated current database row; its timestamp and boot age align with the
+native report and saved fatal trail.
+
+Read-only chart metadata replay reproduces the first 11-cell selection at the
+saved Town Common coordinate and the actual initial camera zoom of 10. The
+`map:create z5` breadcrumb reported a prop, not the actual camera zoom. There
+is no evidence that the app mistakenly loaded Brisbane charts, nor enough
+camera history to attribute the later selection change to a user gesture.
+
+Device reports and the narrow diagnostic-storage copies remain outside git.
+The former “Last Flight” UI was removed in build 105; the recorder still exists.
+
+## Corrected: geometry admission before expensive work
+
+Two demonstrable holes were found in the existing chart safeguards:
+
+- The structured-clone budget counted each subject feature as **one**, even
+  when a single polygon contained hundreds of thousands of coordinates. It
+  counted coverage vertices but not the subject vertices about to be copied.
+- The polygon-boolean guard admitted up to 12,000 input vertices and checked
+  the result only **after** the operation allocated it. Valid intersecting
+  strips with just 800 input vertices produced 32,400 result vertices and
+  roughly 32 MB of transient heap in a bounded ESM reproduction. Input count
+  alone did not bound the potentially quadratic intersection work.
+
+The clone check now counts subject and shared coverage geometry before
+`postMessage`, stopping as soon as the existing hard cap is exceeded. Exact
+clipping also requires a conservative edge-interaction estimate to fit the
+existing per-pair and aggregate job budgets **before** calling Martinez.
+Failed or subsequently discarded operations are charged too. These are work
+admission limits, not promises of an exact process-memory ceiling.
+
+An independent read-only reconstruction using the same 11 chart IDs and
+editions on the yacht reproduced **six queued glaze cells and the fatal old
+weight of 125,115 exactly**. It contained 340 subject features with 96,091
+vertices, plus 124,775 shared coverage vertices. The corrected weight,
+including collection overhead, is **227,721**: above the unchanged 200,000
+clone cap. The bounded counter returns 200,001 immediately and rejects that
+specific workload before `postMessage`. All 435 initial intersecting pairs
+also exceed the new exact-work admission limit. This replay counted geometry
+only: no old Martinez operation or worker was run, and no licensed geometry
+was saved. It proves admission is blocked for the captured payload, not that
+every other iOS allocation path is safe.
+
+Over-budget refinement retains the existing fast grade or uses the existing
+bounded rectangle-strip fallback. This can show less refined depth shading;
+it is not identical chart rendering. Base chart depths, soundings, hazards and
+navigation-check inputs are not deleted or rewritten. Empty `stripRects: []`
+continues to mean “clip nothing,” not “subtract the entire bounding box.”
+
+## Verification and remaining acceptance
+
+The initial GPS/prewarm candidate at `94a6e4e1` passed the full unit suite
+(9,953 passed; three expected failures and five skips), TypeScript, lint,
+release gates, native sync, and 50 Chromium/mobile-WebKit browser checks.
+Its bundle `main-W5UREiks.js` is superseded by the geometry corrections;
+those results must not be represented as final-bundle verification.
+
+The geometry change passed 60 focused suites / 613 tests, scoped lint and
+formatting. Regressions were demonstrated red before green for the oversized
+single-polygon clone, the 80-by-80 crossing-strip operation, and an admitted
+exception incorrectly treating empty strips as a whole-bounding-box clip.
+Small exact clips, aggregate budget boundaries and cleanup remain covered.
+
+Final full-suite and rebuilt-artifact results are recorded below when complete.
+Desktop/browser checks cannot establish that the physical iOS memory issue is
+closed. Acceptance still requires Town Common → OBS on the new native build,
+with the same chart inventory, without another WebContent termination. Build
+110 has not been altered; no 111 upload is claimed.

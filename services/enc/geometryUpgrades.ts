@@ -9,11 +9,11 @@
  * render layer subscribes to, and dispatchGeometryWork — the single
  * entry point the merge calls.
  */
-import type { Feature } from 'geojson';
+import type { Feature, Geometry } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import { crumb } from '../../utils/flightRecorder';
 import type { GeometryJobMsg, GeometryWorkerReply, GlazeCellJob } from './geometryWorkerProtocol';
-import { coverageVertexCount, type FineCoverage } from './clipDepareOverlap';
+import { type FineCoverage } from './clipDepareOverlap';
 import type { EncMergedVectorData } from './EncHazardService';
 import { getMergedData } from './mergedDataCache';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
@@ -28,10 +28,73 @@ import {
 
 const log = createLogger('geometryUpgrades');
 
-/** Structured-clone payload weight caps (features + coverage vertices):
- *  soft = log a warning; hard = drop the glaze half of the job. */
+/** Structured-clone geometry weight caps (ALL subject/coverage vertices plus
+ *  collection overhead): soft = log a warning; hard = keep the instant glaze.
+ *  These are conservative geometry units, not a measurement of process bytes. */
 export const GLAZE_CLONE_SOFT_CAP = 60_000;
 export const GLAZE_CLONE_HARD_CAP = 200_000;
+
+/** Bound the geometry crossing postMessage BEFORE the structured clone. The
+ *  old weight counted each subject feature as one: a single huge polygon
+ *  passed regardless of its coordinate count. Sum every ring (including
+ *  holes/multipolygons), sharing coverage once as the wire protocol does.
+ *  Saturate immediately above the cap; neither a huge ring nor a long tail
+ *  requires a full coordinate walk or a second serialized copy. */
+export function glazeCloneWeight(
+    cells: readonly GlazeCellJob[],
+    coverageLib?: Readonly<Record<string, FineCoverage>>,
+    cap = GLAZE_CLONE_HARD_CAP,
+): number {
+    let weight = 0;
+    const charge = (amount: number): boolean => {
+        weight = Math.min(cap + 1, weight + amount);
+        return weight <= cap;
+    };
+    const coordinates = (value: unknown, levels: number): boolean => {
+        if (!Array.isArray(value) || !charge(1)) return false;
+        // At this level each member is one coordinate position. Reading the
+        // length is enough, even for a million-vertex ring.
+        if (levels === 1) return charge(value.length);
+        for (const child of value) if (!coordinates(child, levels - 1)) return false;
+        return true;
+    };
+    const geometry = (value: Geometry | null, depth = 0): boolean => {
+        if (!charge(1)) return false;
+        if (value === null) return true;
+        if (!value || depth > 32) return false;
+        switch (value.type) {
+            case 'Point':
+                return Array.isArray(value.coordinates) && charge(1);
+            case 'MultiPoint':
+            case 'LineString':
+                return coordinates(value.coordinates, 1);
+            case 'Polygon':
+            case 'MultiLineString':
+                return coordinates(value.coordinates, 2);
+            case 'MultiPolygon':
+                return coordinates(value.coordinates, 3);
+            case 'GeometryCollection':
+                if (!Array.isArray(value.geometries)) return false;
+                for (const child of value.geometries) if (!geometry(child, depth + 1)) return false;
+                return true;
+            default:
+                return false;
+        }
+    };
+    for (const cell of cells) {
+        if (!charge(1)) return cap + 1;
+        for (const feature of cell.features) {
+            if (!charge(1) || !geometry(feature.geometry)) return cap + 1;
+        }
+    }
+    for (const key in coverageLib) {
+        if (!Object.prototype.hasOwnProperty.call(coverageLib, key)) continue;
+        const fine = coverageLib[key];
+        // Bbox/strip bounds carry two coordinate positions each.
+        if (!charge(3 + (fine.stripRects?.length ?? 0) * 2) || !coordinates(fine.coverage, 3)) return cap + 1;
+    }
+    return weight;
+}
 
 /**
  * ⚠️ TEMPORARY — SINGLE-VARIABLE EXPERIMENT (2026-08-23, Shane's call).
@@ -579,13 +642,11 @@ function dispatchGeometryWorkNow(
     // ride the structured clone.
     let glazeCells: GlazeCellJob[] = glazeUpgradeQueue.map(({ untouched: _parked, ...wire }) => wire);
     // CLONE BUDGET (closing audit: payload/result clone sizes were an
-    // acknowledged-but-unbudgeted risk). Weight ≈ touched features +
+    // acknowledged-but-unbudgeted risk). Weight counts ALL subject and
     // coverage vertices; over the soft cap we log, over the hard cap we
     // drop the glaze half of the job (instant grade stays up — the exact
     // failure mode this machinery is designed to degrade to).
-    const payloadWeight =
-        glazeCells.reduce((n, c) => n + c.features.length, 0) +
-        (coverageLib ? Object.values(coverageLib).reduce((n, c) => n + coverageVertexCount(c.coverage), 0) : 0);
+    const payloadWeight = glazeCloneWeight(glazeCells, coverageLib);
     if (payloadWeight > GLAZE_CLONE_HARD_CAP || glazeClipSuppressed) {
         log.warn(
             glazeClipSuppressed
