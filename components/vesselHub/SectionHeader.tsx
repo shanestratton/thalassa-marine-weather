@@ -1,7 +1,7 @@
 /**
  * Collapsible section header for the Vessel Hub menu groups.
  */
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 
 /** Collapsible section header with colored pip and chevron.
@@ -16,26 +16,61 @@ export const SectionHeader: React.FC<{
     onToggle: (id: string) => void;
 }> = ({ color, label, id, expanded, onToggle }) => {
     const buttonRef = useRef<HTMLButtonElement>(null);
+    const revealRequested = useRef(false);
+
+    useEffect(() => {
+        if (!expanded || !revealRequested.current) return;
+        revealRequested.current = false;
+        const button = buttonRef.current;
+        const section = button?.parentElement;
+        const content = button?.nextElementSibling;
+        const port = section?.parentElement;
+        if (!section || !content || !port) return;
+
+        let cancelled = false;
+        const gestures = ['pointerdown', 'touchmove', 'wheel', 'keydown'] as const;
+        const removeListeners = () => {
+            for (const event of gestures) port.removeEventListener(event, cancel);
+        };
+        const cancel = () => {
+            cancelled = true;
+            cancelAnimationFrame(frame);
+            removeListeners();
+        };
+        // Start after React commits the expanded state. A fixed 280ms delay
+        // from the tap can expire before the 250ms grid transition ends when
+        // its first rendering frame is late, leaving the last row clipped.
+        const frame = requestAnimationFrame(async () => {
+            if (cancelled || !section.isConnected || button?.getAttribute('aria-expanded') !== 'true') return;
+            void content.getBoundingClientRect();
+            // Only this wrapper's finite expansion, never animations on its
+            // descendants (which can include continuously running indicators).
+            const animations = content.getAnimations().filter((animation) => {
+                const end = animation.effect?.getComputedTiming().endTime;
+                return (
+                    typeof end === 'number' &&
+                    Number.isFinite(end) &&
+                    (animation.playState === 'running' || animation.pending)
+                );
+            });
+            await Promise.allSettled(animations.map((animation) => animation.finished));
+            removeListeners();
+            if (cancelled || !section.isConnected || button?.getAttribute('aria-expanded') !== 'true') return;
+            section.scrollIntoView({ behavior: 'smooth', block: 'end', inline: 'nearest' });
+        });
+        // A fresh gesture belongs to the user, not this pending automatic
+        // reveal. Closing/reopening or leaving the pane also cancels it.
+        for (const event of gestures) port.addEventListener(event, cancel, { passive: true });
+        return cancel;
+    }, [expanded, id]);
+
     return (
         <button
             ref={buttonRef}
             onClick={() => {
-                const wasExpanded = expanded;
+                revealRequested.current = !expanded;
                 triggerHaptic('light');
                 onToggle(id);
-                // When opening a section that sits low on the page (Account,
-                // Connect, etc.), the newly-revealed card otherwise lands
-                // behind the bottom tab bar. Snap the section so its bottom
-                // edge aligns with the scroll container's bottom — which
-                // already sits above the tab bar thanks to the wrapper's
-                // bottom padding. Wait 280 ms for the 250 ms collapse
-                // animation to finish so we scroll to the FINAL height.
-                if (!wasExpanded) {
-                    setTimeout(() => {
-                        const section = buttonRef.current?.parentElement;
-                        section?.scrollIntoView({ behavior: 'smooth', block: 'end', inline: 'nearest' });
-                    }, 280);
-                }
             }}
             className="w-full flex items-center gap-2.5 mb-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
             aria-expanded={expanded}

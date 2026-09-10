@@ -30,9 +30,9 @@ async function contained(element: Locator, port: Locator) {
 async function waitForSettledScroll(port: Locator) {
     let previousTop = Number.NaN;
     let stableReadings = 0;
-    // SectionHeader schedules its native smooth scroll after 280ms. Four
-    // stable 100ms intervals cover that delay as well as the scroll itself;
-    // completing the CSS expansion alone does not mean the port is at rest.
+    // SectionHeader starts its native smooth scroll after expansion finishes.
+    // Completing the CSS expansion alone does not mean the port is at rest;
+    // require four stable readings of the actual scroll offset as well.
     await expect
         .poll(
             async () => {
@@ -50,11 +50,12 @@ for (const size of [
     { width: 390, height: 650 },
     { width: 390, height: 844 },
     { width: 430, height: 932 },
+    { width: 430, height: 932, expansionDelay: 180 },
     { width: 768, height: 768 },
     { width: 390, height: 844, mode: 'light' },
     { width: 390, height: 844, mode: 'night' },
 ]) {
-    test(`Vessel first row returns fully at ${size.width}x${size.height} ${size.mode ?? 'dark'}`, async ({
+    test(`Vessel first row returns fully at ${size.width}x${size.height} ${size.mode ?? 'dark'}${size.expansionDelay ? ' delayed expansion' : ''}`, async ({
         page,
     }, testInfo) => {
         test.setTimeout(60_000);
@@ -112,9 +113,40 @@ for (const size of [
 
         // A proximity target must not trap the user at the top when a lower
         // section is expanded; its actual controls must remain reachable.
-        await page.getByRole('button', { name: 'Expand Settings & Connect' }).click();
+        const expand = page.getByRole('button', { name: 'Expand Settings & Connect' });
+        if (size.expansionDelay) {
+            // A late CSS transition start models a busy rendering frame. The
+            // section must reveal its final controls, not scroll to the height
+            // sampled by a wall-clock timer while expansion is still running.
+            await expand.evaluate((button, delay) => {
+                const group = button.parentElement!;
+                const content = button.nextElementSibling as HTMLElement;
+                content.style.transitionDelay = `${delay}ms`;
+                const trace: unknown[] = [];
+                const record = (event: string) => {
+                    const port = group.parentElement!;
+                    trace.push({
+                        event,
+                        at: performance.now(),
+                        group: group.getBoundingClientRect().toJSON(),
+                        port: port.getBoundingClientRect().toJSON(),
+                        scrollTop: port.scrollTop,
+                    });
+                    group.dataset.scrollTrace = JSON.stringify(trace);
+                };
+                for (const event of ['transitionrun', 'transitionstart', 'transitionend']) {
+                    content.addEventListener(event, () => record(event));
+                }
+                const scroll = group.scrollIntoView.bind(group);
+                group.scrollIntoView = (options) => {
+                    record('scrollIntoView');
+                    scroll(options);
+                };
+            }, size.expansionDelay);
+        }
+        await expand.click();
         const account = page.getByRole('button', { name: 'Account & Settings', exact: true });
-        // Let the real 250ms expansion and delayed section scroll finish.
+        // Let the real expansion and subsequent section scroll finish.
         // Racing that scroll with our return gesture would test two competing
         // programmatic scrolls rather than the user's settled page.
         await page.getByRole('button', { name: 'Collapse Settings & Connect' }).evaluate(async (button) => {
@@ -122,6 +154,14 @@ for (const size of [
             void group.getBoundingClientRect();
             await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
         });
+        if (size.expansionDelay) {
+            await testInfo.attach('vessel-expansion-timeline', {
+                body: await page
+                    .getByRole('button', { name: 'Collapse Settings & Connect' })
+                    .evaluate((button) => button.parentElement!.dataset.scrollTrace ?? '[]'),
+                contentType: 'application/json',
+            });
+        }
         await expect.poll(() => contained(account, port)).toBe(true);
         await waitForSettledScroll(port);
         await expect.poll(async () => (await geometry(port)).max).toBeGreaterThan(before.max);
