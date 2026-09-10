@@ -22,7 +22,7 @@ filesystem paths, or credentials.
 ## Runtime
 
 Node.js `>=20.18.1` is required by the pinned HTTP transport. `install.sh` upgrades an older Pi runtime through the
-NodeSource 20.x repository and aborts before dependency installation or service restart if that minimum is not met.
+NodeSource 22.x repository and aborts before dependency installation or service restart if that minimum is not met.
 
 ## Explicit LAN/admin flags
 
