@@ -1,4 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 
 async function setMode(page: Page, name: string) {
     await page.getByRole('button', { name, exact: true }).click();
@@ -23,22 +25,45 @@ async function stableInstrumentScreenshot(page: Page, testInfo: TestInfo, name: 
     // a pixel tolerance. The final before/after comparison remains byte-for-byte.
     let previous: Buffer | undefined;
     let consecutiveMatches = 0;
-    await expect
-        .poll(
-            async () => {
-                const current = await page.screenshot({
-                    path: testInfo.outputPath(`${name}.png`),
-                    fullPage: true,
-                    animations: 'disabled',
-                });
-                consecutiveMatches = previous?.equals(current) ? consecutiveMatches + 1 : 0;
-                previous = current;
-                return consecutiveMatches;
-            },
-            { message: `${name}: three identical instrument frames`, timeout: 15_000 },
-        )
-        .toBeGreaterThanOrEqual(2);
-    return previous!;
+    const captureStarted = performance.now();
+    const timings: Array<{
+        attempt: number;
+        milliseconds: number;
+        elapsed: number;
+        consecutiveMatches: number;
+        bytes: number;
+        sha256: string;
+    }> = [];
+    try {
+        // Each capture already waits for the browser to paint. Do not add polling
+        // sleeps or an independent 15s deadline: CI reached the exact baseline but
+        // that deadline stopped it one matching frame short. Bound the work to
+        // eight captures (up to five transient frames plus three identical ones),
+        // all still subject to this test's unchanged 60s total timeout.
+        for (let attempt = 1; attempt <= 8 && consecutiveMatches < 2; attempt++) {
+            const started = performance.now();
+            const current = await page.screenshot({ fullPage: true, animations: 'disabled' });
+            consecutiveMatches = previous?.equals(current) ? consecutiveMatches + 1 : 0;
+            previous = current;
+            timings.push({
+                attempt,
+                milliseconds: performance.now() - started,
+                elapsed: performance.now() - captureStarted,
+                consecutiveMatches,
+                bytes: current.length,
+                sha256: createHash('sha256').update(current).digest('hex'),
+            });
+        }
+        expect(consecutiveMatches, `${name}: three identical instrument frames`).toBeGreaterThanOrEqual(2);
+        return previous!;
+    } finally {
+        // Persist the last image and every capture's cost/hash even when stability
+        // fails; CI's list reporter otherwise loses in-memory diagnostic details.
+        if (previous) await writeFile(testInfo.outputPath(`${name}.png`), previous);
+        const timingPath = testInfo.outputPath(`${name}-capture-timing.json`);
+        await writeFile(timingPath, JSON.stringify(timings, null, 2));
+        await testInfo.attach(`${name}-capture-timing`, { path: timingPath, contentType: 'application/json' });
+    }
 }
 
 const paints = (page: Page) =>

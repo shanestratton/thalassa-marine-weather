@@ -29,9 +29,34 @@ async function keyboard(page: Page, height: number, native = true) {
         expect(await page.evaluate(() => window.visualViewport!.height)).toBe(page.viewportSize()!.height);
         expect(await page.evaluate(() => window.innerHeight)).toBe(page.viewportSize()!.height);
     }
-    // The actual guard runs at 0/120/360 ms and channel scroll-to-latest also
-    // settles at 500 ms. Test the final position, not an initially good frame.
+    // Let the scheduled guard (0/120/360ms) and scroll-to-latest (500ms) run.
+    // Their timers alone do not prove React and the height transition have
+    // committed/painted, especially on a loaded WebKit runner.
     await page.waitForTimeout(550);
+    const chat = page.locator('[data-chat-page]');
+    await expect
+        .poll(() =>
+            chat.evaluate((element, keyboardHeight) => {
+                const expected = element.parentElement!.clientHeight - keyboardHeight;
+                const finalHeight = Math.abs(element.getBoundingClientRect().height - expected) < 1;
+                const animating = element.getAnimations().some((animation) => {
+                    const end = animation.effect?.getComputedTiming().endTime;
+                    return (
+                        typeof end === 'number' &&
+                        Number.isFinite(end) &&
+                        (animation.playState === 'running' || animation.pending)
+                    );
+                });
+                return finalHeight && !animating;
+            }, height),
+        )
+        .toBe(true);
+    // A paint between frames also lets compositor hit regions catch up with
+    // the finished geometry. The separate four-point hit assertion remains
+    // strict: a genuinely covered or clipped composer still fails.
+    await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
 }
 
 async function hitTarget(page: Page, target: Locator, keyboardHeight: number, minWidth = 44) {
@@ -47,6 +72,19 @@ async function hitTarget(page: Page, target: Locator, keyboardHeight: number, mi
             [rect.left + rect.width / 2, rect.top + 3],
             [rect.left + rect.width / 2, rect.bottom - 3],
         ];
+        const hits = points.map(([x, y]) => {
+            const hit = document.elementFromPoint(x, y);
+            return {
+                x,
+                y,
+                tag: hit?.tagName,
+                label: hit?.getAttribute('aria-label'),
+                testid: (hit as HTMLElement)?.dataset?.testid,
+                className: hit?.className,
+                accepted: hit === element || element.contains(hit),
+            };
+        });
+        const chat = element.closest('[data-chat-page]');
         return {
             width: rect.width,
             height: rect.height,
@@ -58,13 +96,25 @@ async function hitTarget(page: Page, target: Locator, keyboardHeight: number, mi
             frameRight: frame.right,
             frameTop: frame.top,
             visibleBottom: bottom,
-            hittable: points.every(([x, y]) => {
-                const hit = document.elementFromPoint(x, y);
-                return hit === element || element.contains(hit);
-            }),
+            hittable: hits.every((hit) => hit.accepted),
+            hits,
+            chat: chat
+                ? {
+                      rect: chat.getBoundingClientRect().toJSON(),
+                      style: chat.getAttribute('style'),
+                      animations: chat.getAnimations().map((animation) => ({
+                          state: animation.playState,
+                          currentTime: animation.currentTime,
+                          timing: animation.effect?.getComputedTiming(),
+                      })),
+                  }
+                : null,
         };
     }, keyboardHeight);
-    expect(geometry, `Visible, unclipped hit target: ${await target.getAttribute('aria-label')}`).toMatchObject({
+    expect(
+        geometry,
+        `Visible, unclipped hit target: ${await target.getAttribute('aria-label')} ${JSON.stringify(geometry)}`,
+    ).toMatchObject({
         hittable: true,
     });
     expect(geometry.height).toBeGreaterThanOrEqual(44);
@@ -186,6 +236,42 @@ test('Scuttlebutt populated DM also supports browser visual-viewport keyboard re
     await hitTarget(page, input, size.keyboard, 60);
     await hitTarget(page, page.getByRole('button', { name: 'Send direct message', exact: true }), size.keyboard);
     await stationaryHost(page);
+});
+
+test('Scuttlebutt pane hit checks wait for a delayed keyboard layout transition', async ({ page }) => {
+    const size = SIZES[3];
+    await open(page, size, 'empty');
+    await page.getByRole('button', { name: 'Open direct messages', exact: true }).click();
+    await page.getByRole('listitem', { name: 'Message Sparrow', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Message Sparrow', exact: true });
+    await keyboard(page, 0);
+    // A pending rendering transition is a valid intermediate state, not the
+    // settled keyboard layout. Keep the same geometry and four edge-hit
+    // assertions; the helper must wait for the real final layout to exist.
+    await page.addStyleTag({ content: '[data-chat-page] { transition-delay: 700ms !important; }' });
+    await input.click();
+    await keyboard(page, size.keyboard);
+    await hitTarget(page, input, size.keyboard, 60);
+    await hitTarget(page, page.getByRole('button', { name: 'Send direct message', exact: true }), size.keyboard);
+    await stationaryHost(page);
+    // Negative control: waiting for settled layout must never accept an
+    // actually covered input. Cover its already-settled hit region and prove
+    // the same strict assertion still rejects it.
+    await input.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const cover = document.createElement('div');
+        cover.dataset.testid = 'intentional-hit-obstruction';
+        Object.assign(cover.style, {
+            position: 'fixed',
+            left: `${rect.left}px`,
+            top: `${rect.top}px`,
+            width: `${rect.width}px`,
+            height: `${rect.height}px`,
+            zIndex: '2147483647',
+        });
+        document.body.append(cover);
+    });
+    await expect(hitTarget(page, input, size.keyboard, 60)).rejects.toThrow('Visible, unclipped hit target');
 });
 
 test('Scuttlebutt permission failure leaves an accessible retry and block controls on a small phone', async ({
