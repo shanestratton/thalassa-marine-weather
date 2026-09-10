@@ -230,7 +230,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 <div className="@container px-0 shrink-0 relative z-20">
                     <div
                         data-testid="glass-status-strip"
-                        className="grid grid-cols-[minmax(0,1fr)_56px_minmax(0,1fr)] items-center gap-1.5 w-full mb-0"
+                        className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(0,1fr)] items-center gap-1.5 w-full mb-0"
                     >
                         {/* Location-type Badge — informational only (no longer
                             tappable; the Data Sources modal was removed because
@@ -250,7 +250,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             {statusBadgeLabel}
                         </div>
 
-                        {/* Forecast age — the primary staleness signal on the
+                        {/* Forecast age — the track reserves 56px, then grows
+                            to the actual platform font instead of overflowing.
+                            The primary staleness signal on the
                             Glass. Silent when there is no timestamp rather
                             than guessing at one. ONE row, no receiver word:
                             the header glyph says boat or phone. */}

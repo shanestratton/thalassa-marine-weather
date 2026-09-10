@@ -397,6 +397,7 @@ export class WeatherOrchestrator {
 
     private async doLoadCache(): Promise<boolean> {
         const locationEpoch = this.locationEpoch;
+        const weatherAtReadStart = this.cb.getWeatherData();
         log.warn(`[perf] loadCache start`);
         let hasCachedData = false;
 
@@ -426,9 +427,13 @@ export class WeatherOrchestrator {
                     level: 'info',
                     data: { generatedAt: cached.generatedAt },
                 });
-                this.cb.setWeatherData(cached);
-                this.cb.setLoading(false);
-                hasCachedData = true;
+                // A foreground GPS follower can rename the instant report
+                // while this disk/bridge read is pending, without changing
+                // locationEpoch or generatedAt. Cache is startup fallback:
+                // never paint it over weather already updated by that work.
+                if (this.cb.getWeatherData() === weatherAtReadStart) this.cb.setWeatherData(cached);
+                hasCachedData = this.cb.getWeatherData() !== null;
+                if (hasCachedData) this.cb.setLoading(false);
             } else {
                 log.info('Cache MISS: no cached weather data');
                 addBreadcrumb({ category: 'weather', message: 'Cache MISS: no weather data', level: 'info' });

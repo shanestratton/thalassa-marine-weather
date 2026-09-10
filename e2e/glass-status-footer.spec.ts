@@ -113,10 +113,12 @@ async function measureFooter(strip: Locator) {
                 );
             }
             return {
+                text: child.textContent,
                 bounds: bounds(child),
                 clientWidth: child.clientWidth,
                 scrollWidth: child.scrollWidth,
                 fontSize: parseFloat(getComputedStyle(child).fontSize),
+                fontFamily: getComputedStyle(child).fontFamily,
                 textRects,
             };
         });
@@ -220,6 +222,27 @@ for (const displayMode of ['light', 'dark'] as const) {
                         const layout = await measureFooter(strip);
                         expectOneUnclippedRow(layout);
                         layouts.push(layout);
+
+                        // Linux Chromium's platform font renders "just now"
+                        // wider than the original 56px reserved age track.
+                        // Reproduce that ordinary font-metric difference on
+                        // every host without shrinking text or relaxing bounds.
+                        const age = strip.getByRole('status', { name: /^Forecast updated/ });
+                        await expect(age).toHaveText('just now');
+                        await age.evaluate((element) => {
+                            element.style.fontFamily = 'monospace';
+                        });
+                        const widerFontLayout = await measureFooter(strip);
+                        const ageText = widerFontLayout.children[1].textRects[0];
+                        expect(ageText.right - ageText.x).toBeGreaterThan(56);
+                        await testInfo.attach(`footer-${locationType}-wider-age-font`, {
+                            body: JSON.stringify(widerFontLayout, null, 2),
+                            contentType: 'application/json',
+                        });
+                        expectOneUnclippedRow(widerFontLayout);
+                        await age.evaluate((element) => {
+                            element.style.removeProperty('font-family');
+                        });
 
                         await model.click();
                         const picker = page.getByRole('dialog', { name: 'Choose a forecast model', exact: true });
