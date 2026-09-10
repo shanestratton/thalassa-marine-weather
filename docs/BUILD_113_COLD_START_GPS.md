@@ -68,16 +68,18 @@ of the skipper's actual cold-start native callback.
   limit. All native build counters remain 113; this candidate is not uploaded.
 
 - All **six** packaged GPS browser checks passed serially in Chromium and
-  mobile Safari (42.5 seconds): pending cold start → fresh fix, pending cold
+  mobile Safari (final run: 43.7 seconds): pending cold start → fresh fix, pending cold
   start → genuine timeout, and same-location outage → automatic recovery.
   No application store/context was patched; browser GPS and scoped cache were
   controlled and external requests blocked. This is not provider integration
   or physical GPS evidence.
 - Mobile pending/recovered captures were visually inspected: the neutral
   acquisition text is readable with navigation available, and the existing
-  dashboard returns after acquisition without the phone-GPS error. Fixture
-  weather is incomplete and network-blocked, so the recovered image does not
-  establish live weather readings or tide availability.
+  dashboard returns after acquisition without the phone-GPS error, including
+  the asserted WIND 12 kts fixture reading. Captures disable entry animations.
+  Weather is
+  a controlled cache fixture with external requests blocked, not proof of live
+  provider readings or tide availability.
 
 Local test/build evidence: `/private/tmp/thalassa-113-cold-gps.ckSTU7/`.
 
