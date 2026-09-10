@@ -11,7 +11,7 @@
  *   5. Alert Feed — live local safety alerts
  *   6. Guardian Profile Setup (if no profile)
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
     GuardianService,
     NearbyUser,
@@ -103,6 +103,7 @@ function guardianInitializationSettled(promise: Promise<void>): Promise<boolean>
 export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const { settings } = useSettings();
     const authUserId = useAuthStore((state) => state.user?.id ?? null);
+    const armDescriptionId = useId();
 
     // ── State ──
     const [armed, setArmed] = useState(false);
@@ -366,7 +367,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         if (ok) {
             setArmed(true);
             setCoverageStatus('ready');
-            setFeedback({ tone: 'success', message: 'Guardian is armed at the vessel’s current GPS position.' });
             triggerHaptic('heavy');
         } else {
             setCoverageStatus('inactive');
@@ -392,10 +392,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             setNearbyUsers([]);
             setAlerts([]);
             setCoverageStatus('inactive');
-            setFeedback({
-                tone: 'success',
-                message: 'Guardian is disarmed. Location sharing and nearby polling have stopped.',
-            });
         } else {
             setFeedback({ tone: 'error', message: 'Guardian could not disarm. Check your connection and try again.' });
         }
@@ -819,12 +815,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div
                             className={`w-2.5 h-2.5 rounded-full shrink-0 ${armed ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'}`}
                         />
-                        <span className="text-sm font-bold text-white truncate">{vesselName || 'Your Vessel'}</span>
-                        {armed && (
-                            <span className="px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded-sm text-[11px] font-black text-red-400 uppercase tracking-wider">
-                                Armed
-                            </span>
-                        )}
+                        <span className={`text-sm font-bold truncate ${armed ? 'text-red-300' : 'text-white'}`}>
+                            {vesselName || 'Your Vessel'}
+                        </span>
                     </div>
 
                     {coverageStatus === 'ready' ? (
@@ -843,7 +836,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 }`}
                             >
                                 {coverageStatus === 'inactive'
-                                    ? 'Disarmed — no location sharing or nearby polling'
+                                    ? 'Nearby watch paused'
                                     : coverageStatus === 'checking'
                                       ? 'Checking vessel position…'
                                       : 'GPS unavailable — nearby coverage not checked'}
@@ -1073,7 +1066,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         role="button"
                         tabIndex={arming ? -1 : 0}
                         aria-disabled={arming}
+                        aria-pressed={armed}
                         aria-label={armed ? 'Disarm Guardian vessel watch' : 'Arm Guardian vessel watch'}
+                        aria-describedby={armDescriptionId}
                         onKeyDown={(event) => {
                             if (arming || (event.key !== 'Enter' && event.key !== ' ')) return;
                             event.preventDefault();
@@ -1129,7 +1124,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </div>
-                <p className="px-1 text-[12px] leading-relaxed text-slate-400">
+                {/* Keep the privacy explanation accessible without a second visible status row. */}
+                <p id={armDescriptionId} className="sr-only">
                     {armed
                         ? 'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.'
                         : 'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'}

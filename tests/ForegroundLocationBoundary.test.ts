@@ -23,7 +23,8 @@ describe('foreground location privacy boundary', () => {
     it('keeps passive screen and background-convenience reads already-granted-only', () => {
         for (const path of [
             'components/vessel/NoticesPage.tsx',
-            'components/vessel/RadioConsolePage.tsx',
+            // Radio polling now lives in its single-flight hook, not the view.
+            'hooks/useRadioPosition.ts',
             'components/VesselHub.tsx',
             'services/enc/autoSyncFromPi.ts',
         ]) {
@@ -31,6 +32,7 @@ describe('foreground location privacy boundary', () => {
             expect(source, path).toContain('GpsService.getCurrentPositionIfGranted(');
             expect(source, path).not.toContain('GpsService.getCurrentPosition(');
         }
+        expect(read('components/vessel/RadioConsolePage.tsx')).toContain('useRadioPosition()');
 
         for (const path of [
             'hooks/useLiveLocationName.ts',

@@ -239,14 +239,86 @@ describe('GuardianPage', () => {
     it('does not acquire, share or poll location while the profile is disarmed', async () => {
         await renderWithProfile();
 
-        expect(await screen.findByText('Disarmed — no location sharing or nearby polling')).toBeInTheDocument();
+        expect(await screen.findByText('Nearby watch paused')).toBeInTheDocument();
         expect(screen.queryByText('Thalassa boats nearby')).not.toBeInTheDocument();
+        const slider = screen.getByRole('button', { name: 'Arm Guardian vessel watch' });
+        expect(slider).toHaveAttribute('aria-pressed', 'false');
+        expect(slider).toHaveAccessibleDescription(
+            'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.',
+        );
         expect(
             screen.getByText('Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'),
-        ).toBeInTheDocument();
+        ).toHaveClass('sr-only');
         expect(acquireFreshOwnshipPosition).not.toHaveBeenCalled();
         expect(GuardianService.fetchNearbyUsers).not.toHaveBeenCalled();
         expect(GuardianService.fetchAlerts).not.toHaveBeenCalled();
+    });
+
+    it('shows successful arming in the control without adding repeated status banners', async () => {
+        await renderWithProfile();
+
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Arm Guardian vessel watch' }), { key: 'Enter' });
+
+        const slider = await screen.findByRole('button', { name: 'Disarm Guardian vessel watch' });
+        expect(GuardianService.arm).toHaveBeenCalledOnce();
+        expect(slider).toHaveAttribute('aria-pressed', 'true');
+        expect(slider).toHaveTextContent('ARMED — Slide to Disarm');
+        expect(slider).toHaveAccessibleDescription(
+            'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.',
+        );
+        expect(screen.queryByText('Guardian is armed at the vessel’s current GPS position.')).not.toBeInTheDocument();
+        expect(screen.queryByText('Armed', { exact: true })).not.toBeInTheDocument();
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        expect(
+            screen.getByText(
+                'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.',
+            ),
+        ).toHaveClass('sr-only');
+        expect(screen.getByTestId('guardian-alert-feed')).toHaveTextContent('No alerts in your area');
+    });
+
+    it('shows successful disarming in the control without adding a success banner', async () => {
+        await renderWithArmedProfile();
+
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Disarm Guardian vessel watch' }), { key: ' ' });
+
+        const slider = await screen.findByRole('button', { name: 'Arm Guardian vessel watch' });
+        expect(GuardianService.disarm).toHaveBeenCalledOnce();
+        expect(slider).toHaveAttribute('aria-pressed', 'false');
+        expect(slider).toHaveTextContent('Slide to ARM Vessel');
+        expect(
+            screen.queryByText('Guardian is disarmed. Location sharing and nearby polling have stopped.'),
+        ).not.toBeInTheDocument();
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        expect(screen.getByTestId('guardian-alert-feed')).toHaveTextContent('Alert feed is paused');
+    });
+
+    it('keeps arm failures visible without falsely switching the watch on', async () => {
+        vi.mocked(GuardianService.arm).mockResolvedValueOnce(false);
+        await renderWithProfile();
+
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Arm Guardian vessel watch' }), { key: 'Enter' });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Guardian could not arm.');
+        expect(screen.getByRole('button', { name: 'Arm Guardian vessel watch' })).toHaveAttribute(
+            'aria-pressed',
+            'false',
+        );
+        expect(screen.getByText('Nearby watch paused')).toBeInTheDocument();
+    });
+
+    it('keeps disarm failures visible and the control armed', async () => {
+        vi.mocked(GuardianService.disarm).mockResolvedValueOnce(false);
+        await renderWithArmedProfile();
+
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Disarm Guardian vessel watch' }), { key: 'Enter' });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Guardian could not disarm.');
+        expect(screen.getByRole('button', { name: 'Disarm Guardian vessel watch' })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(screen.getByTestId('guardian-alert-feed')).toHaveTextContent('No alerts in your area');
     });
 
     it('keeps location-based community broadcasts unavailable while disarmed', async () => {
