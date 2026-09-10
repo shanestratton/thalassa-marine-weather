@@ -4,6 +4,10 @@ This extends the unshipped 1.2.0 (113) candidate containing the Guardian fixes.
 Build 112 and its uploaded archive are unchanged. No native upload is implied
 by rebuilding and syncing the candidate.
 
+The bundle identity below records the GPS-stage candidate. The subsequent
+[Glass footer correction](BUILD_113_GLASS_FOOTER.md) records the newer build113
+bundle; the GPS test evidence here still applies to the unchanged GPS sources.
+
 ## Source-backed failure mechanism
 
 The installed Capacitor Geolocation 8 iOS implementation does not forward

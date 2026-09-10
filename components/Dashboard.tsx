@@ -1256,7 +1256,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             beaconName={beaconName}
                                             buoyName={buoyName}
                                             isOffshore={offshore.isOffshore}
-                                            offshoreModelLabel={offshore.offshoreModel}
                                             sources={widgetSources}
                                             activeData={safeActive}
                                             isLive={activeDay === 0 && activeHour === 0}

@@ -12,7 +12,8 @@ Delivered build 112 and its archive are unchanged.
 This records the Guardian preparation at `9b9c2d4d`. The subsequent
 [cold-start GPS correction](BUILD_113_COLD_START_GPS.md) is included in the same
 unshipped 113 candidate and supersedes the bundle identity and build-test
-snapshot below. Use that document for the final rebuilt artifact.
+snapshot below. The subsequent [Glass footer correction](BUILD_113_GLASS_FOOTER.md)
+records the latest rebuilt artifact containing both fixes.
 
 ## Root cause and changes
 
