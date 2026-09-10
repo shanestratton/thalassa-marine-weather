@@ -22,9 +22,10 @@
 
 import { createLogger } from '../utils/createLogger';
 import { Capacitor } from '@capacitor/core';
-import { Geolocation } from '@capacitor/geolocation';
+import { Geolocation, type Position } from '@capacitor/geolocation';
 const log = createLogger('GPS');
 const MAX_STALE_LIMIT_MS = 0xffff_ffff; // Web IDL unsigned-long maximum.
+const NATIVE_REACQUIRE_DELAY_MS = 250;
 
 // ---------- TYPES ----------
 
@@ -177,44 +178,94 @@ class GpsServiceClass {
         enableHighAccuracy: boolean,
     ): Promise<GpsPosition | null> {
         const requestedAt = Date.now();
-        const fix = await Geolocation.getCurrentPosition({
-            // Android maps a high-accuracy request to the fine-location alias
-            // and auto-requests it when missing. Approximate-only permission
-            // must therefore stay approximate on passive and foreground
-            // weather paths instead of surfacing a surprise precision prompt.
-            enableHighAccuracy: canUseForegroundHighAccuracy(permission, enableHighAccuracy),
-            timeout: timeoutSec * 1000,
-            maximumAge: staleLimitMs,
+        const timeoutMs = Math.floor(timeoutSec * 1000);
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 0x7fff_ffff) return null;
+        const deadline = requestedAt + timeoutMs;
+        let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+        let retryTimer: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<null>((resolve) => {
+            deadlineTimer = setTimeout(() => resolve(null), timeoutMs);
         });
-        const receivedAt = Date.now();
-        const timestamp = fix.timestamp;
-        const timestampIsInvalid = !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > receivedAt + 1_000;
-        if (timestampIsInvalid || requestedAt - timestamp > staleLimitMs) {
-            log.warn('[GpsService] foreground native geolocation returned an out-of-bound timestamp');
-            return null;
-        }
 
-        const { latitude, longitude, accuracy, altitude, heading, speed } = fix.coords;
-        if (
-            !Number.isFinite(latitude) ||
-            !Number.isFinite(longitude) ||
-            latitude < -90 ||
-            latitude > 90 ||
-            longitude < -180 ||
-            longitude > 180
-        ) {
-            log.warn('[GpsService] foreground native geolocation returned invalid coordinates');
+        try {
+            while (Date.now() < deadline) {
+                let fix: Position | undefined;
+                try {
+                    const result = await Promise.race([
+                        Geolocation.getCurrentPosition({
+                            // Android may request fine permission for a high-accuracy
+                            // call. Rechecked approximate grants must stay approximate.
+                            enableHighAccuracy: canUseForegroundHighAccuracy(permission, enableHighAccuracy),
+                            timeout: deadline - Date.now(),
+                            maximumAge: staleLimitMs,
+                        }),
+                        timedOut,
+                    ]);
+                    if (!result) return null;
+                    fix = result;
+                } catch (error) {
+                    // Capacitor's native positionUnavailable can be the first
+                    // cold-start response. Permission/provider failures and other
+                    // errors must still fail immediately, without another request.
+                    if ((error as { code?: unknown } | null)?.code !== 'OS-PLUG-GLOC-0002') throw error;
+                }
+
+                const receivedAt = Date.now();
+                if (receivedAt >= deadline) return null;
+                if (fix) {
+                    const timestamp = fix.timestamp;
+                    const timestampIsInvalid =
+                        !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > receivedAt + 1_000;
+                    if (timestampIsInvalid) {
+                        log.warn('[GpsService] foreground native geolocation returned an invalid timestamp');
+                        return null;
+                    }
+
+                    const { latitude, longitude, accuracy, altitude, heading, speed } = fix.coords;
+                    if (
+                        !Number.isFinite(latitude) ||
+                        !Number.isFinite(longitude) ||
+                        latitude < -90 ||
+                        latitude > 90 ||
+                        longitude < -180 ||
+                        longitude > 180
+                    ) {
+                        log.warn('[GpsService] foreground native geolocation returned invalid coordinates');
+                        return null;
+                    }
+                    if (requestedAt - timestamp <= staleLimitMs) {
+                        return { latitude, longitude, accuracy, altitude, heading, speed: speed ?? 0, timestamp };
+                    }
+                }
+
+                // Capacitor iOS does not forward maximumAge to its native
+                // location library; a cold request may return the old OS cache
+                // first. Wait for a fresh sample within this request's original
+                // budget, keeping both its freshness boundary and total timeout.
+                await Promise.race([
+                    new Promise<void>((resolve) => {
+                        retryTimer = setTimeout(resolve, Math.min(NATIVE_REACQUIRE_DELAY_MS, deadline - Date.now()));
+                    }),
+                    timedOut,
+                ]);
+                if (Date.now() >= deadline) return null;
+
+                // Permission can change during the pause. Never let a retry
+                // prompt or upgrade an approximate-only foreground grant.
+                const latestPermission = await Promise.race([Geolocation.checkPermissions(), timedOut]);
+                if (
+                    !latestPermission ||
+                    (latestPermission.location !== 'granted' && latestPermission.coarseLocation !== 'granted')
+                ) {
+                    return null;
+                }
+                permission = latestPermission;
+            }
             return null;
+        } finally {
+            clearTimeout(deadlineTimer);
+            clearTimeout(retryTimer);
         }
-        return {
-            latitude,
-            longitude,
-            accuracy,
-            altitude,
-            heading,
-            speed: speed ?? 0,
-            timestamp,
-        };
     }
 
     /**
