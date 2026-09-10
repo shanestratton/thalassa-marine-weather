@@ -116,8 +116,37 @@ single-polygon clone, the 80-by-80 crossing-strip operation, and an admitted
 exception incorrectly treating empty strips as a whole-bounding-box clip.
 Small exact clips, aggregate budget boundaries and cleanup remain covered.
 
-Final full-suite and rebuilt-artifact results are recorded below when complete.
+Final source candidate: `a25fd660d39a9e2a9c58c5d2ff69d52f916f1707`, pushed to
+`codex/build-107-daylight-split-view`.
+
+- Full unit suite: **9,968 passed**, three existing expected failures and five
+  skips (1,112 suites passed; four skipped). No unexpected failures.
+- Full lint: zero errors, 59 warnings; all 163 migration audits passed.
+- TypeScript passed after correcting a test-only mocked coordinate type to
+  an explicit two-number tuple. Its ten-test suite was then rerun and passed;
+  no runtime production logic or assertion was changed by that correction.
+- `VITE_APP_BUILD=111 npm run ship:beta` passed: TypeScript, production build,
+  byte-identical preview routes/assets, bundle limits, route audit, iOS sync,
+  client-secret checks and all 140 final artifact release contracts.
+- All four native build counters are 111. All **418** generated files are
+  byte-identical to their copies under `ios/App/App/public`.
+- Bundle: `main-CvPkGaJI.js`; SHA-256:
+  `fe52be262e913f1f656b6c11180443c7cb80ee26d3fc0642b874ebd171285cb0`.
+- Bundle size: 13.33 MB total; 9.87 MB JavaScript, below the unchanged
+  9.90-MB JavaScript limit. No budget was raised.
+
+The final production-browser run passed **50 checks** in Chromium and mobile
+WebKit against this exact built bundle: location selection, GPS recovery,
+chart warnings/attribution, and OBS map mounting/styles. These use controlled
+browser fixtures rather than the physical phone's licensed chart inventory.
+Local release evidence is in `/private/tmp/thalassa-111-final.MJ6uHX/`.
+
+GitHub's draft PR #38 reports `CONFLICTING` / `DIRTY` against `master`, and
+there is no CI workflow run attached to this source commit. Local test/build
+success must not be described as GitHub CI success. No merge, conflict
+resolution, native archive or TestFlight upload was performed in this task.
+
 Desktop/browser checks cannot establish that the physical iOS memory issue is
 closed. Acceptance still requires Town Common → OBS on the new native build,
 with the same chart inventory, without another WebContent termination. Build
-110 has not been altered; no 111 upload is claimed.
+110 has not been altered.
