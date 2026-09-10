@@ -2,7 +2,7 @@
  * GuardianPage — smoke tests (856 LOC component)
  */
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const authState = vi.hoisted(() => ({ user: { id: 'current-user' } as { id: string } | null }));
@@ -443,5 +443,84 @@ describe('GuardianPage', () => {
         finishReport({ success: true, notified: 1 });
         await Promise.resolve();
         expect(screen.queryByDisplayValue('Account A private report')).not.toBeInTheDocument();
+    });
+
+    it('labels the server-confirmed sender entry in the alert feed', async () => {
+        await renderWithArmedProfile();
+        const listener = vi.mocked(GuardianService.subscribe).mock.calls.at(-1)![0];
+        act(() => {
+            listener({
+                ...guardianState.current,
+                alerts: [
+                    {
+                        id: 'server-alert-id',
+                        alert_type: 'weather_spike',
+                        source_vessel_name: 'Test Vessel',
+                        title: 'Weather alert',
+                        body: 'Wind building in the bay',
+                        lat: -33.8,
+                        lon: 151.2,
+                        data: { sent_by_you: true },
+                        created_at: new Date().toISOString(),
+                    },
+                ],
+            });
+        });
+        const feed = within(screen.getByTestId('guardian-alert-feed'));
+        expect(feed.getByText('Sent by you')).toBeInTheDocument();
+        expect(feed.getByText('Wind building in the bay')).toBeInTheDocument();
+        expect(feed.queryByText('from Test Vessel')).not.toBeInTheDocument();
+    });
+
+    it.each([0, 2])(
+        'confirms own-feed storage and reports %i other vessels as queued, not received',
+        async (notified) => {
+            vi.mocked(GuardianService.reportSuspicious).mockResolvedValueOnce({
+                success: true,
+                notified,
+                feedConfirmed: true,
+            });
+            await renderWithArmedProfile();
+            fireEvent.click(screen.getByRole('button', { name: 'Report suspicious activity in your area' }));
+            fireEvent.change(await screen.findByRole('textbox', { name: 'Suspicious activity details' }), {
+                target: { value: 'Please check the bay' },
+            });
+            fireEvent.click(screen.getByRole('button', { name: 'Broadcast suspicious activity alert' }));
+            const feedback = await screen.findByRole('status');
+            expect(feedback).toHaveTextContent('Saved to your alert feed.');
+            expect(feedback).toHaveTextContent(
+                notified ? 'Notifications queued for 2 nearby vessels.' : 'No nearby vessels were available to notify.',
+            );
+            expect(feedback).not.toHaveTextContent(/received|delivered/i);
+        },
+    );
+
+    it('confirms weather alerts use the same own-feed receipt', async () => {
+        vi.mocked(GuardianService.broadcastWeatherSpike).mockResolvedValueOnce({
+            success: true,
+            notified: 1,
+            feedConfirmed: true,
+        });
+        await renderWithArmedProfile();
+        fireEvent.click(screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Send weather alert: Strong winds expected' }));
+        expect(await screen.findByRole('status')).toHaveTextContent(
+            'Saved to your alert feed. Notifications queued for 1 nearby vessel.',
+        );
+    });
+
+    it('does not claim the feed is confirmed when the response is missing its receipt', async () => {
+        vi.mocked(GuardianService.broadcastWeatherSpike).mockResolvedValueOnce({
+            success: true,
+            notified: 0,
+            feedConfirmed: false,
+        });
+        await renderWithArmedProfile();
+        fireEvent.click(screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Send weather alert: Strong winds expected' }));
+        expect(await screen.findByRole('status')).toHaveTextContent(
+            'Alert sent; waiting for feed confirmation. Please don’t resend.',
+        );
+        expect(screen.queryByText('Sent by you')).not.toBeInTheDocument();
     });
 });

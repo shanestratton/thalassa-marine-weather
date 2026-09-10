@@ -16,6 +16,7 @@ import {
     GuardianService,
     NearbyUser,
     GuardianAlert,
+    GuardianBroadcastResult,
     HAIL_MESSAGES,
     WEATHER_TEMPLATES,
 } from '../services/GuardianService';
@@ -60,6 +61,13 @@ function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
 
 type GuardianFeedback = { tone: 'error' | 'success'; message: string };
 type GuardianCoverageStatus = 'inactive' | 'checking' | 'ready' | 'unavailable';
+
+function broadcastFeedback(result: GuardianBroadcastResult): string {
+    if (!result.feedConfirmed) return 'Alert sent; waiting for feed confirmation. Please don’t resend.';
+    return result.notified > 0
+        ? `Saved to your alert feed. Notifications queued for ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
+        : 'Saved to your alert feed. No nearby vessels were available to notify.';
+}
 
 const GUARDIAN_INIT_TIMEOUT_MS = 15_000;
 
@@ -485,15 +493,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             setShowReport(false);
             setFeedback({
                 tone: 'success',
-                message:
-                    result.notified > 0
-                        ? `Safety alert broadcast to ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
-                        : 'Safety alert broadcast.',
+                message: broadcastFeedback(result),
             });
         } else {
             setFeedback({
                 tone: 'error',
-                message: 'The safety alert could not be sent. Confirm your GPS fix and connection, then try again.',
+                message: result.uncertain
+                    ? 'Could not confirm whether the alert was saved. Check your feed before sending again.'
+                    : 'The safety alert could not be sent. Confirm your GPS fix and connection, then try again.',
             });
         }
     }, [authUserId, reportText]);
@@ -534,16 +541,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 setShowWeather(false);
                 setFeedback({
                     tone: 'success',
-                    message:
-                        result.notified > 0
-                            ? `Weather alert broadcast to ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
-                            : 'Weather alert broadcast.',
+                    message: broadcastFeedback(result),
                 });
             } else {
                 setFeedback({
                     tone: 'error',
-                    message:
-                        'The weather alert could not be sent. Confirm your GPS fix and connection, then try again.',
+                    message: result.uncertain
+                        ? 'Could not confirm whether the alert was saved. Check your feed before sending again.'
+                        : 'The weather alert could not be sent. Confirm your GPS fix and connection, then try again.',
                 });
             }
         },
@@ -1031,9 +1036,11 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                                     <p className="text-sm text-gray-300 mt-0.5 line-clamp-2">
                                                         {alert.body}
                                                     </p>
-                                                    {alert.source_vessel_name && (
+                                                    {(alert.data?.sent_by_you === true || alert.source_vessel_name) && (
                                                         <div className="text-[12px] text-gray-500 mt-1">
-                                                            from {alert.source_vessel_name}
+                                                            {alert.data?.sent_by_you === true
+                                                                ? 'Sent by you'
+                                                                : `from ${alert.source_vessel_name}`}
                                                         </div>
                                                     )}
                                                 </div>
