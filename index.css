@@ -3587,6 +3587,14 @@ body,
     transform: translateX(-50%);
 }
 
+/* Preserve both words and the 44px finger target without letting the CTA's
+   max-content width squeeze the safety text into seven narrow lines. System
+   font metrics differ across platforms; wrapping is part of this layout. */
+.thalassa-enc-coverage-notice > button {
+    inline-size: min-content;
+    white-space: normal;
+}
+
 /* Use one positioning property throughout. Tailwind's production optimizer
    folds translate:none into transform:none, which cannot cancel a separate
    utility-class translate. This badge therefore owns transform in both modes. */
@@ -3611,6 +3619,7 @@ body,
         top: calc(148px + env(safe-area-inset-top));
         left: calc(72px + env(safe-area-inset-left));
         width: min(390px, calc(100% - 224px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        padding-block: 4px;
         transform: none;
     }
     .thalassa-enc-tide-badge {
@@ -3653,7 +3662,17 @@ body,
         top: calc(4rem + 200px);
         left: 64px;
         width: calc(100% - 76px);
+        /* Give the sentence the whole row. Beside a nonshrinking button it
+           can outgrow the space above scale/credits even at the same font
+           size. Both rows stay in normal flow; no clipped or hidden text. */
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        padding-block: 4px;
         transform: none;
+    }
+    .thalassa-enc-coverage-notice > button {
+        align-self: flex-end;
     }
 }
 
