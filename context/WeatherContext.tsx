@@ -77,7 +77,7 @@ export interface WeatherPositionSource {
     kind: WeatherFixKind | null;
     timestamp: number;
     target?: WeatherFollowTarget;
-    status?: 'live' | 'last-known' | 'unavailable';
+    status?: 'live' | 'last-known' | 'unavailable' | 'resolving';
     /** GPS is unavailable; the displayed forecast still belongs to this last verified selection. */
     retainedWeather?: boolean;
     rung?: BoatFixRung;
@@ -295,6 +295,14 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         },
         [],
     );
+    // Selecting a receiver is not a failed read. Clear the outgoing receiver's
+    // error in the same transition, without borrowing its fix or forecast.
+    const publishResolvingPosition = useCallback((target: WeatherFollowTarget) => {
+        const next: WeatherPositionSource = { kind: null, timestamp: 0, target, status: 'resolving' };
+        positionSourceRef.current = next;
+        setPositionSource(next);
+        setError(null);
+    }, []);
 
     // ── Refs ─────────────────────────────────────────────────
     const historyCacheRef = useRef<Record<string, MarineWeatherReport>>({});
@@ -711,13 +719,12 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             orchestrator.cancelPendingLocation();
             if (locationModeRef.current === 'gps') {
                 setWeatherData(null);
-                publishPositionSource(null, target);
-                setError(describeWeatherFix(null, Date.now(), target));
+                publishResolvingPosition(target);
             }
         };
         window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, changed);
         return () => window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, changed);
-    }, [isCurrentScope, orchestrator, publishPositionSource, setWeatherData]);
+    }, [isCurrentScope, orchestrator, publishResolvingPosition, setWeatherData]);
 
     // ── REFRESH / SELECT ────────────────────────────────────
     const refreshData = useCallback(
@@ -788,7 +795,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (persistPatch) updateSettings(persistPatch);
             if (isCurrent) {
                 selectionResolvingRef.current = true;
-                publishPositionSource(null, target);
+                publishResolvingPosition(target);
                 setWeatherData(null);
                 setBackgroundUpdating(true);
                 const fix = bootResolution
@@ -964,6 +971,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             isCurrentScope,
             orchestrator,
             publishPositionSource,
+            publishResolvingPosition,
             readFollowPosition,
             resolveFollowFix,
             setWeatherData,

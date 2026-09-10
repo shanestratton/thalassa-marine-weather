@@ -578,12 +578,15 @@ const App: React.FC = () => {
     const retainedLocationWeather = Boolean(
         positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData,
     );
-    const rawTitle =
-        positionSource?.status === 'unavailable' && !retainedLocationWeather
-            ? `${positionSource.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`
-            : weatherData
-              ? weatherData.locationName
-              : query || settings.defaultLocation || 'Select Location';
+    const resolvingLocation = positionSource?.status === 'resolving';
+    const resolvingLocationLabel = `Finding ${positionSource?.target === 'boat' ? 'boat' : 'phone'} location…`;
+    const rawTitle = resolvingLocation
+        ? resolvingLocationLabel
+        : positionSource?.status === 'unavailable' && !retainedLocationWeather
+          ? `${positionSource.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`
+          : weatherData
+            ? weatherData.locationName
+            : query || settings.defaultLocation || 'Select Location';
     let displayTitle = rawTitle;
 
     // Only catch truly raw/generic names:
@@ -663,6 +666,15 @@ const App: React.FC = () => {
                     >
                         Retry
                     </button>
+                </div>
+            ) : resolvingLocation ? (
+                <div
+                    className="flex-1 w-full h-full flex items-center justify-center px-6 text-center"
+                    role="status"
+                    aria-live="polite"
+                    data-testid="weather-position-resolving"
+                >
+                    <p className="text-sm opacity-80">{resolvingLocationLabel}</p>
                 </div>
             ) : !weatherData && !loading && !settings.defaultLocation ? (
                 // True empty state — no location set, nothing
