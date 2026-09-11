@@ -135,6 +135,10 @@ async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, v
         .poll(() =>
             page.getByTestId('radio-console-page').evaluate((element) => {
                 for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+                    // The page's double-rAF entry pose has no running CSS
+                    // animation yet. It must not become the geometry baseline.
+                    const phase = ancestor.getAttribute('data-transition-phase');
+                    if (phase && phase !== 'idle') return false;
                     if (ancestor.getAnimations().some((animation) => animation.playState === 'running')) return false;
                 }
                 return true;

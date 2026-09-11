@@ -44,6 +44,7 @@ export function useRadioSelectorAnchor() {
             );
         };
         const followLayout = () => {
+            if (!active) return;
             cancelAnimationFrame(frame);
             measure();
             // Page-entry transforms move a rectangle without resizing it.
@@ -58,12 +59,30 @@ export function useRadioSelectorAnchor() {
         const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(followLayout);
         ancestors.forEach((element) => observer?.observe(element));
         if (pane) observer?.observe(pane.host);
+        // PageTransition stages its off-screen pose before starting a CSS
+        // transition two frames later. That pose has no running animation,
+        // and changing transform does not notify ResizeObserver. Follow the
+        // ancestor's style/phase lifecycle as well, including its final idle
+        // pose, so a portal cannot retain the off-screen measurement.
+        const mutations = typeof MutationObserver === 'undefined' ? null : new MutationObserver(followLayout);
+        ancestors.forEach((element) =>
+            mutations?.observe(element, {
+                attributes: true,
+                attributeFilter: ['class', 'style', 'data-transition-phase'],
+            }),
+        );
+        const onTransition = (event: Event) => {
+            if (event.target instanceof HTMLElement && ancestors.includes(event.target)) followLayout();
+        };
         followLayout();
         window.addEventListener('resize', followLayout);
         window.addEventListener('orientationchange', followLayout);
         window.addEventListener('scroll', followLayout, true);
         document.addEventListener('animationstart', followLayout, true);
         document.addEventListener('animationend', followLayout, true);
+        document.addEventListener('transitionrun', onTransition, true);
+        document.addEventListener('transitionend', onTransition, true);
+        document.addEventListener('transitioncancel', onTransition, true);
         window.visualViewport?.addEventListener('resize', followLayout);
         void document.fonts?.ready.then(() => {
             if (active) followLayout();
@@ -72,11 +91,15 @@ export function useRadioSelectorAnchor() {
             active = false;
             cancelAnimationFrame(frame);
             observer?.disconnect();
+            mutations?.disconnect();
             window.removeEventListener('resize', followLayout);
             window.removeEventListener('orientationchange', followLayout);
             window.removeEventListener('scroll', followLayout, true);
             document.removeEventListener('animationstart', followLayout, true);
             document.removeEventListener('animationend', followLayout, true);
+            document.removeEventListener('transitionrun', onTransition, true);
+            document.removeEventListener('transitionend', onTransition, true);
+            document.removeEventListener('transitioncancel', onTransition, true);
             window.visualViewport?.removeEventListener('resize', followLayout);
         };
     }, [pane]);

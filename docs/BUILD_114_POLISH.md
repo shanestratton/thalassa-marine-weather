@@ -1,10 +1,10 @@
 # Build 114 — polish candidate
 
-Status: **built, synced and locally verified; not uploaded to TestFlight**.
+Status: **release held for a CI-discovered Radio layout repair; not uploaded to TestFlight**.
 Build 113 and its archive are unchanged. Version remains 1.2.0; the next native
 build counter is 114.
 
-Compiled source: `f781d6192747cb732600ba348a753e490ca4e678` on
+Superseded compiled source: `f781d6192747cb732600ba348a753e490ca4e678` on
 `codex/build-107-daylight-split-view`.
 
 ## Scope
@@ -139,6 +139,37 @@ disabled and the strict 1px comparisons were retained. Both the 12-case radio
 rerun and the full 205-pass browser rerun used the same compiled bundle.
 
 ## Release boundary
+
+### CI-discovered follow-up — September 11
+
+CI run `34564476570` for `926387dc` failed five Linux mobile-Safari Radio
+cases (200 passed, seven skipped). CodeQL and Lighthouse passed. No archive
+or upload was started. The local macOS WebKit results above did not reproduce
+this cross-platform timing sequence.
+
+The traces show the real defect: the portal anchor and browser baseline could
+be measured while `PageTransition` was in its staged `entering` pose, before
+its double-animation-frame CSS transition began. At that instant no CSS
+animation was running and subsequent transform changes did not resize the
+element. A phone dialog retained a 405.59375px left offset in a 390px viewport;
+the split-pane baseline was displaced by one 498px pane width.
+
+The follow-up observes ancestor style/transition-phase changes and transition
+completion/cancellation, with complete listener/observer cleanup. The browser
+test also requires the page transition to be idle before capturing its reference
+geometry; the strict one-pixel placement and visibility assertions remain.
+New hook regressions exercise delayed transform-only changes with no resize
+notification and no initially observable animation. Against the original hook,
+the identical suite fails all four new cases and passes its two original cases;
+with the repair, all six pass. The combined Radio layout, emergency-honesty,
+anchor and page-transition suites pass all 34 checks. Scoped lint, formatting
+and whitespace checks pass. A replacement build, packaged-browser checks and
+green CI are required before release.
+
+CI evidence: `/private/tmp/thalassa-114-radio-ci.8h9aPU/`.
+New release evidence directory: `/private/tmp/thalassa-release114.EIIB06/`.
+
+### Superseded candidate boundary
 
 The final follow-up commit changes only this evidence document and the radio
 browser test's transition wait; application code and packaged assets remain
