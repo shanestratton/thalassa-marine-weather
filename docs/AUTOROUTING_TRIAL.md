@@ -97,6 +97,21 @@ incorrect ResizeObserver test stub; its scoped replacement passed both the
 warnings), changed-file formatting passed, and the new Edge function passed
 Deno type checking and formatting. Source beta contracts passed 126 checks.
 
-Combined build results are recorded after packaging.
+`VITE_APP_BUILD=115 npm run ship:beta` completed successfully from source
+commit `26691b711a315dc6c0fbaa1629cf937547bb8a57`, explicitly pinned in the
+bundle's commit metadata. This includes the full TypeScript/production build,
+web-release and route-registry checks, bundle budget, Capacitor sync, artifact
+secret scans and all 140 final release contracts.
+
+- Main entry: `assets/main-D2REQGv4.js` (18,465 bytes).
+- Main SHA-256: `c0cf3fbf04d6939236b7a01496ec0cffb7b4ad1827b63b57cd29a6a6090610f3`.
+- JavaScript payload: 9,662,734 bytes (276 files), below the unchanged 9.9 MiB
+  cap and 714,575 bytes smaller than the recorded build 114 payload.
+- Sentry vendor chunk: 78,837 bytes, previously 448,220 bytes.
+- All 419 generated web files matched their embedded iOS copies byte-for-byte.
+
+The compiled artifact then passed all 12 Chromium/mobile-Safari smoke,
+planning-home/departure and Glass split-navigation regressions (25.4 seconds,
+zero retries or skips). The preview server was stopped by the test runner.
 Build 114's archive/upload are not part of this change. Build 115 is prepared
 locally only until a separate TestFlight release is requested.
