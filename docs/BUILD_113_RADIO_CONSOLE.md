@@ -1,5 +1,8 @@
 # Build 113 — radio workflow, retained GPS and a quieter Guardian
 
+> Historical record: candidate-stage statuses below are preserved as history.
+> Final release evidence is in [Build 113 — TestFlight](BUILD_113_TESTFLIGHT.md), which supersedes those statuses.
+
 Extends the unshipped 1.2.0 (113) candidate, including the Guardian, cold-start
 GPS and stable Glass footer changes. This task does not archive or upload to
 TestFlight, transmit radio calls or send test alerts.
