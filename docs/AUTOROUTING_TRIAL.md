@@ -147,5 +147,21 @@ source browser cases with no retries or skips, covering the real slider gesture,
 Manual isolation, Auto access gating, Close/Escape/reopening, and the retained
 chart/keyboard checks in phone and split-screen day/dark/night layouts.
 
-The replacement local build 115 identity and compiled-artifact results are
-recorded after the final build.
+The replacement local build 115 passed `npm run ship:beta` from source commit
+`e340c48cb74531ae8f75e5a4b16a8abce1568d36`, explicitly pinned through
+`GITHUB_SHA`. The compiled diagnostics identify commit `e340c48cb745` and build
+`115`. TypeScript, production build, release/bundle/route checks, Capacitor sync,
+artifact secret scans and all 140 final release contracts passed.
+
+- Main entry: `assets/main-1T3HmAbd.js` (18,465 bytes).
+- Main SHA-256: `64d1d7532b89f56a3206734c5521344329d9d8a63d75ac63d25f08a565a88980`.
+- JavaScript payload: 9,665,997 bytes (276 files), within the unchanged 9.9 MiB cap.
+- All 419 generated web files match their embedded iOS copies byte-for-byte.
+
+The compiled artifact passed all 14 selected Chromium/mobile-Safari smoke,
+planner and Glass split-navigation checks in 28.9 seconds, with no retries or
+skips. The new regression completes the real slider gesture, opens the choice,
+then selects Manual and verifies the existing tracer opens armed without an
+Auto calculation. Source-fixture checks separately cover authorized Auto.
+Build 115 remains local: no archive or TestFlight upload was requested for this
+entry-point revision. Build 114 is unchanged.
