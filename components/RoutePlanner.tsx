@@ -31,6 +31,7 @@ import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/de
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
+import { AutoroutingTrialCard } from './autorouting/AutoroutingTrialCard';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
@@ -758,6 +759,9 @@ export const RoutePlanner: React.FC<{
                                 previous leg's arrival). */}
                             <TripLegPicker onOpenChart={() => setPage('map')} />
                             <DepartControl />
+                            <AutoroutingTrialCard
+                                mapboxToken={mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ''}
+                            />
                             <div className="space-y-2">
                                 {(
                                     [

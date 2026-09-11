@@ -19,6 +19,7 @@ export default defineConfig({
         'sail-plan-layout.spec.ts',
         'boat-network-layout.spec.ts',
         'music-layout.spec.ts',
+        'autorouting-trial.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
