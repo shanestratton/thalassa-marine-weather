@@ -1,8 +1,11 @@
 # Build 114 — polish candidate
 
-Status: **implementation and verification in progress; not uploaded to TestFlight**.
+Status: **built, synced and locally verified; not uploaded to TestFlight**.
 Build 113 and its archive are unchanged. Version remains 1.2.0; the next native
 build counter is 114.
+
+Compiled source: `f781d6192747cb732600ba348a753e490ca4e678` on
+`codex/build-107-daylight-split-view`.
 
 ## Scope
 
@@ -73,11 +76,24 @@ no new cache-retention policy or publisher restart was introduced for this audit
 
 ## Completed integration checks
 
+- Full final unit suite: **10,322 passed**, three existing expected failures and
+  five skips; **1,132 suites passed**, four skipped. The first combined run found
+  two obsolete inline-source assertions after extracting the location-title
+  helper. Those now check its wiring and behaviour, with five additional
+  phone/vessel-state cases; the full suite was rerun successfully.
+- Full final exact-production browser suite: **205 passed**, seven existing
+  skips, zero failures or retries, Chromium and iPhone-profile WebKit (5.1 minutes).
+  This includes all 12 radio, 12 footer, six GPS-recovery and four location/model
+  selection cases. Final radio screenshots were reviewed in both browsers,
+  including the reduced-height night phone and iPad half pane.
 - Existing phone, keyboard, daylight and split-pane matrix: **200 passed**, zero
   retries, Chromium and WebKit.
 - Music matrix: **18 passed**, zero retries, both browsers at 390px/430px phone
   sizes and an iPad half pane, in day/dark/night themes. Initial and stopped
   player bounds match without a test-side scroll reset. Screenshots were reviewed.
+- All **12** packaged radio cases passed in both browsers, with zero retries.
+  Exact selector geometry, minimum 14px transcript type, final "Over.", retained
+  script positions and unverified-receiver safeguards remain asserted.
 - Music lifecycle and accessibility: **49 tests passed**. Delayed native results,
   Stop/Pause ordering, failure messages and same-track replay are covered.
 - Whole-project lint passed: zero errors and 59 warnings in unchanged files.
@@ -94,8 +110,41 @@ Music evidence: `/private/tmp/thalassa-music114.AvQhrP/music-checks.md`.
 Browser/native adapters in these tests are fixtures; no real music playback,
 authentication email, self-PM or emergency transmission was used for testing.
 
-## Remaining release verification
+## Packaged candidate
 
-Complete the combined production build, native sync, full tests and visual
-checks before marking this candidate ready. No archive, upload, external beta
-submission, authentication email or live music playback is implied by this file.
+`VITE_APP_BUILD=114 npm run ship:beta` passed TypeScript, production compilation,
+client-secret checks, web-release parity, bundle budgets, route checks, native
+sync and all **140** final beta contracts. All **418** web files exactly match
+their native copies; sync adds two Cordova stubs.
+
+Unsigned Debug native compilation was repeated after final sync and passed.
+Its plist reads **1.2.0 (114)**, and all **420** bundled public files match.
+No archive, distribution signing or App Store upload was performed.
+
+JavaScript payload is **10,376,746 bytes**, within the unchanged 9.9 MiB budget
+by only **4,156 bytes**. Future additions need size review; no limit was raised.
+
+| Asset                       | SHA-256                                                            |
+| --------------------------- | ------------------------------------------------------------------ |
+| `assets/main-DyPeVe84.js`   | `a7e3444b483b059e744ae6cacffeffe5e5aa25896b76f39fb03c92b4e575875f` |
+| `assets/index-D-TXmAXb.css` | `17eabbd70917e166d22330d2975b34519a2673e99cb7605a3360d6476b99bb65` |
+
+The first full production browser run passed 202 cases and skipped seven existing
+cases, but three Chromium phone-resize checks measured a selector mid-transition.
+The captured button height was 59.625px; both settled base and dialog were
+61.375px, with identical x/y/width. Fluid root font sizing changes the button's
+rem padding by exactly 1.75px. The test now awaits actual running/pending selector
+animations before capturing the resized baseline. No application animation was
+disabled and the strict 1px comparisons were retained. Both the 12-case radio
+rerun and the full 205-pass browser rerun used the same compiled bundle.
+
+## Release boundary
+
+The final follow-up commit changes only this evidence document and the radio
+browser test's transition wait; application code and packaged assets remain
+those of the compiled-source commit above. The branch is to be pushed together,
+with GitHub CI reported separately from these completed local checks.
+
+No archive, upload, external beta submission, authentication email or live music
+playback is implied by this file. App Store validation/upload and physical
+device acceptance remain separate steps; Build 113 stays the delivered beta.
