@@ -1,6 +1,6 @@
 # Build 114 — polish candidate
 
-Status: **release held for a CI-discovered Radio layout repair; not uploaded to TestFlight**.
+Status: **Radio layout repaired; replacement CI pending after splitting an oversized browser test. Not uploaded to TestFlight**.
 Build 113 and its archive are unchanged. Version remains 1.2.0; the next native
 build counter is 114.
 
@@ -139,6 +139,40 @@ disabled and the strict 1px comparisons were retained. Both the 12-case radio
 rerun and the full 205-pass browser rerun used the same compiled bundle.
 
 ## Release boundary
+
+### Bounded Radio journeys — September 11
+
+The corrected runtime was compiled from
+`02a7784094d64537ca34d0b074565bb7e45599ec`. Full replacement local checks
+passed: 10,326 unit tests, 205 production browser cases (seven existing skips),
+and all 218 source-layout cases. The 418-file web bundle matches native public
+files, plus two Cordova stubs. Its main asset is `assets/main-CfrfUo2f.js`,
+SHA-256 `2778360847856998f2bd715fec31cf0eab08cce065dc9b5307359fbe0361fecc`.
+The older packaged-candidate section above is historical and superseded.
+
+CI `34567760840` passed 204 production browser cases and skipped seven existing
+cases, but its combined three-mode iPad Radio journey exhausted a 90-second
+whole-test budget. The retry trace completed setup in 21.47s, Routine in 29.76s
+and Urgency in 26.51s, leaving 12.25s for Distress. No single long operation
+caused the timeout; the longest preceding successful action was 3.885s.
+All 18 strict one-pixel selector checks passed, with the previous one-pane
+offset gone. CodeQL and Lighthouse passed. No 114 archive or upload began.
+
+Routine, Urgency and Distress are now independent bounded cases per viewport.
+Each retains the original 90-second limit and unchanged individual assertion
+limits; no app animation, geometry check or safety assertion is disabled.
+Cross-mode Routine-to-Urgency readback, Urgency's VHF roundtrip, Distress's
+frozen coordinates/manual update, companion-pane interaction and phone resize
+remain covered. Reopening explicitly verifies the retained mode, correct
+pane and stable selectors before closing. Only tests and this evidence change;
+the compiled app and synced assets remain those of `02a77840`.
+
+Timing trace: `/private/tmp/thalassa-114-radio-timing.5SHL3B/`.
+Replacement focused verification: `/private/tmp/thalassa-114-radio-modes.DkrxGa/`.
+All **28 Radio cases passed** in Chromium and iPhone-profile WebKit, with
+two workers, no retries and no skips (1.5 minutes). Scoped ESLint and Prettier
+checks passed. All 418 web files still match the native copies and the main
+hash above is unchanged. New GitHub release gates must pass before archive/upload.
 
 ### CI-discovered follow-up — September 11
 

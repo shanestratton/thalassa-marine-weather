@@ -357,31 +357,34 @@ const viewports: RadioViewport[] = [
 ];
 
 for (const viewport of viewports) {
-    test(`Radio instructions lead to a complete voice transcript at ${viewport.width}x${viewport.height}${viewport.split ? ' split' : ''}`, async ({
-        page,
-        baseURL,
-    }, testInfo) => {
-        test.setTimeout(90_000);
-        await openRadio(page, baseURL!, viewport);
-        const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
-        const transcriptDialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
-        const transcript = transcriptDialog.getByTestId('dsc-transcript');
-        const close = transcriptDialog.getByRole('button', { name: 'Close voice transcript', exact: true });
-        const consolePage = page.getByTestId('radio-console-page');
-        const selectorBaseline = await selectorGeometry(consolePage);
-        await expectStableSelectors(page, instructions, selectorBaseline);
-        await instructions.getByRole('button', { name: 'Close vhf instructions', exact: true }).click();
-        await expectStableSelectors(page, consolePage, selectorBaseline);
-        const selectorBottom = selectorBaseline[0].y + selectorBaseline[0].height;
-        expect(selectorBottom).toBeLessThan((await consolePage.getByTestId('radio-console-body').boundingBox())!.y);
-        await page.screenshot({
-            path: testInfo.outputPath('console-top-selectors.png'),
-            fullPage: true,
-            animations: 'disabled',
-        });
-        await consolePage.getByRole('button', { name: /^Routine/ }).click();
+    for (const mode of ['routine', 'urgency', 'distress'] as const) {
+        test(`Radio ${mode} instructions lead to a complete voice transcript at ${viewport.width}x${viewport.height}${viewport.split ? ' split' : ''}`, async ({
+            page,
+            baseURL,
+        }, testInfo) => {
+            // Each mode gets the same bounded journey budget. Linux WebKit spent
+            // most of the previous shared 90s on successful Routine/Urgency checks,
+            // leaving only 12s for Distress; assertion budgets remain unchanged.
+            test.setTimeout(90_000);
+            await openRadio(page, baseURL!, viewport);
+            const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
+            const transcriptDialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
+            const transcript = transcriptDialog.getByTestId('dsc-transcript');
+            const close = transcriptDialog.getByRole('button', { name: 'Close voice transcript', exact: true });
+            const consolePage = page.getByTestId('radio-console-page');
+            const selectorBaseline = await selectorGeometry(consolePage);
+            await expectStableSelectors(page, instructions, selectorBaseline);
+            await instructions.getByRole('button', { name: 'Close vhf instructions', exact: true }).click();
+            await expectStableSelectors(page, consolePage, selectorBaseline);
+            const selectorBottom = selectorBaseline[0].y + selectorBaseline[0].height;
+            expect(selectorBottom).toBeLessThan((await consolePage.getByTestId('radio-console-body').boundingBox())!.y);
+            await page.screenshot({
+                path: testInfo.outputPath('console-top-selectors.png'),
+                fullPage: true,
+                animations: 'disabled',
+            });
+            await consolePage.getByRole('button', { name: new RegExp(`^${mode}`, 'i') }).click();
 
-        for (const mode of ['routine', 'urgency', 'distress'] as const) {
             await test.step(mode, async () => {
                 await expect(instructions).toBeVisible();
                 await expect(transcriptDialog).toHaveCount(0);
@@ -528,31 +531,45 @@ for (const viewport of viewports) {
                 if (viewport.split) await expect(page.locator('[data-split-pane="page"]')).not.toHaveAttribute('inert');
                 const reopen = page.getByRole('button', { name: /^Prepare voice call/ });
                 await expect(reopen).toBeInViewport();
-                if (mode !== 'distress') await reopen.click();
+                await reopen.click();
+                await expect(instructions).toBeVisible();
+                await expect(transcriptDialog).toHaveCount(0);
+                await expectDialogFrame(page, instructions, viewport.split);
+                await expectStableSelectors(page, instructions, selectorBaseline);
+                // Routine deliberately switched to Urgency during its active
+                // readback; reopening must preserve that explicit choice.
+                const reopenedMode = mode === 'routine' ? 'urgency' : mode;
+                await expect(
+                    instructions.getByRole('button', { name: new RegExp(`^${reopenedMode}`, 'i') }),
+                ).toHaveAttribute('aria-pressed', 'true');
+                await instructions.getByRole('button', { name: 'Close vhf instructions', exact: true }).click();
+                await expect(instructions).toHaveCount(0);
+                await expectStableSelectors(page, consolePage, selectorBaseline);
+                if (viewport.split) await expect(page.locator('[data-split-pane="page"]')).not.toHaveAttribute('inert');
             });
-        }
-        if (!viewport.split) {
-            // Reflow the actual page/portal origins, then compare the new exact slot.
-            await page.setViewportSize({ width: viewport.width === 390 ? 430 : 390, height: viewport.height });
-            // Fluid root type changes the pills' rem padding. Chromium animates
-            // that transition (59.625 -> 61.375px at 390 -> 430), so record the
-            // settled base rather than a 1.75px-short mid-transition height.
-            // Keep the strict 1px comparisons; do not disable app animations.
-            await consolePage.getByTestId('radio-call-selector').evaluate(async (selector) => {
-                await Promise.all(
-                    selector
-                        .getAnimations({ subtree: true })
-                        .filter((animation) => animation.pending || animation.playState === 'running')
-                        .map((animation) => animation.finished.catch(() => undefined)),
-                );
-            });
-            const resizedBaseline = await selectorGeometry(consolePage);
-            await consolePage.getByRole('button', { name: /^Distress/ }).click();
-            await expectStableSelectors(page, instructions, resizedBaseline);
-            await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
-            await expectStableSelectors(page, transcriptDialog, resizedBaseline);
-            await close.click();
-            await expectStableSelectors(page, consolePage, resizedBaseline);
-        }
-    });
+            if (mode === 'distress' && !viewport.split) {
+                // Reflow the actual page/portal origins, then compare the new exact slot.
+                await page.setViewportSize({ width: viewport.width === 390 ? 430 : 390, height: viewport.height });
+                // Fluid root type changes the pills' rem padding. Chromium animates
+                // that transition (59.625 -> 61.375px at 390 -> 430), so record the
+                // settled base rather than a 1.75px-short mid-transition height.
+                // Keep the strict 1px comparisons; do not disable app animations.
+                await consolePage.getByTestId('radio-call-selector').evaluate(async (selector) => {
+                    await Promise.all(
+                        selector
+                            .getAnimations({ subtree: true })
+                            .filter((animation) => animation.pending || animation.playState === 'running')
+                            .map((animation) => animation.finished.catch(() => undefined)),
+                    );
+                });
+                const resizedBaseline = await selectorGeometry(consolePage);
+                await consolePage.getByRole('button', { name: /^Distress/ }).click();
+                await expectStableSelectors(page, instructions, resizedBaseline);
+                await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
+                await expectStableSelectors(page, transcriptDialog, resizedBaseline);
+                await close.click();
+                await expectStableSelectors(page, consolePage, resizedBaseline);
+            }
+        });
+    }
 }
