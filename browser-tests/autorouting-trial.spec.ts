@@ -229,8 +229,13 @@ for (const size of sizes)
             const chart = page.getByRole('region', { name: /Trial chart/ });
             const chartBox = await chart.boundingBox();
             await chart.click({ position: { x: chartBox!.width * 0.4, y: chartBox!.height * 0.4 } });
-            await expect(page.getByRole('button', { name: /departure position set/i })).toBeVisible();
+            await expect(page.getByRole('button', { name: /^departure/i })).toContainText(/\d+°\d{2}\.\d{3}′[NS]/);
+            await expect(page.getByRole('button', { name: /^departure/i })).toContainText(/\d{3}°\d{2}\.\d{3}′[EW]/);
             await chart.click({ position: { x: chartBox!.width * 0.65, y: chartBox!.height * 0.7 } });
+            await expect(page.getByRole('button', { name: /^destination/i })).toContainText(/\d+°\d{2}\.\d{3}′[NS]/);
+            await expect(page.getByRole('button', { name: /^destination/i })).toContainText(/\d{3}°\d{2}\.\d{3}′[EW]/);
+            await fits(page, size.pane);
+            await capture(page, info, 'trial-endpoints');
             const calculate = page.getByRole('button', { name: 'Calculate trial route' });
             await expect(calculate).toBeEnabled();
             await calculate.click();

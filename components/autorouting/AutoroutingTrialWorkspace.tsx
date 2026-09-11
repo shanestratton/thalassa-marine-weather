@@ -17,6 +17,7 @@ import {
     type AutoroutingTrialStatus,
 } from '../../services/autoroutingTrial';
 import { AUTOROUTING_TRIAL_MAX_DRAFT_M, AUTOROUTING_TRIAL_MAX_SPEED_KTS } from '../../types/autorouting';
+import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 
 export interface AutoroutingTrialWorkspaceProps {
     onClose: () => void;
@@ -350,22 +351,34 @@ export function AutoroutingTrialWorkspace({
                         </p>
                     )}
                     <div className="grid grid-cols-2 gap-2">
-                        {(['departure', 'destination'] as const).map((name) => (
-                            <button
-                                type="button"
-                                key={name}
-                                aria-pressed={target === name}
-                                onClick={() => setTarget(name)}
-                                className={`${buttonClass} min-w-0 text-left ${target === name ? 'border-teal-400 bg-teal-500/10' : ''}`}
-                            >
-                                <span className="block capitalize">{name}</span>
-                                <span className="block text-micro font-normal">
-                                    {point(name === 'departure' ? departure : destination)
-                                        ? 'Position set'
-                                        : 'Tap chart or enter below'}
-                                </span>
-                            </button>
-                        ))}
+                        {(['departure', 'destination'] as const).map((name) => {
+                            const position = name === 'departure' ? start : end;
+                            return (
+                                <button
+                                    type="button"
+                                    key={name}
+                                    aria-pressed={target === name}
+                                    onClick={() => setTarget(name)}
+                                    className={`${buttonClass} min-w-0 py-2 text-left ${target === name ? 'border-teal-400 bg-teal-500/10' : ''}`}
+                                >
+                                    <span className="block capitalize">{name}</span>
+                                    <span className="block text-micro font-normal">
+                                        {position ? (
+                                            <>
+                                                <span className="block whitespace-nowrap tabular-nums">
+                                                    {formatLatDegMin(position.lat)}
+                                                </span>{' '}
+                                                <span className="block whitespace-nowrap tabular-nums">
+                                                    {formatLonDegMin(position.lon)}
+                                                </span>
+                                            </>
+                                        ) : (
+                                            'Tap chart or enter below'
+                                        )}
+                                    </span>
+                                </button>
+                            );
+                        })}
                     </div>
                     <details>
                         <summary className="min-h-11 cursor-pointer content-center text-sm">Enter coordinates</summary>
