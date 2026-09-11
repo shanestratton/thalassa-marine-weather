@@ -1,8 +1,14 @@
 # Build 114 — polish candidate
 
-Status: **Radio layout repaired; replacement CI pending after splitting an oversized browser test. Not uploaded to TestFlight**.
-Build 113 and its archive are unchanged. Version remains 1.2.0; the next native
-build counter is 114.
+Status: **1.2.0 (114) is Testing in the existing Skipper TestFlight group**.
+Apple processing, saved English (Australia) notes and group availability were
+verified by 18:24 AEST, September 11, 2026. See the authoritative
+[Build 114 native release report](./BUILD_114_TESTFLIGHT.md).
+
+The candidate checks and pending/no-upload statements below are retained as
+historical development evidence, not the current release status. Build 113 and
+its archive remain unchanged. The final runtime is `02a77840`; the green-CI
+release checkout is `c1b48306`, with only subsequent test/documentation changes.
 
 Superseded compiled source: `f781d6192747cb732600ba348a753e490ca4e678` on
 `codex/build-107-daylight-split-view`.
