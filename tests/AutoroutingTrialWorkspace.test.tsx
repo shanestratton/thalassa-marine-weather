@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { AutoroutingTrialWorkspace } from '../components/autorouting/AutoroutingTrialWorkspace';
@@ -241,8 +241,15 @@ describe('isolated autorouting trial workspace', () => {
         const tap = (lat: number, lon: number) =>
             act(() => mocks.maps[0].handlers.get('click')!({ lngLat: { lat, wrap: () => ({ lng: lon }) } }));
         tap(-27.2, 153.15);
+        const departureButton = screen.getByRole('button', { name: /^departure/i });
+        expect(within(departureButton).getByText('27°12.000′S')).toBeVisible();
+        expect(within(departureButton).getByText('153°09.000′E')).toBeVisible();
         expect(screen.getByRole('button', { name: /Destination/i })).toHaveAttribute('aria-pressed', 'true');
         tap(-27, 153.4);
+        const destinationButton = screen.getByRole('button', { name: /^destination/i });
+        expect(within(destinationButton).getByText('27°00.000′S')).toBeVisible();
+        expect(within(destinationButton).getByText('153°24.000′E')).toBeVisible();
+        expect(screen.queryByText('Position set')).not.toBeInTheDocument();
         expect(features().map((feature) => feature.geometry)).toEqual([
             { type: 'Point', coordinates: [153.15, -27.2] },
             { type: 'Point', coordinates: [153.4, -27] },
@@ -250,9 +257,45 @@ describe('isolated autorouting trial workspace', () => {
         fireEvent.click(screen.getByRole('button', { name: /Departure/i }));
         tap(-27.1, 153.2);
         expect(screen.getByLabelText('departure latitude')).toHaveValue(-27.1);
+        expect(within(departureButton).getByText('27°06.000′S')).toBeVisible();
+        expect(within(departureButton).getByText('153°12.000′E')).toBeVisible();
         expect(mocks.maps).toHaveLength(1);
         expect(mocks.calculate).not.toHaveBeenCalled();
     });
+
+    it.each([
+        ['19.999999', '-146.82', '20°00.000′N', '146°49.200′W'],
+        ['-89.999999', '179.999999', '90°00.000′S', '180°00.000′E'],
+        ['90', '-180', '90°00.000′N', '180°00.000′W'],
+        ['0', '0', '0°00.000′N', '000°00.000′E'],
+    ])(
+        'shows manually entered %s, %s without changing the request coordinates',
+        async (lat, lon, latitude, longitude) => {
+            await openWorkspace();
+            fillRequest();
+            fireEvent.change(screen.getByLabelText('departure latitude'), { target: { value: lat } });
+            fireEvent.change(screen.getByLabelText('departure longitude'), { target: { value: lon } });
+            const button = screen.getByRole('button', { name: /^departure/i });
+            expect(within(button).getByText(latitude)).toBeVisible();
+            expect(within(button).getByText(longitude)).toBeVisible();
+            fireEvent.click(calculateButton());
+            await waitFor(() => expect(mocks.calculate).toHaveBeenCalled());
+            expect(mocks.calculate.mock.calls[0][0].departure).toEqual({ lat: +lat, lon: +lon });
+        },
+    );
+
+    it.each(['', '91'])(
+        'removes the displayed coordinates when an endpoint becomes incomplete or invalid (%s)',
+        async (lat) => {
+            await openWorkspace();
+            fillRequest();
+            fireEvent.change(screen.getByLabelText('departure latitude'), { target: { value: lat } });
+            const button = screen.getByRole('button', { name: /^departure/i });
+            expect(button).toHaveTextContent('Tap chart or enter below');
+            expect(button).not.toHaveTextContent('°');
+            expect(calculateButton()).toBeDisabled();
+        },
+    );
 
     it.each([
         'departure latitude',
@@ -286,6 +329,11 @@ describe('isolated autorouting trial workspace', () => {
         expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
         expect(screen.getByLabelText('Trial vessel draft in metres')).toHaveValue(null);
         expect(screen.getByLabelText('Trial cruising speed in knots')).toHaveValue(null);
+        for (const endpoint of [/^departure/i, /^destination/i]) {
+            const button = screen.getByRole('button', { name: endpoint });
+            expect(button).toHaveTextContent('Tap chart or enter below');
+            expect(button).not.toHaveTextContent('°');
+        }
         expect(features()).toEqual([]);
         expect(calculateButton()).toBeDisabled();
         expect(mocks.maps).toHaveLength(1);
