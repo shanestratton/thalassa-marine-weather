@@ -20,6 +20,7 @@ const plannerMocks = vi.hoisted(() => ({
     loadSavedRouteLibrary: vi.fn(),
     deleteLogbookRouteFromLibrary: vi.fn(),
     deleteTrace: vi.fn(),
+    fetchSeaVoyageChoices: vi.fn(),
     canonicalRoutes: [] as Array<Record<string, unknown>>,
     mergedRoutes: [] as Array<Record<string, unknown>>,
     savedTraces: [] as SavedTrace[],
@@ -87,6 +88,46 @@ vi.mock('../services/savedRouteLibrary', () => ({
     loadSavedRouteLibrary: plannerMocks.loadSavedRouteLibrary,
     deleteLogbookRouteFromLibrary: plannerMocks.deleteLogbookRouteFromLibrary,
 }));
+vi.mock('../services/shiplog/RoutesAndTracks', () => ({
+    fetchSeaVoyageChoices: plannerMocks.fetchSeaVoyageChoices,
+}));
+// Exercise the real planner/slider and existing library handoffs here; the
+// dialog's actual entitlement, portal, focus and Auto workspace live in its
+// own suite. This child intentionally has no page or tracer callback for Auto.
+vi.mock('../components/autorouting/RoutingModeDialog', () => ({
+    RoutingModeDialog: ({
+        mapboxToken,
+        onClose,
+        onManual,
+    }: {
+        mapboxToken: string;
+        onClose: () => void;
+        onManual: () => void;
+    }) => {
+        const [auto, setAuto] = React.useState(false);
+        return (
+            <div role="dialog" aria-label="Routing mode choice" data-mapbox-token={mapboxToken}>
+                <button type="button" onClick={onClose}>
+                    Close routing choice
+                </button>
+                {auto ? (
+                    <div role="region" aria-label="Isolated auto workspace">
+                        Unsaved auto proposal
+                    </div>
+                ) : (
+                    <>
+                        <button type="button" onClick={onManual}>
+                            Manual
+                        </button>
+                        <button type="button" onClick={() => setAuto(true)}>
+                            Auto Routing
+                        </button>
+                    </>
+                )}
+            </div>
+        );
+    },
+}));
 vi.mock('../services/routeTracer', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../services/routeTracer')>();
     return { ...actual, deleteTrace: plannerMocks.deleteTrace, loadSavedTraces: () => plannerMocks.savedTraces };
@@ -140,6 +181,7 @@ describe('RoutePlanner', () => {
         plannerMocks.consumeSavedRoutesLibraryOpen.mockReturnValue(false);
         plannerMocks.deleteLogbookRouteFromLibrary.mockResolvedValue(true);
         plannerMocks.deleteTrace.mockReturnValue(true);
+        plannerMocks.fetchSeaVoyageChoices.mockResolvedValue([]);
         plannerMocks.loadSavedRouteLibrary.mockImplementation(
             async (_scope: unknown, onCanonical?: (routes: Array<Record<string, unknown>>) => void) => {
                 onCanonical?.(plannerMocks.canonicalRoutes);
@@ -245,7 +287,14 @@ describe('RoutePlanner', () => {
 
                 const plot = screen.getByRole('button', { name: 'Slide to Start Plotting' });
                 expect(plot).toHaveAttribute('aria-disabled', 'false');
+                const previousHandoffs = plannerMocks.requestTracerOpen.mock.calls.length;
+                const previousNavigations = plannerMocks.setPage.mock.calls.length;
                 fireEvent.keyDown(plot, { key: 'Enter' });
+                expect(screen.getByRole('dialog', { name: 'Routing mode choice' })).toBeInTheDocument();
+                expect(plannerMocks.requestTracerOpen).toHaveBeenCalledTimes(previousHandoffs);
+                expect(plannerMocks.setPage).toHaveBeenCalledTimes(previousNavigations);
+                fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+                expect(screen.queryByRole('dialog', { name: 'Routing mode choice' })).not.toBeInTheDocument();
                 expect(plannerMocks.requestTracerOpen).toHaveBeenLastCalledWith();
                 expect(plannerMocks.setPage).toHaveBeenLastCalledWith('map');
                 expect(useSettingsStore.getState().settings.comfortParams).toBe(comfortParams);
@@ -257,6 +306,102 @@ describe('RoutePlanner', () => {
             }
         },
     );
+
+    it('opens a routing choice only after the slider, and closing/reopening preserves the planner and departure', async () => {
+        await awaitSettingsLoaded();
+        const departureKey = authScopedStorageKey('thalassa_trace_departure_ms');
+        const previousDeparture = sessionStorage.getItem(departureKey);
+        const { unmount } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        try {
+            expect(screen.queryByRole('dialog', { name: 'Routing mode choice' })).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /Autorouting.*Trial/i })).not.toBeInTheDocument();
+            const date = localDateStr(new Date(Date.now() + 3 * 86_400_000));
+            fireEvent.change(screen.getByLabelText('Departure date'), { target: { value: date } });
+            const savedDeparture = sessionStorage.getItem(departureKey);
+
+            for (let attempt = 0; attempt < 2; attempt++) {
+                fireEvent.keyDown(screen.getByRole('button', { name: 'Slide to Start Plotting' }), { key: 'Enter' });
+                expect(screen.getByRole('dialog', { name: 'Routing mode choice' })).toHaveAttribute(
+                    'data-mapbox-token',
+                    'test-token',
+                );
+                expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
+                expect(plannerMocks.setPage).not.toHaveBeenCalled();
+                fireEvent.click(screen.getByRole('button', { name: 'Close routing choice' }));
+                expect(screen.queryByRole('dialog', { name: 'Routing mode choice' })).not.toBeInTheDocument();
+                expect(screen.getByLabelText('Departure date')).toHaveValue(date);
+                expect(sessionStorage.getItem(departureKey)).toBe(savedDeparture);
+                expect(screen.getByRole('button', { name: /Saved routes/i })).toBeEnabled();
+                expect(screen.getByRole('button', { name: /From a past voyage/i })).toBeEnabled();
+            }
+            expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
+            expect(plannerMocks.setPage).not.toHaveBeenCalled();
+        } finally {
+            unmount();
+            if (previousDeparture === null) sessionStorage.removeItem(departureKey);
+            else sessionStorage.setItem(departureKey, previousDeparture);
+        }
+    });
+
+    it('does not stage a tracer action or navigate when Auto stays in its isolated child workspace', () => {
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Slide to Start Plotting' }), { key: 'Enter' });
+        fireEvent.click(screen.getByRole('button', { name: 'Auto Routing' }));
+        expect(screen.getByRole('region', { name: 'Isolated auto workspace' })).toBeInTheDocument();
+        expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
+        expect(plannerMocks.setPage).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Close routing choice' }));
+        expect(screen.queryByRole('region', { name: 'Isolated auto workspace' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Slide to Start Plotting' })).toBeInTheDocument();
+        expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
+        expect(plannerMocks.setPage).not.toHaveBeenCalled();
+    });
+
+    it('keeps next-leg selection as its original identity-fenced direct chart handoff', () => {
+        plannerMocks.savedTraces = [
+            {
+                id: 'leg-one',
+                name: 'Newport - Musgrave',
+                createdAt: '2026-09-09T00:00:00Z',
+                points: [
+                    { lat: -27.2, lon: 153.1 },
+                    { lat: -23.9, lon: 152.4 },
+                ],
+            },
+        ];
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        fireEvent.change(screen.getByRole('combobox', { name: 'Pick a trip or route to continue' }), {
+            target: { value: 'leg-one' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: /Plot the 2nd leg from Musgrave/i }));
+        expect(plannerMocks.requestTracerOpen).toHaveBeenCalledExactlyOnceWith(
+            { kind: 'new-leg', fromId: 'leg-one' },
+            expect.objectContaining({ key: 'anonymous' }),
+        );
+        expect(plannerMocks.setPage).toHaveBeenCalledExactlyOnceWith('map');
+        expect(screen.queryByRole('dialog', { name: 'Routing mode choice' })).not.toBeInTheDocument();
+    });
+
+    it('keeps past voyages as their original identity-fenced direct chart handoff', async () => {
+        const choice = {
+            voyageId: 'past-voyage',
+            label: 'Voyage · 9 Sept',
+            sublabel: '18 NM sailed',
+            timestamp: Date.parse('2026-09-09T00:00:00Z'),
+            distanceNm: 18,
+            isLocal: false,
+        };
+        plannerMocks.fetchSeaVoyageChoices.mockResolvedValue([choice]);
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /From a past voyage/i }));
+        fireEvent.click(await screen.findByRole('button', { name: /Voyage · 9 Sept/i }));
+        expect(plannerMocks.requestTracerOpen).toHaveBeenCalledExactlyOnceWith(
+            { kind: 'load-voyage', choice },
+            expect.objectContaining({ key: 'anonymous' }),
+        );
+        expect(plannerMocks.setPage).toHaveBeenCalledExactlyOnceWith('map');
+        expect(screen.queryByRole('dialog', { name: 'Routing mode choice' })).not.toBeInTheDocument();
+    });
 
     it('exposes the short-landscape layout hooks that keep the CTA out of the departure controls', () => {
         const { container } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);

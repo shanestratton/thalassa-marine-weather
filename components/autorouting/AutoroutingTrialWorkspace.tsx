@@ -437,6 +437,9 @@ export function AutoroutingTrialWorkspace({
                     <p className="text-micro text-amber-300">
                         Check draft and speed. Requested clearance: 0.5 m; air draft and beam are not checked.
                     </p>
+                    <p className="text-micro text-gray-400">
+                        Trial departure: leaving now. The scheduled departure on Planning home is not used.
+                    </p>
                     {!status?.ready && (
                         <p role="status" className="text-micro text-amber-300">
                             {status?.message ||
