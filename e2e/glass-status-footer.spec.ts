@@ -38,9 +38,9 @@ async function openGlass(page: Page, baseURL: string, width: number, scenario: F
             saved.settings.defaultLocationCoords = { lat: -27.2, lon: 153.1 };
             saved.settings.displayMode = displayMode;
             saved.settings.forecastModel = model;
-            // The legacy source has a longer, different name. It must never
-            // leak into the location badge or duplicate the selected model.
-            saved.settings.offshoreModel = 'gfs';
+            // Offshore uses its separate source preference; exercise the
+            // longest offshore label at 320px without disturbing inshore.
+            saved.settings.offshoreModel = model === 'spitfire' ? 'sg' : 'gfs';
             localStorage.setItem(key, JSON.stringify(saved));
         }
         const key = 'thalassa_weather_cache_v9::anonymous';
@@ -49,7 +49,12 @@ async function openGlass(page: Page, baseURL: string, width: number, scenario: F
         weather.locationName = 'Newport QLD';
         weather.coordinates = { lat: -27.2, lon: 153.1 };
         weather.locationType = locationType;
-        weather.modelUsed = model === 'spitfire' ? 'SPITFIRE' : 'ECMWF';
+        weather.modelUsed =
+            locationType === 'offshore'
+                ? `stormglass_${model === 'spitfire' ? 'sg' : 'gfs'}`
+                : model === 'spitfire'
+                  ? 'SPITFIRE'
+                  : 'ECMWF';
         localStorage.setItem(key, JSON.stringify(weather));
 
         const denyPosition = (_success: PositionCallback, error?: PositionErrorCallback | null) => {
@@ -184,10 +189,17 @@ for (const displayMode of ['light', 'dark'] as const) {
             // Newport is within the real Spitfire catalogue, so it remains
             // selectable through the unmodified production model sheet.
             const forecastModel = width === 320 ? 'spitfire' : 'ecmwf_ifs025';
-            const modelLabel = width === 320 ? 'SPITFIRE' : 'ECMWF';
             const layouts: Awaited<ReturnType<typeof measureFooter>>[] = [];
             for (const locationType of ['inshore', 'offshore'] as const) {
                 await test.step(locationType, async () => {
+                    const modelLabel =
+                        locationType === 'offshore'
+                            ? width === 320
+                                ? 'SG BLEND'
+                                : 'GFS'
+                            : width === 320
+                              ? 'SPITFIRE'
+                              : 'ECMWF';
                     // Capacitor migrates the localStorage cache into browser
                     // IndexedDB. Independent contexts keep that async cache
                     // from replacing the next scenario's seeded report.
@@ -218,7 +230,7 @@ for (const displayMode of ['light', 'dark'] as const) {
                         await expect(location).toHaveAccessibleName(`Location type: ${label}`);
                         await expect(model).toHaveText(modelLabel);
                         await expect(strip.getByText(modelLabel, { exact: true })).toHaveCount(1);
-                        await expect(strip).not.toContainText(/GFS|NOAA|OFFSHORE\s*\(/);
+                        await expect(strip).not.toContainText(/OFFSHORE\s*\(/);
                         const layout = await measureFooter(strip);
                         expectOneUnclippedRow(layout);
                         layouts.push(layout);
@@ -247,6 +259,16 @@ for (const displayMode of ['light', 'dark'] as const) {
                         await model.click();
                         const picker = page.getByRole('dialog', { name: 'Choose a forecast model', exact: true });
                         await expect(picker).toBeVisible();
+                        if (locationType === 'offshore') {
+                            for (const unavailable of ['AIFS', 'UKMO', 'JMA', 'Spitfire', 'Auto']) {
+                                await expect(
+                                    picker.getByRole('button', {
+                                        name: `Use the ${unavailable} forecast model`,
+                                        exact: true,
+                                    }),
+                                ).toHaveCount(0);
+                            }
+                        }
                         const currentModel = picker.getByRole('button', {
                             name: `Use the ${modelLabel === 'SPITFIRE' ? 'Spitfire' : modelLabel} forecast model`,
                             exact: true,
@@ -283,10 +305,23 @@ for (const displayMode of ['light', 'dark'] as const) {
                                         const saved = JSON.parse(
                                             localStorage.getItem('thalassa_settings_mirror::anonymous')!,
                                         );
-                                        return saved.settings.forecastModel;
+                                        return {
+                                            offshore: saved.settings.offshoreModel,
+                                            inshore: saved.settings.forecastModel,
+                                            location: saved.settings.defaultLocation,
+                                            coordinates: saved.settings.defaultLocationCoords,
+                                        };
                                     }),
                                 )
-                                .toBe('dwd_icon');
+                                .toEqual({
+                                    offshore: 'icon',
+                                    inshore: forecastModel,
+                                    location: 'Newport QLD',
+                                    coordinates: { lat: -27.2, lon: 153.1 },
+                                });
+                            await expect(
+                                page.getByRole('textbox', { name: 'Current location', exact: true }),
+                            ).toHaveValue('Newport QLD');
                             expectOneUnclippedRow(await measureFooter(strip));
                         }
                     } catch (error) {

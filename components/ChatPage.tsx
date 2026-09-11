@@ -184,6 +184,8 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         dmConversations,
         dmThread,
         dmPartner,
+        currentUserId,
+        isSelfConversation,
         setDmPartner,
         dmText,
         setDmText,
@@ -665,6 +667,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 view={view}
                 activeChannel={activeChannel}
                 dmPartnerName={dmPartner?.name}
+                isSelfConversation={isSelfConversation}
                 myAvatarUrl={myAvatarUrl}
                 unreadDMs={unreadDMs}
                 messageCount={messages.length}
@@ -927,12 +930,21 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
                     {/* ══════ DM INBOX ══════ */}
                     {view === 'dm_inbox' && !loading && (
-                        <ChatDMInbox conversations={dmConversations} onOpenThread={openDMThread} />
+                        <ChatDMInbox
+                            conversations={dmConversations}
+                            onOpenThread={openDMThread}
+                            currentUserId={currentUserId}
+                        />
                     )}
 
                     {/* ══════ DM THREAD ══════ */}
                     {view === 'dm_thread' && !loading && (
-                        <ChatDMThread thread={dmThread} partnerName={dmPartner?.name} />
+                        <ChatDMThread
+                            thread={dmThread}
+                            partnerName={dmPartner?.name}
+                            currentUserId={currentUserId}
+                            isSelfConversation={isSelfConversation}
+                        />
                     )}
                 </div>
             </ChatErrorBoundary>
@@ -1043,6 +1055,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     dmText={dmText}
                     setDmText={setDmText}
                     partnerName={dmPartner?.name}
+                    isSelfConversation={isSelfConversation}
                     keyboardOffset={keyboardOffset}
                     isUserBlocked={isUserBlocked}
                     blockedByMe={blockedByMe}

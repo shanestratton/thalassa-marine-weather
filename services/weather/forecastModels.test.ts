@@ -8,9 +8,28 @@ import {
     isSpitfire,
     modelLacks,
     resolveForecastModel,
+    OFFSHORE_MODELS,
+    resolveOffshoreModel,
+    getOffshoreModelInfo,
 } from './forecastModels';
 
 describe('forecastModels', () => {
+    it('keeps supported offshore source keys separate from atmospheric model domains', () => {
+        expect(OFFSHORE_MODELS.map((model) => model.id)).toEqual(['sg', 'ecmwf', 'gfs', 'icon']);
+        for (const model of OFFSHORE_MODELS) {
+            expect(resolveOffshoreModel(model.id)).toBe(model.id);
+            expect(getOffshoreModelInfo(model.id)).toEqual(model);
+            expect(SELECTABLE_MODELS.some((entry) => entry.id === (model.id as string))).toBe(false);
+        }
+    });
+
+    it.each([undefined, null, '', 'ecmwf_aifs025_single', 'dwd_icon', 'spitfire', 'best_match'])(
+        'defaults invalid offshore choice %s to the supported blend',
+        (stored) => {
+            expect(resolveOffshoreModel(stored)).toBe('sg');
+        },
+    );
+
     it('offers the model domains that actually carry wind', () => {
         expect(SELECTABLE_MODELS.map((m) => m.id)).toEqual([
             'dwd_icon',

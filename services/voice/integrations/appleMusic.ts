@@ -174,6 +174,31 @@ interface AppleMusicPluginInterface {
 
 const AppleMusicNative = registerPlugin<AppleMusicPluginInterface>('AppleMusic');
 
+// Stop is an intent boundary shared by the page, floating bar and voice tools.
+// A bridge response may arrive after the command that made it obsolete.
+let playbackRevision = 0;
+let latestPlaybackStartRevision = 0;
+let latestStopRequest = 0;
+let explicitlyStopped = false;
+const stoppedListeners = new Set<() => void>();
+export const getMusicPlaybackRevision = () => playbackRevision;
+export function subscribeMusicStopped(listener: () => void): () => void {
+    stoppedListeners.add(listener);
+    return () => {
+        stoppedListeners.delete(listener);
+    };
+}
+function beginPlaybackIntent(): number {
+    explicitlyStopped = false;
+    latestPlaybackStartRevision = ++playbackRevision;
+    return playbackRevision;
+}
+function publishConfirmedStop(): void {
+    if (explicitlyStopped) return;
+    explicitlyStopped = true;
+    stoppedListeners.forEach((listener) => listener());
+}
+
 function nativeAvailable(): boolean {
     return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
 }
@@ -305,10 +330,13 @@ export async function playPlaylist(id: string): Promise<{
     trackCount?: number;
     firstTrack?: { title: string; artist: string };
     error?: string;
+    superseded?: boolean;
 }> {
     if (!nativeAvailable()) return { success: false, error: 'unsupported' };
+    const revision = beginPlaybackIntent();
     try {
         const r = await withTimeout(AppleMusicNative.playPlaylist({ id }), 'playPlaylist');
+        if (revision !== playbackRevision || r.status === 'superseded') return { success: false, superseded: true };
         if (r.status === 'playing') {
             return {
                 success: true,
@@ -318,14 +346,6 @@ export async function playPlaylist(id: string): Promise<{
                     ? { title: r.first_track_title, artist: r.first_track_artist ?? '' }
                     : undefined,
             };
-        }
-        // Rapid-tap case: this call was interrupted by a newer
-        // playPlaylist call (Apple Music's last-queue-wins behaviour).
-        // The newer tap is the one playing, so this stale result isn't
-        // a user-facing failure — return success and let the newer
-        // call's resolution drive the UI.
-        if (r.status === 'superseded') {
-            return { success: true };
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
@@ -393,8 +413,10 @@ export async function addPlaylistToQueue(id: string): Promise<{
     error?: string;
 }> {
     if (!nativeAvailable()) return { success: false, appended: false, error: 'unsupported' };
+    const revision = beginPlaybackIntent();
     try {
         const r = await withTimeout(AppleMusicNative.addPlaylistToQueue({ id }), 'addPlaylistToQueue');
+        if (revision !== playbackRevision) return { success: false, appended: false, error: 'superseded' };
         if (r.status === 'queued' || r.status === 'playing') {
             return {
                 success: true,
@@ -417,8 +439,9 @@ export async function addPlaylistToQueue(id: string): Promise<{
 export async function playTrackInPlaylist(
     playlistId: string,
     trackId: string,
-): Promise<{ success: boolean; title?: string; artist?: string; error?: string }> {
+): Promise<{ success: boolean; title?: string; artist?: string; error?: string; superseded?: boolean }> {
     if (!nativeAvailable()) return { success: false, error: 'unsupported' };
+    const revision = beginPlaybackIntent();
     try {
         const r = await withTimeout(
             AppleMusicNative.playTrackInPlaylist({
@@ -427,6 +450,7 @@ export async function playTrackInPlaylist(
             }),
             'playTrackInPlaylist',
         );
+        if (revision !== playbackRevision) return { success: false, superseded: true };
         if (r.status === 'playing') {
             return { success: true, title: r.title, artist: r.artist };
         }
@@ -450,8 +474,10 @@ export async function playLibraryPlaylistByName(query: string): Promise<{ conten
     if (!nativeAvailable()) {
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
+    const revision = beginPlaybackIntent();
     try {
         const r = await withTimeout(AppleMusicNative.playLibraryPlaylist({ query: trimmed }), 'playLibraryPlaylist');
+        if (revision !== playbackRevision) return { content: JSON.stringify({ status: 'superseded' }), isError: false };
         if (r.status === 'playing') {
             const phrase = r.first_track_title
                 ? `Playing "${r.first_track_title}"${
@@ -780,11 +806,13 @@ export async function playMusicByQuery(
             isError: false,
         };
     }
+    const revision = beginPlaybackIntent();
     try {
         const r = await withTimeout(
             AppleMusicNative.searchAndPlay({ query: trimmed, kind: kind ?? 'auto' }),
             'searchAndPlay',
         );
+        if (revision !== playbackRevision) return { content: JSON.stringify({ status: 'superseded' }), isError: false };
         if (r.status === 'playing') {
             const trackTitle = r.first_track_title ?? '';
             const trackArtist = r.first_track_artist ?? '';
@@ -850,8 +878,18 @@ export async function pauseMusic(): Promise<{ content: string; isError: boolean 
     if (!nativeAvailable()) {
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
+    const revision = ++playbackRevision;
     try {
-        await AppleMusicNative.pause();
+        const r = await withTimeout(AppleMusicNative.pause(), 'pause');
+        if (revision !== playbackRevision || r.status === 'superseded')
+            return { content: JSON.stringify({ status: 'superseded' }), isError: false };
+        if (r.status === 'stopped') {
+            // Pause may overtake a pending native Stop. Native preserves that
+            // quieter intent and reports the cleared queue, not a paused song.
+            publishConfirmedStop();
+            return { content: JSON.stringify({ status: 'stopped' }), isError: false };
+        }
+        if (r.status !== 'paused') return { content: 'Apple Music did not confirm pausing.', isError: true };
         return { content: JSON.stringify({ status: 'paused' }), isError: false };
     } catch (err) {
         return { content: `ERROR: pause failed — ${(err as Error).message}`, isError: true };
@@ -870,8 +908,19 @@ export async function stopMusic(): Promise<{ content: string; isError: boolean }
     if (!nativeAvailable()) {
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
+    const revision = ++playbackRevision;
+    const stopRequest = ++latestStopRequest;
     try {
-        await AppleMusicNative.stop();
+        const result = await withTimeout(AppleMusicNative.stop(), 'stop');
+        if (
+            stopRequest !== latestStopRequest ||
+            latestPlaybackStartRevision > revision ||
+            result.status === 'superseded'
+        )
+            return { content: JSON.stringify({ status: 'superseded' }), isError: false };
+        if (result.status !== 'stopped')
+            return { content: 'Apple Music did not confirm stopping. Try Stop again.', isError: true };
+        publishConfirmedStop();
         return { content: JSON.stringify({ status: 'stopped' }), isError: false };
     } catch (err) {
         return { content: `ERROR: stop failed — ${(err as Error).message}`, isError: true };
@@ -882,8 +931,12 @@ export async function resumeMusic(): Promise<{ content: string; isError: boolean
     if (!nativeAvailable()) {
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
+    const revision = beginPlaybackIntent();
     try {
         const r = await withTimeout(AppleMusicNative.resume(), 'resume');
+        if (revision !== playbackRevision) return { content: JSON.stringify({ status: 'superseded' }), isError: false };
+        if (!['playing', 'no_queue', 'superseded'].includes(r.status))
+            return { content: `ERROR: resume failed — ${r.error || r.status}`, isError: true };
         return { content: JSON.stringify({ status: r.status }), isError: false };
     } catch (err) {
         return { content: `ERROR: resume failed — ${(err as Error).message}`, isError: true };
@@ -894,6 +947,7 @@ export async function skipNext(): Promise<{ content: string; isError: boolean }>
     if (!nativeAvailable()) {
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
+    ++playbackRevision;
     try {
         await AppleMusicNative.next();
         return { content: JSON.stringify({ status: 'skipped_to_next' }), isError: false };
@@ -906,6 +960,7 @@ export async function skipPrevious(): Promise<{ content: string; isError: boolea
     if (!nativeAvailable()) {
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
+    ++playbackRevision;
     try {
         await AppleMusicNative.previous();
         return { content: JSON.stringify({ status: 'skipped_to_previous' }), isError: false };
@@ -931,12 +986,14 @@ export interface NowPlaying {
 
 export async function getNowPlaying(): Promise<NowPlaying | null> {
     if (!nativeAvailable()) return null;
+    const revision = playbackRevision;
     try {
         // Shorter timeout — the parent polls this every 1s, so a
         // 12s hang would queue up many stalled callers. 5s lets us
         // surface a "stuck" state quickly and let the next poll
         // recover.
         const r = await withTimeout(AppleMusicNative.nowPlaying(), 'nowPlaying', NOW_PLAYING_TIMEOUT_MS);
+        if (revision !== playbackRevision || explicitlyStopped || r.state === 'stopped') return null;
         return {
             isPlaying: r.is_playing,
             state: r.state,

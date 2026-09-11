@@ -60,11 +60,13 @@ describe('location popover menu accessibility', () => {
 
         const menu = screen.getByRole('menu', { name: 'Saved locations' });
         const current = screen.getByRole('menuitem', { name: 'Current Location' });
+        const vessel = screen.getByRole('menuitem', { name: /Vessel location/ });
         expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
         expect(menu).toContainElement(current);
-        expect(current).toHaveFocus();
+        expect(menu).toContainElement(vessel);
+        expect(vessel).toHaveFocus();
 
-        fireEvent.keyDown(current, { key: 'Escape' });
+        fireEvent.keyDown(vessel, { key: 'Escape' });
         expect(screen.queryByRole('menu', { name: 'Saved locations' })).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
     });

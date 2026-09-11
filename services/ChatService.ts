@@ -754,17 +754,18 @@ class ChatServiceClass {
             if (!convMap.has(partnerId)) {
                 convMap.set(partnerId, {
                     user_id: partnerId,
-                    display_name: dm.sender_id !== ownerId ? dm.sender_name : 'Loading...',
+                    display_name:
+                        partnerId === ownerId ? 'Self test' : dm.sender_id !== ownerId ? dm.sender_name : 'Loading...',
                     last_message: dm.message,
                     last_at: dm.created_at,
-                    unread_count: !dm.read && dm.recipient_id === ownerId ? 1 : 0,
+                    unread_count: !dm.read && dm.recipient_id === ownerId && dm.sender_id !== ownerId ? 1 : 0,
                 });
             } else {
                 const conv = convMap.get(partnerId)!;
                 if (conv.display_name === 'Loading...' && dm.sender_id === partnerId) {
                     conv.display_name = dm.sender_name;
                 }
-                if (!dm.read && dm.recipient_id === ownerId) {
+                if (!dm.read && dm.recipient_id === ownerId && dm.sender_id !== ownerId) {
                     conv.unread_count++;
                 }
             }
@@ -849,8 +850,7 @@ class ChatServiceClass {
         const blockGeneration = this.dmBlockGeneration.get(recipientId) ?? 0;
         const blockUnchanged = () => blockGeneration === (this.dmBlockGeneration.get(recipientId) ?? 0);
         const normalizedText = normalizeChatMessage(text);
-        if (!normalizedText || !isSafePostgrestFilterId(recipientId) || recipientId === operationScope.userId)
-            return null;
+        if (!normalizedText || !isSafePostgrestFilterId(recipientId)) return null;
         if (
             typeof navigator !== 'undefined' &&
             !navigator.onLine &&
@@ -946,7 +946,7 @@ class ChatServiceClass {
                 recipient_id: recipientId,
                 sender_name: displayName,
                 message: text,
-                read: false,
+                read: recipientId === user.id,
             })
             .select()
             .single();
@@ -966,7 +966,7 @@ class ChatServiceClass {
         }
 
         // Fire-and-forget: push notification to DM recipient
-        if (data?.id) {
+        if (data?.id && recipientId !== user.id) {
             this.queuePushNotification(data.id, operation).catch(() => {
                 /* best effort */
             });
@@ -1018,7 +1018,7 @@ class ChatServiceClass {
 
     // ─── DM BLOCKS ────────────────────────────
 
-    /** Apply the caller's block consistently across Scuttlebutt and DMs. */
+    /** Peer blocks apply across chat; an authenticated self-test block is DM-only. */
     async blockUser(userId: string): Promise<boolean> {
         return this.setUserBlock(userId, true);
     }
@@ -1030,7 +1030,7 @@ class ChatServiceClass {
 
     private async setUserBlock(userId: string, blocked: boolean): Promise<boolean> {
         const operation = this.captureOperation();
-        if (!supabase || !operation || !isSafePostgrestFilterId(userId) || userId === operation.userId) return false;
+        if (!supabase || !operation || !isSafePostgrestFilterId(userId)) return false;
         const generation = (this.dmBlockGeneration.get(userId) ?? 0) + 1;
         this.dmBlockGeneration.set(userId, generation);
         try {
@@ -1075,12 +1075,7 @@ class ChatServiceClass {
         operation: ChatOperationContext,
     ): Promise<DMBlockStatus> {
         const generation = this.dmBlockGeneration.get(userId) ?? 0;
-        if (
-            !supabase ||
-            !this.operationIsCurrent(operation) ||
-            !isSafePostgrestFilterId(userId) ||
-            userId === operation.userId
-        ) {
+        if (!supabase || !this.operationIsCurrent(operation) || !isSafePostgrestFilterId(userId)) {
             throw new Error('Unable to verify direct-message blocking.');
         }
         if (!(await this.verifyRemoteOperation(operation)))
@@ -1109,7 +1104,10 @@ class ChatServiceClass {
         if (!operation) return [];
         const { data } = await supabase.from(DM_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', operation.userId);
         if (!this.operationIsCurrent(operation)) return [];
-        return (data || []).map((r: Record<string, string>) => r.blocked_id);
+        // Self testing must never hide the caller's public Scuttlebutt posts.
+        return (data || [])
+            .map((r: Record<string, string>) => r.blocked_id)
+            .filter((id: string) => id !== operation.userId);
     }
 
     subscribeToDMs(onMessage: (dm: DirectMessage) => void): () => void {

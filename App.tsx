@@ -44,6 +44,8 @@ import {
 } from './components/dashboard/glassLayout';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 import { useViewportHeight } from './hooks/useViewportHeight';
+import { getWeatherFollowTarget } from './services/weatherPosition';
+import { weatherLocationTitle } from './utils/weatherLocationTitle';
 
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
@@ -579,14 +581,16 @@ const App: React.FC = () => {
         positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData,
     );
     const resolvingLocation = positionSource?.status === 'resolving';
-    const resolvingLocationLabel = `Finding ${positionSource?.target === 'boat' ? 'boat' : 'phone'} location…`;
-    const rawTitle = resolvingLocation
-        ? resolvingLocationLabel
-        : positionSource?.status === 'unavailable' && !retainedLocationWeather
-          ? `${positionSource.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`
-          : weatherData
-            ? weatherData.locationName
-            : query || settings.defaultLocation || 'Select Location';
+    const { title: rawTitle, resolvingLabel: resolvingLocationLabel } = weatherLocationTitle({
+        locationName: weatherData?.locationName,
+        fallback: query || settings.defaultLocation || 'Select Location',
+        target:
+            positionSource?.target ??
+            (settings.defaultLocation === 'Current Location' ? getWeatherFollowTarget() : null),
+        status: positionSource?.status,
+        vesselName: settings.vessel?.name,
+        retainedWeather: retainedLocationWeather,
+    });
     let displayTitle = rawTitle;
 
     // Only catch truly raw/generic names:

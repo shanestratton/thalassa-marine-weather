@@ -106,11 +106,14 @@ describe('★ menu — the vessel as a special saved location', () => {
         expect(getWeatherFollowTarget()).toBe('phone');
     });
 
-    it('no vessel name, no row', () => {
+    it('offers Vessel location when the boat has no configured name', () => {
         h.settings.vessel = { name: '' };
         render(<LocationStarMenu />);
         openMenu();
-        expect(screen.queryByTestId('location-star-vessel')).toBeNull();
+        expect(screen.getByTestId('location-star-vessel')).toHaveTextContent('Vessel location');
+        fireEvent.click(screen.getByTestId('location-star-vessel'));
+        expect(getWeatherFollowTarget()).toBe('boat');
+        expect(h.selectLocation).toHaveBeenCalledWith('Current Location');
     });
 
     it('a second choice is delivered before the previous asynchronous lookup completes', async () => {

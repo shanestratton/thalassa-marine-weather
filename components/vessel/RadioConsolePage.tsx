@@ -33,6 +33,7 @@ import {
 import { useUtcClock } from '../../hooks/useUtcClock';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 import { RadioInstructionsDialog, RadioTranscriptDialog } from './RadioConsoleDialogs';
+import { useRadioSelectorAnchor } from './useRadioSelectorAnchor';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -286,6 +287,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
     const [readback, setReadback] = useState<{ text: string; fix: RadioPositionFix | null } | null>(null);
     const [confirmedReceiver, setConfirmedReceiver] = useState<string | null>(null);
     const closeDialog = useCallback(() => setDialogStep(null), []);
+    const { selectorRef, anchor: selectorAnchor } = useRadioSelectorAnchor();
 
     // ── DSC state ──
     const [dscMode, setDscMode] = useState<DscMode>('routine');
@@ -449,7 +451,11 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
         // One screen, no page scroll (Shane 2026-09-06): a stressed operator
         // must never have to scroll to find the call buttons. Instructions
         // precede a separate full-pane script; closing it returns here.
-        <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-hidden">
+        <div
+            data-testid="radio-console-page"
+            aria-hidden={dialogStep !== null}
+            className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-hidden"
+        >
             <PageHeader
                 title="Radio Console"
                 subtitle="Report Position"
@@ -467,6 +473,13 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     </div>
                 }
             />
+
+            {/* Call type stays above all variable-height/scrolling content. */}
+            <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-3">
+                <div ref={selectorRef}>
+                    <DscSelector mode={dscMode} onChange={chooseMode} mobActive={mobActive} />
+                </div>
+            </div>
 
             {/* ── Vessel identity strip ── */}
             <div className="shrink-0 px-5 py-3 border-b border-white/6">
@@ -524,8 +537,12 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             </div>
 
             {/* ── Middle: entry point and readouts. Scrolls only
-                   on a screen too short to hold it; the footer below never does. ── */}
-            <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pt-3 pb-2 overflow-y-auto">
+                   on a screen too short to hold it; call type above never does. ── */}
+            <div
+                data-testid="radio-console-body"
+                className="flex-1 min-h-0 flex flex-col gap-3 px-5 pt-3 overflow-y-auto"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
                 {dialogStep !== 'instructions' && gpsNotice}
                 <button
                     type="button"
@@ -607,18 +624,13 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                  */}
             </div>
 
-            {/* ── Pinned footer: the three call buttons.
-                   8 px above the tab bar, outside the scroll region — they
-                   never move (Shane 2026-09-06). ── */}
-            <div
-                className="shrink-0 px-5 pt-2 border-t border-white/6 bg-slate-950"
-                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
-            >
-                <DscSelector mode={dscMode} onChange={chooseMode} mobActive={mobActive} />
-            </div>
             {dialogStep === 'instructions' && (
-                <RadioInstructionsDialog onClose={closeDialog} onContinue={captureTranscript}>
-                    <DscSelector mode={dscMode} onChange={setDscMode} mobActive={mobActive} />
+                <RadioInstructionsDialog
+                    onClose={closeDialog}
+                    onContinue={captureTranscript}
+                    selectorAnchor={selectorAnchor}
+                    selectors={<DscSelector mode={dscMode} onChange={setDscMode} mobActive={mobActive} />}
+                >
                     {dscMode !== 'routine' && (
                         <NatureSelector value={natureOfDistress} onChange={setNatureOfDistress} />
                     )}
@@ -659,6 +671,8 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             {dialogStep === 'transcript' && readback && (
                 <RadioTranscriptDialog
                     text={readback.text}
+                    selectorAnchor={selectorAnchor}
+                    selectors={<DscSelector mode={dscMode} onChange={chooseMode} mobActive={mobActive} />}
                     onClose={closeDialog}
                     onInstructions={() => setDialogStep('instructions')}
                     onUpdate={() => {
@@ -747,7 +761,7 @@ const DscSelector: React.FC<{
         );
     };
     return (
-        <div className="shrink-0">
+        <div role="group" aria-label="Call type" data-testid="radio-call-selector" className="shrink-0">
             <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500">Call type</div>
                 {mobActive && (

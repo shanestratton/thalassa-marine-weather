@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { formatAge } from '../ui/DataFreshness';
 import { MetricSource } from '../../types';
-import type { WeatherModel } from '../../types';
+import type { OffshoreModel, WeatherModel } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
 import { triggerHaptic } from '../../utils/system';
 import { AlertTriangleIcon } from '../Icons';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { resolveForecastModel, getForecastModelInfo, isSpitfire } from '../../services/weather/forecastModels';
+import {
+    resolveForecastModel,
+    getForecastModelInfo,
+    isSpitfire,
+    resolveOffshoreModel,
+    getOffshoreModelInfo,
+} from '../../services/weather/forecastModels';
 import { listPublishedModels } from '../../services/weather/wxPublished';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
@@ -163,8 +169,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // escape hatch lives inside the sheet.
         const updateSettings = useSettingsStore((s) => s.updateSettings);
         const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+        const offshoreModel = resolveOffshoreModel(useSettingsStore((s) => s.settings.offshoreModel));
         const vesselName = useSettingsStore((s) => s.settings.vessel?.name?.trim() || 'The boat');
-        const modelInfo = getForecastModelInfo(glassModel);
+        const modelInfo = offshore ? getOffshoreModelInfo(offshoreModel) : getForecastModelInfo(glassModel);
         const [showModelSheet, setShowModelSheet] = useState(false);
 
         // FORECAST AGE. generatedAt was threaded all the way down here and
@@ -207,7 +214,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         useEffect(() => {
             const lat = coordinates?.lat;
             const lon = coordinates?.lon;
-            if (lat == null || lon == null) return;
+            setPublishedModels([]);
+            // Atmospheric publisher coverage says nothing about offshore
+            // StormGlass sources, and must not filter that separate menu.
+            if (offshore || lat == null || lon == null) return;
             let live = true;
             void listPublishedModels(lat, lon).then((models) => {
                 if (live) setPublishedModels(models);
@@ -215,13 +225,18 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             return () => {
                 live = false;
             };
-        }, [coordinates?.lat, coordinates?.lon]);
-        const spitfireSelected = isSpitfire(glassModel);
+        }, [coordinates?.lat, coordinates?.lon, offshore]);
+        const spitfireSelected = !offshore && isSpitfire(glassModel);
         const pillLabel = spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
         const pillHex = spitfireSelected ? '#facc15' : modelInfo?.hex || '#94a3b8';
         const pickModel = (id: WeatherModel) => {
             void triggerHaptic('medium');
             updateSettings({ forecastModel: id });
+            setShowModelSheet(false);
+        };
+        const pickOffshoreModel = (id: OffshoreModel) => {
+            void triggerHaptic('medium');
+            updateSettings({ offshoreModel: id });
             setShowModelSheet(false);
         };
 
@@ -346,6 +361,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 <ModelPickerSheet
                     visible={showModelSheet}
                     currentModel={glassModel}
+                    offshore={offshore ? { currentModel: offshoreModel, onPick: pickOffshoreModel } : undefined}
                     spitfireAvailable={!!spitfireLoc || publishedModels.includes('spitfire')}
                     spitfireLocationName={spitfireLoc?.name}
                     publishedModels={publishedModels}
