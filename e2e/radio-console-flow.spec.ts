@@ -530,6 +530,18 @@ for (const viewport of viewports) {
         if (!viewport.split) {
             // Reflow the actual page/portal origins, then compare the new exact slot.
             await page.setViewportSize({ width: viewport.width === 390 ? 430 : 390, height: viewport.height });
+            // Fluid root type changes the pills' rem padding. Chromium animates
+            // that transition (59.625 -> 61.375px at 390 -> 430), so record the
+            // settled base rather than a 1.75px-short mid-transition height.
+            // Keep the strict 1px comparisons; do not disable app animations.
+            await consolePage.getByTestId('radio-call-selector').evaluate(async (selector) => {
+                await Promise.all(
+                    selector
+                        .getAnimations({ subtree: true })
+                        .filter((animation) => animation.pending || animation.playState === 'running')
+                        .map((animation) => animation.finished.catch(() => undefined)),
+                );
+            });
             const resizedBaseline = await selectorGeometry(consolePage);
             await consolePage.getByRole('button', { name: /^Distress/ }).click();
             await expectStableSelectors(page, instructions, resizedBaseline);
