@@ -249,7 +249,7 @@ test.describe('whole-gallery paint', () => {
             expect(await paints(page)).toEqual(originalPaints);
             const changed = await stableInstrumentScreenshot(page, testInfo, 'with-leak');
             expect(original.equals(changed), 'A genuine daylight leak must change the screenshot').toBe(false);
-            await injectedStyle.evaluate((node) => node.remove());
+            await injectedStyle.evaluate((node) => node.parentNode?.removeChild(node));
             await expect(page.locator(leak.selector)).toHaveCSS(leak.property, originalValue);
             expect(await paints(page)).toEqual(originalPaints);
             const restored = await stableInstrumentScreenshot(page, testInfo, 'restored');
