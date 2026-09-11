@@ -1,5 +1,8 @@
 # Build 113 — cold-start foreground GPS
 
+> Historical record: candidate-stage statuses below are preserved as history.
+> Final release evidence is in [Build 113 — TestFlight](BUILD_113_TESTFLIGHT.md), which supersedes those statuses.
+
 This extends the unshipped 1.2.0 (113) candidate containing the Guardian fixes.
 Build 112 and its uploaded archive are unchanged. No native upload is implied
 by rebuilding and syncing the candidate.

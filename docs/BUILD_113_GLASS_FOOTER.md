@@ -1,5 +1,8 @@
 # Build 113 — stable Glass weather footer
 
+> Historical record: candidate-stage statuses below are preserved as history.
+> Final release evidence is in [Build 113 — TestFlight](BUILD_113_TESTFLIGHT.md), which supersedes those statuses.
+
 This extends the unshipped 1.2.0 (113) candidate containing the Guardian and
 cold-start GPS fixes. It does not upload or change the installed TestFlight build.
 
