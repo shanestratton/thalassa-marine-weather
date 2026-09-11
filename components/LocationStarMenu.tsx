@@ -94,7 +94,7 @@ export const LocationStarMenu: React.FC = () => {
         if (!open) return;
         setFollowTargetState(getWeatherFollowTarget());
     }, [open]);
-    const vesselName = settings.vessel?.name?.trim() ?? '';
+    const vesselName = settings.vessel?.name?.trim() || 'Vessel location';
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
     const currentSaved = isRealCurrent && saved.some((s) => s.name.toLowerCase() === currentName.toLowerCase());

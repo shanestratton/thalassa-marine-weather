@@ -1,4 +1,4 @@
-import { MarineWeatherReport, StormGlassHour, BeaconObservation } from '../../../types';
+import { MarineWeatherReport, StormGlassHour, BeaconObservation, OffshoreModel } from '../../../types';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
@@ -10,6 +10,7 @@ import { mergeWeatherData } from './dataSourceMerger';
 import { findAndFetchNearestBeacon } from './beaconService';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { useSettingsStore } from '../../../stores/settingsStore';
+import { resolveOffshoreModel } from '../forecastModels';
 import { buildExtremesLookup, TideExtremePoint } from '../../tides/extremesInterp';
 
 import { createLogger } from '../../../utils/createLogger';
@@ -22,7 +23,7 @@ import { createLogger } from '../../../utils/createLogger';
 // StormGlass. Coalesce them with an in-memory inflight map, same pattern
 // as CycloneTrackingService.
 const inflightByCoords = new Map<string, Promise<MarineWeatherReport>>();
-const inflightKey = (lat: number, lon: number) => `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+const inflightKey = (lat: number, lon: number, identity: string) => `${lat}|${lon}|${identity}`;
 
 const log = createLogger('stormglass');
 
@@ -60,33 +61,38 @@ export const fetchStormGlassWeather = async (
     lon: number,
     name: string,
     existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
+    modelSnapshot?: OffshoreModel,
 ): Promise<MarineWeatherReport> => {
+    const offshoreSource = resolveOffshoreModel(modelSnapshot ?? useSettingsStore.getState().settings.offshoreModel);
+    const cacheIdentity = `model-v1:${offshoreSource}:${existingLocationType || 'auto'}`;
     // 1. CHECK CACHE (3h TTL — model data updates every 6h)
     // API key lives server-side in Supabase Secrets — no client-side check needed.
-    const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon);
-    if (cached) return cached;
+    const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon, cacheIdentity);
+    if (cached) return { ...structuredClone(cached), locationName: name, coordinates: { lat, lon } };
 
     // 1b. Check for an inflight fetch for the same coords — avoids hitting
     // StormGlass twice when two callers race before the cache write.
-    const key = inflightKey(lat, lon);
+    const key = inflightKey(lat, lon, cacheIdentity);
     const existing = inflightByCoords.get(key);
-    if (existing) return existing;
+    if (existing) return { ...structuredClone(await existing), locationName: name, coordinates: { lat, lon } };
 
     const task = (async (): Promise<MarineWeatherReport> => {
         try {
-            return await doFetchStormGlassWeather(lat, lon, name, existingLocationType);
+            return await doFetchStormGlassWeather(lat, lon, name, offshoreSource, cacheIdentity, existingLocationType);
         } finally {
             inflightByCoords.delete(key);
         }
     })();
     inflightByCoords.set(key, task);
-    return task;
+    return structuredClone(await task);
 };
 
 const doFetchStormGlassWeather = async (
     lat: number,
     lon: number,
     name: string,
+    offshoreSource: OffshoreModel,
+    cacheIdentity: string,
     existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
     // 2. Parallel Fetching (PERFORMANCE CRITICAL)
@@ -102,19 +108,23 @@ const doFetchStormGlassWeather = async (
     const atmosphericParams =
         'windSpeed,gust,windDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,humidity';
 
-    // Use the user's preferred offshore model from settings (default: 'sg')
-    const offshoreSource = useSettingsStore.getState().settings.offshoreModel || 'sg';
+    // Documented StormGlass selectors: NOAA supplies GFS. ICON atmospheric
+    // data is supplied by Open-Meteo in the strategy, not DWD's GWAM waves.
+    const providerSource = offshoreSource === 'gfs' ? 'noaa' : offshoreSource === 'icon' ? 'sg' : offshoreSource;
+    const fullAtmosphere = existingLocationType === 'offshore' && offshoreSource !== 'icon';
 
     const weatherParams = {
         lat,
         lng: lon,
-        params:
-            existingLocationType === 'offshore'
-                ? `${atmosphericParams},${marineParams}` // Full suite for offshore
-                : marineParams, // Marine-only for coastal/inland
+        params: fullAtmosphere
+            ? `${atmosphericParams},${marineParams}` // Full suite for offshore
+            : marineParams, // Marine-only for coastal/inland
         start,
         end,
-        source: offshoreSource,
+        // A concrete model does not publish every marine/atmospheric field.
+        // Ask for SG alongside it, then prefer the selected source per field
+        // and explicitly retain fallback provenance in the transformed report.
+        source: providerSource === 'sg' ? 'sg' : `${providerSource},sg`,
     };
 
     const fetchHybridContext = async () => {
@@ -275,7 +285,7 @@ const doFetchStormGlassWeather = async (
         tides,
         // seaLevels: Use interpolated tides if available to restore graph!
         tides.length > 0 ? interpolateTides(tides) : [],
-        'sg',
+        offshoreSource === 'icon' ? 'sg' : offshoreSource,
         astronomy,
         existingLocationType,
         hybridData?.weather?.timezone, // Timezone String
@@ -292,7 +302,16 @@ const doFetchStormGlassWeather = async (
     }
 
     // Merge buoy data with StormGlass report to add source tracking
-    const mergedReport = mergeWeatherData(nearestBuoy, report, { lat, lon, name });
+    const mergedReport = mergeWeatherData(existingLocationType === 'offshore' ? null : nearestBuoy, report, {
+        lat,
+        lon,
+        name,
+    });
+    if (existingLocationType === 'offshore' && nearestBuoy) {
+        // Preserve the nearby observation without silently replacing the
+        // user's explicitly selected offshore forecast with buoy atmosphere.
+        mergedReport.beaconObservation = nearestBuoy;
+    }
 
     // 5. Calculate Location Type (ALWAYS recompute — never trust stale cached values)
     // The existingLocationType from cache can become stale when a user moves between
@@ -374,7 +393,7 @@ const doFetchStormGlassWeather = async (
     }
 
     // Cache the final report (3h TTL)
-    apiCacheSet('stormglass', lat, lon, mergedReport);
+    apiCacheSet('stormglass', lat, lon, mergedReport, cacheIdentity);
 
     return mergedReport;
 };

@@ -17,7 +17,7 @@ interface RadioViewport {
     width: number;
     height: number;
     split: boolean;
-    displayMode: 'dark' | 'light';
+    displayMode: 'dark' | 'light' | 'night';
 }
 
 interface RadioGpsControl {
@@ -131,6 +131,57 @@ async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, v
     await page.evaluate(async () => {
         await document.fonts.ready;
     });
+    await expect
+        .poll(() =>
+            page.getByTestId('radio-console-page').evaluate((element) => {
+                for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+                    if (ancestor.getAnimations().some((animation) => animation.playState === 'running')) return false;
+                }
+                return true;
+            }),
+        )
+        .toBe(true);
+}
+
+async function selectorGeometry(surface: Locator) {
+    return surface
+        .getByTestId('radio-call-selector')
+        .locator('button')
+        .evaluateAll((buttons) =>
+            buttons.map((button) => {
+                const { x, y, width, height } = button.getBoundingClientRect();
+                return { x, y, width, height };
+            }),
+        );
+}
+
+async function expectStableSelectors(
+    page: Page,
+    surface: Locator,
+    baseline: Awaited<ReturnType<typeof selectorGeometry>>,
+) {
+    // Only the current screen's selector is exposed to assistive technology.
+    await expect(page.getByRole('group', { name: 'Call type', exact: true })).toHaveCount(1);
+    const selector = surface.getByRole('group', { name: 'Call type', exact: true });
+    await expect(selector).toBeInViewport();
+    await expect(selector.getByRole('button')).toHaveCount(3);
+    await expect
+        .poll(async () => {
+            const current = await selectorGeometry(surface);
+            return (
+                current.length === baseline.length &&
+                current.every((rect, index) =>
+                    (['x', 'y', 'width', 'height'] as const).every(
+                        (key) => Math.abs(rect[key] - baseline[index][key]) <= 1,
+                    ),
+                )
+            );
+        })
+        .toBe(true);
+    for (const button of await selector.getByRole('button').all()) {
+        await expect(button).toBeInViewport();
+        expect(await button.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    }
 }
 
 test('Very long radio identities remain readable through the final Over with Close pinned', async ({
@@ -142,6 +193,8 @@ test('Very long radio identities remain readable through the final Over with Clo
         .trim();
     await openRadio(page, baseURL!, { width: 390, height: 844, split: false, displayMode: 'dark' }, vesselName);
     const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
+    const selectorBaseline = await selectorGeometry(page.getByTestId('radio-console-page'));
+    await expectStableSelectors(page, instructions, selectorBaseline);
     await instructions.getByRole('button', { name: /^Distress/ }).click();
     await instructions.getByRole('combobox').selectOption('fire');
     await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
@@ -186,6 +239,7 @@ test('Very long radio identities remain readable through the final Over with Clo
     await expect(transcript).toHaveText(before.fullText!);
     await expect(close).toBeInViewport();
     expect(await close.boundingBox()).toEqual(closeBefore);
+    await expectStableSelectors(page, dialog, selectorBaseline);
     await testInfo.attach('long-transcript-geometry', {
         body: JSON.stringify(before, null, 2),
         contentType: 'application/json',
@@ -293,6 +347,8 @@ async function transcriptGeometry(body: Locator) {
 const viewports: RadioViewport[] = [
     { width: 390, height: 844, split: false, displayMode: 'light' },
     { width: 430, height: 932, split: false, displayMode: 'dark' },
+    // Reduced height also exercises native safe-area headroom without editing CSS.
+    { width: 390, height: 784, split: false, displayMode: 'night' },
     { width: 1024, height: 768, split: true, displayMode: 'dark' },
 ];
 
@@ -307,6 +363,19 @@ for (const viewport of viewports) {
         const transcriptDialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
         const transcript = transcriptDialog.getByTestId('dsc-transcript');
         const close = transcriptDialog.getByRole('button', { name: 'Close voice transcript', exact: true });
+        const consolePage = page.getByTestId('radio-console-page');
+        const selectorBaseline = await selectorGeometry(consolePage);
+        await expectStableSelectors(page, instructions, selectorBaseline);
+        await instructions.getByRole('button', { name: 'Close vhf instructions', exact: true }).click();
+        await expectStableSelectors(page, consolePage, selectorBaseline);
+        const selectorBottom = selectorBaseline[0].y + selectorBaseline[0].height;
+        expect(selectorBottom).toBeLessThan((await consolePage.getByTestId('radio-console-body').boundingBox())!.y);
+        await page.screenshot({
+            path: testInfo.outputPath('console-top-selectors.png'),
+            fullPage: true,
+            animations: 'disabled',
+        });
+        await consolePage.getByRole('button', { name: /^Routine/ }).click();
 
         for (const mode of ['routine', 'urgency', 'distress'] as const) {
             await test.step(mode, async () => {
@@ -314,6 +383,7 @@ for (const viewport of viewports) {
                 await expect(transcriptDialog).toHaveCount(0);
                 await expectDialogFrame(page, instructions, viewport.split);
                 await instructions.getByRole('button', { name: new RegExp(`^${mode}`, 'i') }).click();
+                await expectStableSelectors(page, instructions, selectorBaseline);
                 if (mode !== 'routine') {
                     await instructions.getByRole('combobox').selectOption('fire');
                     await expect(instructions).toContainText('On your VHF');
@@ -327,6 +397,12 @@ for (const viewport of viewports) {
                 await instructions
                     .getByRole('checkbox', { name: 'Confirm position receiver is aboard this vessel', exact: true })
                     .check();
+                await instructions.getByText('VHF / HF channel reference', { exact: true }).click();
+                await instructions.getByTestId('radio-instructions-body').evaluate((element) => {
+                    element.scrollTop = element.scrollHeight;
+                });
+                await expectStableSelectors(page, instructions, selectorBaseline);
+                await instructions.getByText('VHF / HF channel reference', { exact: true }).click();
                 if (mode === 'distress') {
                     if (viewport.split) {
                         const glass = page.locator('[data-split-pane="glass"]');
@@ -344,6 +420,7 @@ for (const viewport of viewports) {
                 await expect(instructions).toHaveCount(0);
                 await expect(transcriptDialog).toBeVisible();
                 await expectDialogFrame(page, transcriptDialog, viewport.split);
+                await expectStableSelectors(page, transcriptDialog, selectorBaseline);
                 await expect(close).toBeInViewport();
                 await expect(transcript).toContainText('Northern Surveyor');
                 await expect(transcript).toContainText('Call sign. V, H, Z. 1, 2, 3, 4.');
@@ -410,6 +487,7 @@ for (const viewport of viewports) {
                     await transcriptDialog.getByRole('button', { name: 'VHF instructions', exact: true }).click();
                     await expect(instructions).toBeVisible();
                     await expect(transcriptDialog).toHaveCount(0);
+                    await expectStableSelectors(page, instructions, selectorBaseline);
                     await expect(instructions.getByRole('button', { name: /^Urgency/ })).toHaveAttribute(
                         'aria-pressed',
                         'true',
@@ -417,15 +495,48 @@ for (const viewport of viewports) {
                     await proceed.click();
                     await expect(transcriptDialog).toBeVisible();
                 }
+                if (mode === 'routine') {
+                    // A mode switch must not silently rewrite an active readback.
+                    await transcriptDialog.getByRole('button', { name: /^Urgency/ }).click();
+                    await expect(instructions).toBeVisible();
+                    await expect(transcriptDialog).toHaveCount(0);
+                    await expect(instructions.getByRole('button', { name: /^Urgency/ })).toHaveAttribute(
+                        'aria-pressed',
+                        'true',
+                    );
+                    await expectStableSelectors(page, instructions, selectorBaseline);
+                    await proceed.click();
+                    await expect(transcript).toContainText('Pan-Pan, Pan-Pan, Pan-Pan.');
+                    await expectStableSelectors(page, transcriptDialog, selectorBaseline);
+                }
 
                 await close.click();
                 await expect(transcriptDialog).toHaveCount(0);
                 await expect(instructions).toHaveCount(0);
+                await expectStableSelectors(page, consolePage, selectorBaseline);
+                await consolePage.getByTestId('radio-console-body').evaluate((element) => {
+                    element.scrollTop = element.scrollHeight;
+                });
+                await expectStableSelectors(page, consolePage, selectorBaseline);
+                await consolePage.getByTestId('radio-console-body').evaluate((element) => {
+                    element.scrollTop = 0;
+                });
                 if (viewport.split) await expect(page.locator('[data-split-pane="page"]')).not.toHaveAttribute('inert');
                 const reopen = page.getByRole('button', { name: /^Prepare voice call/ });
                 await expect(reopen).toBeInViewport();
                 if (mode !== 'distress') await reopen.click();
             });
+        }
+        if (!viewport.split) {
+            // Reflow the actual page/portal origins, then compare the new exact slot.
+            await page.setViewportSize({ width: viewport.width === 390 ? 430 : 390, height: viewport.height });
+            const resizedBaseline = await selectorGeometry(consolePage);
+            await consolePage.getByRole('button', { name: /^Distress/ }).click();
+            await expectStableSelectors(page, instructions, resizedBaseline);
+            await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
+            await expectStableSelectors(page, transcriptDialog, resizedBaseline);
+            await close.click();
+            await expectStableSelectors(page, consolePage, resizedBaseline);
         }
     });
 }

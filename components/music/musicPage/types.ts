@@ -19,6 +19,8 @@ export const MAX_CONCURRENT_PLAYLIST_PREVIEWS = 2;
 export interface PlaylistTileProps {
     playlist: UserPlaylist;
     active: boolean;
+    selected?: boolean;
+    playbackState?: 'playing' | 'paused' | null;
     /** Called with the playlist id so the parent can hold ONE stable handler
      *  for the whole rail — a per-tile closure defeated React.memo and the
      *  1 s now-playing poll repainted every card. */

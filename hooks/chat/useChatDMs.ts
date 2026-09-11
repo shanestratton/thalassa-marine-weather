@@ -2,7 +2,7 @@
  * useChatDMs — Extracted from ChatPage god component.
  * Manages DM conversations, threads, sending, and block/unblock.
  */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { ChatService, DMConversation, DirectMessage } from '../../services/ChatService';
 import { triggerHaptic } from '../../utils/system';
 import { toast } from '../../components/Toast';
@@ -23,6 +23,7 @@ export interface UseChatDMsOptions {
 
 export function useChatDMs(options: UseChatDMsOptions) {
     const { setView, setNavDirection, setLoading } = options;
+    const identityScope = useSyncExternalStore(subscribeAuthIdentityScope, getAuthIdentityScope, getAuthIdentityScope);
 
     // --- State ---
     const [dmConversations, setDmConversations] = useState<DMConversation[]>([]);
@@ -48,11 +49,15 @@ export function useChatDMs(options: UseChatDMsOptions) {
     const partnerVersionRef = useRef(0);
     const blockRequestRef = useRef(0);
     const blockMutationRef = useRef(false);
+    const pendingSendIdsRef = useRef(new Set<string>());
+    const deferredSelfEchoesRef = useRef(new Map<string, DirectMessage>());
     const setDmPartner = useCallback((partner: { id: string; name: string } | null) => {
         partnerVersionRef.current += 1;
         blockRequestRef.current += 1;
         dmPartnerRef.current = partner;
         blockMutationRef.current = false;
+        pendingSendIdsRef.current.clear();
+        deferredSelfEchoesRef.current.clear();
         setDmPartnerState(partner);
         setIsUserBlocked(false);
         setBlockedByMe(false);
@@ -138,9 +143,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
                         message.message === confirmed.message,
                 );
                 if (queuedIndex < 0) return prev;
-                const next = [...prev];
-                next[queuedIndex] = confirmed;
-                return next;
+                return reconcileOptimisticMessage(prev, prev[queuedIndex].id, confirmed);
             });
         };
         window.addEventListener(QUEUED_DM_SENT_EVENT, handleQueuedDmSent);
@@ -152,10 +155,21 @@ export function useChatDMs(options: UseChatDMsOptions) {
         const identity = getAuthIdentityScope();
         return ChatService.subscribeToDMs((dm) => {
             if (!isAuthIdentityScopeCurrent(identity)) return;
-            setUnreadDMs((prev) => prev + 1);
+            if (dm.sender_id !== identity.userId) setUnreadDMs((prev) => prev + 1);
+            const partner = dmPartnerRef.current;
+            if (
+                partner &&
+                dm.sender_id === partner.id &&
+                dm.sender_id === identity.userId &&
+                pendingSendIdsRef.current.size > 0
+            ) {
+                // Delay the self echo until the matching insert returns its ID.
+                // Do not guess identity from equal message text or timestamps.
+                deferredSelfEchoesRef.current.set(dm.id, dm);
+                return;
+            }
             setDmThread((prev) => {
-                const partner = dmPartnerRef.current;
-                if (partner && dm.sender_id === partner.id) {
+                if (partner && dm.sender_id === partner.id && !prev.some((message) => message.id === dm.id)) {
                     return [...prev, dm];
                 }
                 return prev;
@@ -184,9 +198,9 @@ export function useChatDMs(options: UseChatDMsOptions) {
 
     const openDMThread = useCallback(
         async (userId: string, name: string) => {
-            ensureDirectMessagePushRegistration();
             const identity = getAuthIdentityScope();
-            setDmPartner({ id: userId, name });
+            if (userId !== identity.userId) ensureDirectMessagePushRegistration();
+            setDmPartner({ id: userId, name: userId === identity.userId ? 'Self test' : name });
             const version = partnerVersionRef.current;
             setDmThread([]);
             setDmText('');
@@ -205,7 +219,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
             }
             setDmThread(thread);
             setLoading(false);
-            setUnreadDMs((prev) => Math.max(0, prev - 1));
+            if (userId !== identity.userId) setUnreadDMs((prev) => Math.max(0, prev - 1));
         },
         [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading, setDmPartner, retryBlockStatus],
     );
@@ -228,12 +242,22 @@ export function useChatDMs(options: UseChatDMsOptions) {
             created_at: new Date().toISOString(),
             delivery_status: 'sending',
         };
+        pendingSendIdsRef.current.add(optimistic.id);
         setDmThread((prev) => [...prev, optimistic]);
 
         const result = await ChatService.sendDM(dmPartner.id, text).catch(() => null);
         if (!isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current) return;
+        pendingSendIdsRef.current.delete(optimistic.id);
+        const echoes = pendingSendIdsRef.current.size === 0 ? [...deferredSelfEchoesRef.current.values()] : [];
+        if (pendingSendIdsRef.current.size === 0) deferredSelfEchoesRef.current.clear();
+        const settle = (update: (previous: DirectMessage[]) => DirectMessage[]) => {
+            setDmThread((previous) => {
+                const next = update(previous);
+                return [...next, ...echoes.filter((echo) => !next.some((message) => message.id === echo.id))];
+            });
+        };
         if (result === 'blocked') {
-            setDmThread((prev) => prev.filter((m) => m.id !== optimistic.id));
+            settle((prev) => prev.filter((m) => m.id !== optimistic.id));
             setIsUserBlocked(true);
             setDmText((current) => current || text);
             toast.info('Messages are unavailable in this conversation. Your text has been restored.');
@@ -241,17 +265,17 @@ export function useChatDMs(options: UseChatDMsOptions) {
             return;
         }
         if (result === 'queued') {
-            setDmThread((prev) => reconcileOptimisticMessage(prev, optimistic.id, 'queued'));
+            settle((prev) => reconcileOptimisticMessage(prev, optimistic.id, 'queued'));
             toast.info('Direct message queued — it will send when the connection returns.');
             return;
         }
         if (!result) {
-            setDmThread((prev) => prev.filter((message) => message.id !== optimistic.id));
+            settle((prev) => prev.filter((message) => message.id !== optimistic.id));
             setDmText((current) => current || text);
             toast.error("Direct message wasn't sent. Your text has been restored.");
             return;
         }
-        setDmThread((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
+        settle((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
         triggerHaptic('light');
     }, [dmText, dmPartner, isUserBlocked, blockStatusLoading, blockStatusError, retryBlockStatus]);
 
@@ -312,6 +336,8 @@ export function useChatDMs(options: UseChatDMsOptions) {
 
     return {
         // State
+        currentUserId: identityScope.userId,
+        isSelfConversation: !!identityScope.userId && dmPartner?.id === identityScope.userId,
         dmConversations,
         dmThread,
         setDmThread,

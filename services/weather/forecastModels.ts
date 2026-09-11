@@ -11,7 +11,43 @@
  * Source data is CC-BY-4.0. Anything user-visible that shows these models'
  * numbers must carry attribution — use MODEL_ATTRIBUTION_LINE.
  */
-import type { WeatherModel } from '../../types';
+import type { OffshoreModel, WeatherModel } from '../../types';
+
+/** Offshore sources supported by the marine forecast pipeline. These are source
+ * keys, NOT Open-Meteo atmospheric model-domain ids. Keep the two preferences
+ * separate so returning inshore restores the skipper's atmospheric choice. */
+export const OFFSHORE_MODELS: { id: OffshoreModel; label: string; provider: string; blurb: string; hex: string }[] = [
+    {
+        id: 'sg',
+        label: 'SG BLEND',
+        provider: 'StormGlass',
+        blurb: 'Automatic offshore source selection',
+        hex: '#34d399',
+    },
+    {
+        id: 'ecmwf',
+        label: 'ECMWF',
+        provider: 'ECMWF',
+        blurb: 'European offshore forecast via StormGlass',
+        hex: '#38bdf8',
+    },
+    { id: 'gfs', label: 'GFS', provider: 'NOAA', blurb: 'Global offshore forecast via StormGlass', hex: '#fbbf24' },
+    {
+        id: 'icon',
+        label: 'ICON',
+        provider: 'DWD',
+        blurb: 'German global forecast with marine enrichment',
+        hex: '#a78bfa',
+    },
+];
+
+export function resolveOffshoreModel(stored: unknown): OffshoreModel {
+    return OFFSHORE_MODELS.find((model) => model.id === stored)?.id ?? 'sg';
+}
+
+export function getOffshoreModelInfo(model: OffshoreModel) {
+    return OFFSHORE_MODELS.find((entry) => entry.id === model)!;
+}
 
 export interface ForecastModelInfo {
     id: WeatherModel;

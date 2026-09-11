@@ -65,10 +65,26 @@ function getConversationPreview(message: string): string {
 export interface ChatDMInboxProps {
     conversations: DMConversation[];
     onOpenThread: (userId: string, name: string) => void;
+    currentUserId?: string | null;
 }
 
-export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversations, onOpenThread }) => (
+export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversations, onOpenThread, currentUserId }) => (
     <div className="px-4 py-3 space-y-1.5" role="list" aria-label="Direct message conversations">
+        {currentUserId && (
+            <div role="listitem">
+                <button
+                    type="button"
+                    onClick={() => onOpenThread(currentUserId, 'Self test')}
+                    aria-label="Open self-test conversation"
+                    className="w-full min-h-[56px] rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3.5 text-left"
+                >
+                    <span className="block text-sm font-bold text-sky-200">Self test · Message yourself</span>
+                    <span className="block mt-1 text-sm text-white/70">
+                        Try a real private message, block this conversation, then unblock it here.
+                    </span>
+                </button>
+            </div>
+        )}
         {conversations.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
                 <div className="relative mb-6">
@@ -82,34 +98,38 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                 </p>
             </div>
         )}
-        {conversations.map((conv, i) => (
-            <button
-                key={conv.user_id}
-                onClick={() => onOpenThread(conv.user_id, conv.display_name)}
-                aria-label={`Message ${conv.display_name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ''}`}
-                role="listitem"
-                className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8 transition-all duration-200 active:scale-[0.98] msg-enter min-h-[56px]"
-                style={{ animationDelay: `${Math.min(i * 50, 300)}ms` }}
-            >
-                <div
-                    className={`w-11 h-11 rounded-xl bg-linear-to-br ${getAvatarGradient(conv.user_id)} flex items-center justify-center text-sm font-bold shrink-0 shadow-lg`}
+        {conversations
+            .filter((conversation) => conversation.user_id !== currentUserId)
+            .map((conv, i) => (
+                <button
+                    key={conv.user_id}
+                    onClick={() => onOpenThread(conv.user_id, conv.display_name)}
+                    aria-label={`Message ${conv.display_name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ''}`}
+                    role="listitem"
+                    className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8 transition-all duration-200 active:scale-[0.98] msg-enter min-h-[56px]"
+                    style={{ animationDelay: `${Math.min(i * 50, 300)}ms` }}
                 >
-                    {conv.display_name.charAt(0).toUpperCase()}
-                </div>
-                <div className="text-left flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                        <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
-                        <span className="text-[11px] text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
+                    <div
+                        className={`w-11 h-11 rounded-xl bg-linear-to-br ${getAvatarGradient(conv.user_id)} flex items-center justify-center text-sm font-bold shrink-0 shadow-lg`}
+                    >
+                        {conv.display_name.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-[11px] text-white/60 truncate">{getConversationPreview(conv.last_message)}</p>
-                </div>
-                {conv.unread_count > 0 && (
-                    <span className="min-w-[20px] h-5 rounded-full bg-linear-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 shrink-0 shadow-lg shadow-sky-500/20">
-                        {conv.unread_count}
-                    </span>
-                )}
-            </button>
-        ))}
+                    <div className="text-left flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                            <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
+                            <span className="text-[11px] text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
+                        </div>
+                        <p className="text-[11px] text-white/60 truncate">
+                            {getConversationPreview(conv.last_message)}
+                        </p>
+                    </div>
+                    {conv.unread_count > 0 && (
+                        <span className="min-w-[20px] h-5 rounded-full bg-linear-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 shrink-0 shadow-lg shadow-sky-500/20">
+                            {conv.unread_count}
+                        </span>
+                    )}
+                </button>
+            ))}
     </div>
 ));
 ChatDMInbox.displayName = 'ChatDMInbox';
@@ -118,60 +138,76 @@ ChatDMInbox.displayName = 'ChatDMInbox';
 export interface ChatDMThreadProps {
     thread: DirectMessage[];
     partnerName?: string;
+    currentUserId?: string | null;
+    isSelfConversation?: boolean;
 }
 
-export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(({ thread, partnerName }) => (
-    <div className="flex flex-col min-h-full" role="log" aria-label="Direct messages">
-        <div className="flex-1 px-4 py-3 space-y-2">
-            {thread.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20">
-                    <div className="relative mb-6">
-                        <div className="w-16 h-16 rounded-full bg-sky-500/6 border border-sky-500/10 flex items-center justify-center">
-                            <span className="text-3xl empty-bob">👋</span>
-                        </div>
-                    </div>
-                    <p className="text-sm font-semibold text-white/70 mb-1">Start a conversation</p>
-                    <p className="text-[11px] text-white/50 max-w-[200px] text-center leading-relaxed">
-                        Say ahoy to {partnerName} — they're just a message away!
+export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
+    ({ thread, partnerName, currentUserId, isSelfConversation }) => (
+        <div className="flex flex-col min-h-full" role="log" aria-label="Direct messages">
+            <div className="flex-1 px-4 py-3 space-y-2">
+                {isSelfConversation && (
+                    <p className="rounded-xl border border-sky-400/20 bg-sky-500/5 p-3 text-sm text-white/70">
+                        Self test: messages are saved to your own account. No other sailor is notified. Blocking here
+                        affects only messages to yourself, not your account or public posts.
                     </p>
-                </div>
-            )}
-            {thread.map((dm, i) => {
-                const isSelf = dm.sender_id === 'self';
-                return (
-                    <div
-                        key={dm.id}
-                        className={`flex ${isSelf ? 'justify-end' : 'justify-start'} msg-enter`}
-                        style={{ animationDelay: `${Math.min(i * 25, 200)}ms` }}
-                    >
-                        <div
-                            className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                                isSelf
-                                    ? 'bg-sky-500/15 border border-sky-500/15 rounded-br-lg'
-                                    : 'bg-white/4 border border-white/4 rounded-bl-lg'
-                            }`}
-                        >
-                            {renderMessageContent(dm.message, isSelf)}
-                            <p className="text-[11px] text-white/40 mt-1 tabular-nums">
-                                {timeAgo(dm.created_at)}
-                                {dm.delivery_status === 'sending' && (
-                                    <span className="ml-1 text-sky-300/70" role="status">
-                                        · Sending…
-                                    </span>
-                                )}
-                                {dm.delivery_status === 'queued' && (
-                                    <span className="ml-1 text-amber-300/70" role="status">
-                                        · Queued — sends when online
-                                    </span>
-                                )}
-                            </p>
+                )}
+                {thread.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-20">
+                        <div className="relative mb-6">
+                            <div className="w-16 h-16 rounded-full bg-sky-500/6 border border-sky-500/10 flex items-center justify-center">
+                                <span className="text-3xl empty-bob">👋</span>
+                            </div>
                         </div>
+                        <p className="text-sm font-semibold text-white/70 mb-1">
+                            {isSelfConversation ? 'Send yourself a test message' : 'Start a conversation'}
+                        </p>
+                        <p className="text-[11px] text-white/50 max-w-[200px] text-center leading-relaxed">
+                            {isSelfConversation ? (
+                                'Your saved test messages appear here.'
+                            ) : (
+                                <>Say ahoy to {partnerName} — they're just a message away!</>
+                            )}
+                        </p>
                     </div>
-                );
-            })}
+                )}
+                {thread.map((dm, i) => {
+                    const isSelf = dm.sender_id === 'self' || dm.sender_id === currentUserId;
+                    return (
+                        <div
+                            key={dm.id}
+                            className={`flex ${isSelf ? 'justify-end' : 'justify-start'} msg-enter`}
+                            style={{ animationDelay: `${Math.min(i * 25, 200)}ms` }}
+                        >
+                            <div
+                                className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
+                                    isSelf
+                                        ? 'bg-sky-500/15 border border-sky-500/15 rounded-br-lg'
+                                        : 'bg-white/4 border border-white/4 rounded-bl-lg'
+                                }`}
+                            >
+                                {renderMessageContent(dm.message, isSelf)}
+                                <p className="text-[11px] text-white/40 mt-1 tabular-nums">
+                                    {timeAgo(dm.created_at)}
+                                    {dm.delivery_status === 'sending' && (
+                                        <span className="ml-1 text-sky-300/70" role="status">
+                                            · Sending…
+                                        </span>
+                                    )}
+                                    {dm.delivery_status === 'queued' && (
+                                        <span className="ml-1 text-amber-300/70" role="status">
+                                            · Queued — sends when online
+                                        </span>
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
-    </div>
-));
+    ),
+);
 ChatDMThread.displayName = 'ChatDMThread';
 
 // --- DM Compose Bar ---
@@ -179,6 +215,7 @@ export interface ChatDMComposeProps {
     dmText: string;
     setDmText: (v: string) => void;
     partnerName?: string;
+    isSelfConversation?: boolean;
     keyboardOffset: number;
     isUserBlocked: boolean;
     blockedByMe: boolean;
@@ -198,6 +235,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
         dmText,
         setDmText,
         partnerName,
+        isSelfConversation,
         keyboardOffset,
         isUserBlocked,
         blockedByMe,
@@ -220,15 +258,27 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                 {showBlockConfirm && (
                     <div className="mb-3 p-4 rounded-2xl bg-red-500/5 border border-red-400/15">
                         <p className="text-sm text-white/60 mb-3">
-                            {blockedByMe
-                                ? `Remove your block on ${partnerName}? Messaging still depends on their settings.`
-                                : `Block ${partnerName}? Direct messages between you will be stopped.`}
+                            {isSelfConversation
+                                ? blockedByMe
+                                    ? 'Unblock your self-test conversation? Messages to yourself will be available again.'
+                                    : 'Block your self-test conversation? Only messages to yourself will stop. Your account and public posts are unaffected.'
+                                : blockedByMe
+                                  ? `Remove your block on ${partnerName}? Messaging still depends on their settings.`
+                                  : `Block ${partnerName}? Direct messages between you will be stopped.`}
                         </p>
                         <div className="flex gap-2">
                             <button
                                 onClick={blockedByMe ? onUnblock : onBlock}
                                 disabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
-                                aria-label={blockedByMe ? `Unblock ${partnerName}` : `Block ${partnerName}`}
+                                aria-label={
+                                    isSelfConversation
+                                        ? blockedByMe
+                                            ? 'Confirm unblock self-test conversation'
+                                            : 'Confirm block self-test conversation'
+                                        : blockedByMe
+                                          ? `Unblock ${partnerName}`
+                                          : `Block ${partnerName}`
+                                }
                                 className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 min-h-[44px] ${
                                     blockedByMe
                                         ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20'
@@ -270,15 +320,17 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                 {isUserBlocked && !showBlockConfirm ? (
                     <div className="flex items-center justify-between py-2">
                         <p className="text-sm text-white/70" role="status">
-                            {blockedByMe
-                                ? 'You have blocked this sailor.'
-                                : 'Messaging is unavailable for this conversation.'}
+                            {blockedByMe && isSelfConversation
+                                ? 'Your self-test conversation is blocked.'
+                                : blockedByMe
+                                  ? 'You have blocked this sailor.'
+                                  : 'Messaging is unavailable for this conversation.'}
                         </p>
                         {blockedByMe && (
                             <button
                                 onClick={() => setShowBlockConfirm(true)}
                                 disabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
-                                aria-label="Unblock user"
+                                aria-label={isSelfConversation ? 'Unblock self-test conversation' : 'Unblock user'}
                                 className="text-sm text-emerald-300 transition-colors min-h-[44px] px-2"
                             >
                                 Unblock

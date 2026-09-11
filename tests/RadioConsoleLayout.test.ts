@@ -22,10 +22,16 @@ describe('Radio Console full-pane readback', () => {
         expect(dialogs).not.toMatch(/line-clamp-|text-overflow:|text-ellipsis/);
         expect(dialogs.split('data-testid="dsc-transcript"')).toHaveLength(2);
     });
-    it('keeps readouts and pinned call buttons on the base console', () => {
+    it('keeps one top call-selector slot ahead of variable console content and outside both dialog scrollers', () => {
         for (const label of ['LAT', 'LON', 'SOG', 'COG', 'UTC']) expect(page).toMatch(new RegExp(`>\\s*${label}\\s*<`));
         expect(page).toContain("paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)'");
         expect(page).toContain('<DscSelector mode={dscMode} onChange={chooseMode} mobActive={mobActive} />');
+        expect(page.indexOf('ref={selectorRef}')).toBeLessThan(page.indexOf('Vessel identity strip'));
+        expect(page).toContain('aria-hidden={dialogStep !== null}');
+        expect(page.match(/selectorAnchor={selectorAnchor}/g)).toHaveLength(2);
+        expect(dialogs.indexOf('{selectors}')).toBeLessThan(dialogs.indexOf('{children}'));
+        expect(dialogs).toContain('paddingTop: selectorAnchor?.top');
+        expect(dialogs).toContain('marginLeft: selectorAnchor.left, width: selectorAnchor.width');
         for (const mode of ['routine', 'urgency', 'distress']) expect(page).toContain(`pill('${mode}'`);
     });
     it('keeps channel guidance without a universal hold time or acknowledgement gate', () => {

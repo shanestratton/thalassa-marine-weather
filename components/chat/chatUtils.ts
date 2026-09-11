@@ -89,6 +89,11 @@ export function reconcileOptimisticMessage<T extends { id: string; delivery_stat
     if (optimisticIndex < 0) {
         return messages.some((message) => message.id === result.id) ? messages : [...messages, result];
     }
+    // The realtime echo can beat the insert response (especially self DMs).
+    // Keep its server ID once and retire the optimistic row, never duplicate it.
+    if (messages.some((message) => message.id === result.id)) {
+        return messages.filter((message) => message.id !== optimisticId);
+    }
     const next = [...messages];
     next[optimisticIndex] = result;
     return next;

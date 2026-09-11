@@ -1,4 +1,4 @@
-import { MarineWeatherReport, WeatherModel } from '../../types';
+import { MarineWeatherReport, WeatherModel, OffshoreModel } from '../../types';
 import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
@@ -14,7 +14,8 @@ import { withTimeout } from '../../utils/deadline';
 import { fetchMarine, isLocalReading } from './api/marine';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { resolveForecastModel, isConcreteModel, isSpitfire } from './forecastModels';
+import { AUTO_MODEL, resolveForecastModel, resolveOffshoreModel, isConcreteModel, isSpitfire } from './forecastModels';
+import { blendOffshoreForecast } from './transformers';
 import { fetchSpitfire, applySpitfireToReport } from './spitfire';
 import { piCache } from '../PiCacheService';
 
@@ -55,6 +56,28 @@ export const fetchStormglassData = fetchStormGlassWeather;
 // instead of firing 4 more concurrent API calls.
 // Key granularity: ~1km (2 decimal places of lat/lon).
 const _inflight = new Map<string, Promise<MarineWeatherReport>>();
+
+interface ForecastSelection {
+    userId: string | undefined;
+    forecastModel: WeatherModel;
+    offshoreModel: OffshoreModel;
+}
+const forecastSelection = (): ForecastSelection => {
+    const settings = useSettingsStore.getState().settings;
+    return {
+        userId: useAuthStore.getState().user?.id,
+        forecastModel: resolveForecastModel(settings.forecastModel),
+        offshoreModel: resolveOffshoreModel(settings.offshoreModel),
+    };
+};
+const sameSelection = (a: ForecastSelection, b: ForecastSelection) =>
+    a.userId === b.userId && a.forecastModel === b.forecastModel && a.offshoreModel === b.offshoreModel;
+
+const matchesOffshoreModel = (report: MarineWeatherReport, model: OffshoreModel): boolean =>
+    report.locationType === 'offshore' &&
+    (model === 'icon'
+        ? /(?:om|wx):dwd_icon(?:\+|$)/.test(report.modelUsed)
+        : report.modelUsed.startsWith(`stormglass_${model}`));
 
 /**
  * Fill the holes a single forecast model physically cannot fill.
@@ -127,37 +150,45 @@ export const fetchWeatherByStrategy = async (
     // Coalesce only metre-scale GPS jitter. The former 0.01° identity could
     // hand one caller another point's full weather/tide report kilometres
     // away while the first request was in flight.
-    const dedupKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    // Snapshot before the first await. A model/account switch must start a
+    // distinct request even at the very same position.
+    const selection = forecastSelection();
+    const dedupKey = JSON.stringify([lat, lon, name, locationType, selection]);
     const existing = _inflight.get(dedupKey);
-    if (existing) return existing;
+    if (existing) return structuredClone(await existing);
 
-    const promise = _fetchWeatherByStrategyImpl(lat, lon, name, locationType);
+    const promise = _fetchWeatherByStrategyImpl(lat, lon, name, selection, locationType);
     _inflight.set(dedupKey, promise);
-    promise.finally(() => _inflight.delete(dedupKey));
-    return promise;
+    try {
+        return structuredClone(await promise);
+    } finally {
+        if (_inflight.get(dedupKey) === promise) _inflight.delete(dedupKey);
+    }
 };
 
 const _fetchWeatherByStrategyImpl = async (
     lat: number,
     lon: number,
     name: string,
+    selection: ForecastSelection,
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
-    const isOffshore = locationType === 'offshore';
+    let isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
-    const userId = useAuthStore.getState().user?.id;
+    const { userId, offshoreModel } = selection;
 
     // ── Glass forecast model (the model-picker pill) ──
     // A concrete model makes the Open-Meteo fetch below THE atmospheric base
     // of the merged report (self-hosted wx server when reachable, commercial
     // API otherwise). 'best_match' (Auto) keeps the legacy WeatherKit-primary
     // blend and OM stays a supplement.
-    const glassModel = resolveForecastModel(useSettingsStore.getState().settings.forecastModel);
-    const modelPinned = isConcreteModel(glassModel);
+    let glassModel = isOffshore ? (offshoreModel === 'icon' ? 'dwd_icon' : AUTO_MODEL) : selection.forecastModel;
+    let modelPinned = isOffshore ? offshoreModel === 'icon' : isConcreteModel(glassModel);
+    let offshoreAtmosphereReady = isOffshore && offshoreModel !== 'icon';
     // SPITFIRE is a published blend, not a grid — it is fetched separately and
     // only exists near the locations the wx box computes. Asking for it away
     // from those returns null and we fall through to the normal path.
-    const spitfireWanted = isSpitfire(glassModel);
+    const spitfireWanted = !isOffshore && isSpitfire(glassModel);
     const spitfirePromise = spitfireWanted ? fetchSpitfire(lat, lon) : Promise.resolve(null);
 
     // ── Wait for Pi Cache discovery to settle (boot race fix) ──
@@ -307,7 +338,7 @@ const _fetchWeatherByStrategyImpl = async (
 
         // 2. StormGlass: Marine data (waves, swell, water temp, currents)
         needsStormGlass
-            ? bounded('stormglass', fetchStormGlassWeather(lat, lon, name, locationType), sgCutWhen)
+            ? bounded('stormglass', fetchStormGlassWeather(lat, lon, name, locationType, offshoreModel), sgCutWhen)
             : Promise.resolve(null),
 
         tidePromise,
@@ -353,9 +384,41 @@ const _fetchWeatherByStrategyImpl = async (
     }
 
     const unifiedReport = unifiedResult.status === 'fulfilled' ? unifiedResult.value : null;
-    const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
+    let stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
     const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
-    const openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
+    let openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
+
+    // A never-visited point has no trusted coastal/offshore classification.
+    // Once the initial marine lookup establishes offshore, correct only the
+    // selected atmospheric source, reusing tides, marine and all fallbacks.
+    // This is a single bounded correction, never a recursive full refresh.
+    if (locationType === undefined && stormGlassReport?.locationType === 'offshore') {
+        isOffshore = true;
+        modelPinned = false;
+        if (sameSelection(selection, forecastSelection())) {
+            if (offshoreModel === 'icon') {
+                if (glassModel === 'dwd_icon' && openMeteoReport) {
+                    modelPinned = true;
+                } else {
+                    const corrected = await bounded('offshore-icon', fetchOpenMeteo(lat, lon, name, false, 'dwd_icon'));
+                    if (corrected) {
+                        openMeteoReport = corrected;
+                        glassModel = 'dwd_icon';
+                        modelPinned = true;
+                    }
+                }
+            } else {
+                const corrected = await bounded(
+                    'offshore-model',
+                    fetchStormGlassWeather(lat, lon, name, 'offshore', offshoreModel),
+                );
+                if (corrected) {
+                    stormGlassReport = corrected;
+                    offshoreAtmosphereReady = true;
+                }
+            }
+        }
+    }
 
     // ── FALLBACK: if unified failed, add WeatherKit as a potential base ──
     // OpenMeteo is already fetched above, so we only need WeatherKit here.
@@ -391,14 +454,21 @@ const _fetchWeatherByStrategyImpl = async (
     /** Pinned-model path only: true once UV/visibility were gap-filled from
      *  the WeatherKit-backed report, so the model tag can say so. */
     let borrowedFromWeatherKit = false;
+    const offshoreAtmosphere = isOffshore && offshoreAtmosphereReady && !!stormGlassReport;
 
-    if (modelPinned && openMeteoReport) {
+    if (offshoreAtmosphere && stormGlassReport) {
+        const fallback =
+            unifiedReport ??
+            (weatherKitFull ? buildReportFromWeatherKit(weatherKitFull, lat, lon, name) : null) ??
+            openMeteoReport;
+        report = blendOffshoreForecast(stormGlassReport, fallback);
+    } else if (modelPinned && openMeteoReport) {
         // ✅ PINNED MODEL: the user chose a specific forecast model, so its
         // report IS the atmospheric truth — no StormGlass current-override
         // (that blend exists to paper over model uncertainty; here the model
         // is the point). Marine enrichment, tides, and CAPE still merge in
         // the shared pipeline below.
-        report = openMeteoReport;
+        report = structuredClone(openMeteoReport);
 
         // ── Gap-fill what a single model domain physically cannot supply ──
         const supplement =
@@ -406,60 +476,21 @@ const _fetchWeatherByStrategyImpl = async (
         borrowedFromWeatherKit = gapFillModelBlindSpots(report, supplement);
     } else if (unifiedReport) {
         // ✅ UNIFIED PATH: Single-endpoint response (premium or free)
-        report = unifiedReport;
-
-        // OFFSHORE BLEND: Override current atmospheric observation with StormGlass
-        // for offshore locations (unified endpoint uses model data which can be
-        // unreliable for current conditions far from weather stations).
-        if (isOffshore && stormGlassReport) {
-            const sg = stormGlassReport.current;
-            const current = { ...report.current };
-            if (sg.airTemperature != null) current.airTemperature = sg.airTemperature;
-            if (sg.feelsLike != null) current.feelsLike = sg.feelsLike;
-            if (sg.windSpeed != null) current.windSpeed = sg.windSpeed;
-            if (sg.windGust != null) current.windGust = sg.windGust;
-            if (sg.windDirection) current.windDirection = sg.windDirection;
-            if (sg.windDegree != null) current.windDegree = sg.windDegree;
-            if (sg.pressure != null) current.pressure = sg.pressure;
-            if (sg.humidity != null) current.humidity = sg.humidity;
-            if (sg.cloudCover != null) current.cloudCover = sg.cloudCover;
-            if (sg.visibility != null) current.visibility = sg.visibility;
-            if (sg.condition) current.condition = sg.condition;
-            if (sg.description) current.description = sg.description;
-            report.current = current;
-        }
+        report = structuredClone(unifiedReport);
     } else if (weatherKitFull) {
         // FALLBACK: WeatherKit as atmospheric base
         report = buildReportFromWeatherKit(weatherKitFull, lat, lon, name);
-
-        if (isOffshore && stormGlassReport) {
-            const sg = stormGlassReport.current;
-            const current = { ...report.current };
-            if (sg.airTemperature != null) current.airTemperature = sg.airTemperature;
-            if (sg.feelsLike != null) current.feelsLike = sg.feelsLike;
-            if (sg.windSpeed != null) current.windSpeed = sg.windSpeed;
-            if (sg.windGust != null) current.windGust = sg.windGust;
-            if (sg.windDirection) current.windDirection = sg.windDirection;
-            if (sg.windDegree != null) current.windDegree = sg.windDegree;
-            if (sg.pressure != null) current.pressure = sg.pressure;
-            if (sg.humidity != null) current.humidity = sg.humidity;
-            if (sg.cloudCover != null) current.cloudCover = sg.cloudCover;
-            if (sg.visibility != null) current.visibility = sg.visibility;
-            if (sg.condition) current.condition = sg.condition;
-            if (sg.description) current.description = sg.description;
-            report.current = current;
-        }
-    } else if (stormGlassReport) {
+    } else if (stormGlassReport && (!isOffshore || offshoreAtmosphereReady)) {
         // WeatherKit also failed — use StormGlass as full fallback
-        report = stormGlassReport;
+        report = structuredClone(stormGlassReport);
     } else if (openMeteoReport) {
         // Last resort — OpenMeteo only
-        report = openMeteoReport;
+        report = structuredClone(openMeteoReport);
     } else {
         // All APIs failed — try offline cache as last resort
         const offlineResult = getFromCacheOffline({ lat, lon });
-        if (offlineResult) {
-            const staleReport = offlineResult.data;
+        if (offlineResult && (!isOffshore || matchesOffshoreModel(offlineResult.data, offshoreModel))) {
+            const staleReport = structuredClone(offlineResult.data);
             staleReport._stale = true;
             staleReport._staleAgeMinutes = offlineResult.ageMinutes;
             return staleReport;
@@ -708,13 +739,16 @@ const _fetchWeatherByStrategyImpl = async (
     // the atmospherics while tides, waves and sun times survive from the
     // normal pipeline. Returns null away from the locations the wx box
     // computes, in which case nothing happens and the base report stands.
-    const spitfire = await spitfirePromise;
+    const spitfireResult = await spitfirePromise;
+    const spitfire = isOffshore ? null : spitfireResult;
     if (spitfire) applySpitfireToReport(report, spitfire);
 
     // --- MODEL TAG ---
     const sourcesParts: string[] = [];
     if (spitfire) {
         sourcesParts.push('spitfire');
+    } else if (offshoreAtmosphere) {
+        sourcesParts.push(report.modelUsed);
     } else if (modelPinned && openMeteoReport) {
         // e.g. "wx:dwd_icon" (self-hosted) or "om:dwd_icon" (commercial)
         sourcesParts.push(`${openMeteoReport.modelUsed.startsWith('wx_') ? 'wx' : 'om'}:${glassModel}`);
@@ -726,11 +760,12 @@ const _fetchWeatherByStrategyImpl = async (
     } else if (weatherKitFull?.observation) {
         sourcesParts.push('wk');
     }
-    if (stormGlassReport) sourcesParts.push('sg');
-    if (!modelPinned && !unifiedReport && openMeteoReport) sourcesParts.push('om');
+    if (stormGlassReport && !offshoreAtmosphere) sourcesParts.push('sg');
+    if (!offshoreAtmosphere && !modelPinned && !unifiedReport && openMeteoReport) sourcesParts.push('om');
     report.modelUsed = sourcesParts.join('+') || report.modelUsed;
 
     report.locationName = name;
+    report.coordinates = { lat, lon };
 
     // --- SHELTERED-WATER WAVE DAMPING ---
     // Global wave models leak open-ocean swell into enclosed bays the coarse
@@ -758,7 +793,10 @@ const _fetchWeatherByStrategyImpl = async (
         log.warn('shelter damping skipped:', (e as Error)?.message || e);
     }
 
-    saveToCache({ lat, lon }, report);
+    // The general/offline cache is coordinate-keyed. A late obsolete model
+    // response may return to its original caller, but must not replace the
+    // active selection's cache entry.
+    if (sameSelection(selection, forecastSelection())) saveToCache({ lat, lon }, report);
     return report;
 };
 
@@ -831,6 +869,7 @@ export const fetchPrecisionWeather = async (
     forceRefresh = false,
     existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
+    const selection = forecastSelection();
     let lat: number, lon: number, name: string;
 
     if (coords) {
@@ -857,14 +896,23 @@ export const fetchPrecisionWeather = async (
 
     if (!forceRefresh) {
         const cached = getFromCache({ lat, lon });
-        if (cached && cached.modelUsed.includes('sg') && cached.utcOffset !== undefined) {
+        if (
+            cached &&
+            cached.utcOffset !== undefined &&
+            (existingLocationType === 'offshore'
+                ? matchesOffshoreModel(cached, selection.offshoreModel)
+                : cached.modelUsed.includes('sg'))
+        ) {
             return cached;
         }
     }
 
     try {
-        const data = await fetchStormGlassWeather(lat, lon, name, existingLocationType);
-        saveToCache({ lat, lon }, data);
+        const data =
+            existingLocationType === 'offshore' && selection.offshoreModel === 'icon'
+                ? await _fetchWeatherByStrategyImpl(lat, lon, name, selection, existingLocationType)
+                : await fetchStormGlassWeather(lat, lon, name, existingLocationType, selection.offshoreModel);
+        if (sameSelection(selection, forecastSelection())) saveToCache({ lat, lon }, data);
         return data;
     } catch (e) {
         throw e;

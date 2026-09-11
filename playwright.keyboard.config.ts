@@ -18,6 +18,7 @@ export default defineConfig({
         'scuttlebutt-layout.spec.ts',
         'sail-plan-layout.spec.ts',
         'boat-network-layout.spec.ts',
+        'music-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

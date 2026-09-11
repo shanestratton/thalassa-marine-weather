@@ -2,8 +2,14 @@ import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { usePaneScope } from '../../context/PanePortalContext';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import type { RadioSelectorAnchor } from './useRadioSelectorAnchor';
 
-interface RadioDialogProps {
+interface RadioSelectorSlotProps {
+    selectors: React.ReactNode;
+    selectorAnchor: RadioSelectorAnchor | null;
+}
+
+interface RadioDialogProps extends RadioSelectorSlotProps {
     title: string;
     onClose: () => void;
     children: React.ReactNode;
@@ -11,7 +17,7 @@ interface RadioDialogProps {
 }
 
 /** All available screen space on phones; only the owning pane on iPad. */
-function RadioDialog({ title, onClose, children, footer }: RadioDialogProps) {
+function RadioDialog({ title, onClose, children, footer, selectors, selectorAnchor }: RadioDialogProps) {
     const pane = usePaneScope();
     const closeRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, { onEscape: onClose, initialFocusRef: closeRef });
@@ -21,13 +27,15 @@ function RadioDialog({ title, onClose, children, footer }: RadioDialogProps) {
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            className="flex flex-col items-center bg-slate-950 text-white overflow-hidden"
+            className="flex flex-col bg-slate-950 text-white overflow-hidden"
             style={{
-                paddingTop: pane ? '12px' : 'max(12px, env(safe-area-inset-top))',
                 paddingBottom: pane ? '12px' : 'max(12px, env(safe-area-inset-bottom))',
             }}
         >
-            <header className="w-full max-w-3xl shrink-0 flex items-center justify-between gap-3 px-4 pb-2 border-b border-white/10">
+            <header
+                className="absolute inset-x-0 mx-auto w-full max-w-3xl flex items-center justify-between gap-3 px-4 pb-2 border-b border-white/10"
+                style={{ top: pane ? '12px' : 'max(12px, env(safe-area-inset-top))' }}
+            >
                 <h2 className="ui-dialog-title">{title}</h2>
                 <button
                     ref={closeRef}
@@ -48,8 +56,20 @@ function RadioDialog({ title, onClose, children, footer }: RadioDialogProps) {
                     </svg>
                 </button>
             </header>
+            {/* Same measured top slot as the console, outside either scroller.
+                Do not let the portal's different origin move call controls. */}
+            <div className="shrink-0 pb-3" style={{ paddingTop: selectorAnchor?.top ?? 76 }}>
+                <div
+                    style={
+                        selectorAnchor ? { marginLeft: selectorAnchor.left, width: selectorAnchor.width } : undefined
+                    }
+                    className={selectorAnchor ? undefined : 'mx-auto w-full max-w-3xl px-4'}
+                >
+                    {selectors}
+                </div>
+            </div>
             {children}
-            <footer className="w-full max-w-3xl shrink-0 border-t border-white/10 px-4 pt-3">{footer}</footer>
+            <footer className="mx-auto w-full max-w-3xl shrink-0 border-t border-white/10 px-4 pt-3">{footer}</footer>
         </OverlayPortal>
     );
 }
@@ -58,7 +78,9 @@ export function RadioInstructionsDialog({
     onClose,
     onContinue,
     children,
-}: {
+    selectors,
+    selectorAnchor,
+}: RadioSelectorSlotProps & {
     onClose: () => void;
     onContinue: () => void;
     children: React.ReactNode;
@@ -67,6 +89,8 @@ export function RadioInstructionsDialog({
         <RadioDialog
             title="VHF instructions"
             onClose={onClose}
+            selectors={selectors}
+            selectorAnchor={selectorAnchor}
             footer={
                 <button
                     type="button"
@@ -78,7 +102,7 @@ export function RadioInstructionsDialog({
             }
         >
             <div
-                className="w-full max-w-3xl flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-4"
+                className="mx-auto w-full max-w-3xl flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-4"
                 data-testid="radio-instructions-body"
             >
                 {children}
@@ -150,7 +174,9 @@ export function RadioTranscriptDialog({
     onClose,
     onInstructions,
     onUpdate,
-}: {
+    selectors,
+    selectorAnchor,
+}: RadioSelectorSlotProps & {
     text: string;
     status: React.ReactNode;
     onClose: () => void;
@@ -161,6 +187,8 @@ export function RadioTranscriptDialog({
         <RadioDialog
             title="Voice transcript"
             onClose={onClose}
+            selectors={selectors}
+            selectorAnchor={selectorAnchor}
             footer={
                 <div className="flex gap-3">
                     <button
@@ -180,7 +208,7 @@ export function RadioTranscriptDialog({
                 </div>
             }
         >
-            <div className="w-full max-w-3xl min-h-0 flex-1 flex flex-col py-3">
+            <div className="mx-auto w-full max-w-3xl min-h-0 flex-1 flex flex-col py-3">
                 <div className="shrink-0 px-4 pb-3 text-micro text-slate-300">{status}</div>
                 <FittedTranscript text={text} />
             </div>

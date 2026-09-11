@@ -30,7 +30,12 @@ describe('the STOP chip', () => {
             page.indexOf('const handleResume = useCallback'),
         );
         expect(handler).toContain('await stopMusic()');
-        expect(handler).toContain('setActivePlaylistId(null)');
+        expect(handler).toContain('resetStoppedPlayer()');
+        const reset = page.slice(page.indexOf('const resetStoppedPlayer'), page.indexOf('/** Refresh nowPlaying'));
+        expect(reset).toContain('setActivePlaylistId(null)');
+        expect(reset).toContain('setNowPlaying(null)');
+        expect(reset).toContain('setOnDeckTracks([])');
+        expect(reset).toContain('playbackActionRef.current += 1');
         expect(page).toContain('onStop={() => void handleStop()}');
         const chip = read('components/music/musicPage/StopChip.tsx');
         expect(chip).toContain('aria-label="Stop the music and clear the queue"');

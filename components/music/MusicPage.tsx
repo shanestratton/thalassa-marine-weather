@@ -17,7 +17,7 @@
  * Future iterations: catalog search UI, queue management, radio
  * stations, recommendations. V1 is deliberately tight.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
 import {
     getUserPlaylists,
@@ -28,6 +28,8 @@ import {
     skipNext,
     skipPrevious,
     getNowPlaying,
+    getMusicPlaybackRevision,
+    subscribeMusicStopped,
     requestAuthorization,
     getAuthorizationStatus,
     getPlaylistTracks,
@@ -69,7 +71,19 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const [loadingPlaylists, setLoadingPlaylists] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
+    const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
     const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
+    const playbackActionRef = useRef(0);
+    const playbackRefreshTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+    const musicScrollRef = useRef<HTMLDivElement>(null);
+    const resetScrollOnCommitRef = useRef(false);
+    useLayoutEffect(() => {
+        if (!resetScrollOnCommitRef.current) return;
+        // Commit the compact stage before resetting its own scroller; browser
+        // scroll anchoring must not leave the skipper partway down the queue.
+        if (musicScrollRef.current) musicScrollRef.current.scrollTop = 0;
+        resetScrollOnCommitRef.current = false;
+    });
     // WHICH speaker is playing. iOS exposes no way to list available outputs
     // (there is no `availableOutputs` to match `availableInputs` — Apple keeps
     // that list for the system picker), so the honest surface is: show the
@@ -130,7 +144,11 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     // Invalidate every in-flight callback after unmount. The calls themselves
     // may complete later, but cannot set state on a page that no longer exists.
     useEffect(() => {
+        const refreshTimers = playbackRefreshTimersRef.current;
         return () => {
+            playbackActionRef.current += 1;
+            refreshTimers.forEach(clearTimeout);
+            refreshTimers.clear();
             playlistPreviewGenerationRef.current += 1;
             playlistPreviewQueueRef.current = [];
         };
@@ -229,9 +247,11 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         let timer: number | undefined;
 
         const poll = async () => {
+            const action = playbackActionRef.current;
+            const revision = getMusicPlaybackRevision();
             const np = await getNowPlaying();
             if (cancelled) return;
-            setNowPlaying(np);
+            if (action === playbackActionRef.current && revision === getMusicPlaybackRevision()) setNowPlaying(np);
             const delay = np?.isPlaying ? 1000 : np?.title ? 5000 : 30000;
             timer = window.setTimeout(() => void poll(), delay);
         };
@@ -278,6 +298,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     useEffect(() => {
         if (!activePlaylistId) {
             setOnDeckTracks([]);
+            setOnDeckLoading(false);
             return;
         }
         let cancelled = false;
@@ -298,23 +319,45 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         };
     }, [activePlaylistId]);
 
+    const resetStoppedPlayer = useCallback(() => {
+        playbackActionRef.current += 1;
+        resetScrollOnCommitRef.current = true;
+        if (musicScrollRef.current) musicScrollRef.current.scrollTop = 0;
+        playbackRefreshTimersRef.current.forEach(clearTimeout);
+        playbackRefreshTimersRef.current.clear();
+        setNowPlaying(null);
+        setActivePlaylistId(null);
+        setSelectedPlaylistId(null);
+        setOnDeckTracks([]);
+        setOnDeckLoading(false);
+        setLoadError(null);
+    }, []);
+    useEffect(() => subscribeMusicStopped(resetStoppedPlayer), [resetStoppedPlayer]);
+
     /** Refresh nowPlaying immediately, then again ~400 ms later to
      *  catch the artwork after the Swift-side catalog search finishes.
      *  Used right after play/skip actions where the user expects an
      *  instant UI update — waiting for the next 1s tick adds visible
      *  lag. */
     const refreshNowPlayingFast = useCallback(() => {
+        const action = playbackActionRef.current;
+        const revision = getMusicPlaybackRevision();
+        const current = () => action === playbackActionRef.current && revision === getMusicPlaybackRevision();
         void (async () => {
             const np1 = await getNowPlaying();
+            if (!current()) return;
             setNowPlaying(np1);
             // Second poll catches the resolved artwork URL once the
             // catalog search completes (~200-500 ms).
-            setTimeout(() => {
+            const timer = setTimeout(() => {
+                playbackRefreshTimersRef.current.delete(timer);
+                if (!current()) return;
                 void (async () => {
                     const np2 = await getNowPlaying();
-                    setNowPlaying(np2);
+                    if (current()) setNowPlaying(np2);
                 })();
             }, 400);
+            playbackRefreshTimersRef.current.add(timer);
         })();
     }, []);
 
@@ -339,12 +382,16 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
     const handlePlayPlaylist = useCallback(
         async (id: string) => {
+            const action = ++playbackActionRef.current;
+            setSelectedPlaylistId(id);
             setLoadError(null);
             try {
                 const r = await playPlaylist(id);
+                if (action !== playbackActionRef.current || r.superseded) return;
                 if (r.success) setActivePlaylistId(id);
                 else setLoadError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start that playlist.');
             } catch (err) {
+                if (action !== playbackActionRef.current) return;
                 // Hits the JS-side 12s timeout — see services/voice/
                 // integrations/appleMusic.ts withTimeout. Most common
                 // cause is the audio session being wedged after Calypso
@@ -366,9 +413,13 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     );
 
     const handlePause = useCallback(async () => {
+        const action = ++playbackActionRef.current;
         try {
-            await pauseMusic();
+            const result = await pauseMusic();
+            if (action !== playbackActionRef.current) return;
+            if (result.isError) setLoadError(result.content);
         } catch (err) {
+            if (action !== playbackActionRef.current) return;
             setLoadError((err as Error).message);
         }
         refreshNowPlayingFast();
@@ -377,20 +428,33 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     // Stop = pause + clear the queue: the off switch. The floating bar's X
     // already took this path; the page had only pause.
     const handleStop = useCallback(async () => {
+        const action = ++playbackActionRef.current;
         triggerHaptic('medium');
         try {
             const r = await stopMusic();
-            if (r.isError) setLoadError(r.content);
+            if (action !== playbackActionRef.current) return;
+            if (r.isError) {
+                setLoadError(r.content);
+                return;
+            }
+            if ((JSON.parse(r.content) as { status?: string }).status !== 'stopped') return;
+            setLoadError(null);
+            resetStoppedPlayer();
         } catch (err) {
+            if (action !== playbackActionRef.current) return;
             setLoadError((err as Error).message);
         }
-        setActivePlaylistId(null);
-        refreshNowPlayingFast();
-    }, [refreshNowPlayingFast]);
+    }, [resetStoppedPlayer]);
 
     const handleResume = useCallback(async () => {
+        const action = ++playbackActionRef.current;
         try {
             const r = await resumeMusic();
+            if (action !== playbackActionRef.current) return;
+            if (r.isError) {
+                setLoadError(r.content);
+                return;
+            }
             // resume() returns { status: 'no_queue' } when there's
             // nothing to play (cold-start tap on the play button).
             // Surface a friendly hint instead of doing nothing.
@@ -399,24 +463,31 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 setLoadError('Nothing queued — pick a playlist or song to start.');
             }
         } catch (err) {
+            if (action !== playbackActionRef.current) return;
             setLoadError((err as Error).message);
         }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
     const handleNext = useCallback(async () => {
+        const action = ++playbackActionRef.current;
         try {
             await skipNext();
+            if (action !== playbackActionRef.current) return;
         } catch (err) {
+            if (action !== playbackActionRef.current) return;
             setLoadError((err as Error).message);
         }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
     const handlePrevious = useCallback(async () => {
+        const action = ++playbackActionRef.current;
         try {
             await skipPrevious();
+            if (action !== playbackActionRef.current) return;
         } catch (err) {
+            if (action !== playbackActionRef.current) return;
             setLoadError((err as Error).message);
         }
         refreshNowPlayingFast();
@@ -426,10 +497,14 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const handlePlayOnDeck = useCallback(
         async (trackId: string) => {
             if (!activePlaylistId) return;
+            const action = ++playbackActionRef.current;
             triggerHaptic('light');
             try {
-                await playTrackInPlaylist(activePlaylistId, trackId);
+                const result = await playTrackInPlaylist(activePlaylistId, trackId);
+                if (action !== playbackActionRef.current || result.superseded) return;
+                if (!result.success) setLoadError(result.error ?? 'Apple Music could not start this track.');
             } catch (err) {
+                if (action !== playbackActionRef.current) return;
                 setLoadError((err as Error).message);
             }
             refreshNowPlayingFast();
@@ -485,29 +560,37 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
     const handlePlayAll = useCallback(async () => {
         if (!detailPlaylist) return;
+        const action = ++playbackActionRef.current;
+        setSelectedPlaylistId(detailPlaylist.id);
         triggerHaptic('light');
         const r = await playPlaylist(detailPlaylist.id);
+        if (action !== playbackActionRef.current || r.superseded) return;
         if (r.success) {
             setActivePlaylistId(detailPlaylist.id);
             closeDetail();
+            refreshNowPlayingFast();
         } else {
             setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this playlist.');
         }
-    }, [detailPlaylist, closeDetail]);
+    }, [detailPlaylist, closeDetail, refreshNowPlayingFast]);
 
     const handlePlayTrack = useCallback(
         async (trackId: string) => {
             if (!detailPlaylist) return;
+            const action = ++playbackActionRef.current;
+            setSelectedPlaylistId(detailPlaylist.id);
             triggerHaptic('light');
             const r = await playTrackInPlaylist(detailPlaylist.id, trackId);
+            if (action !== playbackActionRef.current || r.superseded) return;
             if (r.success) {
                 setActivePlaylistId(detailPlaylist.id);
                 closeDetail();
+                refreshNowPlayingFast();
             } else {
                 setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this track.');
             }
         },
-        [detailPlaylist, closeDetail],
+        [detailPlaylist, closeDetail, refreshNowPlayingFast],
     );
 
     const handleCreatePlaylist = useCallback(
@@ -758,6 +841,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 <PageHeader title="Apple Music" subtitle="Soundtrack for the watch" onBack={onBack} />
 
                 <div
+                    ref={musicScrollRef}
                     className="flex-1 overflow-y-auto"
                     style={{
                         paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 0.75rem)',
@@ -911,10 +995,18 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                     style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
                                 >
                                     {playlists.map((p) => (
-                                        <div key={p.id} className="w-40 shrink-0 snap-start">
+                                        <div key={p.id} className="w-48 max-w-[75%] shrink-0 snap-start">
                                             <PlaylistTile
                                                 playlist={p}
                                                 active={activePlaylistId === p.id}
+                                                selected={selectedPlaylistId === p.id}
+                                                playbackState={
+                                                    activePlaylistId === p.id && nowPlaying?.title
+                                                        ? nowPlaying.isPlaying
+                                                            ? 'playing'
+                                                            : 'paused'
+                                                        : null
+                                                }
                                                 // Tap = play instantly (the common case —
                                                 // skipper just wants the music going).
                                                 // Long-press / ⋯ = detail sheet (Play,
@@ -1034,7 +1126,10 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 when nothing is on deck, an invitation panel
                                 stretches down to just above the menu bar. */}
                             {(!activePlaylist || (!onDeckLoading && onDeckTracks.length === 0)) && (
-                                <div className="mx-4 mt-6 flex min-h-40 flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-white/5 bg-white/1.5 px-6 py-6 text-center">
+                                <div
+                                    data-testid="music-on-deck-empty"
+                                    className="mx-4 mt-6 flex min-h-40 flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-white/5 bg-white/1.5 px-6 py-6 text-center"
+                                >
                                     <svg
                                         className="pointer-events-none mb-3 h-6 w-24 text-sky-300/25"
                                         viewBox="0 0 96 24"
@@ -1049,9 +1144,10 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                             strokeLinecap="round"
                                         />
                                     </svg>
-                                    <div className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                                        Songs line up here
+                                    <div className="mb-2 text-micro font-bold uppercase tracking-widest text-sky-200/75">
+                                        On deck
                                     </div>
+                                    <div className="text-xs font-bold text-slate-400">Songs line up here</div>
                                     <div className="mt-1 max-w-[16rem] text-[11px] leading-relaxed text-slate-600">
                                         Press play on a playlist and its tracks fill this space — tap any song to jump
                                         to it.

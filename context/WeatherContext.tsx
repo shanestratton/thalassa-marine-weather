@@ -317,6 +317,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const selectionEpochRef = useRef(0);
     const selectionResolvingRef = useRef(false);
     const followRefreshInFlightRef = useRef<symbol | null>(null);
+    const followRefreshPromiseRef = useRef<Promise<void> | null>(null);
     const followTargetRef = useRef(getWeatherFollowTarget());
     const lastFollowFixRef = useRef<{ fix: WeatherFix; target: WeatherFollowTarget; epoch: number } | null>(null);
     // A forecast can adopt new coordinates without resolving their suburb.
@@ -675,28 +676,36 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     );
 
     const refreshFollowWeather = useCallback(
-        async (silent = true) => {
-            if (selectionResolvingRef.current || followRefreshInFlightRef.current) return;
+        (silent = true): Promise<void> => {
+            if (selectionResolvingRef.current) return Promise.resolve();
+            if (followRefreshInFlightRef.current) return followRefreshPromiseRef.current ?? Promise.resolve();
             const request = Symbol('weather-follow-refresh');
             followRefreshInFlightRef.current = request;
             const epoch = selectionEpochRef.current;
             const target = getWeatherFollowTarget();
-            try {
-                const fix = await resolveFollowFix();
-                if (
-                    !fix ||
-                    !isCurrentScope() ||
-                    epoch !== selectionEpochRef.current ||
-                    target !== getWeatherFollowTarget() ||
-                    useUIStore.getState().isOffline
-                ) {
-                    if (epoch === selectionEpochRef.current) setStaleRefresh(false);
-                    return;
+            const task = (async () => {
+                try {
+                    const fix = await resolveFollowFix();
+                    if (
+                        !fix ||
+                        !isCurrentScope() ||
+                        epoch !== selectionEpochRef.current ||
+                        target !== getWeatherFollowTarget() ||
+                        useUIStore.getState().isOffline
+                    ) {
+                        if (epoch === selectionEpochRef.current) setStaleRefresh(false);
+                        return;
+                    }
+                    await fetchWeather('Current Location', true, { lat: fix.lat, lon: fix.lon }, false, silent);
+                } finally {
+                    if (followRefreshInFlightRef.current === request) {
+                        followRefreshInFlightRef.current = null;
+                        followRefreshPromiseRef.current = null;
+                    }
                 }
-                await fetchWeather('Current Location', true, { lat: fix.lat, lon: fix.lon }, false, silent);
-            } finally {
-                if (followRefreshInFlightRef.current === request) followRefreshInFlightRef.current = null;
-            }
+            })();
+            followRefreshPromiseRef.current = task;
+            return task;
         },
         [fetchWeather, isCurrentScope, resolveFollowFix],
     );
@@ -712,6 +721,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             selectionEpochRef.current += 1;
             selectionResolvingRef.current = false;
             followRefreshInFlightRef.current = null;
+            followRefreshPromiseRef.current = null;
             namePointRef.current = null;
             nameResolvedRef.current = false;
             nameRetryAtRef.current = 0;
@@ -780,6 +790,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             lastFollowFixRef.current = null;
             selectionResolvingRef.current = false;
             followRefreshInFlightRef.current = null;
+            followRefreshPromiseRef.current = null;
             orchestrator.cancelPendingLocation();
             namePointRef.current = null;
             nameResolvedRef.current = false;
@@ -1445,19 +1456,66 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     // Watches the Glass forecast-model picker (settings.forecastModel).
     // The strategy layer reads the store directly at fetch time, so all
     // this has to do is force a refetch when the choice changes.
-    const prevModelRef = useRef(settings.forecastModel);
+    const prevModelRef = useRef({ forecast: settings.forecastModel, offshore: settings.offshoreModel });
+    const modelRefreshGenerationRef = useRef(0);
     useEffect(() => {
         if (!isCurrentScope()) return;
-        if (prevModelRef.current !== settings.forecastModel) {
-            prevModelRef.current = settings.forecastModel;
+        if (
+            prevModelRef.current.forecast !== settings.forecastModel ||
+            prevModelRef.current.offshore !== settings.offshoreModel
+        ) {
+            prevModelRef.current = { forecast: settings.forecastModel, offshore: settings.offshoreModel };
+            const generation = ++modelRefreshGenerationRef.current;
+            const epoch = selectionEpochRef.current;
+            const target = getWeatherFollowTarget();
+            // Do not let an older model request repaint after this choice.
+            // This does not clear the report, change location mode, or restart GPS timers.
+            orchestrator.cancelPendingWeather();
             if (locationModeRef.current === 'gps') {
-                void refreshFollowWeather();
-                return;
+                const pending = followRefreshPromiseRef.current;
+                void (async () => {
+                    await pending;
+                    if (
+                        isCurrentScope() &&
+                        generation === modelRefreshGenerationRef.current &&
+                        epoch === selectionEpochRef.current &&
+                        target === getWeatherFollowTarget() &&
+                        locationModeRef.current === 'gps'
+                    )
+                        await refreshFollowWeather();
+                })();
+            } else {
+                // Model changes are not searches: keep the displayed name and
+                // its exact point together. Re-geocoding an offshore label can
+                // otherwise choose an unrelated place on another continent.
+                const data = weatherDataRef.current;
+                const loc = data?.locationName || settingsRef.current.defaultLocation;
+                const coords = data ? data.coordinates : settingsRef.current.defaultLocationCoords;
+                if (
+                    data &&
+                    (!coords ||
+                        !Number.isFinite(coords.lat) ||
+                        !Number.isFinite(coords.lon) ||
+                        Math.abs(coords.lat) > 90 ||
+                        Math.abs(coords.lon) > 180)
+                ) {
+                    setError('Location coordinates unavailable. Select the location again.');
+                    return;
+                }
+                if (loc) void fetchWeather(loc, true, coords);
             }
-            const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
-            if (loc) void fetchWeather(loc, true);
         }
-    }, [fetchWeather, isCurrentScope, refreshFollowWeather, settings.forecastModel]);
+        return () => {
+            modelRefreshGenerationRef.current += 1;
+        };
+    }, [
+        fetchWeather,
+        isCurrentScope,
+        orchestrator,
+        refreshFollowWeather,
+        settings.forecastModel,
+        settings.offshoreModel,
+    ]);
 
     // ── ZUSTAND SYNC BRIDGE ──────────────────────────────────
     // Syncs context state → Zustand store so components can use

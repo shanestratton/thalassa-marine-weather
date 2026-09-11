@@ -103,6 +103,44 @@ describe('RadioConsole emergency transcript honesty', () => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
+    it('keeps accessible call selectors in every state and returns transcript mode changes to instructions first', () => {
+        const onBack = vi.fn();
+        render(<RadioConsolePage onBack={onBack} />);
+        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
+        expect(instructions().getByRole('group', { name: 'Call type' })).toBeVisible();
+        expect(instructions().getByTestId('radio-instructions-body')).not.toContainElement(
+            instructions().getByRole('group', { name: 'Call type' }),
+        );
+        readScript();
+        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
+        expect(transcript().getByRole('button', { name: /Routine Position/i })).toHaveAttribute('aria-pressed', 'true');
+        expect(transcript().getByTestId('radio-transcript-body')).not.toContainElement(
+            transcript().getByRole('group', { name: 'Call type' }),
+        );
+        fireEvent.click(transcript().getByRole('button', { name: /Distress Mayday/i }));
+        expect(screen.queryByRole('dialog', { name: 'Voice transcript' })).not.toBeInTheDocument();
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        expect(instructions().getByRole('button', { name: /Distress Mayday/i })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(instructions().getByText(/MAYDAY is for grave and imminent danger/)).toBeVisible();
+        expect(readScript()).toContain('Mayday, Mayday, Mayday');
+        fireEvent.click(transcript().getByRole('button', { name: 'Close voice transcript' }));
+        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
+        expect(screen.getByRole('button', { name: /Distress Mayday/i })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', { name: /Urgency Pan-Pan/i }));
+        expect(instructions().getByRole('button', { name: /Urgency Pan-Pan/i })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /Back/i }));
+        expect(onBack).toHaveBeenCalledOnce();
+    });
+
     it('prompts an unset vessel identity in routine, Pan-Pan and Mayday scripts', () => {
         mocks.vessel = { name: 'Not Set', callSign: 'Not configured', mmsi: 'N/A', phoneticName: 'Unset' };
         render(<RadioConsolePage onBack={vi.fn()} />);

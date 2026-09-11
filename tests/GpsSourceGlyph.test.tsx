@@ -28,6 +28,7 @@ vi.mock('../context/WeatherContext', () => ({ useWeatherOptional: () => world.we
 vi.mock('../components/nmea/useNmeaStore', () => ({ useNmeaConnectionStatus: () => world.link }));
 
 import { GpsSourceGlyph, GpsSourceRow, resolveGpsSourceState } from '../components/GpsSourceGlyph';
+import { weatherLocationTitle } from '../utils/weatherLocationTitle';
 
 describe('resolveGpsSourceState', () => {
     const at = (weatherKind: any, storeStatus: any = 'disconnected', remoteVia: any = null) =>
@@ -215,15 +216,22 @@ describe('retained-weather location bar wiring', () => {
         expect(title).toContain(
             "positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData",
         );
-        expect(title).toContain("positionSource?.status === 'unavailable' && !retainedLocationWeather");
-        expect(title).toContain('weatherData.locationName');
+        expect(app).toContain("import { weatherLocationTitle } from './utils/weatherLocationTitle'");
+        expect(title).toContain(
+            'const { title: rawTitle, resolvingLabel: resolvingLocationLabel } = weatherLocationTitle({',
+        );
+        expect(title).toContain('locationName: weatherData?.locationName');
+        expect(title).toContain('status: positionSource?.status');
+        expect(title).toContain('retainedWeather: retainedLocationWeather');
         expect(title).toContain('if (retainedLocationWeather) displayTitle = `Last location · ${displayTitle}`');
         expect(app).toContain('value={displayTitle}');
     });
 
     it('uses a neutral selected-receiver label during lookup without a premature no-data error', () => {
         expect(title).toContain("const resolvingLocation = positionSource?.status === 'resolving'");
-        expect(title).toContain("Finding ${positionSource?.target === 'boat' ? 'boat' : 'phone'} location…");
+        expect(title).toMatch(/target:\s*positionSource\?\.target \?\?/);
+        expect(title).toContain("settings.defaultLocation === 'Current Location' ? getWeatherFollowTarget() : null");
+        expect(title).toContain('vesselName: settings.vessel?.name');
         const pending = app.slice(
             app.indexOf(') : resolvingLocation ? ('),
             app.indexOf(') : !weatherData && !loading && !settings.defaultLocation'),
@@ -233,6 +241,46 @@ describe('retained-weather location bar wiring', () => {
         expect(pending).toContain('{resolvingLocationLabel}');
         expect(pending).not.toMatch(/Retry|unavailable|bg-red/);
     });
+
+    it.each(['phone', 'boat'] as const)(
+        'the wired helper keeps unavailable %s titles fail-closed unless weather is retained',
+        (target) => {
+            const input = {
+                locationName: 'Lady Musgrave',
+                fallback: 'Current Location',
+                target,
+                status: 'unavailable' as const,
+                vesselName: 'Serene Summer',
+            };
+            for (const retainedWeather of [undefined, false]) {
+                expect(weatherLocationTitle({ ...input, retainedWeather }).title).toBe(
+                    `${target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`,
+                );
+            }
+            expect(weatherLocationTitle({ ...input, retainedWeather: true }).title).toBe('Lady Musgrave');
+        },
+    );
+
+    it.each([
+        ['phone', 'Serene Summer', 'Finding phone location…', 'Finding phone location…'],
+        ['boat', 'Serene Summer', 'Serene Summer', 'Finding Serene Summer’s location…'],
+        ['boat', undefined, 'Vessel location', 'Finding vessel location…'],
+    ] as const)(
+        'the wired helper keeps resolving %s neutral and independent of a previous report (%s)',
+        (target, vesselName, expectedTitle, resolvingLabel) => {
+            const resolved = weatherLocationTitle({
+                locationName: 'Previous port',
+                fallback: 'Current Location',
+                target,
+                status: 'resolving',
+                vesselName,
+            });
+            expect(resolved).toEqual({ title: expectedTitle, resolvingLabel });
+            expect(`${resolved.title} ${resolved.resolvingLabel}`).not.toMatch(
+                /Previous port|Current Location|unavailable|No data|Retry/,
+            );
+        },
+    );
 
     it('reuses the icon slot and existing refresh action without adding permission requests', () => {
         expect(retry).toContain('data-testid="weather-position-retry"');

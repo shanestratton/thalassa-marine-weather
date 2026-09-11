@@ -9,7 +9,7 @@ import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { formatAge } from '../components/ui/DataFreshness';
-import type { WeatherModel } from '../types';
+import type { OffshoreModel, WeatherModel } from '../types';
 import { SPITFIRE_MODEL } from '../services/weather/forecastModels';
 
 const weather = vi.hoisted(() => ({
@@ -23,7 +23,10 @@ const weather = vi.hoisted(() => ({
     loading: false,
     error: null as string | null,
 }));
-const settings = vi.hoisted(() => ({ forecastModel: 'ecmwf_ifs025' as WeatherModel }));
+const settings = vi.hoisted(() => ({
+    forecastModel: 'ecmwf_ifs025' as WeatherModel,
+    offshoreModel: 'ecmwf' as OffshoreModel,
+}));
 
 vi.mock('../context/ThemeContext', () => ({ useEnvironment: () => 'offshore' }));
 vi.mock('../context/WeatherContext', () => ({
@@ -83,6 +86,7 @@ const fix = (kind: 'bus' | 'pi' | 'cloud' | 'held' | 'phone', ageMs = 0) => ({
 describe('the Glass status strip stays one row and names no receiver', () => {
     beforeEach(() => {
         settings.forecastModel = 'ecmwf_ifs025';
+        settings.offshoreModel = 'ecmwf';
         weather.loading = false;
         weather.error = null;
     });
@@ -136,12 +140,27 @@ describe('the Glass status strip stays one row and names no receiver', () => {
         ['best_match', 'AUTO'],
     ] as const)('keeps %s in the right-hand picker', (id, label) => {
         settings.forecastModel = id;
-        renderStrip(null, { isOffshore: true });
+        renderStrip(null, { isOffshore: false });
         const picker = screen.getByRole('button', { name: 'Choose forecast model' });
         expect(picker).toHaveTextContent(new RegExp(`^${label}$`));
         fireEvent.click(picker);
         fireEvent.click(screen.getByRole('button', { name: 'Close model picker' }));
         expect(screen.queryByRole('button', { name: 'Close model picker' })).toBeNull();
+    });
+
+    it.each([
+        ['sg', 'SG BLEND'],
+        ['ecmwf', 'ECMWF'],
+        ['gfs', 'GFS'],
+        ['icon', 'ICON'],
+    ] as const)('offshore keeps %s in the right-hand picker regardless of the saved inshore model', (id, label) => {
+        settings.forecastModel = 'ecmwf_aifs025_single';
+        settings.offshoreModel = id;
+        renderStrip(null, { isOffshore: true });
+        expect(screen.getByRole('button', { name: 'Choose forecast model' })).toHaveTextContent(
+            new RegExp(`^${label}$`),
+        );
+        expect(row()).not.toHaveTextContent('AIFS');
     });
 
     it('retains the stale forecast age and actual refresh failure', () => {

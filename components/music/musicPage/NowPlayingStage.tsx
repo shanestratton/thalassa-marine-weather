@@ -61,7 +61,10 @@ export const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
     // ── Idle stage — inviting, not empty ───────────────────────────
     if (!nowPlaying?.title) {
         return (
-            <section className="relative overflow-hidden rounded-3xl border border-sky-400/15 bg-linear-to-br from-sky-400/8 via-slate-900/70 to-slate-950/85 px-4 py-4 shadow-xl">
+            <section
+                data-testid="music-player-idle"
+                className="relative overflow-hidden rounded-3xl border border-sky-400/15 bg-linear-to-br from-sky-400/8 via-slate-900/70 to-slate-950/85 px-4 py-4 shadow-xl"
+            >
                 <svg
                     className="pointer-events-none absolute bottom-0 left-0 w-full opacity-60"
                     viewBox="0 0 200 40"
@@ -93,7 +96,10 @@ export const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
     const pct = showProgress ? (clamped / duration) * 100 : 0;
 
     return (
-        <section className="relative overflow-hidden rounded-3xl border border-sky-400/20 bg-slate-900/80 shadow-2xl">
+        <section
+            data-testid="music-player-active"
+            className="relative overflow-hidden rounded-3xl border border-sky-400/20 bg-slate-900/80 shadow-2xl"
+        >
             {/* Ambient backdrop — the artwork itself, blurred into the deep */}
             {showRemote && (
                 <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
@@ -126,7 +132,7 @@ export const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
                         </div>
                     )}
                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-sky-200/70">
+                        <div className="flex flex-wrap items-center gap-1.5 text-micro font-bold text-sky-200/80">
                             <span className={`h-1.5 w-1.5 rounded-full ${isPlaying ? 'bg-sky-400' : 'bg-slate-500'}`} />
                             {isPlaying ? 'Now playing' : 'Paused'}
                             {playlistName && (
@@ -135,7 +141,7 @@ export const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
                                 </span>
                             )}
                         </div>
-                        <div className="mt-1 truncate text-lg font-extrabold leading-tight text-white">
+                        <div className="mt-1 line-clamp-2 break-words text-lg font-extrabold leading-tight text-white">
                             {nowPlaying.title}
                         </div>
                         {nowPlaying.artist && (

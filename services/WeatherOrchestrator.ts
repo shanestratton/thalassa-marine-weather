@@ -204,6 +204,11 @@ export class WeatherOrchestrator {
     /** A new location intent wins even when it is served entirely from cache. */
     cancelPendingLocation(): void {
         this.locationEpoch += 1;
+        this.cancelPendingWeather();
+    }
+
+    /** A model-only refresh invalidates weather work, not the selected location or receiver. */
+    cancelPendingWeather(): void {
         this.fetchEpoch += 1;
         this.adviceEpoch += 1;
         this.liveMetricsEpoch += 1;
@@ -1063,6 +1068,17 @@ export class WeatherOrchestrator {
         name: string,
         fetchEpoch: number,
     ): Promise<MarineWeatherReport | null> {
+        // A model-only refresh must keep the already-verified location class.
+        // Forecast-history lookup normally allows nearby coordinates, but a
+        // class can change at a shoreline: inherit it only at this exact point.
+        const classifiedReport = [this.cb.getWeatherData(), ...Object.values(this.cb.getHistoryCache())].find(
+            (candidate) =>
+                candidate?.coordinates?.lat === lat &&
+                candidate.coordinates.lon === lon &&
+                !(candidate as MarineWeatherReport & { loading?: boolean }).loading &&
+                ['inshore', 'coastal', 'offshore', 'inland'].includes(candidate.locationType || ''),
+        );
+        const existingLocationType = classifiedReport?.locationType;
         // --- SUBSCRIPTION TIER ROUTING ---
         // Premium users get the full multi-source pipeline (WeatherKit + StormGlass + GRIB).
         // Free/expired users get standard resolution only (OpenMeteo GFS).
@@ -1078,7 +1094,7 @@ export class WeatherOrchestrator {
         if (this.cb.getIsOffline()) throw new Error('Offline mode detected before weather provider request');
 
         try {
-            const report = await fetchWeatherByStrategy(lat, lon, name, undefined);
+            const report = await fetchWeatherByStrategy(lat, lon, name, existingLocationType);
             this.assertCurrent(fetchEpoch);
             this.cb.incrementQuota();
             return report;
@@ -1089,7 +1105,7 @@ export class WeatherOrchestrator {
             // Premium fallback: try StormGlass high-res if available
             if (premium && isStormglassKeyPresent()) {
                 try {
-                    const report = await fetchPrecisionWeather(name, { lat, lon }, false, undefined);
+                    const report = await fetchPrecisionWeather(name, { lat, lon }, false, existingLocationType);
                     this.assertCurrent(fetchEpoch);
                     this.cb.incrementQuota();
                     return report;
