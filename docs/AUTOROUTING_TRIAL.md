@@ -1,11 +1,23 @@
 # Isolated autorouting trial — next build 115
 
-The Planning home card opens a separate, disposable chart workspace. Its
-endpoints, vessel-input snapshot, request and proposal never enter the normal
+Planning home has no separate autorouting card. Completing **Slide to Start
+Plotting** opens a centered **Manual routing / Auto routing** choice, scoped to
+the owning pane on iPad. Closing it stays on Planning home; sliding again starts
+fresh. Manual immediately opens the existing plotting chart, even when offline
+or while the trial entitlement check is pending. Auto is enabled only after
+the server grants trial access. Its chart opens lazily, after the choice.
+
+Trip legs, Saved routes and From a past voyage keep their existing direct-open
+flows. The slider has no retained selected leg, so Auto does not secretly
+consume a route intent or copy a previously opened route. It opens a separate,
+disposable workspace with blank endpoints and read-only location/vessel
+snapshots. Its endpoints, vessel-input snapshot, request and proposal never enter the normal
 planner, saved-route library, passage handoff, active log, public page or Pi.
 Close discards the draft. Editing an input invalidates the previous result.
 Account changes and cancellation fence late replies. There is deliberately no
 Save, Follow, Publish or Cast off action in this first evaluation slice.
+The Auto trial currently calculates **leaving now**, not the scheduled departure
+on Planning home; this limitation is stated in the workspace.
 
 ## Provider boundary
 
@@ -58,7 +70,7 @@ Unsafe/danger features and user warnings are surfaced. The original RTZ and
 GeoJSON are retained verbatim in memory (4 MiB combined limit), then discarded
 with the workspace; they are not written to logs, local storage or route tables.
 
-## Verification record
+## Provider verification record
 
 A live, non-navigational test between two offshore Sunshine Coast points
 returned provider request `327000`: success, approximately 14.96 NM in three
@@ -75,6 +87,8 @@ are provisioned as server secrets. No signed-in production calculation was
 performed by impersonating the user: the authenticated provider exchange above,
 deployed unauthenticated rejection and injected-auth contract tests are separate
 pieces of evidence, not a claimed end-to-end device test.
+
+## Initial workspace validation (before shared slider entry)
 
 Chromium and WebKit passed all 18 layout/interaction cases with no retries or
 skips: 390 px and 430 px phones plus a 1024 px split screen, each in daylight,
@@ -115,3 +129,23 @@ planning-home/departure and Glass split-navigation regressions (25.4 seconds,
 zero retries or skips). The preview server was stopped by the test runner.
 Build 114's archive/upload are not part of this change. Build 115 is prepared
 locally only until a separate TestFlight release is requested.
+
+## Shared slider entry revision
+
+The obsolete card is removed. The mode choice checks trial access only when
+opened, never blocks Manual on that check, and closes once on an account
+change even when the workspace also observes the identity change. Close,
+Escape and backdrop dismissal discard the complete flow; reopening starts a
+new check and draft. The lazy-loading fallback is also dismissible and pane
+contained. No provider contract, saved-route data or server configuration
+changed in this revision.
+
+The combined focused suite passed 220 tests across 11 files: trial service and
+Edge contracts, workspace and mode choice, planner handoffs, slider, focus trap,
+pane portals, trip identity and JWT policy. Chromium and WebKit passed all 24
+source browser cases with no retries or skips, covering the real slider gesture,
+Manual isolation, Auto access gating, Close/Escape/reopening, and the retained
+chart/keyboard checks in phone and split-screen day/dark/night layouts.
+
+The replacement local build 115 identity and compiled-artifact results are
+recorded after the final build.

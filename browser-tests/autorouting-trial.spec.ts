@@ -5,6 +5,90 @@ const sizes = [
     { width: 430, height: 932, pane: false },
     { width: 1024, height: 768, pane: true },
 ];
+async function openFixture(page: Page, size: (typeof sizes)[number], mode: string, status = 'ready') {
+    const origin = 'http://127.0.0.1:4199';
+    await page.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname === '/services/supabase.ts')
+            return route.fulfill({
+                contentType: 'application/javascript',
+                body: 'export const supabase = {auth:{},functions:{}}; export const getCurrentUserId = async () => "trial-layout-fixture";',
+            });
+        if (url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/styles/'))
+            return route.fulfill({
+                json: {
+                    version: 8,
+                    sources: {},
+                    layers: [
+                        {
+                            id: 'fixture-water',
+                            type: 'background',
+                            paint: { 'background-color': mode === 'light' ? '#b8d9e5' : '#18354b' },
+                        },
+                    ],
+                },
+            });
+        return url.origin === origin &&
+            ['GET', 'HEAD'].includes(route.request().method()) &&
+            !url.pathname.startsWith('/api/')
+            ? route.continue()
+            : route.abort();
+    });
+    await page.routeWebSocket('**/*', (socket) => socket.close());
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await page.goto(`/e2e/fixtures/autorouting-trial.html?mode=${mode}&pane=${size.pane}&status=${status}`);
+    await expect(page.getByRole('button', { name: 'Slide to Start Plotting', exact: true })).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+}
+async function slideToChoice(page: Page, fraction = 1) {
+    const slider = page.getByRole('button', { name: 'Slide to Start Plotting', exact: true });
+    await slider.scrollIntoViewIfNeeded();
+    const box = (await slider.boundingBox())!;
+    await page.mouse.move(box.x + 24, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 24 + (box.width - 56) * fraction, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+}
+async function fixtureCounts(page: Page) {
+    return page.evaluate(() => {
+        const { statuses, calculations, manualSelections, mapsCreated, mapsRemoved } = (
+            window as unknown as {
+                __trialFixture: {
+                    statuses: number;
+                    calculations: number;
+                    manualSelections: number;
+                    mapsCreated: number;
+                    mapsRemoved: number;
+                };
+            }
+        ).__trialFixture;
+        return { statuses, calculations, manualSelections, mapsCreated, mapsRemoved };
+    });
+}
+async function choiceFits(page: Page, pane: boolean) {
+    const dialog = page.getByRole('dialog', { name: 'Choose routing mode', exact: true });
+    await expect(dialog).toBeVisible();
+    const box = (await dialog.boundingBox())!;
+    const frame = pane
+        ? (await page.getByTestId('trial-pane').boundingBox())!
+        : { x: 0, y: 0, ...page.viewportSize()! };
+    const geometry = JSON.stringify({ box, frame });
+    expect(Math.abs(box.x + box.width / 2 - (frame.x + frame.width / 2)), geometry).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.y + box.height / 2 - (frame.y + frame.height / 2)), geometry).toBeLessThanOrEqual(1);
+    expect(box.x, geometry).toBeGreaterThanOrEqual(frame.x);
+    expect(box.y, geometry).toBeGreaterThanOrEqual(frame.y);
+    expect(box.x + box.width, geometry).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(box.y + box.height, geometry).toBeLessThanOrEqual(frame.y + frame.height);
+    expect(
+        await dialog.evaluate(
+            (node) => node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1,
+        ),
+    ).toBe(true);
+    for (const name of ['Manual routing', 'Auto routing', 'Close routing choice'])
+        await hitVisible(dialog.getByRole('button', { name, exact: true }));
+    if (pane) await expect(dialog).not.toHaveAttribute('aria-modal', 'true');
+    else await expect(dialog).toHaveAttribute('aria-modal', 'true');
+}
 async function hitVisible(element: Locator) {
     await expect
         .poll(() =>
@@ -96,44 +180,50 @@ for (const size of sizes)
             page,
         }, info) => {
             test.setTimeout(60_000);
-            const origin = 'http://127.0.0.1:4199';
-            await page.route('**/*', (route) => {
-                const url = new URL(route.request().url());
-                if (url.pathname === '/services/supabase.ts')
-                    return route.fulfill({
-                        contentType: 'application/javascript',
-                        body: 'export const supabase = {auth:{},functions:{}};',
-                    });
-                if (url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/styles/'))
-                    return route.fulfill({
-                        json: {
-                            version: 8,
-                            sources: {},
-                            layers: [
-                                {
-                                    id: 'fixture-water',
-                                    type: 'background',
-                                    paint: { 'background-color': mode === 'light' ? '#b8d9e5' : '#18354b' },
-                                },
-                            ],
-                        },
-                    });
-                return url.origin === origin &&
-                    ['GET', 'HEAD'].includes(route.request().method()) &&
-                    !url.pathname.startsWith('/api/')
-                    ? route.continue()
-                    : route.abort();
+            await openFixture(page, size, mode);
+            const choice = page.getByRole('dialog', { name: 'Choose routing mode', exact: true });
+            expect(await fixtureCounts(page)).toEqual({
+                statuses: 0,
+                calculations: 0,
+                manualSelections: 0,
+                mapsCreated: 0,
+                mapsRemoved: 0,
             });
-            await page.routeWebSocket('**/*', (socket) => socket.close());
-            await page.setViewportSize({ width: size.width, height: size.height });
-            await page.goto(`/e2e/fixtures/autorouting-trial.html?mode=${mode}&pane=${size.pane}`);
-            await page.getByRole('button', { name: 'Open trial' }).click();
+            await slideToChoice(page, 0.4);
+            await expect(choice).toHaveCount(0);
+            expect((await fixtureCounts(page)).statuses).toBe(0);
+            await slideToChoice(page);
+            await expect(page.getByRole('button', { name: 'Auto routing', exact: true })).toBeEnabled();
+            await choiceFits(page, size.pane);
+            await capture(page, info, 'routing-choice');
+            await page.getByRole('button', { name: 'Close routing choice', exact: true }).click();
+            await expect(choice).toHaveCount(0);
+            await slideToChoice(page);
+            await expect(choice).toBeVisible();
+            await page.keyboard.press('Escape');
+            await expect(choice).toHaveCount(0);
+            await slideToChoice(page);
+            await page.getByRole('button', { name: 'Manual routing', exact: true }).click();
+            await expect(page.getByRole('heading', { name: 'Manual routing selected', exact: true })).toBeVisible();
+            await expect(choice).toHaveCount(0);
+            const afterManual = await fixtureCounts(page);
+            expect(afterManual.statuses).toBeGreaterThan(0);
+            expect(afterManual).toMatchObject({ calculations: 0, manualSelections: 1, mapsCreated: 0, mapsRemoved: 0 });
+            await page.getByRole('button', { name: 'Return to planning', exact: true }).click();
+            await slideToChoice(page);
+            await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+            await expect(choice).toHaveCount(0);
             const dialog = page.getByRole('dialog', { name: 'Autorouting trial' });
             await expect(dialog).toBeVisible();
             await page.evaluate(async () => {
                 await document.fonts.ready;
             });
             await expect(page.getByRole('button', { name: 'Calculate trial route' })).toBeDisabled();
+            await expect(dialog).toContainText(
+                'Trial departure: leaving now. The scheduled departure on Planning home is not used.',
+            );
+            await expect(page.getByLabel('Trial vessel draft in metres', { exact: true })).toHaveValue('1.5');
+            await expect(page.getByLabel('Trial cruising speed in knots', { exact: true })).toHaveValue('6');
             await fits(page, size.pane);
             await capture(page, info, 'trial-initial');
             const chart = page.getByRole('region', { name: /Trial chart/ });
@@ -216,7 +306,9 @@ for (const size of sizes)
             await expect(calculate).toBeDisabled();
             await page.getByRole('button', { name: 'Close autorouting trial' }).click();
             await expect(dialog).toHaveCount(0);
-            await page.getByRole('button', { name: 'Open trial' }).click();
+            await slideToChoice(page);
+            await choiceFits(page, size.pane);
+            await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
             await expect(dialog).toBeVisible();
             await expect(proposal).toHaveCount(0);
             await expect(calculate).toBeDisabled();
@@ -233,3 +325,50 @@ for (const size of sizes)
             ).toEqual({ calculations: 1, mapsCreated: 2, mapsRemoved: 1 });
         });
     }
+
+for (const status of ['disabled', 'failed']) {
+    test(`Manual routing remains available when Auto status is ${status}`, async ({ page }) => {
+        await openFixture(page, sizes[0], 'dark', status);
+        await slideToChoice(page);
+        const choice = page.getByRole('dialog', { name: 'Choose routing mode', exact: true });
+        await expect(choice.getByRole('status')).not.toContainText('Checking');
+        await expect(choice.getByRole('button', { name: 'Auto routing', exact: true })).toBeDisabled();
+        await expect(choice.getByRole('button', { name: 'Manual routing', exact: true })).toBeEnabled();
+        await choiceFits(page, false);
+        await choice.getByRole('button', { name: 'Manual routing', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Manual routing selected', exact: true })).toBeVisible();
+        expect(await fixtureCounts(page)).toEqual({
+            statuses: 1,
+            calculations: 0,
+            manualSelections: 1,
+            mapsCreated: 0,
+            mapsRemoved: 0,
+        });
+    });
+}
+
+test('authorized but unready Auto opens its chart without calculating', async ({ page }) => {
+    await openFixture(page, sizes[0], 'dark', 'unready');
+    await slideToChoice(page);
+    await expect(page.getByRole('dialog', { name: 'Choose routing mode', exact: true })).toContainText(
+        'Fixture provider setup is pending.',
+    );
+    await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Autorouting trial', exact: true });
+    await expect(dialog).toContainText('Fixture provider setup is pending.');
+    await fits(page, false);
+    const chart = page.getByRole('region', { name: /Trial chart/ });
+    await chart.click({ position: { x: 100, y: 100 } });
+    await chart.click({ position: { x: 150, y: 120 } });
+    await expect(page.getByRole('button', { name: 'Calculate trial route', exact: true })).toBeDisabled();
+    expect(await fixtureCounts(page)).toEqual({
+        statuses: 2,
+        calculations: 0,
+        manualSelections: 0,
+        mapsCreated: 1,
+        mapsRemoved: 0,
+    });
+    await page.getByRole('button', { name: 'Close autorouting trial', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Slide to Start Plotting', exact: true })).toBeVisible();
+});

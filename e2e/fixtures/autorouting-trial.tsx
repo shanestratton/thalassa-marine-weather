@@ -1,11 +1,14 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import mapboxgl from 'mapbox-gl';
-import { AutoroutingTrialWorkspace } from '../../components/autorouting/AutoroutingTrialWorkspace';
+import { RoutingModeDialog } from '../../components/autorouting/RoutingModeDialog';
+import { SlideToAction } from '../../components/ui/SlideToAction';
 import { PanePortalScope } from '../../context/PanePortalContext';
 import { NIGHT_SCRIM_Z_INDEX } from '../../components/ui/OverlayPortal';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { supabase } from '../../services/supabase';
+import { LocationStore } from '../../stores/LocationStore';
+import { awaitSettingsLoaded, useSettingsStore } from '../../stores/settingsStore';
 import { initGlobalKeyboardScroll } from '../../utils/keyboardScroll';
 import type { AutoroutingTrialRequest } from '../../types/autorouting';
 import '../../index.css';
@@ -15,7 +18,34 @@ const pane = params.get('pane') === 'true';
 const mode = params.get('mode') || 'dark';
 document.documentElement.classList.toggle('display-light', mode === 'light');
 setAuthIdentityScope('trial-layout-fixture');
-const control = { calculations: 0, mapsCreated: 0, mapsRemoved: 0, map: null as mapboxgl.Map | null };
+// Existing planning context is fixture data, never persisted. The choice
+// dialog must snapshot it itself rather than receiving test-only props.
+LocationStore.setState({ lat: -26.68, lon: 153.16, source: 'search', name: 'Fixture coast' });
+const settingsReady = awaitSettingsLoaded().then(() =>
+    useSettingsStore.setState({
+        settings: {
+            ...useSettingsStore.getState().settings,
+            vessel: {
+                name: 'Fixture vessel',
+                type: 'sail',
+                length: 35,
+                beam: 11,
+                draft: 1.5 / 0.3048,
+                displacement: 12000,
+                maxWaveHeight: 2,
+                cruisingSpeed: 6,
+            },
+        },
+    }),
+);
+const control = {
+    statuses: 0,
+    calculations: 0,
+    manualSelections: 0,
+    mapsCreated: 0,
+    mapsRemoved: 0,
+    map: null as mapboxgl.Map | null,
+};
 Object.assign(window, { __trialFixture: control });
 const OriginalMap = mapboxgl.Map;
 Object.assign(mapboxgl, {
@@ -44,7 +74,18 @@ Object.assign(supabase!.auth, {
 });
 Object.assign(supabase!.functions, {
     invoke: async (_name: string, { body }: { body: AutoroutingTrialRequest & { action: string } }) => {
-        if (body.action === 'status') return { data: { enabled: true, ready: true }, error: null };
+        if (body.action === 'status') {
+            control.statuses += 1;
+            if (params.get('status') === 'failed') return { data: null, error: new Error('Fixture unavailable') };
+            return {
+                data: {
+                    enabled: params.get('status') !== 'disabled',
+                    ready: params.get('status') !== 'unready',
+                    message: params.get('status') === 'unready' ? 'Fixture provider setup is pending.' : undefined,
+                },
+                error: null,
+            };
+        }
         control.calculations += 1;
         const { departure, destination } = body;
         return {
@@ -81,7 +122,13 @@ initGlobalKeyboardScroll();
 function Fixture() {
     const frame = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
+    const [manual, setManual] = useState(false);
     const close = useCallback(() => setOpen(false), []);
+    const selectManual = useCallback(() => {
+        control.manualSelections += 1;
+        setOpen(false);
+        setManual(true);
+    }, []);
     const [companionClicks, setCompanionClicks] = useState(0);
     return (
         <main className="flex h-dvh w-full flex-col overflow-hidden bg-slate-950 text-white">
@@ -103,19 +150,23 @@ function Fixture() {
                         data-testid="trial-pane"
                         data-split-pane={pane ? 'planning' : undefined}
                     >
-                        {open ? (
-                            <AutoroutingTrialWorkspace
-                                onClose={close}
-                                mapboxToken="pk.fixture"
-                                initialCenter={{ lat: -26.68, lon: 153.16 }}
-                                initialDraftM={1.5}
-                                initialSpeedKts={6}
-                            />
+                        {manual ? (
+                            <div className="p-4">
+                                <h1>Manual routing selected</h1>
+                                <button className="min-h-11" onClick={() => setManual(false)}>
+                                    Return to planning
+                                </button>
+                            </div>
                         ) : (
-                            <button className="min-h-11 p-3" onClick={() => setOpen(true)}>
-                                Open trial
-                            </button>
+                            <div className="p-4">
+                                <SlideToAction
+                                    label="Slide to Start Plotting"
+                                    thumbIcon={<span aria-hidden="true">↗</span>}
+                                    onConfirm={() => setOpen(true)}
+                                />
+                            </div>
                         )}
+                        {open && <RoutingModeDialog mapboxToken="pk.fixture" onClose={close} onManual={selectManual} />}
                     </section>
                 </PanePortalScope>
             </div>
@@ -128,4 +179,4 @@ function Fixture() {
         </main>
     );
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+void settingsReady.then(() => createRoot(document.getElementById('root')!).render(<Fixture />));

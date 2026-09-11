@@ -31,13 +31,13 @@ import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/de
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
-import { AutoroutingTrialCard } from './autorouting/AutoroutingTrialCard';
+import { RoutingModeDialog } from './autorouting/RoutingModeDialog';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
 // — Trip/Leg stays up top, then Departure, then the three ways in
-// (paste a mate's coords / a past voyage / saved routes), and the slider opens
-// the chart plotting. The old origin/destination/date form + calculate flow is
+// (paste a mate's coords / a past voyage / saved routes), and the slider offers
+// Manual or Auto routing. The old origin/destination/date form + calculate flow is
 // PARKED behind this flag (wiring intact) — flip to true to resurrect.
 const LEGACY_PLANNER_FORM = false;
 // Temporarily parked at the skipper's request (2026-09-09). This hides only
@@ -209,6 +209,13 @@ export const RoutePlanner: React.FC<{
     // date input above. Time-of-day is set in Passage Planning.
 
     const { setPage } = useUI();
+    const [routingModeOpen, setRoutingModeOpen] = useState(false);
+    const closeRoutingMode = useCallback(() => setRoutingModeOpen(false), []);
+    const chooseManualRouting = useCallback(() => {
+        setRoutingModeOpen(false);
+        requestTracerOpen();
+        setPage('map');
+    }, [setPage]);
     const mapDialogCloseRef = useRef<HTMLButtonElement>(null);
     const closeMapDialog = useCallback(() => {
         setIsMapOpen(false);
@@ -759,9 +766,6 @@ export const RoutePlanner: React.FC<{
                                 previous leg's arrival). */}
                             <TripLegPicker onOpenChart={() => setPage('map')} />
                             <DepartControl />
-                            <AutoroutingTrialCard
-                                mapboxToken={mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ''}
-                            />
                             <div className="space-y-2">
                                 {(
                                     [
@@ -1192,9 +1196,7 @@ export const RoutePlanner: React.FC<{
                                     LEGACY_PLANNER_FORM
                                         ? handleCalculate
                                         : () => {
-                                              // Front door → the chart, tracer open, pen armed.
-                                              requestTracerOpen();
-                                              setPage('map');
+                                              setRoutingModeOpen(true);
                                           }
                                 }
                                 loading={LEGACY_PLANNER_FORM ? loading : false}
@@ -1205,6 +1207,14 @@ export const RoutePlanner: React.FC<{
                     </div>
                 </div>
             }
+
+            {routingModeOpen && (
+                <RoutingModeDialog
+                    mapboxToken={mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ''}
+                    onClose={closeRoutingMode}
+                    onManual={chooseManualRouting}
+                />
+            )}
 
             {/* ─── Departure-Window Optimiser Sheet ─── */}
             {/* Modal sheet that surfaces planDepartureWindow() — runs ~14

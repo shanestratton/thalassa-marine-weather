@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { AutoroutingTrialWorkspace } from '../components/autorouting/AutoroutingTrialWorkspace';
-import { AutoroutingTrialCard } from '../components/autorouting/AutoroutingTrialCard';
+import { RoutingModeDialog } from '../components/autorouting/RoutingModeDialog';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { PanePortalContext } from '../context/PanePortalContext';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
@@ -403,52 +403,335 @@ describe('isolated autorouting trial workspace', () => {
     });
 });
 
-describe('server-authorized trial card', () => {
-    it('takes read-only selected-location and configured-vessel snapshots when opened, converting stored feet to metres', async () => {
+function RoutingFlow({ onManual = vi.fn(), onClose = vi.fn() }: { onManual?: () => void; onClose?: () => void }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+        <>
+            <button onClick={() => setOpen(true)}>Open routing choice</button>
+            {open && (
+                <RoutingModeDialog
+                    mapboxToken="fixture-token"
+                    onManual={() => {
+                        onManual();
+                        setOpen(false);
+                    }}
+                    onClose={() => {
+                        onClose();
+                        setOpen(false);
+                    }}
+                />
+            )}
+        </>
+    );
+}
+
+function openChoice() {
+    fireEvent.click(screen.getByRole('button', { name: 'Open routing choice' }));
+    return screen.getByRole('dialog', { name: 'Choose routing mode' });
+}
+
+async function chooseAuto() {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Auto routing' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Auto routing' }));
+    await screen.findByRole('dialog', { name: 'Autorouting trial' });
+    await waitFor(() => expect(mocks.maps.length).toBeGreaterThan(0));
+    act(() => mocks.maps.at(-1)!.handlers.get('load')!());
+}
+
+describe('explicit routing mode choice', () => {
+    it('does no availability or map work until mounted and immediately offers Manual while Auto is pending', () => {
+        mocks.status.mockReturnValue(new Promise(() => undefined));
+        render(<RoutingFlow />);
+        expect(mocks.status).not.toHaveBeenCalled();
+        expect(mocks.maps).toHaveLength(0);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        const dialog = openChoice();
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(screen.getByRole('button', { name: 'Manual routing' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Auto routing' }));
+        expect(mocks.status).toHaveBeenCalledTimes(1);
+        expect(mocks.maps).toHaveLength(0);
+        expect(mocks.calculate).not.toHaveBeenCalled();
+    });
+
+    it('Manual closes immediately without a calculation, map or extra status call and fences the old status', async () => {
+        const pending = deferred<{ enabled: boolean; ready: boolean }>();
+        mocks.status.mockReturnValue(pending.promise);
+        const onManual = vi.fn();
+        const onClose = vi.fn();
+        render(<RoutingFlow onManual={onManual} onClose={onClose} />);
+        openChoice();
+        const signal = mocks.status.mock.calls[0][0] as AbortSignal;
+        fireEvent.click(screen.getByRole('button', { name: 'Manual routing' }));
+        expect(onManual).toHaveBeenCalledTimes(1);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(signal.aborted).toBe(true);
+        await act(async () => pending.resolve({ enabled: true, ready: true }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mocks.status).toHaveBeenCalledTimes(1);
+        expect(mocks.maps).toHaveLength(0);
+        expect(mocks.calculate).not.toHaveBeenCalled();
+    });
+
+    it.each(['denied', 'failed', 'signed out'] as const)(
+        'keeps Manual available and Auto disabled when %s',
+        async (state) => {
+            if (state === 'denied') mocks.status.mockResolvedValue({ enabled: false, ready: false });
+            if (state === 'failed') mocks.status.mockRejectedValue(new Error('Availability failed'));
+            if (state === 'signed out') setAuthIdentityScope(null);
+            const onManual = vi.fn();
+            render(<RoutingFlow onManual={onManual} />);
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Open routing choice' }));
+            });
+            expect(screen.getByRole('dialog', { name: 'Choose routing mode' })).toBeVisible();
+            expect(screen.getByRole('button', { name: 'Manual routing' })).toBeEnabled();
+            expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
+            if (state === 'signed out') expect(mocks.status).not.toHaveBeenCalled();
+            fireEvent.click(screen.getByRole('button', { name: 'Auto routing' }));
+            expect(mocks.maps).toHaveLength(0);
+            fireEvent.click(screen.getByRole('button', { name: 'Manual routing' }));
+            expect(onManual).toHaveBeenCalledTimes(1);
+            expect(mocks.calculate).not.toHaveBeenCalled();
+        },
+    );
+
+    it('opens Auto only after server authorization and snapshots selected location and vessel without changing settings', async () => {
+        const pending = deferred<{ enabled: boolean; ready: boolean }>();
+        mocks.status.mockReturnValueOnce(pending.promise);
         mocks.location = { lat: -26.7, lon: 153.2, source: 'map_pin' };
         mocks.settings = { vessel: { draft: 6, cruisingSpeed: 7 } };
-        render(<AutoroutingTrialCard mapboxToken="fixture-token" />);
-        fireEvent.click(await screen.findByRole('button', { name: /Autorouting/ }));
-        await screen.findByRole('dialog', { name: 'Autorouting trial' });
+        render(<RoutingFlow />);
+        openChoice();
+        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
+        expect(mocks.maps).toHaveLength(0);
+        await act(async () => pending.resolve({ enabled: true, ready: true }));
+        await chooseAuto();
         expect(mocks.maps[0].options.center).toEqual([153.2, -26.7]);
         expect(screen.getByLabelText('Trial vessel draft in metres')).toHaveValue(1.829);
+        expect(screen.getByLabelText('Trial cruising speed in knots')).toHaveValue(7);
+        expect(features()).toEqual([]);
+        expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
         fireEvent.change(screen.getByLabelText('Trial vessel draft in metres'), { target: { value: '2' } });
         expect(mocks.settings.vessel).toEqual({ draft: 6, cruisingSpeed: 7 });
         expect(mocks.location).toEqual({ lat: -26.7, lon: 153.2, source: 'map_pin' });
-    });
-    it('does not appear before authorization, and unauthorized responses stay hidden', async () => {
-        const pending = deferred<{ enabled: boolean; ready: boolean }>();
-        mocks.status.mockReturnValue(pending.promise);
-        render(<AutoroutingTrialCard mapboxToken="fixture-token" />);
-        expect(screen.queryByRole('button', { name: /Autorouting/ })).not.toBeInTheDocument();
-        await act(async () => pending.resolve({ enabled: false, ready: false }));
-        expect(screen.queryByRole('button', { name: /Autorouting/ })).not.toBeInTheDocument();
+        expect(mocks.calculate).not.toHaveBeenCalled();
     });
 
-    it('lets authorized unready users open the isolated chart and fully discards it on close', async () => {
+    it('uses saved location only when the location store is initial and never moves the shared location', async () => {
+        mocks.settings = { defaultLocationCoords: { lat: -23.9, lon: 152.4 } };
+        render(<RoutingFlow />);
+        openChoice();
+        await chooseAuto();
+        expect(mocks.maps[0].options.center).toEqual([152.4, -23.9]);
+        expect(mocks.location).toEqual({ lat: -27.47, lon: 153.02, source: 'initial' });
+        expect(mocks.settings).toEqual({ defaultLocationCoords: { lat: -23.9, lon: 152.4 } });
+    });
+
+    it('lets an authorized but unready user open Auto without enabling Calculate', async () => {
         mocks.status.mockResolvedValue({ enabled: true, ready: false, message: 'Setup in progress.' });
-        render(<AutoroutingTrialCard mapboxToken="fixture-token" />);
-        fireEvent.click(await screen.findByRole('button', { name: /Autorouting/ }));
-        await screen.findByRole('dialog', { name: 'Autorouting trial' });
+        render(<RoutingFlow />);
+        openChoice();
+        await chooseAuto();
+        fillRequest();
         expect(screen.getByText('Setup in progress.')).toBeVisible();
-        fireEvent.change(screen.getByLabelText('Trial vessel draft in metres'), { target: { value: '2' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Close autorouting trial' }));
+        expect(calculateButton()).toBeDisabled();
+        expect(mocks.calculate).not.toHaveBeenCalled();
+    });
+
+    it('Cancel aborts pending authorization; a late success cannot reopen the flow and remount rechecks fresh', async () => {
+        const old = deferred<{ enabled: boolean; ready: boolean }>();
+        const fresh = deferred<{ enabled: boolean; ready: boolean }>();
+        mocks.status.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+        const onClose = vi.fn();
+        render(<RoutingFlow onClose={onClose} />);
+        openChoice();
+        const signal = mocks.status.mock.calls[0][0] as AbortSignal;
+        fireEvent.click(screen.getByRole('button', { name: 'Close routing choice' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(signal.aborted).toBe(true);
+        await act(async () => old.resolve({ enabled: true, ready: true }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        openChoice();
+        expect(mocks.status).toHaveBeenCalledTimes(2);
+        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
+        await act(async () => fresh.resolve({ enabled: false, ready: false }));
+        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
+        expect(mocks.maps).toHaveLength(0);
+    });
+
+    it('Escape closes the choice and restores its opener without choosing either route mode', () => {
+        mocks.status.mockReturnValue(new Promise(() => undefined));
+        const onClose = vi.fn();
+        const onManual = vi.fn();
+        render(<RoutingFlow onClose={onClose} onManual={onManual} />);
+        const opener = screen.getByRole('button', { name: 'Open routing choice' });
+        opener.focus();
+        const dialog = openChoice();
+        fireEvent.keyDown(dialog, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(onManual).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
+        expect(mocks.maps).toHaveLength(0);
+    });
+
+    it('traps keyboard focus among available choices while authorization is pending', () => {
+        mocks.status.mockReturnValue(new Promise(() => undefined));
+        render(<RoutingFlow />);
+        openChoice();
+        const close = screen.getByRole('button', { name: 'Close routing choice' });
+        const manual = screen.getByRole('button', { name: 'Manual routing' });
+        expect(close).toHaveFocus();
+        fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+        expect(manual).toHaveFocus();
+        fireEvent.keyDown(manual, { key: 'Tab' });
+        expect(close).toHaveFocus();
+        expect(mocks.maps).toHaveLength(0);
+    });
+
+    it('centres the choice and cancels only on its backdrop, not its content', () => {
+        mocks.status.mockReturnValue(new Promise(() => undefined));
+        const onClose = vi.fn();
+        render(<RoutingFlow onClose={onClose} />);
+        const dialog = openChoice();
+        const backdrop = dialog.parentElement!;
+        expect(backdrop).toHaveClass('flex', 'items-center', 'justify-center');
+        fireEvent.click(dialog);
+        expect(onClose).not.toHaveBeenCalled();
+        fireEvent.click(backdrop);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mocks.maps).toHaveLength(0);
+    });
+
+    it('Escape from Auto closes the whole flow without revealing a stale mode choice', async () => {
+        const onClose = vi.fn();
+        render(<RoutingFlow onClose={onClose} />);
+        openChoice();
+        await chooseAuto();
+        const close = screen.getByRole('button', { name: 'Close autorouting trial' });
+        close.focus();
+        fireEvent.keyDown(close, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
-        fireEvent.click(screen.getByRole('button', { name: /Autorouting/ }));
-        await screen.findByRole('dialog');
-        expect(screen.getByLabelText('Trial vessel draft in metres')).toHaveValue(null);
     });
 
-    it('ignores a previous account’s late authorization and rechecks the new account', async () => {
+    it('account changes close and discard the choice rather than rechecking the old dialog', async () => {
         const old = deferred<{ enabled: boolean; ready: boolean }>();
         mocks.status.mockReturnValueOnce(old.promise).mockResolvedValue({ enabled: false, ready: false });
-        render(<AutoroutingTrialCard mapboxToken="fixture-token" />);
+        const onClose = vi.fn();
+        render(<RoutingFlow onClose={onClose} />);
+        openChoice();
         const signal = mocks.status.mock.calls[0][0] as AbortSignal;
         act(() => setAuthIdentityScope('not-entitled'));
-        await act(async () => old.resolve({ enabled: true, ready: true }));
+        expect(onClose).toHaveBeenCalledTimes(1);
         expect(signal.aborted).toBe(true);
+        await act(async () => old.resolve({ enabled: true, ready: true }));
+        expect(mocks.status).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        openChoice();
+        await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
+        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
+        expect(mocks.maps).toHaveLength(0);
+    });
+
+    it('account changes discard an open Auto map and prevent its late calculation from resurfacing', async () => {
+        const pending = deferred<AutoroutingTrialRoute>();
+        mocks.calculate.mockReturnValueOnce(pending.promise);
+        const onClose = vi.fn();
+        render(<RoutingFlow onClose={onClose} />);
+        openChoice();
+        await chooseAuto();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
+        act(() => setAuthIdentityScope('another-account'));
+        await act(async () => pending.resolve(route));
+        expect(signal.aborted).toBe(true);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
         expect(mocks.status).toHaveBeenCalledTimes(2);
-        expect(screen.queryByRole('button', { name: /Autorouting/ })).not.toBeInTheDocument();
+    });
+
+    it('closing Auto closes the entire flow and reopening takes fresh snapshots with no retained inputs or proposal', async () => {
+        const onClose = vi.fn();
+        render(<RoutingFlow onClose={onClose} />);
+        openChoice();
+        await chooseAuto();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await screen.findByRole('region', { name: 'Trial proposal' });
+        fireEvent.click(screen.getByRole('button', { name: 'Close autorouting trial' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
+        mocks.location = { lat: -23.9, lon: 152.4, source: 'map_pin' };
+        mocks.settings = { vessel: { draft: 5, cruisingSpeed: 8 } };
+        openChoice();
+        await chooseAuto();
+        expect(mocks.maps).toHaveLength(2);
+        expect(mocks.maps[1].options.center).toEqual([152.4, -23.9]);
+        expect(screen.getByLabelText('Trial vessel draft in metres')).toHaveValue(1.524);
+        expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
+        expect(screen.getByLabelText('destination latitude')).toHaveValue(null);
+        expect(features()).toEqual([]);
+        expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
+        expect(mocks.calculate).toHaveBeenCalledTimes(1);
+    });
+
+    it('scopes the centred choice to its pane, leaves the other pane usable and ignores its Escape', () => {
+        mocks.status.mockReturnValue(new Promise(() => undefined));
+        const host = document.createElement('div');
+        const frame = document.createElement('div');
+        const otherPane = document.createElement('div');
+        const otherControl = document.createElement('button');
+        host.dataset.panePortal = 'planning';
+        frame.dataset.splitPane = 'planning';
+        otherPane.dataset.splitPane = 'weather';
+        otherPane.append(otherControl);
+        document.body.append(host, frame, otherPane);
+        const onClose = vi.fn();
+        try {
+            render(
+                <PanePortalContext.Provider
+                    value={{ id: 'planning', host, frameRef: { current: frame }, contentRef: { current: frame } }}
+                >
+                    <RoutingFlow onClose={onClose} />
+                </PanePortalContext.Provider>,
+            );
+            const dialog = openChoice();
+            expect(host.contains(dialog)).toBe(true);
+            expect(dialog).not.toHaveAttribute('aria-modal');
+            expect(frame).toHaveAttribute('inert');
+            expect(otherPane).not.toHaveAttribute('inert');
+            otherControl.focus();
+            fireEvent.keyDown(otherControl, { key: 'Escape' });
+            expect(onClose).not.toHaveBeenCalled();
+            expect(dialog).toBeVisible();
+            const close = screen.getByRole('button', { name: 'Close routing choice' });
+            close.focus();
+            fireEvent.keyDown(close, { key: 'Escape' });
+            expect(onClose).toHaveBeenCalledTimes(1);
+            expect(frame).not.toHaveAttribute('inert');
+            expect(otherPane).not.toHaveAttribute('inert');
+            expect(mocks.maps).toHaveLength(0);
+        } finally {
+            cleanup();
+            host.remove();
+            frame.remove();
+            otherPane.remove();
+        }
+    });
+
+    it('does not import planner, persistence, live GPS or route handoff machinery', () => {
+        const source = readFileSync('components/autorouting/RoutingModeDialog.tsx', 'utf8');
+        expect(source).not.toMatch(
+            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|useVoyageForm|MapHub|GpsService|saveVoyagePlan|useWeather)/,
+        );
     });
 });
