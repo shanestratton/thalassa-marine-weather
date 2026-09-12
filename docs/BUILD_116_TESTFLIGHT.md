@@ -1,6 +1,31 @@
 # Build 116 — autorouting endpoint coordinates
 
-Status: release preparation; not yet uploaded or verified available in TestFlight.
+Status: delivered — 1.2.0 (116) is Testing in the existing Skipper internal
+TestFlight group. Verified September 12, 2026; English (Australia) notes saved
+and read back after reload. Apple build ID: e4760678-7cd2-4302-b533-5c6648b53ac0.
+
+## Final release evidence
+
+- Compiled/source commit: `8dd6946c935a03008354e595ac902e2955902bdf`.
+- Fresh `ship:beta` passed, including 140 final contracts; 168 focused tests,
+  24 source-browser cases and 14 exact-production browser cases passed.
+- Exact-source CI 34658651305, CodeQL 34658651294 and Lighthouse 34658651290
+  passed. CI: 10,501 unit passes, 3 expected failures, 5 skips; 1,136 passed
+  suites and 4 skipped. Production browsers: 223 passed, 7 existing skips;
+  source-layout browsers: 246 passed. No reported retries/flaky classifications.
+- Main `assets/main-B-sWuygH.js`; SHA256
+  `770a0539db61178460dab247f14d38571e18b91a6f6ab78d384ae794fac2fe80`.
+- Xcode 26.6 archive and Apple validation succeeded. Archive, validation and
+  actual upload distribution-package verifications passed independently with
+  zero failures/warnings, 422 matching public files, and 23 matching binary/dSYM
+  UUID pairs. Frozen verifier SHA256:
+  `2adfac0af9d825c633652c824edc5dc906388ab40881511f813ce60000bb9dba`.
+- Uploaded once, successfully, September 12 at 10:40:57 AEST; Apple displays
+  10:41 AM. Skipper automatically received it: 15 builds, one existing tester.
+- Evidence: `/private/tmp/thalassa-release116.nyZxs3`. Archive:
+  `/Users/shanestratton/Library/Developer/Xcode/Archives/2026-09-12/Thalassa-1.2.0-116-8dd6946c.xcarchive`.
+
+No rebuild or repeat upload is required. Subsequent source edits belong to 117.
 
 ## Scope
 
