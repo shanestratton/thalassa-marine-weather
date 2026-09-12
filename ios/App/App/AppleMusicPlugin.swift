@@ -137,7 +137,10 @@ public class AppleMusicPlugin: CAPPlugin {
         defer {
             if request != currentPlaybackRequest() { enforceLatestQuietIntent() }
         }
-        guard request == currentPlaybackRequest(), !player.queue.entries.isEmpty else { return false }
+        // A newly assigned MusicKit queue can still be loading its entries.
+        // Let prepareToPlay resolve it; empty-before-prepare is not cancellation.
+        // Only a newer transport intent may return "superseded".
+        guard request == currentPlaybackRequest() else { return false }
         await prepareAudioSessionActivated()
         guard request == currentPlaybackRequest() else { return false }
         try await player.prepareToPlay()
@@ -1078,16 +1081,9 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
             } catch {
                 NSLog("[AppleMusic] playPlaylist failed: \(error)")
-                // MPMusicPlayerControllerErrorDomain code 2 — "Queue was
-                // interrupted by another queue". Happens when the
-                // skipper rapid-taps multiple playlists: the newest
-                // queue wins (Apple Music's intended behaviour), so
-                // THIS older task's error is expected and not a real
-                // user-facing failure. Resolve as superseded so the
-                // JS side can treat it as a successful no-op rather
-                // than dumping the raw NSError into the UI.
-                let ns = error as NSError
-                if ns.domain == "MPMusicPlayerControllerErrorDomain" && ns.code == 2 {
+                // Suppress only an actually replaced request. A queue error
+                // in the latest request must remain a real, retryable failure.
+                if request != self.currentPlaybackRequest() {
                     await MainActor.run {
                         call.resolve(["status": "superseded"])
                     }

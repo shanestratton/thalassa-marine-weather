@@ -92,7 +92,7 @@ interface AppleMusicPluginInterface {
         error?: string;
     }>;
     playTrackInPlaylist(opts: { playlist_id: string; track_id: string }): Promise<{
-        status: 'playing' | 'not_found' | 'track_not_found' | 'error';
+        status: 'playing' | 'not_found' | 'track_not_found' | 'error' | 'superseded';
         title?: string;
         artist?: string;
         error?: string;
@@ -349,6 +349,7 @@ export async function playPlaylist(id: string): Promise<{
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
+        if (revision !== playbackRevision) return { success: false, superseded: true };
         return { success: false, error: (err as Error).message };
     }
 }
@@ -450,12 +451,13 @@ export async function playTrackInPlaylist(
             }),
             'playTrackInPlaylist',
         );
-        if (revision !== playbackRevision) return { success: false, superseded: true };
+        if (revision !== playbackRevision || r.status === 'superseded') return { success: false, superseded: true };
         if (r.status === 'playing') {
             return { success: true, title: r.title, artist: r.artist };
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
+        if (revision !== playbackRevision) return { success: false, superseded: true };
         return { success: false, error: (err as Error).message };
     }
 }

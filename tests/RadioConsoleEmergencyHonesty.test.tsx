@@ -66,10 +66,11 @@ function readScript(mode?: RegExp, confirmReceiver = true): string {
         fireEvent.click(transcript().getByRole('button', { name: 'VHF instructions' }));
     }
     if (mode) fireEvent.click(instructions().getByRole('button', { name: mode }));
-    const confirmation = instructions().queryByRole('checkbox', {
+    const confirmation = instructions().queryByRole('button', {
         name: 'Confirm position receiver is aboard this vessel',
     });
-    if (confirmReceiver && confirmation && !(confirmation as HTMLInputElement).checked) fireEvent.click(confirmation);
+    if (confirmReceiver && confirmation && confirmation.getAttribute('aria-pressed') !== 'true')
+        fireEvent.click(confirmation);
     fireEvent.click(instructions().getByRole('button', { name: 'Continue to voice transcript' }));
     return transcript().getByTestId('dsc-transcript').textContent ?? '';
 }
@@ -101,6 +102,21 @@ describe('RadioConsole emergency transcript honesty', () => {
         readScript();
         fireEvent.click(transcript().getByRole('button', { name: 'Close voice transcript' }));
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('uses a compact reversible position action instead of the large acknowledgement card', () => {
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(instructions().queryByText(/I have checked these coordinates/)).not.toBeInTheDocument();
+        expect(instructions().queryByRole('checkbox')).not.toBeInTheDocument();
+        const usePosition = instructions().getByRole('button', {
+            name: 'Confirm position receiver is aboard this vessel',
+        });
+        expect(instructions().getByTestId('radio-position-status')).toContainElement(usePosition);
+        fireEvent.click(usePosition);
+        expect(usePosition).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(usePosition);
+        expect(usePosition).toHaveAttribute('aria-pressed', 'false');
+        expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
     });
 
     it('keeps accessible call selectors in every state and returns transcript mode changes to instructions first', () => {
@@ -224,7 +240,9 @@ describe('RadioConsole emergency transcript honesty', () => {
         };
         mocks.isLive = false;
         render(<RadioConsolePage onBack={vi.fn()} />);
-        expect(instructions().getByRole('checkbox')).not.toBeChecked();
+        expect(
+            instructions().getByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).toHaveAttribute('aria-pressed', 'false');
         expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
         expect(readScript()).toContain('Vessel position, recorded at');
     });
@@ -235,7 +253,9 @@ describe('RadioConsole emergency transcript honesty', () => {
         mocks.activeVesselId = 'another-boat';
         view.rerender(<RadioConsolePage onBack={vi.fn()} />);
         expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
-        expect(instructions().getByRole('checkbox')).not.toBeChecked();
+        expect(
+            instructions().getByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).toHaveAttribute('aria-pressed', 'false');
         expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
     });
 
@@ -245,7 +265,9 @@ describe('RadioConsole emergency transcript honesty', () => {
         mocks.position = { ...CURRENT_POSITION, receiverKey: 'bus:different-gateway' };
         view.rerender(<RadioConsolePage onBack={vi.fn()} />);
         fireEvent.click(transcript().getByRole('button', { name: 'Update position' }));
-        expect(instructions().getByRole('checkbox')).not.toBeChecked();
+        expect(
+            instructions().getByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).toHaveAttribute('aria-pressed', 'false');
         expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
     });
 
@@ -257,7 +279,9 @@ describe('RadioConsole emergency transcript honesty', () => {
             vesselId: 'wrong-boat',
         };
         render(<RadioConsolePage onBack={vi.fn()} />);
-        expect(instructions().queryByRole('checkbox')).not.toBeInTheDocument();
+        expect(
+            instructions().queryByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).not.toBeInTheDocument();
         expect(readScript()).toContain('Position not verified for this vessel');
     });
 

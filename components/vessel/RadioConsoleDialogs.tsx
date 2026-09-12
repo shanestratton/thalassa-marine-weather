@@ -19,6 +19,7 @@ interface RadioDialogProps extends RadioSelectorSlotProps {
 /** All available screen space on phones; only the owning pane on iPad. */
 function RadioDialog({ title, onClose, children, footer, selectors, selectorAnchor }: RadioDialogProps) {
     const pane = usePaneScope();
+    const dialogTop = selectorAnchor?.dialogTop ?? 0;
     const closeRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, { onEscape: onClose, initialFocusRef: closeRef });
     return (
@@ -29,12 +30,13 @@ function RadioDialog({ title, onClose, children, footer, selectors, selectorAnch
             aria-label={title}
             className="flex flex-col bg-slate-950 text-white overflow-hidden"
             style={{
+                top: dialogTop,
                 paddingBottom: pane ? '12px' : 'max(12px, env(safe-area-inset-bottom))',
             }}
         >
             <header
                 className="absolute inset-x-0 mx-auto w-full max-w-3xl flex items-center justify-between gap-3 px-4 pb-2 border-b border-white/10"
-                style={{ top: pane ? '12px' : 'max(12px, env(safe-area-inset-top))' }}
+                style={{ top: pane || dialogTop > 0 ? '12px' : 'max(12px, env(safe-area-inset-top))' }}
             >
                 <h2 className="ui-dialog-title">{title}</h2>
                 <button
@@ -58,7 +60,7 @@ function RadioDialog({ title, onClose, children, footer, selectors, selectorAnch
             </header>
             {/* Same measured top slot as the console, outside either scroller.
                 Do not let the portal's different origin move call controls. */}
-            <div className="shrink-0 pb-3" style={{ paddingTop: selectorAnchor?.top ?? 76 }}>
+            <div className="shrink-0 pb-3" style={{ paddingTop: (selectorAnchor?.top ?? 76) - dialogTop }}>
                 <div
                     style={
                         selectorAnchor ? { marginLeft: selectorAnchor.left, width: selectorAnchor.width } : undefined

@@ -428,6 +428,17 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     Device GPS, not a verified vessel fix. Confirm this device is aboard before using it for the boat.
                 </p>
             )}
+            {dialogStep === 'instructions' && position && receiverMatchesSelection && (
+                <button
+                    type="button"
+                    aria-label="Confirm position receiver is aboard this vessel"
+                    aria-pressed={receiverVerified}
+                    onClick={() => setConfirmedReceiver(receiverVerified ? null : (position.receiverKey ?? null))}
+                    className="mt-2 min-h-11 rounded-lg border border-current/30 px-3 py-2 font-bold"
+                >
+                    {receiverVerified ? '✓ Position selected · clear' : 'Use these coordinates in call'}
+                </button>
+            )}
             {!position && (
                 <p className="mt-1">
                     Do not wait for the app to get a fix before calling for help. State a position from another reliable
@@ -636,28 +647,6 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     )}
                     <DscSteps mode={dscMode} />
                     {gpsNotice}
-                    {position && receiverMatchesSelection && (
-                        <label className="flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-slate-200">
-                            <input
-                                type="checkbox"
-                                aria-label="Confirm position receiver is aboard this vessel"
-                                className="mt-1 h-5 w-5 shrink-0"
-                                checked={!!receiverVerified}
-                                onChange={(event) =>
-                                    setConfirmedReceiver(event.target.checked ? (position.receiverKey ?? null) : null)
-                                }
-                            />
-                            <span>
-                                I have checked these coordinates are for{' '}
-                                <strong>{vesselName ?? 'the vessel I am calling from'}</strong>
-                                {!position.isVessel && ', and this phone or tablet is aboard'}. Use this receiver’s
-                                position in my call.
-                                <span className="block mt-1 text-micro">
-                                    Leave unchecked if unsure. You can still continue and state the position yourself.
-                                </span>
-                            </span>
-                        </label>
-                    )}
                     <p className="text-sm text-slate-200">
                         Check the vessel identity, position and actual number of people aboard before speaking. These
                         controls only prepare text; operate the radio itself to call.

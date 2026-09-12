@@ -30,7 +30,8 @@ describe('Radio Console full-pane readback', () => {
         expect(page).toContain('aria-hidden={dialogStep !== null}');
         expect(page.match(/selectorAnchor={selectorAnchor}/g)).toHaveLength(2);
         expect(dialogs.indexOf('{selectors}')).toBeLessThan(dialogs.indexOf('{children}'));
-        expect(dialogs).toContain('paddingTop: selectorAnchor?.top');
+        expect(dialogs).toContain('paddingTop: (selectorAnchor?.top ?? 76) - dialogTop');
+        expect(dialogs).toContain('top: dialogTop');
         expect(dialogs).toContain('marginLeft: selectorAnchor.left, width: selectorAnchor.width');
         for (const mode of ['routine', 'urgency', 'distress']) expect(page).toContain(`pill('${mode}'`);
     });
