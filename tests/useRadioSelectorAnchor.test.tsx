@@ -49,6 +49,22 @@ afterEach(() => {
 });
 
 describe('radio call-selector portal anchor', () => {
+    it('reserves the actual app header above a radio dialog, without moving call buttons', () => {
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+            return bounds(16, this.dataset.testid === 'radio-console-page' ? 102 : 174, 358);
+        });
+        render(
+            <div data-testid="radio-console-page">
+                <Probe />
+            </div>,
+        );
+        expect(JSON.parse(screen.getByTestId('measurement').textContent!)).toEqual({
+            left: 16,
+            top: 174,
+            width: 358,
+            dialogTop: 102,
+        });
+    });
     it('retains phone page coordinates below app chrome instead of assuming a header height', () => {
         vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(bounds(16, 174, 358));
         render(<Probe />);

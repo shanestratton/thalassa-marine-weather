@@ -562,15 +562,21 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         if (!detailPlaylist) return;
         const action = ++playbackActionRef.current;
         setSelectedPlaylistId(detailPlaylist.id);
+        setDetailError(null);
         triggerHaptic('light');
-        const r = await playPlaylist(detailPlaylist.id);
-        if (action !== playbackActionRef.current || r.superseded) return;
-        if (r.success) {
-            setActivePlaylistId(detailPlaylist.id);
-            closeDetail();
-            refreshNowPlayingFast();
-        } else {
-            setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this playlist.');
+        try {
+            const r = await playPlaylist(detailPlaylist.id);
+            if (action !== playbackActionRef.current || r.superseded) return;
+            if (r.success) {
+                setActivePlaylistId(detailPlaylist.id);
+                closeDetail();
+                refreshNowPlayingFast();
+            } else {
+                setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this playlist.');
+            }
+        } catch {
+            if (action === playbackActionRef.current)
+                setDetailError('Apple Music could not start this playlist. Try Play again.');
         }
     }, [detailPlaylist, closeDetail, refreshNowPlayingFast]);
 
@@ -579,15 +585,21 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             if (!detailPlaylist) return;
             const action = ++playbackActionRef.current;
             setSelectedPlaylistId(detailPlaylist.id);
+            setDetailError(null);
             triggerHaptic('light');
-            const r = await playTrackInPlaylist(detailPlaylist.id, trackId);
-            if (action !== playbackActionRef.current || r.superseded) return;
-            if (r.success) {
-                setActivePlaylistId(detailPlaylist.id);
-                closeDetail();
-                refreshNowPlayingFast();
-            } else {
-                setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this track.');
+            try {
+                const r = await playTrackInPlaylist(detailPlaylist.id, trackId);
+                if (action !== playbackActionRef.current || r.superseded) return;
+                if (r.success) {
+                    setActivePlaylistId(detailPlaylist.id);
+                    closeDetail();
+                    refreshNowPlayingFast();
+                } else {
+                    setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this track.');
+                }
+            } catch {
+                if (action === playbackActionRef.current)
+                    setDetailError('Apple Music could not start this track. Try the track again.');
             }
         },
         [detailPlaylist, closeDetail, refreshNowPlayingFast],

@@ -203,8 +203,8 @@ test('Very long radio identities remain readable through the final Over with Clo
     await instructions.getByRole('combobox').selectOption('fire');
     await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
     await instructions
-        .getByRole('checkbox', { name: 'Confirm position receiver is aboard this vessel', exact: true })
-        .check();
+        .getByRole('button', { name: 'Confirm position receiver is aboard this vessel', exact: true })
+        .click();
     await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
@@ -267,8 +267,8 @@ test('Unconfirmed phone GPS never becomes vessel coordinates and does not block 
     await instructions.getByRole('combobox').selectOption('fire');
     await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
     await expect(
-        instructions.getByRole('checkbox', { name: 'Confirm position receiver is aboard this vessel', exact: true }),
-    ).not.toBeChecked();
+        instructions.getByRole('button', { name: 'Confirm position receiver is aboard this vessel', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'false');
     const proceed = instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true });
     await expect(proceed).toBeEnabled();
     await proceed.click();
@@ -298,8 +298,10 @@ async function expectDialogFrame(page: Page, dialog: Locator, split: boolean) {
     await expect
         .poll(async () => {
             const actual = await dialog.boundingBox();
-            const target = frame ? await frame.boundingBox() : { x: 0, y: 0, ...page.viewportSize()! };
-            if (!actual || !target) return false;
+            const bounds = frame ? await frame.boundingBox() : { x: 0, y: 0, ...page.viewportSize()! };
+            const consoleBounds = await page.getByTestId('radio-console-page').boundingBox();
+            if (!actual || !bounds || !consoleBounds) return false;
+            const target = { ...bounds, y: consoleBounds.y, height: bounds.y + bounds.height - consoleBounds.y };
             return (
                 Math.abs(actual.x - target.x) <= 2 &&
                 Math.abs(actual.y - target.y) <= 2 &&
@@ -316,6 +318,14 @@ async function expectDialogFrame(page: Page, dialog: Locator, split: boolean) {
         ).toBe('page');
         await expect(dialog).not.toHaveAttribute('aria-modal', 'true');
     } else {
+        const brand = page
+            .locator('header')
+            .filter({ has: page.getByText('Thalassa', { exact: true }) })
+            .first();
+        await expect(brand).toBeInViewport();
+        expect((await brand.boundingBox())!.y + (await brand.boundingBox())!.height).toBeLessThanOrEqual(
+            (await dialog.boundingBox())!.y + 2,
+        );
         await expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(await dialog.evaluate((element) => element.parentElement === document.body)).toBe(true);
     }
@@ -402,8 +412,8 @@ for (const viewport of viewports) {
                 await expect(proceed).toBeInViewport();
                 await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
                 await instructions
-                    .getByRole('checkbox', { name: 'Confirm position receiver is aboard this vessel', exact: true })
-                    .check();
+                    .getByRole('button', { name: 'Confirm position receiver is aboard this vessel', exact: true })
+                    .click();
                 await instructions.getByText('VHF / HF channel reference', { exact: true }).click();
                 await instructions.getByTestId('radio-instructions-body').evaluate((element) => {
                     element.scrollTop = element.scrollHeight;

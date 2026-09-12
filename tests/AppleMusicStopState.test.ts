@@ -48,6 +48,39 @@ afterEach(() => {
 });
 
 describe('Apple Music confirmed Stop boundary', () => {
+    it.each(['playlist', 'track'] as const)(
+        'treats native cancellation of a %s as superseded, never a visible error',
+        async (kind) => {
+            const nativePlay = kind === 'playlist' ? bridge.native.playPlaylist : bridge.native.playTrackInPlaylist;
+            nativePlay.mockResolvedValueOnce({ status: 'superseded' });
+            const result =
+                kind === 'playlist'
+                    ? await music.playPlaylist('harbour')
+                    : await music.playTrackInPlaylist('harbour', 'track');
+            expect(result).toEqual({ success: false, superseded: true });
+        },
+    );
+
+    it.each(['playlist', 'track'] as const)('discards a rejected %s request after a newer Stop', async (kind) => {
+        let reject!: (error: Error) => void;
+        const nativePlay = kind === 'playlist' ? bridge.native.playPlaylist : bridge.native.playTrackInPlaylist;
+        nativePlay.mockImplementationOnce(
+            () =>
+                new Promise((_resolve, fail) => {
+                    reject = fail;
+                }),
+        );
+        const starting =
+            kind === 'playlist' ? music.playPlaylist('harbour') : music.playTrackInPlaylist('harbour', 'track');
+        await music.stopMusic();
+        reject(new Error('queue interrupted'));
+        expect(await starting).toEqual({ success: false, superseded: true });
+    });
+
+    it('keeps a real latest playback failure visible', async () => {
+        bridge.native.playPlaylist.mockResolvedValueOnce({ status: 'error', error: 'No audio route' });
+        expect(await music.playPlaylist('harbour')).toEqual({ success: false, error: 'No audio route' });
+    });
     it('suppresses retained metadata after Stop until an explicit new playback intent, including the same song', async () => {
         const stopped = vi.fn();
         const unsubscribe = music.subscribeMusicStopped(stopped);
@@ -238,6 +271,8 @@ describe('native MusicKit Stop contracts', () => {
             source.indexOf('private func skipQueueEntry('),
         );
         expect(play.match(/guard request == currentPlaybackRequest\(\)/g)).toHaveLength(4);
+        expect(play).not.toContain('queue.entries.isEmpty');
+        expect(play.indexOf('try await player.prepareToPlay()')).toBeLessThan(play.indexOf('try await player.play()'));
         expect(play).toContain('defer {');
         expect(play).toContain('if request != currentPlaybackRequest() { enforceLatestQuietIntent() }');
     });

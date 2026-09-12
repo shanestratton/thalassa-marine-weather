@@ -102,6 +102,30 @@ describe('MusicPage modal accessibility', () => {
         music.deletePlaylistById.mockResolvedValue({ success: false, notSupported: true });
     });
 
+    it.each(['playlist', 'track'] as const)(
+        'does not show cancellation as a %s playback error and clears a previous error on retry',
+        async (kind) => {
+            const { dialog } = await openPlaylistDetails();
+            const play = screen.getByRole('button', {
+                name: kind === 'playlist' ? 'Play all tracks in Harbour Mix' : 'Play track 1: Sea Song by The Crew',
+            });
+            const start = kind === 'playlist' ? music.playPlaylist : music.playTrackInPlaylist;
+            start.mockResolvedValueOnce({ success: false, error: 'No audio route' });
+            fireEvent.click(play);
+            expect(await screen.findByText("Couldn't play: No audio route")).toBeVisible();
+            start.mockResolvedValueOnce({ success: false, superseded: true });
+            await act(async () => {
+                fireEvent.click(play);
+            });
+            expect(dialog).toBeInTheDocument();
+            expect(screen.queryByText(/Couldn't play:/)).not.toBeInTheDocument();
+            expect(screen.queryByText(/superseded/)).not.toBeInTheDocument();
+            start.mockResolvedValueOnce({ success: true });
+            fireEvent.click(play);
+            await waitFor(() => expect(dialog).not.toBeInTheDocument());
+        },
+    );
+
     it('keeps the song and on-deck queue on Pause, then fully resets to the compact idle layout on Stop', async () => {
         const playing = {
             title: 'Sea Song',

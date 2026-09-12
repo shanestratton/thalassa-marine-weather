@@ -5,6 +5,8 @@ export interface RadioSelectorAnchor {
     top: number;
     left: number;
     width: number;
+    /** The console starts below the real app header; keep that header visible. */
+    dialogTop?: number;
 }
 
 /** Keep radio controls at their page coordinates when their content portals.
@@ -29,16 +31,19 @@ export function useRadioSelectorAnchor() {
             const rect = selector.getBoundingClientRect();
             if (rect.width === 0) return;
             const origin = pane?.host.getBoundingClientRect();
+            const page = selector.closest('[data-testid="radio-console-page"]')?.getBoundingClientRect();
             const next = {
                 top: rect.top - (origin?.top ?? 0),
                 left: rect.left - (origin?.left ?? 0),
                 width: rect.width,
+                ...(page ? { dialogTop: Math.max(0, page.top - (origin?.top ?? 0)) } : {}),
             };
             setAnchor((previous) =>
                 previous &&
                 Math.abs(previous.top - next.top) < 0.1 &&
                 Math.abs(previous.left - next.left) < 0.1 &&
-                Math.abs(previous.width - next.width) < 0.1
+                Math.abs(previous.width - next.width) < 0.1 &&
+                previous.dialogTop === next.dialogTop
                     ? previous
                     : next,
             );
