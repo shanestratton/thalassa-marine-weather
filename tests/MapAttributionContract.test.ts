@@ -8,7 +8,12 @@ describe('map provider attribution contract', () => {
     it('keeps native attribution chrome and source credits on the primary chart map', () => {
         const source = read('components/map/useMapInit.ts');
 
-        expect(source).toContain('attributionControl: true');
+        // Native controls may be installed explicitly to fit a split pane;
+        // disabling the automatic duplicate must never remove the real one.
+        expect(source).toContain('installPaneAwareAttribution(map, containerRef.current)');
+        const helper = read('components/map/paneAwareAttribution.ts');
+        expect(helper).toContain('new mapboxgl.AttributionControl(');
+        expect(helper).toContain("map.addControl(control, 'bottom-right')");
         expect(source).toMatch(/map\.addSource\('satellite-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?Maxar/);
         expect(source).toMatch(/map\.addSource\('hybrid-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?OpenStreetMap/);
         expect(source).toMatch(

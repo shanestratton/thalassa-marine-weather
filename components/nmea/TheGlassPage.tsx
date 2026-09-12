@@ -17,6 +17,8 @@
  * values when no live NMEA data is connected so the panel remains testable.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import './instrumentDaylight.css';
+import { POSITION_FONT_SIZE, WIND_CELL_STYLE, windHeroStyle } from './instrumentLayout';
 import { useCrewInstrumentShare } from '../../hooks/useCrewInstrumentShare';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
@@ -76,6 +78,7 @@ import {
 import { closeHauledDegFor, pointOfSail } from '../../services/sailing/pointOfSail';
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { CloudTelemetryService } from '../../services/CloudTelemetryService';
+import { WindHistoryStats } from './WindHistoryStats';
 
 /** Picker value meaning “wherever the boat is”. */
 const SHIP_ZONE_AUTO = 'auto';
@@ -140,7 +143,7 @@ const SparklineComponent: React.FC<SparklineProps> = ({
     const fillPoints = `${firstX},${bottomY} ${points} ${lastX},${bottomY}`;
 
     return (
-        <svg width={width} height={height} className="block">
+        <svg width={width} height={height} className="nmea-instrument block">
             <defs>
                 <linearGradient id={`spark-fill-${label}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={color} stopOpacity={0.4} />
@@ -254,7 +257,7 @@ const FlankMetricComponent: React.FC<{
             <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
             <p
                 data-testid={`flank-${label.toLowerCase()}`}
-                style={sideTone ? { color: sideTone } : undefined}
+                style={sideTone ? { color: `var(--nmea-${shown! < 0 ? 'port' : 'stbd'}, ${sideTone})` } : undefined}
                 className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
             >
                 {display}
@@ -387,7 +390,7 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
     }, [min, max, majorTick]);
 
     return (
-        <svg viewBox="0 0 200 200" className="w-full h-full">
+        <svg viewBox="0 0 200 200" className="nmea-instrument w-full h-full">
             <defs>
                 <filter id={`hero-glow-${label}`} x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="3" result="blur" />
@@ -583,7 +586,7 @@ const BARO_SEVERITY: Record<TendencySeverity, { pill: string; text: string }> = 
 
 /* Hoisted so the cell-sized instruments are handed the SAME style object on
    every tick — a fresh literal here defeats any memo below it. */
-const ROSE_CELL_STYLE: React.CSSProperties = { maxHeight: '19vh' };
+const ROSE_CELL_STYLE = WIND_CELL_STYLE;
 
 const SectionPlateComponent: React.FC<{ title: string }> = ({ title }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0" aria-hidden="true">
@@ -730,17 +733,12 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     }, [state.depth.value, state.depth.freshness, state.depth.lastUpdated]);
     const depthTrend = shoalRate(depthTrackRef.current, DEPTH_FALLBACK_OFFSET);
 
-    // Rolling 10-min TWS peak as the live gust proxy for the sail plan —
-    // labelled as such; a forecast gust would claim knowledge we lack here.
-    const gustRef = useRef<Array<{ t: number; v: number }>>([]);
-    useEffect(() => {
-        if (state.tws.value !== null && state.tws.freshness === 'live') {
-            const now = Date.now();
-            gustRef.current.push({ t: now, v: state.tws.value });
-            while (gustRef.current.length > 0 && now - gustRef.current[0].t > 600_000) gustRef.current.shift();
-        }
-    }, [state.tws.value, state.tws.freshness, state.tws.lastUpdated]);
-    const recentGust = gustRef.current.length > 0 ? Math.max(...gustRef.current.map((e) => e.v)) : null;
+    // Recorded by the feed/Pi, not by this page. The Pi's preceding hour can
+    // arrive on first open; direct gateways keep a bounded app-wide record.
+    // Recompute on the clock too, so an old peak expires even during silence.
+    // Sail advice still uses the existing ten-minute sampled-wind peak.
+    const windHistory = NmeaStore.getWindHistory(nowMs);
+    const recentGust = windHistory?.gust10m?.kts ?? null;
 
     const awaUnsigned = awa.value !== null ? ((awa.value % 360) + 360) % 360 : null;
     const twaUnsigned = twaSigned.value !== null ? ((twaSigned.value % 360) + 360) % 360 : null;
@@ -841,15 +839,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 : { history: [] as number[], min: 0, max: 1 },
         [depthReal.history, depthReal.max],
     );
-
-    // TWS max tracker
-    const [twsMax, setTwsMax] = useState<number>(0);
-    useEffect(() => {
-        if (state.tws.value !== null && state.tws.value > twsMax) {
-            setTwsMax(state.tws.value);
-        }
-    }, [state.tws.value, twsMax]);
-    const twsMaxDisplay: number | null = twsMax > 0 ? twsMax : null;
 
     // Trip distance accumulator (SOG × dt).
     //
@@ -1253,6 +1242,19 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </p>
                             </div>
                         )}
+                        <div className="rounded-xl border border-white/10 bg-white/4 p-3">
+                            <p className="text-sm font-bold text-white">Recorded wind</p>
+                            <p className="mt-1 text-sm leading-relaxed text-gray-300">
+                                Max is the highest recorded true wind in the preceding hour. Gust is the highest sampled
+                                true wind in the preceding ten minutes, not a separate gust sensor. Recording does not
+                                depend on leaving this screen open.
+                            </p>
+                            <p className="mt-2 text-sm leading-relaxed text-gray-300">
+                                {windHistory
+                                    ? `${windHistory.sampleCount} readings in the available record, spanning ${Math.max(0, Math.floor((windHistory.latestAt - windHistory.since) / 60_000))} minutes. Gaps or a newly started recorder mean the record may cover less than a full hour.`
+                                    : 'No recent wind history is available yet. Missing readings are not treated as calm wind.'}
+                            </p>
+                        </div>
                     </div>
                 </ModalSheet>
 
@@ -1414,7 +1416,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         />
                                     </div>
                                     <div
-                                        className="rounded-full p-[3px]"
+                                        className="nmea-wind-bezel rounded-full p-[3px]"
                                         style={{
                                             background:
                                                 'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
@@ -1423,14 +1425,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         }}
                                     >
                                         <div
-                                            className="rounded-full p-[2px]"
+                                            className="nmea-wind-rim rounded-full p-[2px]"
                                             style={{
                                                 background:
                                                     'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
                                             }}
                                         >
                                             <div
-                                                className="rounded-full p-2"
+                                                className="nmea-wind-face rounded-full p-2"
                                                 style={{
                                                     background:
                                                         'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
@@ -1447,13 +1449,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 roses off the bottom of a snap panel that
                                                 cannot scroll (Shane 2026-08-28). min() makes
                                                 the biggest element the one that yields. */}
-                                                <div
-                                                    className="relative"
-                                                    style={{
-                                                        width: `min(${heroGaugeSize}px, 19vh)`,
-                                                        height: `min(${heroGaugeSize}px, 19vh)`,
-                                                    }}
-                                                >
+                                                <div className="relative" style={windHeroStyle(heroGaugeSize)}>
                                                     {renderWindInstrument(windHero, 'hero')}
                                                     {/* Only a promoted ROSE needs naming — the dial
                                                         prints its own "TWS" inside its SVG. Absolutely
@@ -1509,35 +1505,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         {formatFix(latitude.value, longitude.value) ?? '— no fix —'}
                                     </p>
                                 </div>
-                                <div className="w-full grid grid-cols-3 gap-2 items-center">
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            AWS
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-sky-300">
-                                            {fmt(aws.value)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/4 border border-white/8 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Max
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-amber-400">
-                                            {fmt(twsMaxDisplay)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Gust 10m
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-white">
-                                            {fmt(recentGust)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                </div>
+                                <WindHistoryStats
+                                    apparentWind={aws.value}
+                                    history={windHistory}
+                                    onShowDetails={() => setShowDiagnosis(true)}
+                                />
                                 {/* Both roses on the one page (Shane 2026-08-28).
                                     APPARENT is bow-relative — what the sails are
                                     trimmed to — so it carries no heading and the
@@ -1720,8 +1692,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                            longest string here is 11 monospace characters
                                                            and this section cannot scroll — an overflowing
                                                            longitude would simply be cut off. */
-                                                        fontSize: 'clamp(1.75rem, 11vw, 3rem)',
-                                                        textShadow: '0 0 30px rgba(52, 211, 153, 0.35)',
+                                                        fontSize: POSITION_FONT_SIZE,
+                                                        textShadow:
+                                                            'var(--nmea-position-shadow, 0 0 30px rgba(52, 211, 153, 0.35))',
                                                     }}
                                                 >
                                                     {text}
@@ -2217,6 +2190,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         </>
                                                     )}
                                                     <SailPlanDiagram
+                                                        adviceBand={plan.band.band}
                                                         band={
                                                             plan.band.band === 'Running' && downwind === 'gybe'
                                                                 ? 'Broad reach'

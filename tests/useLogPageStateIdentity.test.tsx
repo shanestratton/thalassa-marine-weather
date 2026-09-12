@@ -299,6 +299,56 @@ describe('useLogPageState identity boundary', () => {
         expect(mocks.toastError).not.toHaveBeenCalledWith('A GPS failed');
     });
 
+    it('collapses only the stopping voyage before leaving the compact live view and retains its entries', async () => {
+        const stop = deferred<void>();
+        const recordedEntries = [entryA, { ...entryA, id: 'entry-end', latitude: -27.5, longitude: 153.1 }];
+        mocks.getVoyageEntries.mockResolvedValue(recordedEntries);
+        mocks.stopTracking.mockReturnValueOnce(stop.promise);
+        mocks.getTrackingStatus.mockReturnValue({ isTracking: true, isPaused: false, isRapidMode: false });
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.entries).toEqual(recordedEntries));
+        expect(result.current.state.expandedVoyages.has('voyage-a')).toBe(true);
+        act(() => result.current.dispatch({ type: 'TOGGLE_VOYAGE', voyageId: 'other-expanded-voyage' }));
+
+        let ending!: Promise<void>;
+        act(() => {
+            ending = result.current.confirmStopVoyage();
+        });
+        try {
+            expect(result.current.state.isTracking).toBe(false);
+            expect(result.current.state.expandedVoyages.has('voyage-a')).toBe(false);
+            expect(result.current.state.expandedVoyages.has('other-expanded-voyage')).toBe(true);
+            expect(result.current.state.entries).toEqual(recordedEntries);
+        } finally {
+            mocks.getTrackingStatus.mockReturnValue({ isTracking: false, isPaused: false, isRapidMode: false });
+            mocks.getCurrentVoyageId.mockReturnValue(undefined);
+            stop.resolve();
+            await act(async () => ending);
+        }
+        expect(result.current.state.expandedVoyages.has('voyage-a')).toBe(false);
+        expect(result.current.state.entries).toEqual(recordedEntries);
+    });
+
+    it('does not start a second stop while the first native teardown is pending', async () => {
+        const stop = deferred<void>();
+        mocks.stopTracking.mockReturnValue(stop.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.entries).toEqual([entryA]));
+        let first!: Promise<void>;
+        let second!: Promise<void>;
+        act(() => {
+            first = result.current.confirmStopVoyage();
+            second = result.current.confirmStopVoyage();
+        });
+        try {
+            expect(mocks.stopTracking).toHaveBeenCalledTimes(1);
+        } finally {
+            stop.resolve();
+            await act(async () => Promise.all([first, second]));
+        }
+        expect(mocks.endVoyage).toHaveBeenCalledTimes(1);
+    });
+
     it('restores pending-stop UI and does not delete a voyage after native teardown fails', async () => {
         mocks.stopTracking.mockRejectedValueOnce(new Error('Background GPS is still active. Retry End Voyage.'));
         mocks.getTrackingStatus.mockReturnValue({

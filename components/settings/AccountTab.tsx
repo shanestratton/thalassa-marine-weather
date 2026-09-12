@@ -206,11 +206,11 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     </div>
                     {!user ? (
                         <button
-                            aria-label="Sign in with email"
+                            aria-label="Sign in"
                             onClick={() => setAuthOpen(true)}
                             className="bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
                         >
-                            Sign In with Email
+                            Sign In
                         </button>
                     ) : (
                         <div className="flex flex-col gap-3 items-center w-full">

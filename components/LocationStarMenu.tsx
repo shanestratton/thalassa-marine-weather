@@ -27,6 +27,7 @@
  */
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { panePopoverStyle, usePanePortalTarget } from '../context/PanePortalContext';
 
 import { AnchorIcon, CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
 import { useSettings } from '../context/SettingsContext';
@@ -40,14 +41,7 @@ import {
 } from '../utils/savedLocations';
 import { triggerHaptic } from '../utils/system';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
-import { GpsService } from '../services/GpsService';
-import { toast } from './Toast';
-import {
-    boatOrHeldFix,
-    getWeatherFollowTarget,
-    setWeatherFollowTarget,
-    type WeatherFollowTarget,
-} from '../services/weatherPosition';
+import { getWeatherFollowTarget, setWeatherFollowTarget, type WeatherFollowTarget } from '../services/weatherPosition';
 
 /** The boat, drawn as the ℹ panel's GPS glyph draws her. */
 const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -71,6 +65,7 @@ const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 8;
 
 export const LocationStarMenu: React.FC = () => {
+    const portalTarget = usePanePortalTarget();
     const { settings, updateSettings } = useSettings();
     const { weatherData, selectLocation } = useWeather();
 
@@ -95,13 +90,11 @@ export const LocationStarMenu: React.FC = () => {
     // has the vessel name as a special saved location"). Read when the menu
     // opens so the tick sits on the right row.
     const [followTarget, setFollowTargetState] = useState<WeatherFollowTarget>(() => getWeatherFollowTarget());
-    const [boatNotice, setBoatNotice] = useState<string | null>(null);
     useEffect(() => {
         if (!open) return;
         setFollowTargetState(getWeatherFollowTarget());
-        setBoatNotice(null);
     }, [open]);
-    const vesselName = settings.vessel?.name?.trim() ?? '';
+    const vesselName = settings.vessel?.name?.trim() || 'Vessel location';
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
     const currentSaved = isRealCurrent && saved.some((s) => s.name.toLowerCase() === currentName.toLowerCase());
@@ -115,19 +108,23 @@ export const LocationStarMenu: React.FC = () => {
     // Anchor the popover to the button's viewport rect; re-measure on
     // open + scroll/resize so it follows the header.
     useLayoutEffect(() => {
-        if (!open) return;
+        if (!open || !portalTarget) return;
         const measure = () => {
             const rect = buttonRef.current?.getBoundingClientRect();
             if (rect) setAnchorRect(rect);
         };
         measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(portalTarget);
+        if (buttonRef.current) observer.observe(buttonRef.current);
         window.addEventListener('scroll', measure, true);
         window.addEventListener('resize', measure);
         return () => {
+            observer.disconnect();
             window.removeEventListener('scroll', measure, true);
             window.removeEventListener('resize', measure);
         };
-    }, [open]);
+    }, [open, portalTarget]);
 
     // Close on outside-click (check both button + popover since
     // the popover lives in a portal).
@@ -155,18 +152,10 @@ export const LocationStarMenu: React.FC = () => {
         triggerHaptic('light');
         setWeatherFollowTarget('boat');
         setFollowTargetState('boat');
-        void boatOrHeldFix().then((fix) => {
-            if (!fix) {
-                // Stay open and say so — no toast for a two-line answer. The
-                // follower moves the weather to her the moment she reports.
-                setBoatNotice(
-                    `No position from ${vesselName} yet. The weather will move to her when she reports — through the Pi or the gateway.`,
-                );
-                return;
-            }
-            closeAndRestore();
-            void selectLocation('Current Location', { lat: fix.lat, lon: fix.lon });
-        });
+        closeAndRestore();
+        // Register intent before any GPS await. The context owns resolution,
+        // unavailable-state UI and cancellation by a subsequent selection.
+        void selectLocation('Current Location');
     };
 
     const goTo = (loc: SavedLocation | 'current') => {
@@ -176,13 +165,7 @@ export const LocationStarMenu: React.FC = () => {
             // Back to the punter: 'Current Location' follows the phone again.
             setWeatherFollowTarget('phone');
             setFollowTargetState('phone');
-            void GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 12 }).then((pos) => {
-                if (!pos) {
-                    toast.error('Location unavailable. Check Location access or choose a saved place.');
-                    return;
-                }
-                void selectLocation('Current Location', { lat: pos.latitude, lon: pos.longitude });
-            });
+            void selectLocation('Current Location', undefined, { requestPhonePermission: true });
             return;
         }
         const coords =
@@ -214,22 +197,10 @@ export const LocationStarMenu: React.FC = () => {
     };
 
     // Anchor to the button's right edge; clamp 8px from each viewport edge.
-    const popoverStyle: React.CSSProperties = anchorRect
-        ? (() => {
-              const viewportW = window.innerWidth;
-              const rightEdge = viewportW - anchorRect.right;
-              const minRight = 8;
-              const maxRight = Math.max(minRight, viewportW - POPOVER_WIDTH - 8);
-              return {
-                  position: 'fixed',
-                  top: anchorRect.bottom + POPOVER_GAP,
-                  right: Math.min(Math.max(rightEdge, minRight), maxRight),
-                  width: POPOVER_WIDTH,
-                  maxWidth: 'calc(100vw - 16px)',
-                  zIndex: 9999,
-              };
-          })()
-        : { display: 'none' };
+    const popoverStyle: React.CSSProperties =
+        anchorRect && portalTarget
+            ? panePopoverStyle(portalTarget, anchorRect, POPOVER_WIDTH, POPOVER_GAP)
+            : { display: 'none' };
 
     const rowBase =
         'flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/5 active:bg-white/10';
@@ -255,6 +226,7 @@ export const LocationStarMenu: React.FC = () => {
             </button>
 
             {open &&
+                portalTarget &&
                 createPortal(
                     <div
                         id={menuId}
@@ -308,16 +280,6 @@ export const LocationStarMenu: React.FC = () => {
                                     )}
                                 </button>
                             )}
-                            {boatNotice && (
-                                <div
-                                    role="status"
-                                    data-testid="location-star-boat-notice"
-                                    className="px-3 pb-2 text-[11px] leading-snug text-amber-200/90"
-                                >
-                                    {boatNotice}
-                                </div>
-                            )}
-
                             {/* Current Location — back to live GPS-follow of the phone */}
                             <button
                                 type="button"
@@ -395,7 +357,7 @@ export const LocationStarMenu: React.FC = () => {
                             </div>
                         )}
                     </div>,
-                    document.body,
+                    portalTarget,
                 )}
         </>
     );

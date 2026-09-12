@@ -1,4 +1,10 @@
 @import 'tailwindcss';
+@import './styles/daylight.css';
+@import './styles/daylight-surfaces.css';
+@import './styles/legibility.css';
+@import './styles/action-legibility.css';
+@import './styles/glass-legibility.css';
+@import './styles/split-pane.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
@@ -3571,6 +3577,105 @@ body,
     bottom: calc(4rem + 73px + env(safe-area-inset-bottom));
 }
 
+/* Keep the coverage notice below the top/MOB/layer controls, not bottom-anchored
+   to a full-bleed map that extends behind navigation. This also leaves the
+   Locate/scale/attribution stack intact on narrow phones. */
+.thalassa-enc-coverage-notice {
+    top: calc(260px + env(safe-area-inset-top));
+    left: 50%;
+    width: min(390px, calc(100% - 24px));
+    transform: translateX(-50%);
+}
+
+/* Preserve both words and the 44px finger target without letting the CTA's
+   max-content width squeeze the safety text into seven narrow lines. System
+   font metrics differ across platforms; wrapping is part of this layout. */
+.thalassa-enc-coverage-notice > button {
+    inline-size: min-content;
+    white-space: normal;
+}
+
+/* Use one positioning property throughout. Tailwind's production optimizer
+   folds translate:none into transform:none, which cannot cancel a separate
+   utility-class translate. This badge therefore owns transform in both modes. */
+.thalassa-enc-tide-badge,
+.thalassa-enc-tide-scrubber {
+    transform: translateX(-50%);
+}
+
+@media (min-height: 601px) {
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice {
+        left: 72px;
+        width: min(390px, calc(100% - 152px));
+        transform: none;
+    }
+}
+
+/* In short landscape (including a short iPad split pane), reserve both the
+   middle-left Back control and the right-hand map rail. Tide status stays
+   above the notice and beside, rather than over, the emergency control. */
+@media (orientation: landscape) and (max-height: 600px) {
+    .thalassa-enc-coverage-notice {
+        top: calc(148px + env(safe-area-inset-top));
+        left: calc(72px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 224px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        padding-block: 4px;
+        transform: none;
+    }
+    .thalassa-enc-tide-badge {
+        left: max(12px, env(safe-area-inset-left));
+        max-width: calc(100% - 152px);
+        white-space: normal;
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice--with-tide {
+        /* Below the slider and expanded credits, above the actual 4rem nav;
+           the left inset preserves the logo and the right inset Locate. */
+        top: auto;
+        bottom: calc(4rem + 2px + env(safe-area-inset-bottom));
+        left: calc(104px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 176px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        padding-block: 4px;
+    }
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice--with-tide {
+        width: min(390px, calc(100% - 256px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    }
+}
+
+/* Narrow portrait needs a wrapped station label. Keep both tide controls
+   left of MOB, and reserve the Back rail beside the longer warning. */
+@media (orientation: portrait) and (max-width: 360px) {
+    .thalassa-enc-tide-badge {
+        left: 12px;
+        max-width: calc(100% - 100px);
+        min-height: 44px;
+        white-space: normal;
+        transform: none;
+    }
+    .thalassa-enc-tide-scrubber {
+        top: calc(4rem + 64px);
+        left: 12px;
+        width: min(15rem, calc(100% - 100px));
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice {
+        top: calc(4rem + 200px);
+        left: 64px;
+        width: calc(100% - 76px);
+        /* Give the sentence the whole row. Beside a nonshrinking button it
+           can outgrow the space above scale/credits even at the same font
+           size. Both rows stay in normal flow; no clipped or hidden text. */
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        padding-block: 4px;
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice > button {
+        align-self: flex-end;
+    }
+}
+
 /* ── Bottom sheets and the on-screen keyboard ──────────────────────
    USE THIS on any bottom-anchored panel that contains a text field and
    scrolls internally. Add the class, delete the hard-coded max-h.
@@ -3975,25 +4080,25 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    fixing contrast by deleting the palette. Onshore now gets its own warm
    AA-compliant value.
 
-   Values are chosen to clear 4.5:1 while staying visibly darker than the
-   -400 step above them (5.3-5.7:1 against ~8:1), so the three-tier muted
-   ramp survives. Lifting straight to -400 would have met AA by
-   collapsing two tiers into one.
+   Build 107's uniform-caption follow-up uses the shared secondary ink
+   from styles/legibility.css. The old values only cleared the page base,
+   not raised slate-800 cards or the night scrim. Weight and sizing now
+   distinguish captions from titles; onshore retains its warm ink.
 
    Sunlight mode is excluded — it remaps these to dark-on-light itself.
    ──────────────────────────────────────────────────────────────── */
 :root:not(.display-light):not(.theme-onshore) .text-gray-500 {
-    color: rgb(124 134 148); /* 5.47:1 on slate-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 :root:not(.display-light):not(.theme-onshore) .text-slate-500 {
-    color: rgb(122 138 158); /* 5.72:1 on slate-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 :root:not(.display-light).theme-onshore .text-gray-500,
 :root:not(.display-light).theme-onshore .text-slate-500 {
-    color: rgb(139 131 125); /* warm stone, 5.31:1 on stone-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary)); /* warm onshore caption ink */
 }
 :root:not(.display-light) .text-white\/40 {
-    color: rgb(255 255 255 / 0.62);
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 
 /* ────────────────────────────────────────────────────────────────

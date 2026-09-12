@@ -3,6 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('RoutePlanner');
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../context/PanePortalContext';
 import {
     MapPinIcon,
     MapIcon,
@@ -30,14 +31,19 @@ import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/de
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
+import { RoutingModeDialog } from './autorouting/RoutingModeDialog';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
-// — Comfort + Trip/Leg stay up top, then Departure, then the three ways in
-// (paste a mate's coords / a past voyage / saved routes), and the slider opens
-// the chart plotting. The old origin/destination/date form + calculate flow is
+// — Trip/Leg stays up top, then Departure, then the three ways in
+// (paste a mate's coords / a past voyage / saved routes), and the slider offers
+// Manual or Auto routing. The old origin/destination/date form + calculate flow is
 // PARKED behind this flag (wiring intact) — flip to true to resurrect.
 const LEGACY_PLANNER_FORM = false;
+// Temporarily parked at the skipper's request (2026-09-09). This hides only
+// the card; saved comfort thresholds and routing calculations remain active.
+// Keep the controlled accordion wiring intact so it is simple to restore.
+const SHOW_PLANNER_COMFORT_CARD = false;
 // Lazy, like App.tsx: with the legacy form parked neither <MapHub> site below
 // can render, so the Plan tab must not pull the map chunk (mapbox-gl + leaflet)
 // on open. If the form is ever flipped back on, the map still mounts behind a
@@ -87,6 +93,7 @@ export const RoutePlanner: React.FC<{
      *  is the chrome around the form. */
     embedded?: boolean;
 }> = ({ onTriggerUpgrade, onBack, embedded = false }) => {
+    const portalTarget = usePanePortalTarget();
     const {
         origin,
         setOrigin,
@@ -202,6 +209,13 @@ export const RoutePlanner: React.FC<{
     // date input above. Time-of-day is set in Passage Planning.
 
     const { setPage } = useUI();
+    const [routingModeOpen, setRoutingModeOpen] = useState(false);
+    const closeRoutingMode = useCallback(() => setRoutingModeOpen(false), []);
+    const chooseManualRouting = useCallback(() => {
+        setRoutingModeOpen(false);
+        requestTracerOpen();
+        setPage('map');
+    }, [setPage]);
     const mapDialogCloseRef = useRef<HTMLButtonElement>(null);
     const closeMapDialog = useCallback(() => {
         setIsMapOpen(false);
@@ -576,7 +590,7 @@ export const RoutePlanner: React.FC<{
                     >
                         <div
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-label="Route Planner actions"
                             className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
@@ -599,7 +613,7 @@ export const RoutePlanner: React.FC<{
                             </button>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
             {/* "Plot on the big screen" nudge. Gated on !embedded so it fires on
                 the PLAN page itself and not on the planner's embedded uses, and
@@ -616,7 +630,7 @@ export const RoutePlanner: React.FC<{
                     <div
                         ref={mapDialogRef}
                         role="dialog"
-                        aria-modal="true"
+                        aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                         aria-label={
                             mapSelectionTarget
                                 ? `Select ${mapSelectionTarget === 'origin' ? 'origin' : 'destination'} on map`
@@ -684,7 +698,7 @@ export const RoutePlanner: React.FC<{
                             </button>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
 
             {/* ═══ FORM INPUTS — always visible at top ═══
@@ -705,7 +719,7 @@ export const RoutePlanner: React.FC<{
             <div
                 className="route-planner-form shrink-0 overflow-y-auto px-4"
                 style={{
-                    maxHeight: '60dvh',
+                    maxHeight: 'calc(var(--pane-height, 100dvh) * 0.6)',
                     paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0.75rem',
                     transition: 'padding-bottom 200ms ease-out',
                 }}
@@ -726,9 +740,11 @@ export const RoutePlanner: React.FC<{
                         Wrapped in a ref so handleFormPointerDown can tell
                         "tap inside Comfort, keep it open" from "tap on
                         another box, close it". */}
-                    <div ref={comfortRef}>
-                        <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
-                    </div>
+                    {SHOW_PLANNER_COMFORT_CARD && (
+                        <div ref={comfortRef}>
+                            <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
+                        </div>
+                    )}
 
                     {/* Multi-leg passage helper — the voyage-based picker
                         belongs to the parked legacy From/To form; the tracer
@@ -1180,9 +1196,7 @@ export const RoutePlanner: React.FC<{
                                     LEGACY_PLANNER_FORM
                                         ? handleCalculate
                                         : () => {
-                                              // Front door → the chart, tracer open, pen armed.
-                                              requestTracerOpen();
-                                              setPage('map');
+                                              setRoutingModeOpen(true);
                                           }
                                 }
                                 loading={LEGACY_PLANNER_FORM ? loading : false}
@@ -1193,6 +1207,14 @@ export const RoutePlanner: React.FC<{
                     </div>
                 </div>
             }
+
+            {routingModeOpen && (
+                <RoutingModeDialog
+                    mapboxToken={mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ''}
+                    onClose={closeRoutingMode}
+                    onManual={chooseManualRouting}
+                />
+            )}
 
             {/* ─── Departure-Window Optimiser Sheet ─── */}
             {/* Modal sheet that surfaces planDepartureWindow() — runs ~14
@@ -1239,7 +1261,7 @@ export const RoutePlanner: React.FC<{
                         <div
                             ref={routePickerDialogRef}
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby="route-picker-title"
                             className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
@@ -1359,7 +1381,7 @@ export const RoutePlanner: React.FC<{
                             </div>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
         </div>
     );

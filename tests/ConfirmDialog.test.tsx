@@ -57,7 +57,7 @@ describe('ConfirmDialog', () => {
         render(<ConfirmDialog {...baseProps} />);
         const dialog = screen.getByRole('dialog');
         expect(dialog).toHaveAttribute('aria-modal', 'true');
-        expect(dialog).toHaveAttribute('aria-labelledby', 'confirm-title');
+        expect(dialog).toHaveAccessibleName('Delete Task?');
         expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
         expect(dialog.parentElement).toBe(document.body);
         expect(dialog.style.zIndex).toBe('1100');

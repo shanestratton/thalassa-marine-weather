@@ -73,7 +73,10 @@ export const FormField: React.FC<FormFieldProps> = ({
 
     return (
         <div className={isDate ? 'min-w-0 max-w-full overflow-hidden' : undefined}>
-            <label htmlFor={fieldId} className="text-label font-bold text-gray-300 uppercase tracking-widest">
+            <label
+                htmlFor={fieldId}
+                className="ui-field-label text-label font-bold text-gray-300 uppercase tracking-widest"
+            >
                 {label}
                 {required ? ' *' : ''}
             </label>
@@ -111,12 +114,12 @@ export const FormField: React.FC<FormFieldProps> = ({
                 />
             )}
             {error && (
-                <p id={errorId} className="text-micro text-red-400 mt-1" role="alert">
+                <p id={errorId} className="ui-error-caption text-micro text-red-400 mt-1" role="alert">
                     {error}
                 </p>
             )}
             {hint && !error && (
-                <p id={hintId} className="text-micro text-gray-400 mt-0.5">
+                <p id={hintId} className="ui-caption text-micro text-gray-400 mt-0.5">
                     {hint}
                 </p>
             )}

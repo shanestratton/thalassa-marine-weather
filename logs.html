@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="public-voyage-page">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -9,6 +9,13 @@
         <title>Voyage Log — Thalassa</title>
         <link rel="stylesheet" href="/index.css" />
         <style>
+            /* This web dashboard has its own responsive layout. Do not inherit
+               the native app's 13–17px fluid root: it shrinks phone controls
+               below their touch size and inflates the header on larger phones.
+               100% respects the browser's preferred text size and zoom. */
+            html.public-voyage-page {
+                font-size: 100%;
+            }
             /* AIS popup — strip Mapbox's default white shell so the dark
                glass card inside is what shows. */
             .voyage-log-ais-popup .mapboxgl-popup-content {
@@ -43,6 +50,14 @@
             /* Provider logo and attribution controls deliberately remain
                visible. They are required map provenance, including when the
                satellite style or MapTiler bathymetry is selected. */
+            @media (max-width: 1023px) {
+                /* Mapbox defaults to 29px controls: enlarge the real buttons,
+                   not just their icons, for thumbs on a moving boat. */
+                .public-voyage-map .mapboxgl-ctrl-group button {
+                    width: 44px;
+                    height: 44px;
+                }
+            }
         </style>
     </head>
     <body class="bg-slate-900">

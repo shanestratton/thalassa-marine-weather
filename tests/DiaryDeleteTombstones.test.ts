@@ -353,7 +353,12 @@ describe('server-side deletion order and storage cleanup', () => {
         const ops: string[] = [];
         mockSupabase.current = {
             from: () => ({
-                select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+                select: () => ({
+                    eq: () => ({
+                        maybeSingle: async () => ({ data: null }),
+                        order: () => ({ range: async () => ({ data: [], error: null }) }),
+                    }),
+                }),
                 delete: () => ({
                     eq: (_col: string, id: string) => ({
                         select: async () => {
@@ -394,7 +399,12 @@ describe('server-side deletion order and storage cleanup', () => {
             .mockResolvedValueOnce({ data: [], error: null });
         mockSupabase.current = {
             from: () => ({
-                select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+                select: () => ({
+                    eq: () => ({
+                        maybeSingle: async () => ({ data: null }),
+                        order: () => ({ range: async () => ({ data: [], error: null }) }),
+                    }),
+                }),
                 delete: () => ({
                     eq: (_column: string, id: string) => ({
                         select: async () => ({

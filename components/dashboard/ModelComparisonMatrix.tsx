@@ -22,6 +22,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { WeatherModel } from '../../types';
 import {
     queryModelSpread,
@@ -397,6 +398,7 @@ function calcConfidence(series: ModelSeries[], spec: ParamSpec): ColumnConfidenc
 
 export const ModelComparisonMatrix: React.FC<Props> = React.memo(
     ({ visible, onClose, selectedModel, initialParam, coordinates }) => {
+        const portalTarget = usePanePortalTarget();
         const storeCoords = useLocationCoords();
         const lat = coordinates?.lat ?? storeCoords.lat;
         const lon = coordinates?.lon ?? storeCoords.lon;
@@ -512,7 +514,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                 <div
                     ref={dialogRef}
                     role="dialog"
-                    aria-modal="true"
+                    aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                     aria-labelledby="model-comparison-title"
                     className="w-full max-w-lg bg-slate-900/95 border border-white/8 rounded-3xl shadow-2xl max-h-full overflow-y-auto animate-in fade-in zoom-in-95 duration-300"
                     onClick={(e) => e.stopPropagation()}
@@ -594,7 +596,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                                 y1={y}
                                                 x2={CHART_W - CHART_PAD_R}
                                                 y2={y}
-                                                stroke="rgba(255,255,255,0.06)"
+                                                stroke="var(--day-ui-grid, rgba(255,255,255,0.06))"
                                                 strokeDasharray="2 3"
                                             />
                                             <text
@@ -638,7 +640,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                                 cy={y}
                                                 r={2.5}
                                                 fill={s.hex}
-                                                stroke="rgba(15,23,42,0.95)"
+                                                stroke="var(--day-ui-surface, rgba(15,23,42,0.95))"
                                                 strokeWidth={1.5}
                                             />
                                         );
@@ -802,7 +804,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     </div>
                 </div>
             </div>,
-            document.body,
+            portalTarget!,
         );
     },
 );

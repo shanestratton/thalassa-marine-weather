@@ -45,7 +45,7 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                     ? voyagePlan.origin.split(',')[0]
                                     : 'Origin'}
                             </div>
-                            <div className="text-[11px] text-gray-400 opacity-60">
+                            <div className="text-[11px] text-gray-400">
                                 {fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon)}
                             </div>
                         </td>
@@ -84,7 +84,7 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                     {wp.coordinates ? (
                                         <>
                                             <div>{fmtLat(wp.coordinates.lat)}</div>
-                                            <div className="opacity-60">{fmtLon(wp.coordinates.lon)}</div>
+                                            <div>{fmtLon(wp.coordinates.lon)}</div>
                                         </>
                                     ) : (
                                         '--'
@@ -144,7 +144,7 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                     ? voyagePlan.destination.split(',')[0]
                                     : 'Destination'}
                             </div>
-                            <div className="text-[11px] text-gray-400 opacity-60">
+                            <div className="text-[11px] text-gray-400">
                                 {fmtCoord(
                                     voyagePlan.destinationCoordinates?.lat,
                                     voyagePlan.destinationCoordinates?.lon,

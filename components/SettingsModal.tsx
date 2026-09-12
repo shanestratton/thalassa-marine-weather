@@ -13,7 +13,6 @@ import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
-import { PiCacheTab } from './settings/PiCacheTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { BackButton } from './ui/BackButton';
@@ -72,7 +71,7 @@ const NavButton = React.memo(
 
 // Section, Row — imported from ./settings/SettingsPrimitives
 
-type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'locations' | 'boatNetwork' | 'voyageLog';
+type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'locations' | 'voyageLog';
 
 /**
  * Section grouping for the Settings tab list.
@@ -84,21 +83,17 @@ type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'locations' | '
  * That dilutes discoverability for the items that matter and makes
  * the Settings surface read as "everything-and-the-kitchen-sink".
  *
- * Now grouped into four sections, declared in render order:
+ * Grouped by everyday settings and account sharing:
  *   - essentials      — what every user actually configures
  *   - sharing         — outward-facing (cloud sync, public log)
  *   - (appearance folded into Preferences → General on 2026-09-09)
- *   - advanced        — boat-hardware + integrations, collapsed
- *
- * The Advanced section collapses by default (via <details>) so it
- * doesn't take cognitive space until the user goes looking for it.
+ * Boat hardware and integrations live in Vessel → Boat Network.
  */
-type SettingsGroup = 'essentials' | 'sharing' | 'advanced';
+type SettingsGroup = 'essentials' | 'sharing';
 
-const SETTINGS_GROUPS: { id: SettingsGroup; label: string; collapsibleByDefault: boolean }[] = [
-    { id: 'essentials', label: 'Essentials', collapsibleByDefault: false },
-    { id: 'sharing', label: 'Account & Sharing', collapsibleByDefault: false },
-    { id: 'advanced', label: 'Advanced — Boat Hardware & Integrations', collapsibleByDefault: true },
+const SETTINGS_GROUPS: { id: SettingsGroup; label: string }[] = [
+    { id: 'essentials', label: 'Essentials' },
+    { id: 'sharing', label: 'Account & Sharing' },
 ];
 
 const MENU_ITEMS: {
@@ -178,38 +173,13 @@ const MENU_ITEMS: {
 
     // ── APPEARANCE ── folded into Preferences on 2026-09-09 (Shane: "move the
     // entire aesthetics page to a section inside the preference page").
-
-    // ── ADVANCED — collapsed by default ─────────────────────────
-    {
-        id: 'boatNetwork',
-        /* Was also "Boat Network", with the same description as the Vessel-hub
-           row one hop away in the same menu. A punter who failed to find the
-           Pi on one tried the other, got the same failure in different words,
-           and concluded the app was broken. These are not redundant screens —
-           this one owns pairing, the security fingerprint, Forget, the
-           mDNS-spoof alarm, cache purge and the new-Pi wizard — so the fix is
-           to name them for what they each do. The everyday "is the boat
-           there?" glance keeps the name Boat Network. */
-        label: 'Boat Pi — setup & cache',
-        description: 'Pairing, install, cache & anchor',
-        icon: (c) => (
-            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
-                />
-            </svg>
-        ),
-        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
-        iconHoverBg: 'group-hover:bg-emerald-500/25',
-        group: 'advanced',
-    },
 ];
 
 /** Small section header used on both desktop sidebar and mobile menu. */
 const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">{children}</p>
+    <p className="ui-section-heading text-label font-bold uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">
+        {children}
+    </p>
 );
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
@@ -226,10 +196,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             // hint used by the back-button logic.
             if (typeof window !== 'undefined') {
                 const deepLinkKey = authScopedStorageKey('thalassa_settings_initial_tab');
-                const deepLink = localStorage.getItem(deepLinkKey) as SettingsTab | null;
+                const deepLink = localStorage.getItem(deepLinkKey);
                 if (deepLink) {
                     localStorage.removeItem(deepLinkKey);
-                    return deepLink;
+                    // Removed tabs (including the old boatNetwork hint) must
+                    // not leave an empty settings pane after an app update.
+                    const item = MENU_ITEMS.find((candidate) => candidate.id === deepLink);
+                    if (item) return item.id;
                 }
             }
             // Desktop (md breakpoint): default to 'general' so content area isn't empty
@@ -290,7 +263,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 {/* --- DESKTOP SIDEBAR (unchanged) --- */}
                 <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-linear-to-b from-transparent via-white/2 to-transparent">
                     <div className="mb-6 px-2">
-                        <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-xs">
+                        <h2 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
                         </h2>
@@ -353,8 +326,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         tabs (Voyage Log, etc), so
                         desktop users couldn't reach them. Now the same
                         source-of-truth feeds both desktop and mobile,
-                        with section headers + an Advanced disclosure
-                        that collapses by default.
+                        with section headers.
 
                         When `searchIsActive`, sections collapse and
                         filtered items render flat — the section labels
@@ -398,30 +370,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         }
                                     />
                                 ));
-                                if (group.collapsibleByDefault) {
-                                    return (
-                                        <details key={group.id} className="group/details">
-                                            <summary className="list-none cursor-pointer flex items-center gap-1 min-h-[44px] px-2 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 hover:text-slate-300 transition-colors">
-                                                <svg
-                                                    className="w-3 h-3 transition-transform group-open/details:rotate-90"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2.5}
-                                                    aria-hidden="true"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M9 5l7 7-7 7"
-                                                    />
-                                                </svg>
-                                                <span>{group.label}</span>
-                                            </summary>
-                                            <div className="space-y-0.5">{itemsJsx}</div>
-                                        </details>
-                                    );
-                                }
                                 return (
                                     <div key={group.id}>
                                         <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
@@ -495,7 +443,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             <div className="flex items-center gap-3">
                                 {onBack && <BackButton onClick={onBack} />}
                                 <div>
-                                    <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3">
+                                    <h2 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
                                         <GearIcon className="w-6 h-6 text-sky-400" />
                                         SETTINGS
                                     </h2>
@@ -507,8 +455,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         </div>
                         {/* Mobile menu — same grouping as the desktop
                             sidebar (single source of truth in MENU_ITEMS
-                            + SETTINGS_GROUPS). Advanced collapses by
-                            default; the chevron rotates open/close.
+                            + SETTINGS_GROUPS).
                             When search is active, sections collapse and
                             matching tabs render flat (same pattern as the
                             desktop sidebar). */}
@@ -620,30 +567,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                             <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
                                         </button>
                                     ));
-                                    if (group.collapsibleByDefault) {
-                                        return (
-                                            <details key={group.id} className="group/details">
-                                                <summary className="list-none cursor-pointer flex items-center gap-1.5 min-h-[44px] px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 hover:text-slate-300 transition-colors">
-                                                    <svg
-                                                        className="w-3 h-3 transition-transform group-open/details:rotate-90"
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2.5}
-                                                        aria-hidden="true"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M9 5l7 7-7 7"
-                                                        />
-                                                    </svg>
-                                                    <span>{group.label}</span>
-                                                </summary>
-                                                <div className="space-y-2 mt-1">{itemButtons}</div>
-                                            </details>
-                                        );
-                                    }
                                     return (
                                         <div key={group.id} className="space-y-2">
                                             <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
@@ -687,8 +610,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'vessel' && <VesselTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
-
-                        {activeTab === 'boatNetwork' && <PiCacheTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'voyageLog' && <VoyageLogTab settings={settings} onSave={onSave} />}
                     </div>

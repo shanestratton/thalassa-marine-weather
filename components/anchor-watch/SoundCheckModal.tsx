@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
 import { AlarmAudioService } from '../../services/AlarmAudioService';
@@ -21,6 +22,7 @@ type AlarmTestState = 'idle' | 'starting' | 'playing' | 'stopping' | 'heard-prom
 type NotificationReadiness = 'checking' | 'granted' | 'prompt' | 'denied' | 'unavailable';
 
 export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onConfirm, onCancel }) => {
+    const portalTarget = usePanePortalTarget();
     const cancelButtonRef = useRef<HTMLButtonElement>(null);
     const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const testLeaseRef = useRef<string | null>(null);
@@ -251,7 +253,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
             <div
                 ref={dialogRef}
                 role="dialog"
-                aria-modal="true"
+                aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                 aria-labelledby="sound-check-title"
                 className="anchor-sound-check-dialog flex w-full max-w-sm max-h-[calc(100dvh-3rem)] flex-col bg-slate-900/95 border border-white/8 rounded-2xl shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
@@ -462,7 +464,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 </div>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 });
 

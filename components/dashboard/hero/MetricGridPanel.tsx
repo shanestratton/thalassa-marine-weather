@@ -31,16 +31,18 @@ const SmallArrow: React.FC<{ degrees: number; size?: number }> = ({ degrees, siz
         className="shrink-0 opacity-70"
         style={{ transform: `rotate(${degrees}deg)`, transition: 'transform 1s ease' }}
     >
-        <path d="M12 2L8 14h8L12 2Z" fill="rgba(94,234,212,0.7)" />
+        <path d="M12 2L8 14h8L12 2Z" fill="var(--day-ui-accent, rgba(94,234,212,0.7))" />
         <path d="M12 22L8 14h8L12 22Z" fill="rgba(148,163,184,0.25)" />
     </svg>
 );
 
 const MetricCell: React.FC<{ w: MetricWidget; value: string | number; unit: string }> = ({ w, value, unit }) => (
     <div className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
-        <div className="flex items-center gap-1.5 opacity-90">
+        <div className="glass-metric-heading-row flex items-center gap-1.5 opacity-90">
             <span className={`w-3 h-3 ${w.headingColor}`}>{w.icon}</span>
-            <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}>
+            <span
+                className={`glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}
+            >
                 {w.label}
             </span>
         </div>

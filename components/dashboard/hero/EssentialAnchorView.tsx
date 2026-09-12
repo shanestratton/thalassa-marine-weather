@@ -476,7 +476,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                                 x2={x}
                                 y1="0"
                                 y2="100"
-                                stroke="rgba(255,255,255,0.06)"
+                                stroke="var(--day-ui-grid, rgba(255,255,255,0.06))"
                                 strokeWidth="0.4"
                                 vectorEffect="non-scaling-stroke"
                             />

@@ -16,6 +16,9 @@ import { ShipLogService } from '../services/ShipLogService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import { AnchorIcon, InfoIcon, RouteIcon } from './Icons';
 import { NmeaListenerService } from '../services/NmeaListenerService';
+import { NmeaStore } from '../services/NmeaStore';
+import { CloudTelemetryService } from '../services/CloudTelemetryService';
+import { deriveNmeaBackboneStatus } from '../utils/nmeaBackboneStatus';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../services/GpsReceiverStatusService';
 import { NmeaRateSparkline } from './NmeaRateSparkline';
@@ -49,6 +52,7 @@ interface SystemState {
         detail: string;
         /** There is a diagnosed fault, as opposed to simply being switched off. */
         faulted: boolean;
+        showRates: boolean;
     };
     extGps: GpsReceiverStatus;
     followRoute: {
@@ -255,14 +259,13 @@ const SystemStatusModal: React.FC<{
                         dotColor={
                             state.nmea.active ? 'bg-emerald-400' : state.nmea.faulted ? 'bg-rose-400' : 'bg-slate-600'
                         }
-                        /* Every other row that has somewhere to go offers a
-                           way there. This one described a problem and then
-                           left the skipper to find the page themselves. */
+                        /* An inactive or quiet feed is not a diagnosed fault.
+                           Healthy Pi feeds do not need a second gateway socket. */
                         action={
                             state.nmea.active
                                 ? undefined
                                 : {
-                                      label: 'Fix',
+                                      label: state.nmea.faulted ? 'Fix' : 'View',
                                       onClick: () =>
                                           window.dispatchEvent(
                                               new CustomEvent('thalassa:navigate', { detail: { tab: 'nmea' } }),
@@ -304,15 +307,15 @@ const SystemStatusModal: React.FC<{
                     />
 
                     {/* ── NMEA feed-rate diagnostic sparklines ──
-                        Only render when NMEA is connected — they have nothing
-                        useful to show otherwise. The two stacked sparklines let
+                        Only render for the direct socket: Pi snapshots do not
+                        populate its sentence counters. The two stacked sparklines let
                         the skipper distinguish "GPS is slow" (top bar shows
                         gappy/red) from "the whole feed is dropping" (both bars
                         gappy/red). Catches Wi-Fi packet loss, YachtSense client-
                         management cycles, and slow GPS broadcast rates that
                         otherwise just present as the External GPS row flickering
                         on/off above. */}
-                    {state.nmea.active && (
+                    {state.nmea.showRates && (
                         <div className="space-y-1.5 px-1 pt-1">
                             <NmeaRateSparkline category="gps" label="GPS sentences / sec" expectedRate={1.0} />
                             <NmeaRateSparkline category="all" label="All NMEA / sec" expectedRate={5.0} />
@@ -433,24 +436,15 @@ const SystemStatusModal: React.FC<{
 
 // ── Individual System Row ──
 
-/**
- * The gateway's diagnosis, trimmed to fit one truncated row.
- *
- * NmeaListenerService writes a real sentence for every failure — "no route to
- * that network", "has never sent a sentence", "its three TCP slots are already
- * taken" — and this panel used to throw all of it away and show the flat word
- * "Not connected", identical to a gateway the skipper had deliberately switched
- * off. The FAB is the surface glanced at first and it was the one saying least
- * (audit 2026-08-28).
- *
- * Keeps the first sentence and drops the raw native string the service appends
- * for support; that belongs on the NMEA page, not in a two-line summary row.
- */
-function shortNmeaFault(raw: string | null): string | null {
-    if (!raw) return null;
-    const withoutRawTail = raw.replace(/\s*\([^()]*SocketError[^()]*\)\s*$/i, '').trim();
-    const firstSentence = /^(.*?[.!?])(\s|$)/.exec(withoutRawTail)?.[1] ?? withoutRawTail;
-    return firstSentence.length > 96 ? `${firstSentence.slice(0, 95).trimEnd()}…` : firstSentence;
+/** Read the instrument route, not just the intentionally-idle phone socket. */
+function readNmeaBackboneStatus(): SystemState['nmea'] {
+    return deriveNmeaBackboneStatus({
+        store: NmeaStore.getState(),
+        directStatus: NmeaListenerService.getStatus(),
+        deviceLabel: NmeaListenerService.getConnectionInfo().deviceLabel,
+        lastError: NmeaListenerService.getLastError(),
+        viaRemoteAccess: piCache.viaRemoteAccess,
+    });
 }
 
 const SystemRow: React.FC<{
@@ -464,7 +458,7 @@ const SystemRow: React.FC<{
 }> = ({ icon, label, active, detail, dotColor, pulse, action }) => (
     <div
         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-            active ? 'bg-white/4 border-white/10' : 'bg-white/1 border-white/4 opacity-50'
+            active ? 'bg-white/4 border-white/10' : 'bg-white/1 border-white/4'
         }`}
     >
         {/* Status dot */}
@@ -550,6 +544,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // so the indicator tracks reality within ~5s of a state change.
     useEffect(() => {
         if (!showModal) return;
+        // Keep the existing shared cloud reader alive while this panel needs
+        // it, even if the instrument screen itself is closed. RLS and the
+        // Pi-first store ordering still govern what this account can receive.
+        CloudTelemetryService.retain();
         // Immediate fresh ping on open — both Pi services in parallel.
         piCache.ping().catch(() => {
             /* ping errors already drive the listener → reachable=false */
@@ -564,7 +562,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             // would burn battery for no signal. Stay on the 30s
             // background cadence even while the modal is open.
         }, 5_000);
-        return () => clearInterval(id);
+        return () => {
+            clearInterval(id);
+            CloudTelemetryService.release();
+        };
     }, [showModal]);
 
     // ── GPS Tracking state ──
@@ -575,7 +576,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     const [anchorSnapshot, setAnchorSnapshot] = useState<AnchorWatchSnapshot | null>(null);
 
     // ── NMEA state ──
-    const [nmeaStatus, setNmeaStatus] = useState(NmeaListenerService.getStatus());
+    const [nmeaStatus, setNmeaStatus] = useState(readNmeaBackboneStatus);
 
     // ── GPS receiver identity + feed state ──
     // This is intentionally not inferred from accuracy alone. The service
@@ -648,15 +649,24 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // satellite count) changes at minute-timescales for marine
     // use, not millisecond. 5 s is plenty.
     //
-    // AnchorWatchService + NmeaListenerService both have proper
-    // subscribe channels (lines 630-631) that push immediate
-    // updates when their state actually changes — they're not
-    // dependent on this poll. The poll is just for the values
-    // that don't have a subscription channel yet (mostly GPS
-    // precision metrics).
+    // Subscriptions update immediately; the poll also ages cached Pi/cloud
+    // snapshots if no more samples arrive. Do not repaint the header for
+    // every instrument sample when the displayed diagnosis is unchanged.
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe(setAnchorSnapshot);
-        const nmeaUnsub = NmeaListenerService.onStatusChange((s) => setNmeaStatus(s));
+        const refreshNmea = () => {
+            const next = readNmeaBackboneStatus();
+            setNmeaStatus((prev) =>
+                prev.active === next.active &&
+                prev.detail === next.detail &&
+                prev.faulted === next.faulted &&
+                prev.showRates === next.showRates
+                    ? prev
+                    : next,
+            );
+        };
+        const nmeaUnsub = NmeaListenerService.onStatusChange(refreshNmea);
+        const instrumentsUnsub = NmeaStore.subscribe(refreshNmea);
 
         let disposed = false;
         const refresh = () => {
@@ -678,7 +688,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             setIsMoving(nav.sogKts !== null && nav.sogKts > 0.5);
 
             // NMEA
-            setNmeaStatus(NmeaListenerService.getStatus());
+            refreshNmea();
 
             // GPS receiver / accessory identity. This reads the native
             // Transistorsoft location cache; it does not wake GPS or scan
@@ -719,6 +729,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             disposed = true;
             unsub();
             nmeaUnsub();
+            instrumentsUnsub();
             clearInterval(id);
             document.removeEventListener('visibilitychange', onVisibility);
         };
@@ -748,21 +759,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 distance: anchorSnapshot?.distanceFromAnchor ?? 0,
                 swingRadius: anchorSnapshot?.swingRadius ?? 0,
             },
-            nmea: (() => {
-                const fault = nmeaStatus === 'connected' ? null : shortNmeaFault(NmeaListenerService.getLastError());
-                return {
-                    active: nmeaStatus === 'connected',
-                    detail:
-                        nmeaStatus === 'connected'
-                            ? `Connected via ${NmeaListenerService.getConnectionInfo().deviceLabel} · live vessel data`
-                            : nmeaStatus === 'connecting'
-                              ? `Connecting to ${NmeaListenerService.getConnectionInfo().deviceLabel}`
-                              : (fault ?? 'Not connected'),
-                    // A fault the skipper can act on is not the same grey as a
-                    // gateway they switched off themselves.
-                    faulted: Boolean(fault) && nmeaStatus !== 'connecting',
-                };
-            })(),
+            nmea: nmeaStatus,
             extGps: gpsReceiver,
             followRoute: {
                 active: isFollowing && !!voyagePlan,

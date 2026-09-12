@@ -85,21 +85,21 @@ describe('the warnings that hurt people are never silent', () => {
 });
 
 describe('the hardware is off the boat, the pole stays', () => {
-    // Shane 2026-09-09: "can we have the traveller and the yankee car off the
-    // vessel altogether. we know what they are, but it just makes it very
-    // messy for the sail area." The words under the picture still say where
-    // the traveller and the car go; the drawing shows sails, boom and wind.
-    it('draws no traveller, car, rail block or sheet in any band, on either tack', () => {
+    // Sept 10: separate guides beside/below the hull, never gear across sails.
+    it('keeps the traveller below the rig and Yankee guide beside the hull', () => {
         for (const band of ['Beating', 'Close reach', 'Beam reach', 'Broad reach', 'Running']) {
             for (const windAngle of [45, 315]) {
                 const { container } = render(
                     <SailPlanDiagram {...base} band={band} windAngle={windAngle} yankee="Full" />,
                 );
-                for (const name of ['traveller-car', 'yankee-car', 'rail-block', 'mainsheet', 'yankee-sheet']) {
+                for (const name of ['yankee-car', 'rail-block', 'mainsheet', 'yankee-sheet']) {
                     expect(mark(container, name), `${name} ${band} @${windAngle}`).toBeNull();
                 }
-                expect(container.textContent).not.toContain('TRAVELLER');
-                expect(container.textContent).not.toContain('YANKEE CAR');
+                const rig = mark(container, 'rig-diagram');
+                expect(rig.querySelector('[data-mark="traveller-car"]')).toBeNull();
+                expect(rig.querySelector('[data-mark="yankee-car-guide"]')).not.toBeNull();
+                expect(container.textContent).toContain('TRAVELLER');
+                expect(container.textContent).toContain('YANKEE CAR');
                 expect(container.textContent).not.toContain('RAIL BLOCK');
             }
         }
@@ -129,5 +129,66 @@ describe('the hardware is off the boat, the pole stays', () => {
         const { container } = render(<SailPlanDiagram {...base} band="Running" windAngle={45} yankee="Furled" />);
         expect(mark(container, 'pole')).toBeNull();
         expect(container.textContent).not.toContain('POLED');
+    });
+});
+
+describe('qualitative guides agree with the advice, without claiming live positions', () => {
+    const guide = (props = {}) => render(<SailPlanDiagram {...base} windAngle={45} {...props} />).container;
+    const setting = (c: HTMLElement) => c.querySelector('.sail-traveller-setting')!.textContent;
+    const carCentre = (c: HTMLElement) => Number(mark(c, 'traveller-car').getAttribute('x')) + 10;
+
+    it('mirrors windward and leeward advice without moving the Yankee fore/aft setting', () => {
+        for (const windAngle of [45, 315]) {
+            const lee = windAngle > 180 ? 1 : -1;
+            const beating = guide({ band: 'Beating', windAngle });
+            expect(setting(beating)).toBe('To windward');
+            expect(Math.sign(carCentre(beating) - 170)).toBe(-lee);
+            for (const band of ['Beam reach', 'Broad reach']) {
+                expect(Math.sign(carCentre(guide({ band, windAngle })) - 170)).toBe(lee);
+            }
+            expect(carCentre(guide({ band: 'Close reach', windAngle }))).toBe(170);
+        }
+        for (const band of ['Beating', 'Close reach', 'Beam reach']) {
+            expect(mark(guide({ band }), 'yankee-car-guide').textContent).toContain('Leave set');
+        }
+    });
+
+    it('shows no recommended traveller position with a down main, unknown wind/band or running', () => {
+        for (const props of [
+            { main: 'Down' },
+            { windAngle: null },
+            { windAngle: NaN },
+            { band: 'unknown' },
+            { band: 'Running' },
+        ]) {
+            const c = guide(props);
+            expect(mark(c, 'traveller-car')).toBeNull();
+            expect(c.textContent).toContain('Trim guide · not live positions');
+            expect(c.textContent).toContain('fore/aft setting not measured');
+        }
+        expect(setting(guide({ band: 'Running' }))).toBe('Not controlling trim');
+        expect(mark(guide({ yankee: 'Furled' }), 'yankee-car-guide').textContent).toContain('Sail stowed');
+        expect(mark(guide({ yankee: 'Down' }), 'yankee-car-guide').textContent).toContain('Sail stowed');
+    });
+
+    it('retains Running advice when Gybe down draws a broad-reaching rig', () => {
+        const c = guide({ band: 'Broad reach', adviceBand: 'Running' });
+        expect(setting(c)).toBe('Not controlling trim');
+        expect(mark(c, 'traveller-car')).toBeNull();
+        expect(mark(c, 'pole')).toBeNull();
+        expect(mark(c, 'yankee-car-guide').textContent).toContain('Pole / gybe');
+    });
+
+    it('keeps both complete warnings in document flow after the traveller, not in the clipped SVG', () => {
+        const c = guide({ prevent: true, runners: true, windAngle: null });
+        const warnings = c.querySelectorAll('[data-mark="sail-warning"]');
+        expect(warnings).toHaveLength(2);
+        for (const warning of warnings) {
+            expect(warning.closest('svg')).toBeNull();
+            expect(
+                mark(c, 'traveller-guide').compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ).toBeTruthy();
+        }
+        expect(c.textContent).toContain('no wind angle');
     });
 });

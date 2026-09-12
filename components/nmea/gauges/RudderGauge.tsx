@@ -22,6 +22,7 @@
  * right as seen from the helm. The readout moved to the top half to make room.
  */
 import React, { useMemo } from 'react';
+import '../instrumentDaylight.css';
 import { polarToCart, describeArc } from './gaugeGeometry';
 
 interface RudderGaugeProps {
@@ -75,7 +76,7 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
     const tail = polarToCart(CX, CY, 16, needleAngle + 180);
 
     return (
-        <div className="relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
+        <div className="nmea-instrument relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
             <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Rudder angle">
                 <defs>
                     <radialGradient id="rudder-face" cx="50%" cy="58%" r="72%">

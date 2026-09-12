@@ -1,9 +1,9 @@
 /**
  * Sentry — Lazy-loaded error tracking & performance monitoring
  * ─────────────────────────────────────────────────────────────────
- * This module provides thin wrappers that defer loading @sentry/react
- * (158KB) until after initial paint. The Sentry SDK is imported dynamically
- * on first use or after a short delay, whichever comes first.
+ * This module provides thin wrappers that defer loading our narrow Sentry
+ * SDK facade until after initial paint. The SDK is imported dynamically on
+ * first use or after a short delay, whichever comes first.
  *
  * Usage remains identical to the static version:
  *   import { captureException, setUser } from './services/sentry';
@@ -11,7 +11,7 @@
 
 import { Capacitor } from '@capacitor/core';
 
-type SentryModule = typeof import('@sentry/react');
+type SentryModule = typeof import('./sentrySdk');
 type SentryBreadcrumb = Parameters<SentryModule['addBreadcrumb']>[0];
 
 let _sentry: SentryModule | null = null;
@@ -93,7 +93,7 @@ function loadSentry(): Promise<SentryModule> {
     if (_sentry) return Promise.resolve(_sentry);
     if (_loading) return _loading;
 
-    _loading = import('@sentry/react').then((mod) => {
+    _loading = import('./sentrySdk').then((mod) => {
         _sentry = mod;
 
         if (DSN) {

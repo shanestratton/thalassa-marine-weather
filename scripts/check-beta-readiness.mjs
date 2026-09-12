@@ -778,8 +778,8 @@ check(
         "tone: '#60a5fa'",
         'Verify current fishing and anchoring rules with the managing authority',
         'not legal advice and not for navigation',
-        '<div style="font-size: 11px; color: #cbd5e1; padding-top: 6px;',
-        '<div style="font-size: 11px; color: #b6c2d1; margin-top: 6px; font-style: italic;">',
+        '<div style="font-size: 11px; color: var(--day-ui-muted, #cbd5e1); padding-top: 6px;',
+        '<div style="font-size: 11px; color: var(--day-ui-muted, #b6c2d1); margin-top: 6px; font-style: italic;">',
         '.mpa-popup-close:focus-visible',
         'aria-label="Close"',
         'width: 44px',
@@ -796,7 +796,7 @@ check(
         !mpaPopupSource.includes('Recreational fishing usually permitted') &&
         includesAll(mpaSafetyLanguageTest, [
             'never turns indicative CAPAD class %s into permission',
-            'uses readable class and metadata tones on the dark popup surface',
+            'preserves readable dark-popup tones as the daylight-token fallbacks',
             'preserves tiny positive official areas instead of rounding them to zero',
             'puts the verified CAPAD snapshot date beside the authority warning',
         ]),
@@ -2189,7 +2189,12 @@ check(
         !passiveLaunchSettings.includes("merged.defaultLocation = 'Current Location'") &&
         !passiveLaunchController.includes('Geolocation.requestPermissions(') &&
         !passiveLaunchController.includes('Geolocation.getCurrentPosition(') &&
-        passiveLaunchController.includes('GpsService.getCurrentPositionIfGranted(') &&
+        passiveLaunchController.includes(
+            "void selectLocation('Current Location', undefined, { onlyIfUnselected: true });",
+        ) &&
+        !passiveLaunchController
+            .slice(passiveLaunchController.indexOf('// 1b.'), passiveLaunchController.indexOf('// 1c.'))
+            .includes('requestCurrentForegroundPosition(') &&
         passiveLaunchController.includes('GpsService.requestCurrentForegroundPosition(') &&
         includesAll(passiveLocationService, [
             'async getCurrentPositionIfGranted(',
@@ -2961,6 +2966,7 @@ const offlineMaps = read('services/MapOfflineService.ts');
 const encBootstrap = read('services/enc/bootstrapEncSamples.ts');
 const encMetadata = read('services/enc/EncCellMetadata.ts');
 const mapInit = read('components/map/useMapInit.ts');
+const paneAttribution = read('components/map/paneAwareAttribution.ts');
 const subscriptions = read('services/SubscriptionService.ts');
 check(
     'public OSM/OpenSeaMap bulk prefetch is fail-closed',
@@ -2990,7 +2996,30 @@ check(
 );
 check(
     'map provider attribution is visible',
-    includesAll(mapInit, ['attributionControl: true', 'Mapbox', 'MapTiler', 'OpenStreetMap contributors']),
+    // Explicit installation replaces Mapbox's automatic duplicate, not its
+    // credits. Require both the genuine native control and its pane-resize
+    // wiring; attributionControl:false by itself must always fail this gate.
+    includesAll(mapInit, [
+        'attributionControl: false',
+        "import { installPaneAwareAttribution } from './paneAwareAttribution'",
+        'const refreshAttribution = installPaneAwareAttribution(map, containerRef.current)',
+    ]) &&
+        /new ResizeObserver\(\(\) => \{\s*refreshAttribution\(\);\s*map\.resize\(\)/.test(mapInit) &&
+        includesAll(paneAttribution, [
+            'new mapboxgl.AttributionControl(compact ? { compact: true } : {})',
+            "map.addControl(control, 'bottom-right')",
+            'container.clientWidth',
+            'data-split-pane',
+            'refresh();',
+            'return refresh;',
+        ]) &&
+        /map\.addSource\('satellite-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?Maxar/.test(mapInit) &&
+        /map\.addSource\('hybrid-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?OpenStreetMap/.test(mapInit) &&
+        /map\.addSource\('maptiler-ocean',[\s\S]*?attribution:[\s\S]*?MapTiler[\s\S]*?OpenStreetMap/.test(mapInit) &&
+        /map\.addSource\('openseamap-permanent',[\s\S]*?attribution:[\s\S]*?OpenSeaMap/.test(mapInit) &&
+        !/attribution:\s*['"]\s*['"]/.test(mapInit) &&
+        !read('index.css').includes('.mapboxgl-ctrl-attrib') &&
+        !read('index.css').includes('.mapboxgl-ctrl-logo'),
 );
 check(
     'unsafe public development prototypes are absent',

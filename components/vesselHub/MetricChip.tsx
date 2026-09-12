@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { type MetricChipData } from './types';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /** Compact icon-and-metric chip used on the hero band's environmental
  *  strip. Tabular-num alignment + monospace so a row of chips reads
@@ -10,7 +11,7 @@ import { type MetricChipData } from './types';
 const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix, color, ariaLabel }) => (
     <span
         className="inline-flex items-center gap-1 font-mono tabular-nums whitespace-nowrap text-[13px] leading-none"
-        style={color ? { color } : undefined}
+        style={color ? { color: daylightUiColor(color) } : undefined}
         aria-label={ariaLabel}
         title={ariaLabel}
     >

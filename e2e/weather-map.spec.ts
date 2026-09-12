@@ -27,3 +27,44 @@ test.describe('Weather Map', () => {
         expect(pageErrors.filter((message) => /(?:TypeError|ReferenceError)/.test(message))).toEqual([]);
     });
 });
+
+for (const mode of ['light', 'dark', 'night'] as const) {
+    test.describe(`OBS ${mode} display mode`, () => {
+        test.use({
+            storageState: {
+                ...ONBOARDED_STORAGE,
+                origins: ONBOARDED_STORAGE.origins.map((origin) => ({
+                    ...origin,
+                    localStorage: origin.localStorage.map((entry) => {
+                        if (
+                            entry.name !== 'thalassa_settings_mirror::anonymous' &&
+                            entry.name !== 'CapacitorStorage.thalassa_settings::anonymous'
+                        ) {
+                            return entry;
+                        }
+                        const saved = JSON.parse(entry.value);
+                        saved.settings.displayMode = mode;
+                        return { ...entry, value: JSON.stringify(saved) };
+                    }),
+                })),
+            },
+        });
+
+        test('uses the display default and keeps a manual choice when revisiting Charts', async ({ page }) => {
+            const initialBase = mode === 'light' ? 'Ocean' : 'Satellite';
+            const chosenBase = mode === 'light' ? 'Satellite' : 'Ocean';
+            await page.goto('/');
+            await page.getByRole('tab', { name: 'Navigate to Charts' }).click();
+            await expect(page.getByTestId('map-hub')).toBeVisible();
+            const defaultButton = page.getByRole('button', { name: `Map base: ${initialBase}`, exact: true });
+            await expect(defaultButton).toBeVisible();
+            await defaultButton.click();
+            await page.getByRole('menuitemradio', { name: new RegExp(`^${chosenBase} `) }).click();
+            await expect(page.getByRole('button', { name: `Map base: ${chosenBase}`, exact: true })).toBeVisible();
+
+            await page.getByRole('tab', { name: 'Navigate to The Glass' }).click();
+            await page.getByRole('tab', { name: 'Navigate to Charts' }).click();
+            await expect(page.getByRole('button', { name: `Map base: ${chosenBase}`, exact: true })).toBeVisible();
+        });
+    });
+}

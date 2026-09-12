@@ -14,10 +14,12 @@ export interface ChatHeaderProps {
     view: ChatView;
     activeChannel: ChatChannel | null;
     dmPartnerName?: string;
+    isSelfConversation?: boolean;
     myAvatarUrl: string | null;
     unreadDMs: number;
     messageCount: number;
     isUserBlocked: boolean;
+    blockActionDisabled?: boolean;
     hasDMPartner: boolean;
     onGoBack: () => void;
     /** Leaves Scuttlebutt entirely — shown on the root channel list. */
@@ -34,10 +36,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
         view,
         activeChannel,
         dmPartnerName,
+        isSelfConversation,
         myAvatarUrl,
         unreadDMs,
         messageCount,
         isUserBlocked,
+        blockActionDisabled,
         hasDMPartner,
         onGoBack,
         onExit,
@@ -152,8 +156,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                         )}
                         {view === 'dm_thread' && hasDMPartner && (
                             <button
-                                aria-label={isUserBlocked ? 'Unblock user' : 'Block user'}
+                                aria-label={
+                                    isSelfConversation
+                                        ? isUserBlocked
+                                            ? 'Unblock self-test conversation'
+                                            : 'Block self-test conversation'
+                                        : isUserBlocked
+                                          ? 'Unblock user'
+                                          : 'Block user'
+                                }
                                 onClick={onToggleBlock}
+                                disabled={blockActionDisabled}
                                 className="px-3 py-2 min-h-[44px] rounded-xl bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >
                                 {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}

@@ -24,6 +24,7 @@ import https from 'https';
 import path from 'path';
 import { Cache } from './cache.js';
 import { Barometer } from './barometer.js';
+import { WindHistory } from './windHistory.js';
 import { createWeatherRoutes } from './routes/weather.js';
 import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
@@ -131,7 +132,7 @@ const cache = new Cache(CACHE_DIR);
 // reports unavailable, so a Pi without one behaves exactly as before.
 const barometer = new Barometer(CACHE_DIR);
 void barometer.start();
-const onboardSupplement = createOnboardSupplement({
+const onboardSensorSupplement = createOnboardSupplement({
     barometer: () => barometer.state(),
     windFile: process.env.THALASSA_WIND_FILE,
     houseBatteryFile: process.env.THALASSA_HOUSE_BATTERY_FILE,
@@ -150,6 +151,34 @@ diaryVideoRelay.start();
    gateway's TCP feed directly would burn one of the YDWG-02's three client
    slots permanently, which is a cost this has no business paying. */
 const SIGNALK_ORIGIN = process.env.SIGNALK_ORIGIN || 'http://127.0.0.1:3000';
+const windHistory = new WindHistory({
+    cacheDir: CACHE_DIR,
+    fetchImpl: fetch,
+    signalkOrigin: SIGNALK_ORIGIN,
+    vesselIdentity: identity.deviceId,
+});
+void windHistory.start();
+// Identical observed history reaches LAN and cloud. It never creates a live
+// bus snapshot when the existing sensor adapter has no current instruments.
+const onboardSupplement: typeof onboardSensorSupplement = async (bus) => {
+    const snapshot = await onboardSensorSupplement(bus);
+    const history = windHistory.extra();
+    const currentWindSource = snapshot?.extra?.wind_tws_source;
+    // A sensor switch can precede the collector's next five-second poll. Do
+    // not pair a new sensor's current reading with the previous sensor's peak.
+    const compatibleHistory =
+        typeof currentWindSource === 'string' &&
+        history.wind_history_source &&
+        currentWindSource !== history.wind_history_source
+            ? {}
+            : history;
+    return snapshot
+        ? {
+              ...snapshot,
+              extra: { ...snapshot.extra, ...compatibleHistory, wind_history_identity: identity.deviceId },
+          }
+        : null;
+};
 const trackStore = new TrackStore(CACHE_DIR);
 const trackRecorder = new TrackRecorderRunner({
     fetchImpl: fetch,
@@ -846,6 +875,7 @@ plaintextSignpost.listen(PORT + 1, BIND_HOST, () => {
 
 function shutdown() {
     console.log('\n🛑 Shutting down...');
+    windHistory.stop();
     stopScheduler();
     void stopEncWatcher();
     plaintextSignpost.close();

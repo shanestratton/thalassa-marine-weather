@@ -7,6 +7,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { POSITION_FONT_SIZE } from '../components/nmea/instrumentLayout';
 
 const source = readFileSync('components/nmea/TheGlassPage.tsx', 'utf8');
 
@@ -83,7 +84,8 @@ describe('the Position page', () => {
 
     it('renders them big and green', () => {
         expect(page).toContain('text-emerald-400');
-        expect(page).toMatch(/fontSize: 'clamp\(/);
+        expect(page).toContain('fontSize: POSITION_FONT_SIZE');
+        expect(POSITION_FONT_SIZE).toBe('clamp(1.75rem, calc(var(--pane-width, 100vw) * 0.11), 3rem)');
     });
 
     it('shows a dash rather than zeros when there is no fix', () => {

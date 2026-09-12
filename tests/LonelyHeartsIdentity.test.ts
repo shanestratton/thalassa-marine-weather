@@ -89,6 +89,32 @@ describe('LonelyHeartsService identity isolation', () => {
         cleanupMocks.retire.mockReset().mockResolvedValue(true);
     });
 
+    it('uses the shared idempotent RPC for block and unblock without editing legacy tables', async () => {
+        const rpc = supabase!.rpc as ReturnType<typeof vi.fn>;
+        rpc.mockResolvedValueOnce({ data: { blockedByMe: true, blockedEitherDirection: true }, error: null });
+        await expect(LonelyHeartsService.blockUser('friend')).resolves.toBe(true);
+        expect(rpc).toHaveBeenLastCalledWith('set_chat_user_block', { p_other_user_id: 'friend', p_blocked: true });
+        rpc.mockResolvedValueOnce({ data: { blockedByMe: false, blockedEitherDirection: true }, error: null });
+        await expect(LonelyHeartsService.unblockUser('friend')).resolves.toBe(true);
+        expect(rpc).toHaveBeenLastCalledWith('set_chat_user_block', { p_other_user_id: 'friend', p_blocked: false });
+        expect(from).not.toHaveBeenCalled();
+    });
+
+    it('does not report block success on RPC denial, contradictory status, or stale identity', async () => {
+        const rpc = supabase!.rpc as ReturnType<typeof vi.fn>;
+        rpc.mockResolvedValueOnce({ data: null, error: { message: 'denied' } });
+        await expect(LonelyHeartsService.blockUser('friend')).resolves.toBe(false);
+        rpc.mockResolvedValueOnce({ data: { blockedByMe: false, blockedEitherDirection: false }, error: null });
+        await expect(LonelyHeartsService.blockUser('friend')).resolves.toBe(false);
+        const pending = deferred<{ data: { blockedByMe: boolean; blockedEitherDirection: boolean }; error: null }>();
+        rpc.mockReturnValueOnce(pending.promise);
+        const blocking = LonelyHeartsService.blockUser('friend');
+        await vi.waitFor(() => expect(rpc).toHaveBeenCalledTimes(3));
+        setAuthIdentityScope('account-b');
+        pending.resolve({ data: { blockedByMe: true, blockedEitherDirection: true }, error: null });
+        await expect(blocking).resolves.toBe(false);
+    });
+
     it('makes deferred init stateless and never falls back to a cached session', async () => {
         const authA = deferred<ReturnType<typeof authUser>>();
         getUser.mockReturnValueOnce(authA.promise);

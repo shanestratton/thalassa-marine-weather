@@ -56,6 +56,8 @@ export function ChartDepthControls({
     onToggleChartKey,
     onOpenEncLibrary,
 }: ChartDepthControlsProps) {
+    const showCoverageNotice =
+        encNoCoverage && encReferenceCellCount === 0 && encHydration.remaining === 0 && encVisible && surfaceVisible;
     return (
         <>
             {tideDepthMode && surfaceVisible && (
@@ -71,24 +73,24 @@ export function ChartDepthControls({
                                 ? 'Depths shown at a future tide — tap to return to now'
                                 : 'Live tide depth is on — tap to return to chart datum'
                         }
-                        className="absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95"
+                        className={`absolute left-1/2 top-16 z-9990 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95 ${showCoverageNotice ? 'thalassa-enc-tide-badge' : '-translate-x-1/2'}`}
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
-                                      background: 'rgba(49, 27, 95, 0.92)',
+                                      background: 'var(--day-ui-purple-surface, rgba(49, 27, 95, 0.92))',
                                       borderColor: 'rgba(167, 139, 250, 0.5)',
-                                      color: '#c4b5fd',
+                                      color: 'var(--day-ui-purple, #c4b5fd)',
                                   }
                                 : tideOffsetInfo
                                   ? {
-                                        background: 'rgba(13, 63, 70, 0.92)',
+                                        background: 'var(--day-ui-success-surface, rgba(13, 63, 70, 0.92))',
                                         borderColor: 'rgba(45, 212, 191, 0.45)',
-                                        color: '#5eead4',
+                                        color: 'var(--day-ui-success, #5eead4)',
                                     }
                                   : {
-                                        background: 'rgba(69, 51, 8, 0.92)',
+                                        background: 'var(--day-ui-amber-surface, rgba(69, 51, 8, 0.92))',
                                         borderColor: 'rgba(251, 191, 36, 0.45)',
-                                        color: '#fcd34d',
+                                        color: 'var(--day-ui-amber, #fcd34d)',
                                     }
                         }
                     >
@@ -109,7 +111,9 @@ export function ChartDepthControls({
                             : 'LIVE DEPTH — no tide data, showing chart datum'}
                     </button>
                     {tideOffsetInfo && (
-                        <div className="absolute left-1/2 top-[6.4rem] z-9989 w-60 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg">
+                        <div
+                            className={`absolute left-1/2 top-[6.4rem] z-9989 w-60 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg ${showCoverageNotice ? 'thalassa-enc-tide-scrubber' : '-translate-x-1/2'}`}
+                        >
                             <input
                                 type="range"
                                 min={0}
@@ -175,7 +179,9 @@ export function ChartDepthControls({
                     aria-pressed={nightDim}
                     className="absolute top-[104px] left-[224px] z-700 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
                     style={{
-                        background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
+                        background: nightDim
+                            ? 'rgba(220, 80, 60, 0.30)'
+                            : 'var(--day-ui-surface, rgba(15, 23, 42, 0.85))',
                         borderColor: 'rgba(220, 80, 60, 0.35)',
                         color: '#e07a5f',
                     }}
@@ -210,21 +216,19 @@ export function ChartDepthControls({
                 </div>
             )}
 
-            {encNoCoverage &&
-                encReferenceCellCount === 0 &&
-                encHydration.remaining === 0 &&
-                encVisible &&
-                surfaceVisible && (
-                    <div
-                        className="absolute bottom-6 left-1/2 z-9980 flex w-[min(390px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs"
-                        aria-live="polite"
-                    >
-                        <span className="leading-snug">
-                            {encCellCount === 0
-                                ? 'No verified ENC charts installed. Library imports are reference-only.'
-                                : `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`}
-                        </span>
-                        {/* The Library button is offered ONLY when there are no
+            {showCoverageNotice && (
+                <div
+                    className={`thalassa-enc-coverage-notice absolute z-9980 flex items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs ${tideDepthMode && tideOffsetInfo ? 'thalassa-enc-coverage-notice--with-tide' : ''}`}
+                    role="status"
+                    aria-label="ENC coverage"
+                    aria-live="polite"
+                >
+                    <span className="leading-snug">
+                        {encCellCount === 0
+                            ? 'No verified ENC charts installed. Library imports are reference-only.'
+                            : `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`}
+                    </span>
+                    {/* The Library button is offered ONLY when there are no
                             charts at all.
                             
                             With charts installed but none covering the view,
@@ -237,21 +241,21 @@ export function ChartDepthControls({
                             different kind of chart. Saying how many they have
                             and where the gap is answers the question the banner
                             actually raises. */}
-                        {encCellCount === 0 && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onOpenEncLibrary();
-                                }}
-                                className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
-                                aria-label="Open on-device ENC Library"
-                            >
-                                ENC Library
-                            </button>
-                        )}
-                    </div>
-                )}
+                    {encCellCount === 0 && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onOpenEncLibrary();
+                            }}
+                            className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
+                            aria-label="Open on-device ENC Library"
+                        >
+                            ENC Library
+                        </button>
+                    )}
+                </div>
+            )}
         </>
     );
 }

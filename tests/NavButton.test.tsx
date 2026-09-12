@@ -2,8 +2,8 @@
  * NavButton — bottom tab bar navigation button tests.
  */
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 
 // Mock haptic feedback
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -83,5 +83,75 @@ describe('NavButton', () => {
     it('has accessible role="tab"', () => {
         render(<NavButton icon={<span>🌤</span>} label="Wx" active={false} onClick={vi.fn()} />);
         expect(screen.getByRole('tab')).toBeInTheDocument();
+    });
+});
+
+describe('Glass hold and tap remain separate gestures', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.stubGlobal('PointerEvent', MouseEvent);
+    });
+    afterEach(() => {
+        cleanup();
+        vi.clearAllTimers();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('a short press resets once without toggling the split', () => {
+        const onClick = vi.fn();
+        const onLongPress = vi.fn();
+        render(<NavButton label="The Glass" icon="G" active onClick={onClick} onLongPress={onLongPress} />);
+        const tab = screen.getByRole('tab');
+        fireEvent.pointerDown(tab, { clientX: 20, clientY: 20 });
+        act(() => vi.advanceTimersByTime(499));
+        fireEvent.pointerUp(tab);
+        fireEvent.click(tab);
+        act(() => vi.advanceTimersByTime(501));
+        expect(onClick).toHaveBeenCalledTimes(1);
+        expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('successive holds toggle on/off without the release clicks also resetting', () => {
+        const onClick = vi.fn();
+        const onLongPress = vi.fn();
+        render(<NavButton label="The Glass" icon="G" active onClick={onClick} onLongPress={onLongPress} />);
+        const tab = screen.getByRole('tab');
+        for (let i = 1; i <= 2; i++) {
+            fireEvent.pointerDown(tab, { clientX: 20, clientY: 20 });
+            act(() => vi.advanceTimersByTime(800));
+            fireEvent.pointerUp(tab);
+            fireEvent.click(tab);
+            expect(onLongPress).toHaveBeenCalledTimes(i);
+            expect(onClick).not.toHaveBeenCalled();
+        }
+        fireEvent.pointerDown(tab);
+        fireEvent.pointerUp(tab);
+        fireEvent.click(tab);
+        expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['move', 'cancel', 'leave'])('a %s cancels a pending hold', (reason) => {
+        const onLongPress = vi.fn();
+        render(<NavButton label="The Glass" icon="G" active onClick={vi.fn()} onLongPress={onLongPress} />);
+        const tab = screen.getByRole('tab');
+        fireEvent.pointerDown(tab, { clientX: 20, clientY: 20 });
+        act(() => vi.advanceTimersByTime(250));
+        if (reason === 'move') fireEvent.pointerMove(tab, { clientX: 32, clientY: 20 });
+        if (reason === 'cancel') fireEvent.pointerCancel(tab);
+        if (reason === 'leave') fireEvent.pointerLeave(tab);
+        act(() => vi.advanceTimersByTime(800));
+        expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('without a long-press action, a held phone tab retains ordinary click behaviour', () => {
+        const onClick = vi.fn();
+        render(<NavButton label="The Glass" icon="G" active onClick={onClick} />);
+        const tab = screen.getByRole('tab');
+        fireEvent.pointerDown(tab);
+        act(() => vi.advanceTimersByTime(800));
+        fireEvent.pointerUp(tab);
+        fireEvent.click(tab);
+        expect(onClick).toHaveBeenCalledTimes(1);
     });
 });

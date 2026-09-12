@@ -11,11 +11,12 @@
  *   5. Alert Feed — live local safety alerts
  *   6. Guardian Profile Setup (if no profile)
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
     GuardianService,
     NearbyUser,
     GuardianAlert,
+    GuardianBroadcastResult,
     HAIL_MESSAGES,
     WEATHER_TEMPLATES,
 } from '../services/GuardianService';
@@ -61,6 +62,13 @@ function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
 type GuardianFeedback = { tone: 'error' | 'success'; message: string };
 type GuardianCoverageStatus = 'inactive' | 'checking' | 'ready' | 'unavailable';
 
+function broadcastFeedback(result: GuardianBroadcastResult): string {
+    if (!result.feedConfirmed) return 'Alert sent; waiting for feed confirmation. Please don’t resend.';
+    return result.notified > 0
+        ? `Saved to your alert feed. Notifications queued for ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
+        : 'Saved to your alert feed. No nearby vessels were available to notify.';
+}
+
 const GUARDIAN_INIT_TIMEOUT_MS = 15_000;
 
 /**
@@ -95,6 +103,7 @@ function guardianInitializationSettled(promise: Promise<void>): Promise<boolean>
 export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const { settings } = useSettings();
     const authUserId = useAuthStore((state) => state.user?.id ?? null);
+    const armDescriptionId = useId();
 
     // ── State ──
     const [armed, setArmed] = useState(false);
@@ -358,7 +367,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         if (ok) {
             setArmed(true);
             setCoverageStatus('ready');
-            setFeedback({ tone: 'success', message: 'Guardian is armed at the vessel’s current GPS position.' });
             triggerHaptic('heavy');
         } else {
             setCoverageStatus('inactive');
@@ -384,10 +392,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             setNearbyUsers([]);
             setAlerts([]);
             setCoverageStatus('inactive');
-            setFeedback({
-                tone: 'success',
-                message: 'Guardian is disarmed. Location sharing and nearby polling have stopped.',
-            });
         } else {
             setFeedback({ tone: 'error', message: 'Guardian could not disarm. Check your connection and try again.' });
         }
@@ -485,15 +489,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             setShowReport(false);
             setFeedback({
                 tone: 'success',
-                message:
-                    result.notified > 0
-                        ? `Safety alert broadcast to ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
-                        : 'Safety alert broadcast.',
+                message: broadcastFeedback(result),
             });
         } else {
             setFeedback({
                 tone: 'error',
-                message: 'The safety alert could not be sent. Confirm your GPS fix and connection, then try again.',
+                message: result.uncertain
+                    ? 'Could not confirm whether the alert was saved. Check your feed before sending again.'
+                    : 'The safety alert could not be sent. Confirm your GPS fix and connection, then try again.',
             });
         }
     }, [authUserId, reportText]);
@@ -534,16 +537,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 setShowWeather(false);
                 setFeedback({
                     tone: 'success',
-                    message:
-                        result.notified > 0
-                            ? `Weather alert broadcast to ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
-                            : 'Weather alert broadcast.',
+                    message: broadcastFeedback(result),
                 });
             } else {
                 setFeedback({
                     tone: 'error',
-                    message:
-                        'The weather alert could not be sent. Confirm your GPS fix and connection, then try again.',
+                    message: result.uncertain
+                        ? 'Could not confirm whether the alert was saved. Check your feed before sending again.'
+                        : 'The weather alert could not be sent. Confirm your GPS fix and connection, then try again.',
                 });
             }
         },
@@ -814,12 +815,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div
                             className={`w-2.5 h-2.5 rounded-full shrink-0 ${armed ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'}`}
                         />
-                        <span className="text-sm font-bold text-white truncate">{vesselName || 'Your Vessel'}</span>
-                        {armed && (
-                            <span className="px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded-sm text-[11px] font-black text-red-400 uppercase tracking-wider">
-                                Armed
-                            </span>
-                        )}
+                        <span className={`text-sm font-bold truncate ${armed ? 'text-red-300' : 'text-white'}`}>
+                            {vesselName || 'Your Vessel'}
+                        </span>
                     </div>
 
                     {coverageStatus === 'ready' ? (
@@ -838,7 +836,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 }`}
                             >
                                 {coverageStatus === 'inactive'
-                                    ? 'Disarmed — no location sharing or nearby polling'
+                                    ? 'Nearby watch paused'
                                     : coverageStatus === 'checking'
                                       ? 'Checking vessel position…'
                                       : 'GPS unavailable — nearby coverage not checked'}
@@ -1031,9 +1029,11 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                                     <p className="text-sm text-gray-300 mt-0.5 line-clamp-2">
                                                         {alert.body}
                                                     </p>
-                                                    {alert.source_vessel_name && (
+                                                    {(alert.data?.sent_by_you === true || alert.source_vessel_name) && (
                                                         <div className="text-[12px] text-gray-500 mt-1">
-                                                            from {alert.source_vessel_name}
+                                                            {alert.data?.sent_by_you === true
+                                                                ? 'Sent by you'
+                                                                : `from ${alert.source_vessel_name}`}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1066,7 +1066,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         role="button"
                         tabIndex={arming ? -1 : 0}
                         aria-disabled={arming}
+                        aria-pressed={armed}
                         aria-label={armed ? 'Disarm Guardian vessel watch' : 'Arm Guardian vessel watch'}
+                        aria-describedby={armDescriptionId}
                         onKeyDown={(event) => {
                             if (arming || (event.key !== 'Enter' && event.key !== ' ')) return;
                             event.preventDefault();
@@ -1122,7 +1124,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </div>
-                <p className="px-1 text-[12px] leading-relaxed text-slate-400">
+                {/* Keep the privacy explanation accessible without a second visible status row. */}
+                <p id={armDescriptionId} className="sr-only">
                     {armed
                         ? 'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.'
                         : 'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'}

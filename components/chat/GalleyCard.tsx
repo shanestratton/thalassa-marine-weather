@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import {
     getMealsByStatus,
     calculateMealDays,
@@ -122,6 +123,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     onAssignCard,
     crewList,
 }) => {
+    const portalTarget = usePanePortalTarget();
     // A selected passage ID is navigation state, not proof of ownership.
     // Direct/legacy callsites therefore fail closed until their parent passes
     // the verified PassageStatus.
@@ -673,7 +675,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                         onClose={closeCookingMode}
                         onComplete={closeCookingMode}
                     />,
-                    document.body,
+                    portalTarget!,
                 )}
         </div>
     );

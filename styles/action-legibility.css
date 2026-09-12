@@ -1,0 +1,73 @@
+/* White action labels need a deep, opaque colour even beneath the red night
+   scrim. These selectors own only filled interactive controls: translucent
+   panels, dark-on-colour labels and disabled opacity keep their local rules. */
+:root:is(.display-light, :not(.display-light)) .ui-primary-action.text-white {
+    color: #ffffff;
+    --tw-gradient-from: var(--ui-primary-action-from);
+    --tw-gradient-to: var(--ui-primary-action-to);
+}
+:root .ui-primary-action--amber {
+    --ui-primary-action-from: #92400e;
+    --ui-primary-action-to: #78350f;
+}
+:root .ui-primary-action--emerald {
+    --ui-primary-action-from: #065f46;
+    --ui-primary-action-to: #064e3b;
+}
+
+/* Exact utility tokens avoid matching alpha variants such as bg-sky-500/15.
+   Native and ARIA disabled controls keep their existing appearance. */
+:root:is(.display-light, :not(.display-light))
+    :is(button, a, [role='button']).text-white:is(
+        .bg-sky-500,
+        .bg-sky-600,
+        .bg-blue-500,
+        .bg-blue-600,
+        .bg-red-500,
+        .bg-red-600,
+        .bg-emerald-500,
+        .bg-emerald-600
+    ):not(:disabled, [aria-disabled='true']) {
+    color: #ffffff;
+    background-color: var(--ui-solid-action-fill);
+}
+:root :is(button, a, [role='button']).text-white:is(.bg-sky-500, .bg-sky-600) {
+    --ui-solid-action-fill: #075985;
+    --ui-solid-action-hover: #0c4a6e;
+}
+:root :is(button, a, [role='button']).text-white:is(.bg-blue-500, .bg-blue-600) {
+    --ui-solid-action-fill: #1e40af;
+    --ui-solid-action-hover: #1e3a8a;
+}
+:root :is(button, a, [role='button']).text-white:is(.bg-red-500, .bg-red-600) {
+    --ui-solid-action-fill: #991b1b;
+    --ui-solid-action-hover: #7f1d1d;
+}
+:root :is(button, a, [role='button']).text-white:is(.bg-emerald-500, .bg-emerald-600) {
+    --ui-solid-action-fill: #065f46;
+    --ui-solid-action-hover: #064e3b;
+}
+
+@media (hover: hover) {
+    :root .ui-primary-action--amber:not(:disabled, [aria-disabled='true']):hover {
+        --ui-primary-action-from: #78350f;
+        --ui-primary-action-to: #451a03;
+    }
+    :root .ui-primary-action--emerald:not(:disabled, [aria-disabled='true']):hover {
+        --ui-primary-action-from: #064e3b;
+        --ui-primary-action-to: #022c22;
+    }
+    :root:is(.display-light, :not(.display-light))
+        :is(button, a, [role='button']).text-white:is(
+            .bg-sky-500,
+            .bg-sky-600,
+            .bg-blue-500,
+            .bg-blue-600,
+            .bg-red-500,
+            .bg-red-600,
+            .bg-emerald-500,
+            .bg-emerald-600
+        ):not(:disabled, [aria-disabled='true']):hover {
+        background-color: var(--ui-solid-action-hover);
+    }
+}

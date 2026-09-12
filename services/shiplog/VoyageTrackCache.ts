@@ -25,6 +25,7 @@ const CACHE_VERSION = 3;
 export const MAX_CACHED_VOYAGES = 8;
 /** ~4 MB guard per voyage — skip pathologically large tracks. */
 const MAX_BYTES = 4_000_000;
+const CACHE_PREPARATION_BATCH_SIZE = 128;
 
 interface CachedTrack {
     version: typeof CACHE_VERSION;
@@ -197,21 +198,44 @@ export function setCachedVoyageTrack(
     entries: ShipLogEntry[],
     scope: AuthIdentityScope = getAuthIdentityScope(),
 ): Promise<void> {
-    if (!voyageId) return Promise.resolve();
-    const normalized = normalizeCacheIds(entries, voyageId).map((entry) => ({ ...entry }));
-    const payload: CachedTrack = {
-        version: CACHE_VERSION,
-        ownerKey: scope.key,
-        ownerUserId: scope.userId,
-        voyageId,
-        at: Date.now(),
-        entries: normalized,
-    };
-    const serialized = JSON.stringify(payload);
-    if (!shouldCacheTrack(normalized.length, serialized.length)) return Promise.resolve();
+    if (!voyageId || entries.length < 2 || !isAuthIdentityScopeCurrent(scope)) return Promise.resolve();
 
     return withScopeLock(scope, undefined, async () => {
         try {
+            const normalized: ShipLogEntry[] = [];
+            const payload: CachedTrack = {
+                version: CACHE_VERSION,
+                ownerKey: scope.key,
+                ownerUserId: scope.userId,
+                voyageId,
+                at: Date.now(),
+                entries: normalized,
+            };
+            let serializedBytes = JSON.stringify(payload).length;
+            // Cache preparation is optional work invoked during voyage stop.
+            // Yield before the first row and between batches, and reject as
+            // soon as the budget is exhausted. A whole-track clone/stringify
+            // before the size guard defeats the guard on a long recording.
+            for (let index = 0; index < entries.length; index++) {
+                if (index % CACHE_PREPARATION_BATCH_SIZE === 0) {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                }
+                const source = entries[index];
+                const remainingBytes = MAX_BYTES - serializedBytes;
+                // A single oversized note must not allocate an oversized JSON
+                // string just to discover that the cache cannot hold it.
+                if (Object.values(source).some((value) => typeof value === 'string' && value.length > remainingBytes)) {
+                    return;
+                }
+                const entry = {
+                    ...source,
+                    id: !source.id || source.id.startsWith('offline_') ? `trkc_${voyageId}_${index}` : source.id,
+                };
+                serializedBytes += JSON.stringify(entry).length + (index > 0 ? 1 : 0);
+                if (!shouldCacheTrack(entries.length, serializedBytes)) return;
+                normalized.push(entry);
+            }
             if (!isAuthIdentityScopeCurrent(scope)) return;
             await saveLargeData(trackKey(voyageId, scope), payload);
             if (!isAuthIdentityScopeCurrent(scope)) return;

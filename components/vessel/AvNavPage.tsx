@@ -20,6 +20,7 @@ import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { PageHeader } from '../ui/PageHeader';
 import { EncCellManager } from './EncCellManager';
 import { S63LicensingCard } from './S63LicensingCard';
+import { BoatHardwareIntegrations } from './BoatHardwareIntegrations';
 import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import {
     getAuthIdentityScope,
@@ -333,7 +334,7 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
         <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
             <PageHeader title="Boat Network" subtitle="Ship's Office" onBack={onBack} />
 
-            <div className="flex-1 overflow-y-auto px-4 pb-32">
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-32">
                 {/* ═══ BOAT NETWORK HERO ═══ */}
                 <div
                     className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
@@ -634,6 +635,8 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                         )}
                     </div>
                 </div>
+
+                <BoatHardwareIntegrations />
 
                 {/* ═══ ENC CHARTS (vector, routing-grade) ═══
                     Pulled up from below the Chart Locker so the Pi-cache

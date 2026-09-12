@@ -45,23 +45,29 @@ export const PerfDowntierToast: React.FC<PerfDowntierToastProps> = ({ visible })
             <div
                 className="flex items-start gap-2 max-w-[320px]"
                 style={{
-                    background: 'rgba(15, 23, 42, 0.92)',
+                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.92))',
                     backdropFilter: 'blur(20px)',
                     WebkitBackdropFilter: 'blur(20px)',
                     border: '1px solid rgba(56, 189, 248, 0.35)',
                     borderRadius: 14,
                     padding: '10px 14px',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                    boxShadow: 'var(--day-ui-shadow, 0 8px 24px rgba(0,0,0,0.5))',
                 }}
             >
                 <span style={{ fontSize: 16 }} aria-hidden>
                     ⚡
                 </span>
                 <div className="flex flex-col">
-                    <span className="font-semibold leading-tight" style={{ color: '#7dd3fc', fontSize: 12 }}>
+                    <span
+                        className="font-semibold leading-tight"
+                        style={{ color: 'var(--day-ui-accent, #7dd3fc)', fontSize: 12 }}
+                    >
                         Graphics quality reduced
                     </span>
-                    <span className="leading-tight mt-0.5" style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10 }}>
+                    <span
+                        className="leading-tight mt-0.5"
+                        style={{ color: 'var(--day-ui-muted, #cbd5e1)', fontSize: 12 }}
+                    >
                         Particle density turned down for smoother performance on this device.
                     </span>
                 </div>

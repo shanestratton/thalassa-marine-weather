@@ -24,27 +24,27 @@
  *    boat's instruments are dark often enough for that to be the common case
  *    rather than the edge one.
  *
- * The palette is pinned locally rather than read from Thalassa's tokens. The
- * handoff ships its own `:root` block, the rose's shading depends on the
- * whole contrast ladder agreeing (surface → grid → axis), and wiring it to
- * app tokens that move independently is how a faithful port stops being one.
+ * The dark palette remains pinned locally. Day mode supplies a complete
+ * contrast ladder through instrumentDaylight.css; App's live display-light
+ * class switches it together, including SVG gradients and the side colours.
  */
 import React from 'react';
+import '../instrumentDaylight.css';
 import { degreesToCardinal16 as compassPoint } from '../../../utils/logExportHelpers';
 
 /** The handoff's dark palette, verbatim. Scoped to the SVG, so nothing here
  *  leaks into the app and no app-level token change can drift the rose. */
 const PALETTE: React.CSSProperties = {
-    ['--surface-1' as string]: '#1a1a19',
-    ['--ink-1' as string]: '#ffffff',
-    ['--ink-2' as string]: '#c3c2b7',
-    ['--ink-muted' as string]: '#898781',
-    ['--grid' as string]: '#2c2c2a',
-    ['--axis' as string]: '#383835',
-    ['--hairline' as string]: 'rgba(255,255,255,0.10)',
-    ['--s2' as string]: '#d95926',
-    ['--port' as string]: '#ef5350',
-    ['--stbd' as string]: '#25b167',
+    ['--surface-1' as string]: 'var(--nmea-rose-surface, #1a1a19)',
+    ['--ink-1' as string]: 'var(--nmea-rose-ink, #ffffff)',
+    ['--ink-2' as string]: 'var(--nmea-rose-secondary, #c3c2b7)',
+    ['--ink-muted' as string]: 'var(--nmea-rose-muted, #898781)',
+    ['--grid' as string]: 'var(--nmea-rose-grid, #2c2c2a)',
+    ['--axis' as string]: 'var(--nmea-rose-axis, #383835)',
+    ['--hairline' as string]: 'var(--nmea-rose-hairline, rgba(255,255,255,0.10))',
+    ['--s2' as string]: 'var(--nmea-rose-accent, #d95926)',
+    ['--port' as string]: 'var(--nmea-rose-port, #ef5350)',
+    ['--stbd' as string]: 'var(--nmea-rose-stbd, #25b167)',
 };
 
 /* Geometry. Everything derives from W and these radii; the box is 380 rather
@@ -233,7 +233,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
     return (
         <svg
             viewBox={`0 0 ${W} ${W}`}
-            className={className}
+            className={`nmea-instrument nmea-wind-rose ${className}`}
             style={{ ...PALETTE, ...(isLive ? null : { opacity: 0.45 }), ...style }}
             role="img"
             aria-label={

@@ -22,27 +22,33 @@ const status = read('components/SystemStatusButton.tsx');
 const dialog = read('components/dashboard/WeatherPositionChoiceDialog.tsx');
 
 describe('the weather is for the boat', () => {
-    it('the follower asks the boat before the phone, and the phone read stays passive', () => {
+    it('the follower uses the selected receiver and the shared phone read stays passive', () => {
         const follow = weatherContext.slice(
             weatherContext.indexOf('const tick = () => {'),
             weatherContext.indexOf('const followTimer = setInterval(tick, GPS_FOLLOW_POLL_MS)'),
         );
-        const chain = follow.indexOf('resolveWeatherPosition(');
-        const phone = follow.indexOf('GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 })');
+        const reader = weatherContext.slice(
+            weatherContext.indexOf('const readFollowPosition = useCallback('),
+            weatherContext.indexOf('const resolveFollowFix = useCallback('),
+        );
+        const chain = follow.indexOf('readFollowPosition(target)');
         const decide = follow.indexOf('decideFollowAction({');
         expect(chain).toBeGreaterThan(-1);
-        expect(phone).toBeGreaterThan(chain);
-        expect(decide).toBeGreaterThan(phone);
+        expect(decide).toBeGreaterThan(chain);
+        expect(reader).toContain('resolveWeatherPosition(');
+        expect(reader).toContain('requestPhonePermission = false');
+        expect(reader).toContain('GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 })');
+        expect(reader).toContain('{ target }');
         expect(follow).toContain('const { lat: latitude, lon: longitude } = resolved.fix;');
         expect(weatherContext).not.toContain('GpsService.getCurrentPosition(');
     });
 
-    it('the boot path and both "Current Location" fetch paths use the same order, without asking', () => {
-        expect(controller).toContain('resolveWeatherPosition(');
-        expect(controller).toContain('{ mayAsk: false }');
-        expect(orchestrator).toContain('private async weatherPositionOrPhone(');
-        expect(orchestrator).toContain('this.weatherPositionOrPhone(60_000, 10)');
-        expect(orchestrator).toContain('this.weatherPositionOrPhone(60_000, 15)');
+    it('the boot path starts selection before any async position read, and fetches share the resolver', () => {
+        expect(controller).toContain("selectLocation('Current Location', undefined, { onlyIfUnselected: true });");
+        expect(controller).not.toContain('resolveWeatherPosition(');
+        expect(orchestrator).toContain('private async selectedWeatherPosition(');
+        expect(orchestrator).toContain('this.selectedWeatherPosition(60_000, 10)');
+        expect(orchestrator).toContain('this.selectedWeatherPosition(60_000, 15)');
         expect(orchestrator).not.toMatch(
             /getCurrentPositionIfGranted\(\{ staleLimitMs: 60_000, timeoutSec: 1[05] \}\)/,
         );
@@ -63,6 +69,8 @@ describe('the weather is for the boat', () => {
         // packed screen." The row lives in System Status; the header has no chip.
         expect(status).toContain('<GpsSourceRow />');
         expect(app).not.toContain('<GpsSourceGlyph />');
+        expect(app).toContain('value={displayTitle}');
+        expect(app).not.toContain('value={query}');
         expect(glyph).toContain("weatherKind === 'held'");
         expect(glyph).toContain('canChoose: true');
         expect(glyph).toContain('tap to choose the boat or this phone');

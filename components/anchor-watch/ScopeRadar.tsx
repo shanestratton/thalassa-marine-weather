@@ -47,9 +47,9 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                 {/* Ocean depth background */}
                 <defs>
                     <radialGradient id="ocean-bg" cx="50%" cy="50%" r="50%">
-                        <stop offset="0%" stopColor="rgba(8,47,73,0.3)" />
-                        <stop offset="70%" stopColor="rgba(7,33,54,0.15)" />
-                        <stop offset="100%" stopColor="rgba(2,6,23,0.05)" />
+                        <stop offset="0%" stopColor="var(--day-ui-surface, rgba(8,47,73,0.3))" />
+                        <stop offset="70%" stopColor="var(--day-ui-surface-soft, rgba(7,33,54,0.15))" />
+                        <stop offset="100%" stopColor="var(--day-ui-surface-soft, rgba(2,6,23,0.05))" />
                     </radialGradient>
                     <radialGradient id="safe-zone" cx="50%" cy="50%" r="50%">
                         <stop offset="0%" stopColor={`${scopeColor}06`} />
@@ -133,7 +133,11 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                             y1={100 + Math.sin(angle) * inner}
                             x2={100 + Math.cos(angle) * outer}
                             y2={100 + Math.sin(angle) * outer}
-                            stroke={isMajor ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.15)'}
+                            stroke={
+                                isMajor
+                                    ? 'var(--day-ui-muted, rgba(148,163,184,0.5))'
+                                    : 'var(--day-ui-grid, rgba(100,116,139,0.15))'
+                            }
                             strokeWidth={isMajor ? 1 : 0.3}
                         />
                     );
@@ -141,10 +145,10 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
 
                 {/* Cardinal labels */}
                 {[
-                    { label: 'N', x: 100, y: 100 - outerR - 14, color: 'rgba(248,113,113,0.8)' },
-                    { label: 'E', x: 100 + outerR + 14, y: 101, color: 'rgba(148,163,184,0.5)' },
-                    { label: 'S', x: 100, y: 100 + outerR + 16, color: 'rgba(148,163,184,0.5)' },
-                    { label: 'W', x: 100 - outerR - 14, y: 101, color: 'rgba(148,163,184,0.5)' },
+                    { label: 'N', x: 100, y: 100 - outerR - 14, color: 'var(--day-ui-danger, rgba(248,113,113,0.8))' },
+                    { label: 'E', x: 100 + outerR + 14, y: 101, color: 'var(--day-ui-muted, rgba(148,163,184,0.5))' },
+                    { label: 'S', x: 100, y: 100 + outerR + 16, color: 'var(--day-ui-muted, rgba(148,163,184,0.5))' },
+                    { label: 'W', x: 100 - outerR - 14, y: 101, color: 'var(--day-ui-muted, rgba(148,163,184,0.5))' },
                 ].map(({ label, x, y, color }) => (
                     <text
                         key={label}
@@ -182,7 +186,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                     fontSize="18"
                     fontWeight="900"
                     fontFamily="ui-monospace, monospace"
-                    fill="white"
+                    fill="var(--day-ui-text, white)"
                     style={{ textShadow: '0 0 10px rgba(255,255,255,0.15)' }}
                 >
                     {scopeRatio.toFixed(1)}:1
@@ -197,7 +201,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                     fontSize="6"
                     fontWeight="700"
                     fontFamily="system-ui"
-                    fill={scopeColor}
+                    fill={`var(--day-ui-${scopeQuality === 'excellent' ? 'success' : scopeQuality === 'adequate' ? 'amber' : 'danger'}, ${scopeColor})`}
                     letterSpacing="0.1em"
                 >
                     {scopeQuality === 'excellent' ? 'EXCELLENT' : scopeQuality === 'adequate' ? 'ADEQUATE' : 'POOR'}
@@ -210,7 +214,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize="5"
-                    fill="rgba(148,163,184,0.6)"
+                    fill="var(--day-ui-muted, rgba(148,163,184,0.6))"
                     fontFamily="system-ui"
                 >
                     {formatDistance(swingRadiusPreview)} swing radius

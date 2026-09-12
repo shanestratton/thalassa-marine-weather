@@ -1,0 +1,152 @@
+/* Shared reading hierarchy across pages, forms and dialogs. These are text
+   roles, not layout rules: card sizes, data scales and safety hues stay local.
+   Solid caption ink is calibrated for raised cards as well as the page base.
+   Never reset opacity globally: disabled/stale states and pane transitions
+   deliberately use it. Night mode keeps the app's red dimming scrim. */
+:root {
+    --ui-ink-primary: #f8fafc;
+    --ui-ink-secondary: #cbd5e1;
+    --ui-hover-danger: #fca5a5;
+    --ui-hover-amber: #fcd34d;
+    --ui-hover-accent: #7dd3fc;
+    --ui-hover-success: #6ee7b7;
+}
+:root.theme-onshore {
+    --ui-ink-primary: #fafaf9;
+    --ui-ink-secondary: #d6d3d1;
+}
+:root.display-light {
+    --ui-ink-primary: #0f172a;
+    --ui-ink-secondary: #334155;
+    --ui-hover-danger: #991b1b;
+    --ui-hover-amber: #92400e;
+    --ui-hover-accent: #075985;
+    --ui-hover-success: #065f46;
+}
+
+:root:is(.display-light, :not(.display-light)) .ui-page-title {
+    color: var(--ui-ink-primary);
+    font-size: 20px;
+    font-weight: 800;
+}
+:root:is(.display-light, :not(.display-light)) .ui-dialog-title {
+    color: var(--ui-ink-primary);
+    font-size: 18px;
+    font-weight: 800;
+}
+:root .ui-section-heading,
+:root:is(.display-light, :not(.display-light)) .ui-field-label {
+    font-size: var(--text-label);
+    font-weight: 700;
+}
+:root:is(.display-light, :not(.display-light)) .ui-field-label {
+    color: var(--ui-ink-secondary);
+}
+:root:is(.display-light, :not(.display-light)) .ui-caption {
+    color: var(--ui-ink-secondary);
+    font-size: var(--text-micro);
+    font-weight: 500;
+}
+/* Errors share caption sizing, not its neutral ink. */
+:root .ui-error-caption {
+    font-size: var(--text-micro);
+    font-weight: 500;
+}
+:root:not(.display-light) .ui-error-caption {
+    color: #fca5a5;
+}
+
+/* Confirm actions remain coloured controls in every mode. The deeper stops
+   keep white action text readable through the night dimming layer too. */
+:root:is(.display-light, :not(.display-light))
+    .ui-confirm-action.text-white:is(.from-sky-600, .from-red-600):not(:disabled) {
+    color: #ffffff;
+    --tw-gradient-from: #0369a1;
+    --tw-gradient-to: #075985;
+}
+:root:is(.display-light, :not(.display-light)) .ui-confirm-action.text-white.from-red-600:not(:disabled) {
+    --tw-gradient-from: #b91c1c;
+    --tw-gradient-to: #991b1b;
+}
+@media (hover: hover) {
+    :root:is(.display-light, :not(.display-light))
+        .ui-confirm-action.text-white:is(.from-sky-600, .from-red-600):not(:disabled):hover {
+        --tw-gradient-from: #075985;
+        --tw-gradient-to: #0c4a6e;
+    }
+    :root:is(.display-light, :not(.display-light)) .ui-confirm-action.text-white.from-red-600:not(:disabled):hover {
+        --tw-gradient-from: #991b1b;
+        --tw-gradient-to: #7f1d1d;
+    }
+}
+
+/* Legacy caption utilities occur throughout the route tree, including lazy
+   pages and modal portals. Keep their role consistent until each caller can
+   use the named roles above. Dark disabled-600 and decorative white/10..30
+   are intentionally excluded; alpha-based state on containers is untouched. */
+:root:is(.display-light, :not(.display-light))
+    :is(
+        .text-gray-400,
+        .text-gray-500,
+        .text-slate-400,
+        .text-slate-500,
+        [class~='text-white/35'],
+        [class~='text-white/40'],
+        [class~='text-white/42'],
+        [class~='text-white/45'],
+        [class~='text-white/50'],
+        [class~='text-white/55'],
+        [class~='text-white/60'],
+        [class~='text-white/65'],
+        [class~='text-white/70']
+    ) {
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
+}
+
+/* A solid base-ink rule must not swallow a delete/star/link hover cue from
+   Tailwind's utility layer. Only the legacy caption rule consumes this
+   property: white labels on filled action buttons are not recoloured. */
+@media (hover: hover) {
+    [class*='hover:text-white']:hover,
+    [class*='hover:text-gray-']:hover,
+    [class*='hover:text-slate-']:hover,
+    .group:hover [class*='group-hover:text-white'],
+    .group:hover [class*='group-hover:text-gray-'],
+    .group:hover [class*='group-hover:text-slate-'] {
+        --ui-caption-hover-ink: var(--ui-ink-primary);
+    }
+    [class*='hover:text-red-']:hover,
+    .group:hover [class*='group-hover:text-red-'] {
+        --ui-caption-hover-ink: var(--ui-hover-danger);
+    }
+    [class*='hover:text-amber-']:hover,
+    .group:hover [class*='group-hover:text-amber-'] {
+        --ui-caption-hover-ink: var(--ui-hover-amber);
+    }
+    [class*='hover:text-sky-']:hover,
+    .group:hover [class*='group-hover:text-sky-'] {
+        --ui-caption-hover-ink: var(--ui-hover-accent);
+    }
+    [class*='hover:text-emerald-']:hover,
+    .group:hover [class*='group-hover:text-emerald-'] {
+        --ui-caption-hover-ink: var(--ui-hover-success);
+    }
+}
+
+/* A section's colour remains meaningful, but daylight needs deeper ink than
+   a pale display accent. Do not remap chart symbols, image pixels or fills. */
+:root.display-light :is(.text-sky-200, .text-sky-300, .text-sky-400) {
+    color: #075985;
+}
+:root.display-light :is(.text-cyan-300, .text-cyan-400) {
+    color: #155e75;
+}
+:root.display-light :is(.text-teal-300, .text-teal-400) {
+    color: #115e59;
+}
+:root.display-light :is(.text-emerald-100, .text-emerald-300, .text-emerald-400) {
+    color: #065f46;
+}
+:root.display-light :is(.text-green-300, .text-green-400) {
+    color: #166534;
+}

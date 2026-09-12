@@ -10,6 +10,7 @@ import { importGPXToEntries } from '../../services/gpxService';
 import { ShipLogEntry } from '../../types';
 import { createLogger } from '../../utils/createLogger';
 import { TRACK_PREFIX, reconcileOptimisticMessage } from '../../components/chat/chatUtils';
+import { scrollChatToLatest } from '../../components/chat/scrollChatToLatest';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -279,7 +280,7 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
                     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
                     scrollTimerRef.current = setTimeout(() => {
                         scrollTimerRef.current = null;
-                        if (isCurrent()) messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                        if (isCurrent()) scrollChatToLatest(messageEndRef.current, 'smooth');
                     }, 50);
                 }
             } catch (err) {

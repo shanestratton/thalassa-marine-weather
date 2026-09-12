@@ -10,6 +10,7 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('EquipmentList');
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { EquipmentItem, EquipmentCategory } from '../../types';
 import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentService';
 import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
@@ -49,6 +50,7 @@ interface EquipmentListProps {
 // ── Main Component ────────────────────────────────────────────
 
 export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
+    const portalTarget = usePanePortalTarget();
     const initialScope = getAuthIdentityScope();
     const [items, setItems] = useState<EquipmentItem[]>([]);
     const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
@@ -670,7 +672,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             style={{ maxHeight: 'calc(100dvh - 12rem)' }}
                             onClick={(e) => e.stopPropagation()}
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby="equipment-actions-title"
                         >
                             {/* Close X */}
@@ -850,7 +852,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             </div>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget!,
                 )}
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}

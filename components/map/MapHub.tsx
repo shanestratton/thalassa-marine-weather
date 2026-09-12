@@ -36,7 +36,8 @@ import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
-import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
+import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
+import { useMapBase } from './useMapBase';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
@@ -271,6 +272,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     onLocationSelect,
     initialZoom = 5,
     mapStyle = 'mapbox://styles/mapbox/dark-v11',
+    daylightMode = false,
     minimalLabels = false,
     embedded = false,
     cleanPlanningMap = false,
@@ -1820,55 +1822,14 @@ export const MapHub: React.FC<MapHubProps> = ({
         mapReady,
         encVisible,
     );
-    // Satellite BASE imagery (Esri World Imagery raster under every custom
-    // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
-    // "satellite overlay instead of the enc overlay when running a route".
-    // Key doubles as the init-time visibility read in useMapInit.
-    // THE PURGE, final form (Shane 2026-07-11: "the app does not
-    // automatically go to our new layer" — it must, ALWAYS): satellite is
-    // SESSION-ONLY now, never persisted. Every boot is the white chart;
-    // satellite is a peek you flip on when you want it (the Seaway-debug
-    // lesson: state that shouldn't haunt doesn't persist). The effect
-    // below mirrors the live value into localStorage purely for
-    // EncVectorLayer's synchronous satelliteBaseOn() reads.
-    // CHART-ONLY hard-off RETIRED (Shane 2026-07-12: "just missing the
-    // sat overlay" — on the web chart, the day after asking for chart-
-    // ONLY there): every surface keeps the session-only satellite peek.
-    // DEFAULT BASE IS HYBRID NOW, every surface (Shane 2026-07-15:
-    // "lets default to hybrid" — satellite-streets, the public-page
-    // look, replaced plain satellite as the boot imagery). Offline
-    // caveat that used to keep native on the white-chart boot still
-    // exists (no tiles = dark under the glaze) but the Chart toggle is
-    // one tap and the owner asked. Still never persisted — the toggle
-    // owns it per session, so no state can haunt a later boot.
-    // BOOT DEFAULT is HYBRID as of 2026-07-22 (Shane: "can we have the charts
-    // page utilising the hybrid chart as default"). Plain satellite held the
-    // boot from 2026-07-19; clean-dark had it from 07-17; hybrid had it before
-    // that on 07-15. This has now flipped four times — the ONLY reliable
-    // reading of the current default is these two useState initialisers, so
-    // treat any prose elsewhere claiming otherwise as stale.
-    //
-    // What does NOT change: hybrid is imagery, so satOn is still true from the
-    // first frame and the chart still boots with the full satellite ENC
-    // treatment — white keel glaze, hidden land fills, amber safety contour —
-    // rather than the dark ECDIS look. Hybrid just adds roads and place names
-    // over the same photograph, which is the public voyage-page look.
-    // Session-only, never persisted, so this is a default and not a setting
-    // that can haunt a later boot.
-    //
-    // The old ChartModes dropdown was removed in July and accidentally took
-    // the only base-map writer with it, leaving Satellite and Ocean as dead
-    // constants. Keep this choice session-only (no stale base haunting a later
-    // boot), but make all three supported rasters reachable through the small
-    // MapBaseSelector on the browsing chart.
-    // Default flipped hybrid → satellite (Shane 2026-08-07: "can we make
-    // satellite the default layer on the obs page as well. not hybrid").
-    // Hybrid's road and place-name furniture is drawn for land navigation and
-    // clutters the water the chart is actually about; clean imagery lets the
-    // ENC marks and the track palette read on their own. Hybrid stays one tap
-    // away in the selector. Still session-only — a base map is a default here,
-    // not a persisted setting that can haunt a later boot.
-    const [mapBase, setMapBase] = useState<MapBaseKind>('satellite');
+    // OBS follows the app's resolved display mode: Ocean by day, Satellite in
+    // dark/night. The menu can override each mode for this map session without
+    // persisting stale choices across boots. Other map surfaces retain Satellite
+    // unless their host explicitly opts into daylightMode.
+    // All three bases retain the existing ENC safety-layer treatment. The
+    // localStorage write below is only EncVectorLayer's synchronous mirror,
+    // never the source of the selected background.
+    const { mapBase, setMapBase } = useMapBase(daylightMode);
     const baseVisibility = mapBaseVisibility(mapBase);
     const satelliteVisible = baseVisibility.satellite;
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
@@ -1880,8 +1841,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // mutually exclusive with satellite via MapBaseSelector, and
     // it gets the FULL satellite ENC treatment (glaze, hidden land
     // fills, bathy tint) via imageryOn below.
-    // HYBRID BOOTS ON as of 2026-07-22 — this is the boot base (see the
-    // satelliteVisible declaration above for the full history). The two
     // The visibility projection keeps all three bases mutually exclusive.
     // Plain satellite and bathymetric Ocean stay one tap away. Session-only.
     const hybridVisibleRaw = baseVisibility.hybrid;
@@ -2676,6 +2635,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         initialCenter: weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : undefined,
         onLocationSelect,
         pickerMode,
+        encVisible,
         settingPoint: passage.settingPoint,
         showPassage: passage.showPassage,
         departure: passage.departure,
@@ -3299,7 +3259,11 @@ export const MapHub: React.FC<MapHubProps> = ({
             {!pickerMode && <RouteEnhancementChip />}
             {/* Map container — 70% on tablet during passage, full otherwise */}
             <div className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}>
-                <div ref={containerRef} className="thalassa-chart-map w-full h-full" />
+                <div
+                    ref={containerRef}
+                    data-map-pane={isHelmSplit ? 'split' : undefined}
+                    className="thalassa-chart-map w-full h-full"
+                />
 
                 {pickerMode && (
                     <div

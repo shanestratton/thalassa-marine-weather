@@ -65,7 +65,11 @@ vi.mock('../services/supabase', () => {
                 })),
             },
             from,
-            rpc: vi.fn(async () => ({ data: null, error: null })),
+            rpc: vi.fn(async (name: string) => ({
+                data:
+                    name === 'get_chat_dm_block_status' ? { blockedByMe: false, blockedEitherDirection: false } : null,
+                error: null,
+            })),
             removeChannel: vi.fn(),
         },
         isSupabaseConfigured: () => true,

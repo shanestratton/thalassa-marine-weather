@@ -201,6 +201,11 @@ verify_jwt = false
 # the function. OFF per platform guidance.
 verify_jwt = false
 
+[functions.autorouting-trial]
+# requireAuthenticatedQuota verifies a real session; a server-only UUID grant,
+# explicit kill switch and hard expiry gate every evaluation provider request.
+verify_jwt = false
+
 [functions.founding-skipper-application]
 # Public application form. The function enforces exact-origin CORS, a bounded
 # body, strict validation, an HMAC-per-IP quota, and a service-role-only RPC.

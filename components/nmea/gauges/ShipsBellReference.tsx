@@ -11,6 +11,7 @@
  * it (tests/ShipsBellTable.test.ts pins both to the printed table).
  */
 import React from 'react';
+import '../instrumentDaylight.css';
 import {
     WATCH_ORDER,
     WATCH_SHORT,
@@ -36,7 +37,7 @@ export const ShipsBellReference: React.FC<Props> = ({ hour, minute }) => {
         <div className="rounded-2xl border border-white/[0.07] bg-slate-900/40 p-3">
             <div className="mb-2 flex items-baseline justify-between gap-2">
                 <h3 className="text-[13px] font-black tracking-wide text-slate-200">What the bells mean</h3>
-                <span className="text-[11px] font-bold" style={{ color: BRASS }}>
+                <span className="text-[11px] font-bold" style={{ color: `var(--nmea-brass-ink, ${BRASS})` }}>
                     {bellsSpoken(nowBells)} · {nowWatch}
                 </span>
             </div>
@@ -84,7 +85,7 @@ export const ShipsBellReference: React.FC<Props> = ({ hour, minute }) => {
                                                         <span
                                                             key={j}
                                                             className="h-[5px] w-[5px] rounded-full"
-                                                            style={{ background: BRASS }}
+                                                            style={{ background: `var(--nmea-brass-ink, ${BRASS})` }}
                                                         />
                                                     ))}
                                                 </span>

@@ -1,0 +1,83 @@
+/* Own all footer height in document flow: no warning can escape an SVG viewport
+ * or be covered by the following Parts of a sail / trim paragraphs. */
+.nmea-sail-plan {
+    --sail-guide-ink: #f1f5f9;
+    --sail-guide-muted: #cbd5e1;
+    --sail-guide-surface: #0f172a;
+    --sail-guide-border: #475569;
+    --sail-guide-warning: #fbbf24;
+    --sail-guide-warning-bg: #302710;
+    min-width: 0;
+    color: var(--sail-guide-ink);
+}
+
+.display-light .nmea-sail-plan {
+    --sail-guide-ink: #0f172a;
+    --sail-guide-muted: #475569;
+    --sail-guide-surface: #f8fafc;
+    --sail-guide-border: #94a3b8;
+    --sail-guide-warning: #854d0e;
+    --sail-guide-warning-bg: #fef3c7;
+}
+
+.nmea-sail-plan svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.nmea-sail-plan .sail-guide-caption {
+    margin: 0;
+    color: var(--sail-guide-muted);
+    font-size: 14px;
+    line-height: 1.5;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.nmea-sail-plan .sail-traveller-guide {
+    margin-top: 12px;
+    padding: 12px 4px 4px;
+    border: 1px solid var(--sail-guide-border);
+    border-radius: 14px;
+    background: var(--sail-guide-surface);
+    text-align: center;
+}
+
+.nmea-sail-plan h3 {
+    margin: 0;
+    color: var(--sail-guide-muted);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+}
+
+.nmea-sail-plan .sail-traveller-setting {
+    margin: 4px 0 0;
+    padding: 0 8px;
+    color: var(--sail-guide-ink);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.nmea-sail-plan .sail-plan-warnings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.nmea-sail-plan [data-mark='sail-warning'] {
+    flex: 1 1 160px;
+    margin: 0;
+    padding: 10px 8px;
+    border: 1px solid var(--sail-guide-warning);
+    border-radius: 12px;
+    background: var(--sail-guide-warning-bg);
+    color: var(--sail-guide-warning);
+    font-size: 16px;
+    font-weight: 800;
+    line-height: 1.4;
+    text-align: center;
+}

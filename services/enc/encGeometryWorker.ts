@@ -45,12 +45,11 @@ import { buildDerivedContours } from './derivedContours';
  *  renderer-killer twice over — once in the clone, once in geojson-vt. */
 const CONTOUR_RESULT_FEATURE_CAP = 40_000;
 
-/** Aggregate martinez input budget per JOB (sum of subject+clip vertices
- *  across every exact pair). The per-pair cap bounds one spike; this
- *  bounds how many spikes one job may stack before GC gets a look-in.
- *  Exhausted → remaining pairs degrade to strips (visible in the stats
- *  line as `strip-capped`). ~500k ≈ a few seconds of worker CPU on an
- *  iPhone and low-tens-of-MB transient — tune from the [glaze] line. */
+/** Aggregate conservative martinez WORK budget per JOB (historical export
+ *  name retained). Admission now includes possible edge-intersection events,
+ *  not merely input vertices, and charges BEFORE every attempted operation.
+ *  No measured-byte guarantee is implied. Exhausted → remaining pairs use
+ *  the existing strip grade, visible in the stats as `strip-capped`. */
 export const GLAZE_JOB_VERTEX_BUDGET = 500_000;
 
 const ctx = self as unknown as {

@@ -46,21 +46,21 @@ export interface FineCoverage {
 
 /** Hard ceiling on the vertices martinez may see in ONE subject/clip pair
  *  (subject's current rings + the fine coverage's rings). This is THE
- *  bound the 2026-07-13 post-mortem demanded before the true-coverage
- *  glaze could return: martinez's allocation spike scales with input
- *  vertices, and an unbounded pair OOM-killed the whole renderer process
+ *  first bound from the 2026-07-13 post-mortem. It is NOT a sufficient
+ *  allocation bound: intersections can grow quadratically with input
+ *  edges, and an unbounded pair OOM-killed the whole renderer process
  *  — from a worker (workers protect against hangs, not process OOM).
  *  Over-cap pairs degrade to the strip-rect clip (Sutherland–Hodgman,
- *  bounded by construction) instead. 12k vertices keeps martinez's
- *  transient allocation in the low MB; the [glaze] stats line reports
- *  maxPairVertices so a device profiling session can tune this. */
+ *  bounded by construction) instead. The separate PRE-CALL work admission
+ *  below bounds potential edge interactions before martinez can allocate;
+ *  the old claim that 12k vertices necessarily meant low MB was false. */
 export const GLAZE_MARTINEZ_VERTEX_CAP = 12_000;
 
 /**
  * THE HOLE EVERY OTHER BOUND LEFT OPEN: the RESULT was never measured.
  *
- * Every cap in this file guards an INPUT. maxPairVertices is subject+clip
- * before the call, and the per-job budget is charged the same number. But
+ * The original caps guarded INPUTS. maxPairVertices was subject+clip
+ * before the call, and the per-job budget charged that same number. But
  * martinez can return far more geometry than it consumes — subtracting a
  * fragmented reef coverage from a depth band shatters one polygon into
  * hundreds of slivers — and nothing looked at what came back.
@@ -77,9 +77,9 @@ export const GLAZE_MARTINEZ_VERTEX_CAP = 12_000;
  *
  * A clip whose output blows past these is degraded to the strip-rect path,
  * exactly like an over-cap input, and the PREVIOUS coords are kept. The job
- * budget is charged what the pair actually cost rather than what it looked
- * like it would cost, so a run of cheap-input/expensive-output pairs can no
- * longer proceed for free.
+ * pre-call work admission below now charges conservative interaction work
+ * BEFORE the call as well. This output check remains defence in depth; it
+ * cannot undo allocations the library made before returning.
  *
  * Two thresholds because they catch different pathologies: an absolute
  * ceiling for "this is simply too much geometry", and an expansion ratio for
@@ -90,6 +90,21 @@ export const GLAZE_MARTINEZ_VERTEX_CAP = 12_000;
 export const GLAZE_RESULT_VERTEX_CAP = 24_000;
 export const GLAZE_RESULT_EXPANSION_LIMIT = 3;
 export const GLAZE_RESULT_EXPANSION_FLOOR = 2_000;
+
+/** Conservative pre-call work budget, using the existing 24k output budget.
+ *  A result check cannot stop allocations INSIDE a boolean operation. Use
+ *  every vertex as an upper bound on edges (including ring closure), and
+ *  allow four split events for every possible pair of edges in BOTH inputs.
+ *  Counting all pairs includes internal/overlapping multipolygon work, not
+ *  just subject×coverage. This is an O(1) admission estimate, not a measured
+ *  byte bound or an unbounded quadratic intersection pre-pass. */
+export const GLAZE_MARTINEZ_WORK_CAP = GLAZE_RESULT_VERTEX_CAP;
+
+export function martinezAdmissionWork(vertices: number): number {
+    if (!Number.isSafeInteger(vertices) || vertices < 0) return Infinity;
+    const work = vertices + 2 * vertices * (vertices - 1);
+    return Number.isSafeInteger(work) ? work : Infinity;
+}
 
 /** Did this clip's OUTPUT blow past what we are willing to carry? */
 export function glazeResultOverBudget(outVerts: number, pairVerts: number): boolean {
@@ -596,10 +611,11 @@ function coordsBbox(polys: CoverageGeom): Bbox {
  * genuinely silent, so exactly one band covers charted water and ZERO
  * bands cover only what nobody charted.
  *
- * BOUNDED (2026-07-17, the re-enable precondition): martinez never sees a
- * subject+clip pair over `maxPairVertices`, and a shared `budget` (scoped
- * to one worker JOB) caps the AGGREGATE martinez work — both degrade
- * over-limit pairs to that fine's strip-rect clip (or its data-extent
+ * BOUNDED admission: martinez never sees a subject+clip pair over
+ * `maxPairVertices` or the conservative edge-interaction work cap. A shared
+ * `budget` (one worker JOB) is charged BEFORE each admitted call, including
+ * calls that throw or return discarded output. Over-limit pairs use that
+ * fine's strip-rect clip (or its data-extent
  * rect when strips are absent), Sutherland–Hodgman, bounded by
  * construction.
  *
@@ -652,7 +668,12 @@ export function clipFeatureOutsideCoverage(
         if (!bboxesIntersect(fb, fine.bbox)) continue;
         const pairVerts = subjectVerts + coverageVertexCount(fine.coverage);
         if (stats && pairVerts > stats.maxPairVertices) stats.maxPairVertices = pairVerts;
-        if (pairVerts > maxPairVertices || (budget != null && budget.remaining <= 0)) {
+        const admissionWork = martinezAdmissionWork(pairVerts);
+        if (
+            pairVerts > maxPairVertices ||
+            admissionWork > GLAZE_MARTINEZ_WORK_CAP ||
+            (budget != null && !(admissionWork <= budget.remaining))
+        ) {
             // Over the per-pair or per-job martinez bound — degrade THIS
             // pair to the bounded strip clip. `stripRects: []` is the
             // three-state rule's "charted but nothing to clip": touch
@@ -664,6 +685,10 @@ export function clipFeatureOutsideCoverage(
             if (rects.length > 0) degradeRects.push(...rects);
             continue;
         }
+        // Precharge the whole conservative attempt, not only a successful
+        // return. An exception/result rejection must not make costly work
+        // free, and the remaining job budget must never overshoot by a pair.
+        if (budget) budget.remaining -= admissionWork;
         try {
             const out = martinezDiff(
                 coords as unknown as Parameters<typeof martinezDiff>[0],
@@ -674,7 +699,6 @@ export function clipFeatureOutsideCoverage(
                 // the cheapest possible one.
                 touched = true;
                 if (stats) stats.pairsExact++;
-                if (budget) budget.remaining -= pairVerts;
                 return null;
             }
             const outVerts = coverageVertexCount(out);
@@ -684,16 +708,12 @@ export function clipFeatureOutsideCoverage(
                 // the bounded path for this pair — the same degrade an
                 // over-cap input gets, for the same reason.
                 if (stats) stats.pairsResultCapped++;
-                if (budget) budget.remaining -= outVerts; // charge what it really cost
                 const rects = fine.stripRects ?? [fine.bbox];
                 if (rects.length > 0) degradeRects.push(...rects);
                 continue;
             }
             touched = true;
             if (stats) stats.pairsExact++;
-            // Charge the larger of in and out: a pair that expands is more
-            // expensive than it looked, and the job budget should feel it.
-            if (budget) budget.remaining -= Math.max(pairVerts, outVerts);
             // Kill #29: sanitize BETWEEN pairs, not only at the tail —
             // pair N's degenerate slivers used to become pair N+1's
             // martinez SUBJECT, exactly the fragile-input feedback this
@@ -704,7 +724,10 @@ export function clipFeatureOutsideCoverage(
             subjectVerts = coverageVertexCount(cleanOut);
         } catch {
             if (stats) stats.pairsRectFallback++;
-            degradeRects.push(fine.bbox);
+            // The same three-state contract applies on an exact-clip error:
+            // [] means clip nothing, absent strips means the extent fallback.
+            const rects = fine.stripRects ?? [fine.bbox];
+            if (rects.length > 0) degradeRects.push(...rects);
         }
     }
     if (degradeRects.length > 0) {

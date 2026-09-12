@@ -171,7 +171,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 {/* Pinned-metric mode: small label + value + unit.
                                         Uses typography proportional to the temp slot so
                                         the header doesn't jump height on pin/unpin. */}
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
+                                <span className="glass-tide-caption text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
                                     {pinnedDisplay.label}
                                 </span>
                                 <div className="flex items-baseline gap-1 leading-none">
