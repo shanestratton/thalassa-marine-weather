@@ -12,6 +12,8 @@ import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { AisGuardAlert } from './components/map/AisGuardAlert';
+import { PassageHudPane } from './components/passage/PassageHudPane';
+import { usePassageHudEnabled, usePassageHudOpen } from './stores/passageHudStore';
 import { LocationStarMenu } from './components/LocationStarMenu';
 import { SkeletonDashboard, SkeletonPage } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
@@ -148,6 +150,8 @@ const App: React.FC = () => {
         if (currentView === 'map') setChartKeepAlive(true);
     }, [currentView]);
     const chartVisible = currentView === 'map';
+    const passageHudOpen = usePassageHudOpen();
+    const passageHudEnabled = usePassageHudEnabled();
 
     // --- AUTH: deferred to save-time, not boot-time. ---
     // authStore is consumed wherever identity matters (SignInScreen at
@@ -1355,6 +1359,13 @@ const App: React.FC = () => {
                         <main
                             ref={chartContentRef}
                             data-split-pane={splitChartActive ? 'chart' : undefined}
+                            // While the passage pane is open the legend and the ENC notice
+                            // step out of its column (index.css, [data-passage-hud='open']).
+                            data-passage-hud={
+                                chartVisible && passageHudEnabled && passageHudOpen && !mapPickerActive && !tracerActive
+                                    ? 'open'
+                                    : undefined
+                            }
                             // In split, the OTHER main also renders (it draws the
                             // frames), and it owns the main-content id — two
                             // elements with one id is how skip-links break.
@@ -1412,6 +1423,23 @@ const App: React.FC = () => {
                                     />
                                 </Suspense>
                             </ErrorBoundary>
+                            {/* Passage pane — the one place to look under way (Shane
+                            2026-09-17). Inside the chart <main> so it rides with the
+                            split frame; never over the location picker or the route
+                            tracer, which own the whole chart while they are up. The
+                            passage planner and the consensus matrix hide it from CSS
+                            (index.css, main:has(...)), because only MapHub knows them. */}
+                            {chartVisible && !mapPickerActive && !tracerActive && (
+                                <PassageHudPane
+                                    // The strip carries Back while it is shown: App's own
+                                    // chevron below shares its column and is hidden by
+                                    // index.css for exactly that long. Same action.
+                                    onBack={() => {
+                                        delete window.__thalassaPinView;
+                                        setPage(previousView || 'dashboard');
+                                    }}
+                                />
+                            )}
                             {/* Offline chip — matches the wifi-slash chip in the App header
                             and the Glass page's location-pill chip. Sits at top-left, only
                             visible when offline. Replaces the previous full-width amber
@@ -1484,7 +1512,12 @@ const App: React.FC = () => {
                                 </Suspense>
                             </div>
                             {/* Back chevron — middle-left of screen */}
-                            <div className="absolute z-601 px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                            <div
+                                // thalassa-map-back: hidden while the passage strip is shown — the strip
+                                // carries its own Back then (index.css).
+                                className="thalassa-map-back absolute z-601 px-3"
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                            >
                                 <button
                                     onClick={() => {
                                         // Clear pin-view state when leaving map
