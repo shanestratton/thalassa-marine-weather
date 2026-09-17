@@ -18,6 +18,7 @@ import { daylightUiColor } from '../../utils/daylightUiColor';
 import { PauseIcon, PlayIcon } from '../Icons';
 import { CHL_GRADIENT, CURRENT_WAVE_GRADIENT, MLD_GRADIENT, SST_GRADIENT } from './marineLayerRamps';
 import { WIND_GRADIENT } from './windRamp';
+import { usePassageHudEnabled, usePassageHudOpen } from '../../stores/passageHudStore';
 
 // ── Layer definitions for the generic legend ──
 export type HelixLayer =
@@ -260,7 +261,15 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         // readable, so defaulting it shut was solving the wrong half.
         //
         // Tapping the layer icon still collapses it to a 44px chip in place.
-        const [showLegend, setShowLegend] = useState(true);
+        // The passage strip shares the legend's column. Expanded, the legend
+        // moved right of it lands under the Copernicus licence credit (measured:
+        // 49 x 68 px hidden), so while the strip is open the legend starts
+        // folded to its chip — and the skipper's own tap still wins either way.
+        const hudOpen = usePassageHudOpen();
+        const hudEnabled = usePassageHudEnabled();
+        const [legendChoice, setLegendChoice] = useState<boolean | null>(null);
+        const showLegend = legendChoice ?? !(hudEnabled && hudOpen && !embedded);
+        const setShowLegend = setLegendChoice;
 
         const config = activeLayer ? LAYER_CONFIGS[activeLayer] : null;
         const maxFrame = Math.max(0, totalFrames - 1);
@@ -445,7 +454,12 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                     gap. Deliberately NOT in the bottom row with the scrubber:
                     that corner already carries the model chips and the
                     lightning stack. */}
-                <div className="absolute z-500" style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}>
+                <div
+                    // thalassa-helix-legend: the passage pane shares this column, and
+                    // index.css steps the legend right of it while the pane is open.
+                    className="thalassa-helix-legend absolute z-500"
+                    style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}
+                >
                     {showLegend && (
                         <div
                             className="flex flex-col items-center gap-1 animate-in fade-in duration-200"

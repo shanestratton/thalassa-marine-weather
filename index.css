@@ -3832,6 +3832,117 @@ body.animation-diet [class*='slide-in'] {
    a negative content height. In short landscape, use the wide axis: layers
    open on the left while the helm stays on the right, and Tracer becomes a
    full-height scrollable rail clear of the navigation escape button. */
+/* ── Passage strip on the Obs chart (Shane 2026-09-17) ────────────────────
+   A 4.75rem instrument strip down the left edge, like a chartplotter's data
+   bar (about 75px on a 393px phone — the root font is fluid below 768px, so
+   the strip scales with its own text). The width is the design: every CENTRED
+   piece of chart furniture (the RainViewer and Copernicus licence credits, the
+   tide scrubber) starts to the right of it, so nothing carrying a licence
+   condition is ever moved or covered.
+
+   Clearances that must line up with px-anchored neighbours are in px: 60px
+   clears the 56px top control row; 232px clears the bottom-left weather
+   controls (the wind-model row tops out at inset + 210px). The split frame
+   needs no override — its furniture still pays the insets, so the strip does. */
+.thalassa-passage-hud {
+    top: calc(env(safe-area-inset-top) + 60px);
+    max-height: calc(100% - env(safe-area-inset-top) - 60px - 232px - env(safe-area-inset-bottom));
+}
+/* The closed tab sits below the Back chevron. */
+.thalassa-passage-hud-tab {
+    top: calc(50% + 40px);
+}
+/* Surfaces that own the chart: no strip and no tab. Only MapHub knows when the
+   passage planner, the consensus matrix or a storm card is up, so CSS asks the
+   DOM. The storm card keeps Shane's standing rule — it stays on top of every
+   other layer — and there is no room beside it on a phone (strip + card + MOB
+   rail is wider than the screen). */
+main:has(.thalassa-passage-banner) .thalassa-passage-hud,
+main:has(.thalassa-passage-banner) .thalassa-passage-hud-tab,
+main:has(button[aria-label='Close consensus matrix']) .thalassa-passage-hud,
+main:has(button[aria-label='Close consensus matrix']) .thalassa-passage-hud-tab,
+main:has(.storm-hud-badges) .thalassa-passage-hud,
+main:has(.storm-hud-badges) .thalassa-passage-hud-tab {
+    display: none;
+}
+/* A landscape phone has ~390px of height and a full bottom-left rail: there is
+   no honest place for seven numbers. Phase 1 stands down there. */
+@media (orientation: landscape) and (max-height: 600px) {
+    .thalassa-passage-hud,
+    .thalassa-passage-hud-tab {
+        display: none;
+    }
+}
+/* What shares the strip's column yields ONLY while the strip is really on
+   screen — never for a strip the rules above have hidden. */
+@media not ((orientation: landscape) and (max-height: 600px)) {
+    /* The strip carries its own Back button; App's chevron sits in its column. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-map-back {
+        display: none;
+    }
+    /* The wind legend (folded to its chip by ThalassaHelixControl while the
+       strip is open) steps right AND down into the slot the hidden Back
+       chevron has just vacated: beside the strip at its usual height it sat
+       under the tall all-layers Copernicus credit (measured 35 x 15px).
+       Its position is inline, hence !important. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-helix-legend {
+        left: calc(4.75rem + 12px) !important;
+        bottom: calc(50% - 24px) !important;
+    }
+    /* The squall / lightning legend stack is viewport-fixed at left-2, in the
+       band of both the strip and the closed tab. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .fixed.left-2.z-140 {
+        left: calc(4.75rem + 8px);
+    }
+    main:has(.thalassa-passage-hud-tab):not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .fixed.left-2.z-140 {
+        left: calc(1.75rem + 8px);
+    }
+    /* The ENC coverage notice is re-centred in the width that is left. Each
+       context states its own transform: the split and narrow-portrait rules
+       set transform:none, and a rule that only moved `left` inherited it and
+       ran the notice off the right-hand edge. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-enc-coverage-notice {
+        left: calc(4.75rem + (100% - 4.75rem) / 2);
+        width: min(390px, calc(100% - 4.75rem - 24px));
+        transform: translateX(-50%);
+    }
+}
+@media (min-height: 601px) {
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))[data-split-pane='chart']
+        .thalassa-enc-coverage-notice {
+        left: calc(4.75rem + 72px);
+        width: min(390px, calc(100% - 4.75rem - 152px));
+        transform: none;
+    }
+}
+@media (orientation: portrait) and (max-width: 360px) {
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-enc-coverage-notice {
+        left: calc(4.75rem + 8px);
+        width: calc(100% - 4.75rem - 20px);
+        transform: none;
+    }
+}
+
 @media (orientation: landscape) and (max-height: 500px) {
     .anchor-setup-scroll {
         padding-bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;

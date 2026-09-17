@@ -246,7 +246,9 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
     return (
         <div
-            className="absolute left-3 right-3 z-502 animate-in fade-in slide-in-from-top-2 duration-300"
+            // thalassa-passage-banner: index.css hides the Obs passage pane while
+            // the planner owns the chart (main:has(.thalassa-passage-banner)).
+            className="thalassa-passage-banner absolute left-3 right-3 z-502 animate-in fade-in slide-in-from-top-2 duration-300"
             // Sits below the safe-area inset + ChartModes chip (which
             // claims the top 56px on top of the inset). Without this
             // the banner overlapped the system status pill, the mic
