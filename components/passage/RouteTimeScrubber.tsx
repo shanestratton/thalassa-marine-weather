@@ -24,6 +24,13 @@
  * The axis is "hours from now", zero to whichever comes first: she arrives at
  * her cruising speed, or seven days. It does not pretend past either.
  *
+ * PHASE 3 — THE BAND. Behind the track, the five models' wind along HER PLAN:
+ * a band from the lowest to the highest of them, the pinned model's own line
+ * through it, red where they are split. It costs no height — the bottom rail
+ * has none to give — and it answers at a glance the two things a skipper scrubs
+ * for: where does it blow, and where do the models stop agreeing. The credit
+ * then names every provider whose numbers are in the band.
+ *
  * Presentational. The strip owns the numbers; this only moves the offset.
  */
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -55,6 +62,96 @@ export function fmtMoment(ms: number): string {
     return `${day} ${hh}:${mm}`;
 }
 
+/** One point of the model-spread band, at fraction `f` (0…1) of the axis. */
+export interface SpreadBandPoint {
+    f: number;
+    minKts: number | null;
+    maxKts: number | null;
+    /** The pinned model's own wind there — the line through the band. */
+    pinnedKts: number | null;
+    level: 'none' | 'agree' | 'some' | 'split';
+}
+
+/**
+ * The band's vertical scale: a little over the strongest wind in it, and never
+ * under this. Seen on the real chart on a 6–10 kn day, a fixed 25 kn top left
+ * the whole band as a squiggle along the bottom of a 28 px track. The scale
+ * carries no labels — what it has to show is SHAPE and WIDTH — but the floor
+ * stops a five-knot drift being drawn as though it were a blow.
+ */
+const BAND_MIN_TOP_KTS = 15;
+const BAND_HEADROOM = 1.15;
+
+/** SVG paths for the band, in a 100 × 28 box. Exported for the tests. */
+export function spreadBandPaths(points: readonly SpreadBandPoint[]): {
+    band: string[];
+    split: string[];
+    /** A rule along the top for every split stretch — see below. */
+    splitRule: string[];
+    line: string;
+    topKts: number;
+} {
+    const strongest = Math.max(0, ...points.flatMap((p) => [p.maxKts ?? 0, p.pinnedKts ?? 0]));
+    const topKts = Math.max(BAND_MIN_TOP_KTS, strongest * BAND_HEADROOM);
+    const x = (p: SpreadBandPoint) => (p.f * 100).toFixed(2);
+    const y = (kts: number) => (28 - (Math.max(0, Math.min(kts, topKts)) / topKts) * 26 - 1).toFixed(2);
+    // Runs of consecutive points that HAVE a range: a gap (models ran out, no
+    // forecast) breaks the band rather than being drawn across.
+    const runs = (keep: (p: SpreadBandPoint) => boolean): SpreadBandPoint[][] => {
+        const out: SpreadBandPoint[][] = [];
+        let run: SpreadBandPoint[] = [];
+        for (const p of points) {
+            if (p.minKts !== null && p.maxKts !== null && keep(p)) run.push(p);
+            else {
+                if (run.length > 1) out.push(run);
+                run = [];
+            }
+        }
+        if (run.length > 1) out.push(run);
+        return out;
+    };
+    const area = (run: SpreadBandPoint[]) =>
+        `M${run.map((p) => `${x(p)},${y(p.maxKts as number)}`).join(' L')} L${[...run]
+            .reverse()
+            .map((p) => `${x(p)},${y(p.minKts as number)}`)
+            .join(' L')} Z`;
+    const pinned = points.filter((p) => p.pinnedKts !== null);
+    // THE RULE. The red envelope alone under-reported twice over (review,
+    // 2026-09-19): a split that is all about DIRECTION has a range of nothing —
+    // five models at 18 kn from 80° apart drew no red at all — and a split one
+    // sample long was dropped as "not a band". So every split stretch, whatever
+    // caused it and however short, gets a rule along the top of the box, half a
+    // step either side of its samples. It sits clear of the band: the scale's
+    // headroom keeps the strongest wind below it.
+    const gaps = points
+        .slice(1)
+        .map((p, i) => p.f - points[i].f)
+        .filter((d) => d > 0);
+    const half = gaps.length > 0 ? (Math.min(...gaps) * 100) / 2 : 0;
+    const splitRuns: SpreadBandPoint[][] = [];
+    let current: SpreadBandPoint[] = [];
+    for (const p of points) {
+        if (p.level === 'split') current.push(p);
+        else if (current.length > 0) {
+            splitRuns.push(current);
+            current = [];
+        }
+    }
+    if (current.length > 0) splitRuns.push(current);
+    const splitRule = splitRuns.map((run) => {
+        const from = Math.max(0, run[0].f * 100 - half).toFixed(2);
+        const to = Math.min(100, run[run.length - 1].f * 100 + half).toFixed(2);
+        return `M${from},1.5 L${to},1.5`;
+    });
+    return {
+        band: runs(() => true).map(area),
+        split: runs((p) => p.level === 'split').map(area),
+        splitRule,
+        line: pinned.length > 1 ? `M${pinned.map((p) => `${x(p)},${y(p.pinnedKts as number)}`).join(' L')}` : '',
+        topKts,
+    };
+}
+
 export interface RouteTimeScrubberProps {
     aheadMs: number;
     /** End of the axis: arrival at cruising speed, or seven days. */
@@ -72,6 +169,16 @@ export interface RouteTimeScrubberProps {
      * the radar under the ghost is this minute's and not Saturday's.
      */
     unsyncedLayers?: readonly string[];
+    /** True when the arrival is worked from the wind (a polar) and not a flat speed. */
+    arrivalEstimated?: boolean;
+    /** Offset from which her speed is ASSUMED because the wind forecast has run out; null if never. */
+    assumedFromMs?: number | null;
+    /** The five models' wind along her plan; null when there is no spread to draw. */
+    spreadBand?: readonly SpreadBandPoint[] | null;
+    /** Every provider whose numbers are in the band — all of them are credited. */
+    spreadProviders?: readonly string[] | null;
+    /** Hours ahead the chart's RAIN imagery can follow to; null when it cannot or is off. */
+    rainCoverageHours?: number | null;
     modelLabel: string;
     modelProvider: string;
     cruiseKts: number;
@@ -88,6 +195,11 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     nowMs,
     windCoverageHours,
     unsyncedLayers = [],
+    arrivalEstimated = false,
+    assumedFromMs = null,
+    spreadBand = null,
+    spreadProviders = null,
+    rainCoverageHours = null,
     modelLabel,
     modelProvider,
     cruiseKts,
@@ -153,7 +265,10 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
             ? Math.max(0, (windCoverageHours * HOUR_MS * 100) / maxMs)
             : null;
     const pastField = windCoverageHours !== null && aheadHours > windCoverageHours;
-    const atEnd = usable && aheadMs >= maxMs;
+    // A second's grace: the plan is re-walked every 30 s and its end moves by
+    // moments; the strip snaps a parked offset to the new end, and until it has,
+    // she is still AT the end — Play must offer to start again, not do nothing.
+    const atEnd = usable && aheadMs >= maxMs - 1000;
     const clock = fmtMoment(nowMs + aheadMs);
     const moment = `${clock} · ${fmtAhead(aheadMs)}`;
 
@@ -166,13 +281,36 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
 
     // Only when there is something to say: the row costs height the chart's
     // bottom rail does not have to spare.
+    const pastRain = rainCoverageHours !== null && aheadHours > rainCoverageHours;
+    // Her speed is assumed from here on: the wind forecast has run out, and a
+    // polar fed nothing is an invention. Said once she scrubs into that stretch.
+    const assuming = assumedFromMs !== null && aheadMs >= assumedFromMs && arrivalEstimated;
     const note = pastField
         ? `Chart wind ends +${Math.round(windCoverageHours ?? 0)} h — numbers continue`
-        : atEnd
-          ? endsAtArrival
-              ? `Arrives, at ${cruiseKts.toFixed(1)} kn cruising`
-              : 'Seven days — the forecast stops here'
-          : null;
+        : pastRain
+          ? `Chart rain ends +${rainCoverageHours < 10 ? rainCoverageHours.toFixed(1) : Math.round(rainCoverageHours)} h`
+          : assuming
+            ? `No wind forecast here — ${cruiseKts.toFixed(1)} kn assumed`
+            : atEnd
+              ? endsAtArrival
+                  ? arrivalEstimated
+                      ? 'Arrives — by the wind, an estimate'
+                      : `Arrives, at ${cruiseKts.toFixed(1)} kn cruising`
+                  : 'Seven days — the forecast stops here'
+              : null;
+    // ONE note slot, and the wind's sentence wins it. Past BOTH reaches the rain
+    // is back on its observed frame with nothing saying so — the swallowed note
+    // was the only label it had (review, 2026-09-19). So there it goes back on
+    // the row that says, truthfully, that it is at its own time.
+    const ownTime: readonly string[] =
+        pastRain && pastField && !unsyncedLayers.includes('rain') ? ['rain', ...unsyncedLayers] : unsyncedLayers;
+    const band = spreadBand && spreadBand.length > 1 ? spreadBandPaths(spreadBand) : null;
+    const credited =
+        spreadProviders && spreadProviders.length > 0
+            ? spreadProviders.includes(modelProvider)
+                ? spreadProviders
+                : [modelProvider, ...spreadProviders]
+            : [modelProvider];
 
     return (
         <div
@@ -262,6 +400,42 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
                         dragging.current = false;
                     }}
                 >
+                    {band && (
+                        <svg
+                            className="pointer-events-none absolute inset-0 h-full w-full"
+                            viewBox="0 0 100 28"
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                            data-testid="route-scrub-band"
+                        >
+                            {band.band.map((d) => (
+                                <path key={`b${d}`} d={d} fill="rgba(125,211,252,0.42)" />
+                            ))}
+                            {band.split.map((d) => (
+                                <path key={`s${d}`} d={d} fill="rgba(248,113,113,0.5)" />
+                            ))}
+                            {band.splitRule.map((d) => (
+                                <path
+                                    key={`r${d}`}
+                                    d={d}
+                                    fill="none"
+                                    stroke="rgba(248,113,113,0.95)"
+                                    strokeWidth="3"
+                                    vectorEffect="non-scaling-stroke"
+                                    data-testid="route-scrub-band-split"
+                                />
+                            ))}
+                            {band.line && (
+                                <path
+                                    d={band.line}
+                                    fill="none"
+                                    stroke="rgba(252,211,77,0.95)"
+                                    strokeWidth="1.6"
+                                    vectorEffect="non-scaling-stroke"
+                                />
+                            )}
+                        </svg>
+                    )}
                     <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/12">
                         {/* The stretch of the axis the chart's wind FIELD covers. */}
                         {coveragePct !== null && (
@@ -288,14 +462,13 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
                     />
                 </div>
 
-                {unsyncedLayers.length > 0 && aheadMs >= 60_000 && (
+                {ownTime.length > 0 && aheadMs >= 60_000 && (
                     <p
                         className="text-[12px] font-semibold leading-tight text-amber-300"
                         data-testid="route-scrub-unsynced"
                         role="status"
                     >
-                        Chart {unsyncedLayers.join(', ')}: still at {unsyncedLayers.length > 1 ? 'their' : 'its'} own
-                        time
+                        Chart {ownTime.join(', ')}: still at {ownTime.length > 1 ? 'their' : 'its'} own time
                     </p>
                 )}
                 {note && (
@@ -314,7 +487,7 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
                     NEVER truncated — it wraps on a narrow phone instead. The
                     full attribution line is in the change-model dialog. */}
                 <p className="text-[12px] font-semibold leading-tight text-gray-400" data-testid="route-scrub-credit">
-                    Forecast data: {modelProvider}
+                    Forecast data: {credited.join(', ')}
                 </p>
             </div>
         </div>

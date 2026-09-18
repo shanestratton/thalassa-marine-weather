@@ -18,7 +18,13 @@ vi.mock('../utils/system', async (importOriginal) => ({
     triggerHaptic: vi.fn(),
 }));
 
-import { RouteTimeScrubber, fmtAhead, type RouteTimeScrubberProps } from '../components/passage/RouteTimeScrubber';
+import {
+    RouteTimeScrubber,
+    fmtAhead,
+    spreadBandPaths,
+    type RouteTimeScrubberProps,
+    type SpreadBandPoint,
+} from '../components/passage/RouteTimeScrubber';
 
 const HOUR = 3_600_000;
 const NOW = new Date(2026, 8, 18, 9, 0, 0).getTime(); // a Friday, 09:00 local
@@ -256,5 +262,150 @@ describe('Play', () => {
         fireEvent.click(screen.getByTestId('route-scrub-play'));
         expect(props.onAhead).toHaveBeenCalledWith(0);
         expect(props.onPlaying).toHaveBeenCalledWith(true);
+    });
+});
+
+describe('the band: where it blows, and where the models stop agreeing', () => {
+    const band: SpreadBandPoint[] = [
+        { f: 0, minKts: 8, maxKts: 12, pinnedKts: 10, level: 'agree' },
+        { f: 0.25, minKts: 9, maxKts: 20, pinnedKts: 11, level: 'split' },
+        { f: 0.5, minKts: 10, maxKts: 24, pinnedKts: 12, level: 'split' },
+        { f: 0.75, minKts: null, maxKts: null, pinnedKts: 14, level: 'none' }, // the others ran out
+        { f: 1, minKts: null, maxKts: null, pinnedKts: null, level: 'none' },
+    ];
+
+    it('draws the range, marks the split stretch, and runs the pinned model’s own line through it', () => {
+        setup({ spreadBand: band });
+        expect(screen.getByTestId('route-scrub-band')).toBeTruthy();
+        expect(screen.getAllByTestId('route-scrub-band-split')).toHaveLength(1);
+    });
+
+    it('does NOT draw across a gap: where the models ran out the band stops, it is not stretched to the end', () => {
+        const paths = spreadBandPaths(band);
+        expect(paths.band).toHaveLength(1);
+        const xs = [...paths.band[0].matchAll(/(?:M|L)([\d.]+),/g)].map((m) => Number(m[1]));
+        expect(Math.max(...xs)).toBe(50); // ends at the last point that HAS a range
+        // …while the pinned model's line carries on for as long as IT has wind.
+        expect(paths.line).toContain('75.00,');
+        expect(paths.line).not.toContain('100.00,');
+    });
+
+    it('a single point is not a band, and nothing is drawn with no spread at all', () => {
+        expect(spreadBandPaths([band[0]]).band).toEqual([]);
+        setup({ spreadBand: null });
+        expect(screen.queryByTestId('route-scrub-band')).toBeNull();
+    });
+
+    it('scales to a little over the strongest wind in it — and never below 15 kn, so a drift is not drawn as a blow', () => {
+        expect(spreadBandPaths(band).topKts).toBeCloseTo(24 * 1.15, 6);
+        expect(spreadBandPaths([{ ...band[0], maxKts: 48 }, band[1]]).topKts).toBeCloseTo(48 * 1.15, 6);
+        const drift: SpreadBandPoint[] = [
+            { f: 0, minKts: 3, maxKts: 5, pinnedKts: 4, level: 'agree' },
+            { f: 1, minKts: 4, maxKts: 6, pinnedKts: 5, level: 'agree' },
+        ];
+        expect(spreadBandPaths(drift).topKts).toBe(15);
+    });
+
+    it('costs the scrubber no height: it lives inside the track', () => {
+        setup({ spreadBand: band });
+        const svg = screen.getByTestId('route-scrub-band');
+        expect(svg.parentElement).toBe(screen.getByTestId('route-scrub-track'));
+        expect(svg.getAttribute('class')).toContain('absolute');
+        expect(svg.getAttribute('class')).toContain('pointer-events-none');
+    });
+
+    it('credits EVERY provider whose numbers are in the band, the pinned model’s among them', () => {
+        setup({ modelProvider: 'ECMWF', spreadProviders: ['DWD', 'ECMWF', 'UK Met Office', 'JMA'] });
+        expect(screen.getByTestId('route-scrub-credit').textContent).toBe(
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA',
+        );
+        cleanup();
+        // The pinned model answered on its own but was missing from the band: still named, first.
+        setup({ modelProvider: 'JMA', spreadProviders: ['DWD', 'ECMWF'] });
+        expect(screen.getByTestId('route-scrub-credit').textContent).toBe('Forecast data: JMA, DWD, ECMWF');
+    });
+});
+
+describe('phase 3 notes', () => {
+    it('says where the chart’s RAIN ends, once the ghost has sailed past it', () => {
+        setup({ maxMs: 20 * HOUR, aheadMs: 6 * HOUR, rainCoverageHours: 3.7 });
+        expect(screen.getByTestId('route-scrub-note').textContent).toBe('Chart rain ends +3.7 h');
+        cleanup();
+        setup({ maxMs: 20 * HOUR, aheadMs: 2 * HOUR, rainCoverageHours: 3.7 });
+        expect(screen.queryByTestId('route-scrub-note')).toBeNull();
+    });
+
+    it('says when her speed is ASSUMED because the wind forecast has run out — only by the wind, only from there on', () => {
+        setup({ maxMs: 100 * HOUR, aheadMs: 80 * HOUR, assumedFromMs: 70 * HOUR, arrivalEstimated: true });
+        expect(screen.getByTestId('route-scrub-note').textContent).toBe('No wind forecast here — 6.0 kn assumed');
+        cleanup();
+        setup({ maxMs: 100 * HOUR, aheadMs: 60 * HOUR, assumedFromMs: 70 * HOUR, arrivalEstimated: true });
+        expect(screen.queryByTestId('route-scrub-note')).toBeNull();
+        cleanup();
+        setup({ maxMs: 100 * HOUR, aheadMs: 80 * HOUR, assumedFromMs: 70 * HOUR, arrivalEstimated: false });
+        expect(screen.queryByTestId('route-scrub-note')).toBeNull(); // flat speed assumes nothing about the wind
+    });
+
+    it('an arrival worked from the wind is called an estimate; a flat-speed one names the speed', () => {
+        setup({ aheadMs: 20 * HOUR, endsAtArrival: true, arrivalEstimated: true });
+        expect(screen.getByTestId('route-scrub-note').textContent).toBe('Arrives — by the wind, an estimate');
+        cleanup();
+        setup({ aheadMs: 20 * HOUR, endsAtArrival: true, arrivalEstimated: false });
+        expect(screen.getByTestId('route-scrub-note').textContent).toBe('Arrives, at 6.0 kn cruising');
+    });
+});
+
+describe('what the review of phase 3 caught on the scrubber', () => {
+    it('a split that is ALL ABOUT DIRECTION still paints red: five models at 18 kn from 80° apart have a range of nothing', () => {
+        const band: SpreadBandPoint[] = [
+            { f: 0, minKts: 18, maxKts: 18, pinnedKts: 18, level: 'split' },
+            { f: 0.5, minKts: 18, maxKts: 18, pinnedKts: 18, level: 'split' },
+            { f: 1, minKts: 18, maxKts: 18, pinnedKts: 18, level: 'agree' },
+        ];
+        const paths = spreadBandPaths(band);
+        expect(paths.splitRule).toEqual(['M0.00,1.5 L75.00,1.5']);
+        setup({ spreadBand: band });
+        expect(screen.getAllByTestId('route-scrub-band-split')).toHaveLength(1);
+        expect(screen.getByTestId('route-scrub-band-split').getAttribute('stroke-width')).toBe('3');
+    });
+
+    it('a split ONE SAMPLE long is not dropped: on a seven-day axis that sample is four hours', () => {
+        const band: SpreadBandPoint[] = [
+            { f: 0, minKts: 10, maxKts: 12, pinnedKts: 11, level: 'agree' },
+            { f: 0.25, minKts: 10, maxKts: 12, pinnedKts: 11, level: 'agree' },
+            { f: 0.5, minKts: 9, maxKts: 22, pinnedKts: 11, level: 'split' },
+            { f: 0.75, minKts: 10, maxKts: 12, pinnedKts: 11, level: 'agree' },
+            { f: 1, minKts: 10, maxKts: 12, pinnedKts: 11, level: 'agree' },
+        ];
+        // Half a step either side of the one sample.
+        expect(spreadBandPaths(band).splitRule).toEqual(['M37.50,1.5 L62.50,1.5']);
+    });
+
+    it('the rule sits clear of the band: the scale’s headroom keeps the strongest wind below it', () => {
+        const band: SpreadBandPoint[] = [
+            { f: 0, minKts: 20, maxKts: 40, pinnedKts: 30, level: 'split' },
+            { f: 1, minKts: 20, maxKts: 40, pinnedKts: 30, level: 'split' },
+        ];
+        const paths = spreadBandPaths(band);
+        const ys = [...paths.band[0].matchAll(/,([\d.]+)/g)].map((m) => Number(m[1]));
+        expect(Math.min(...ys)).toBeGreaterThan(3); // the rule occupies 0…3
+    });
+
+    it('past BOTH reaches the wind’s sentence wins the note — so rain goes back on the row that says it is at its own time', () => {
+        setup({ maxMs: 100 * HOUR, aheadMs: 50 * HOUR, windCoverageHours: 46, rainCoverageHours: 3.7 });
+        expect(screen.getByTestId('route-scrub-note').textContent).toContain('Chart wind ends +46 h');
+        expect(screen.getByTestId('route-scrub-unsynced').textContent).toBe('Chart rain: still at its own time');
+        cleanup();
+        // Between the two reaches the rain note has the slot to itself: said once, not twice.
+        setup({ maxMs: 100 * HOUR, aheadMs: 10 * HOUR, windCoverageHours: 46, rainCoverageHours: 3.7 });
+        expect(screen.getByTestId('route-scrub-note').textContent).toBe('Chart rain ends +3.7 h');
+        expect(screen.queryByTestId('route-scrub-unsynced')).toBeNull();
+    });
+
+    it('a second short of the end is still the end: Play offers to start again instead of doing nothing', () => {
+        const { props } = setup({ aheadMs: 20 * HOUR - 400 });
+        expect(screen.getByTestId('route-scrub-play').getAttribute('aria-label')).toBe('Play again from now');
+        fireEvent.click(screen.getByTestId('route-scrub-play'));
+        expect(props.onAhead).toHaveBeenCalledWith(0);
     });
 });

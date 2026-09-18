@@ -14,10 +14,12 @@
 import { describe, expect, it } from 'vitest';
 import {
     MOTION_MIN_NM,
+    buildRouteIndex,
     legLengthsNm,
     pointAlongRoute,
     progressAlongRoute,
     routeLengthNm,
+    stationOnIndex,
     type RoutePoint,
 } from '../services/routeProgress';
 import { calculateBearing, calculateDistance } from '../utils/navigationCalculations';
@@ -331,5 +333,48 @@ describe('the point a given distance down the route — where the ghost will be'
         expect(pointAlongRoute([A], 1)).toBeNull();
         expect(pointAlongRoute([A, A, A], 1)).toBeNull();
         expect(pointAlongRoute(ROUTE, Number.NaN)).toBeNull();
+    });
+});
+
+describe('a route measured once — the index the passage plan walks', () => {
+    it('gives EXACTLY the answers pointAlongRoute gives, all the way along and past both ends', () => {
+        for (const route of [ROUTE, [A, B, B, C], [A, B, C, C], [A, A, B, C]]) {
+            const index = buildRouteIndex(route)!;
+            expect(index.totalNm).toBeCloseTo(routeLengthNm(route), 9);
+            for (let along = -5; along <= index.totalNm + 5; along += 2.3) {
+                const slow = pointAlongRoute(route, along)!;
+                const fast = stationOnIndex(index, along)!;
+                expect(fast.lat).toBeCloseTo(slow.lat, 9);
+                expect(fast.lon).toBeCloseTo(slow.lon, 9);
+                expect(fast.bearingDeg).toBeCloseTo(slow.bearingDeg, 9);
+                expect(fast.alongNm).toBeCloseTo(slow.alongNm, 9);
+                expect(fast.arrived).toBe(slow.arrived);
+            }
+        }
+    });
+
+    it('agrees at the waypoints themselves, where the leg changes', () => {
+        const index = buildRouteIndex(ROUTE)!;
+        const atB = legLengthsNm(ROUTE)[0];
+        expect(stationOnIndex(index, atB)!.legIndex).toBe(pointAlongRoute(ROUTE, atB)!.legIndex);
+        expect(stationOnIndex(index, atB)!.legIndex).toBe(1);
+    });
+
+    it('does not re-measure the route per question: a 4,000-point trace answers 2,000 questions fast', () => {
+        const trace: RoutePoint[] = Array.from({ length: 4000 }, (_, i) => ({
+            lat: -28 + i * 0.0005,
+            lon: 153 + Math.sin(i / 40) * 0.01,
+        }));
+        const index = buildRouteIndex(trace)!;
+        const t0 = performance.now();
+        for (let i = 0; i < 2000; i++) stationOnIndex(index, (index.totalNm * i) / 2000);
+        expect(performance.now() - t0).toBeLessThan(50);
+    });
+
+    it('is no index for no route', () => {
+        expect(buildRouteIndex([])).toBeNull();
+        expect(buildRouteIndex([A])).toBeNull();
+        expect(buildRouteIndex([A, A, A])).toBeNull();
+        expect(stationOnIndex(buildRouteIndex(ROUTE)!, Number.NaN)).toBeNull();
     });
 });

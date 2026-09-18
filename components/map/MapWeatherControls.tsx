@@ -138,6 +138,14 @@ export function MapWeatherControls({
     const currentRainFrame = weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showRainViewerAttribution =
         weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'radar';
+    // The FORECAST rain frames are another provider's product, and until now no
+    // one was named while one of them was on screen (the RainViewer credit is,
+    // rightly, for radar frames only). The passage look-ahead puts forecast
+    // frames up far more often, so the gap closes here: same slot, same spot,
+    // whichever of the two is showing. Like its sibling it is never gated on the
+    // time controls or on look-ahead — a credit shows whenever its imagery does.
+    const showRainForecastAttribution =
+        weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'forecast';
     const rainIsLoading = Boolean(weather.rainLoading || weather.rainImageLoading);
     const cmemsRequestedSteps: Record<CmemsLayerId, number> = {
         currents: Math.round(weather.currentsHour),
@@ -631,6 +639,26 @@ export function MapWeatherControls({
                         }}
                         className="hit-target-44 flex h-4 w-4 items-center justify-center rounded-full text-[12px] font-bold text-slate-400/80 active:text-sky-300"
                         aria-label="Rain radar data by RainViewer"
+                    >
+                        ⓘ
+                    </a>
+                </div>
+            )}
+            {showRainForecastAttribution && (
+                <div
+                    className={`${CREDITS_STRIP_POSITION_CLASS} z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
+                    style={{ top: creditsStripTop(0) }}
+                    data-testid="rain-forecast-credit"
+                >
+                    <span className="text-[10px] font-semibold text-slate-300/80">Rain forecast by Rainbow.ai</span>
+                    <a
+                        href="https://rainbow.ai/"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            void openExternalUrl('https://rainbow.ai/');
+                        }}
+                        className="hit-target-44 flex h-4 w-4 items-center justify-center rounded-full text-[12px] font-bold text-slate-400/80 active:text-sky-300"
+                        aria-label="Rain forecast imagery by Rainbow.ai"
                     >
                         ⓘ
                     </a>
