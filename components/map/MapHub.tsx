@@ -199,6 +199,7 @@ import {
     isBasemapHybridDuplicateLabelLayer,
 } from './mapHubHelpers';
 import { useDestinationFlag } from './useDestinationFlag';
+import { useRouteGhostMarker } from './useRouteGhostMarker';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -2531,6 +2532,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const followedPlan = useFollowRouteStore((s) => s.voyagePlan);
     // The followed route's flag is part of the same overlay: off until asked for.
     useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) });
+    // Passage strip look-ahead: where she will be at the scrubbed moment. The
+    // strip works out the place; this only draws it (passageHudStore).
+    useRouteGhostMarker(mapRef, mapReady && !planningSurface);
     // Active MOB fix — plain mapReady, NOT gated on planningSurface: an
     // active MOB must never vanish because the planner happens to be open.
     useMobMarker(mapRef, mapReady);
