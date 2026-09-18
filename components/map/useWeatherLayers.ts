@@ -48,8 +48,10 @@ import {
     RAINVIEWER_NATIVE_MAX_ZOOM,
 } from '../../services/weather/api/rainviewerTiles';
 import { windForecastHoursForGrid, windFrameForForecastHour } from './windTimeAxis';
+import { rainFollowIndex, rainReachHours, snapshotClockMs } from './rainTimeAxis';
 import {
     getPassageLookAhead,
+    reportPassageRainCoverage,
     reportPassageUnsyncedLayers,
     reportPassageWindCoverage,
     subscribePassageLookAhead,
@@ -497,6 +499,14 @@ export function useWeatherLayers(
         forecastTileUrl?: string;
         /** Label for the scrubber */
         label: string;
+        /**
+         * Valid time of the frame, epoch ms — what lets the passage look-ahead
+         * pick a frame by CLOCK (the steps are 10/20/30 min; index arithmetic is
+         * wrong past +1 h). Radar: its own unix time. Forecast: the Rainbow
+         * snapshot's time plus the offset, only when the snapshot id looks like
+         * a recent clock (rainTimeAxis.snapshotClockMs); absent otherwise.
+         */
+        timeMs?: number;
     }
     const unifiedFramesRef = useRef<UnifiedRainFrame[]>([]);
     /** Timestamp of last rain-layer fetch. Used to auto-refresh the radar+forecast
@@ -519,6 +529,15 @@ export function useWeatherLayers(
     const RAINBOW_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
     /** Track which radar/forecast layer index is currently visible */
     const visibleRadarIdxRef = useRef<number | null>(null);
+    /**
+     * The unified-timeline index whose image is actually PAINTED. rainFrameIndex
+     * moves first and the pixels follow — or do not: a stage that misses its 6 s
+     * deadline fails open and leaves the old image up. The passage look-ahead
+     * must judge this, not what it asked for (review, 2026-09-19).
+     */
+    const rainCommittedIdxRef = useRef<number | null>(null);
+    /** Rain could not be put at the scrubber's moment: it is reported as not following. */
+    const [rainFollowFailed, setRainFollowFailed] = useState(false);
     const visibleForecastIdxRef = useRef<number | null>(null);
     const rainTransitionRef = useRef<RainFrameTransitionController | null>(null);
     if (rainTransitionRef.current === null) {
@@ -1366,7 +1385,15 @@ export function useWeatherLayers(
         setMldPlaying(false);
         const windOn = activeLayers.has('wind') || activeLayers.has('velocity');
         const names: string[] = [];
-        if (activeLayers.has('rain')) names.push('rain');
+        // Rain FOLLOWS within its reach (the effect below). It is on this list
+        // only when no frame of it carries a clock time ahead of now — radar
+        // alone, a snapshot that is not a clock, or the forecast still loading.
+        if (
+            activeLayers.has('rain') &&
+            (rainReachHours(unifiedFramesRef.current, Date.now()) === null || rainFollowFailed)
+        ) {
+            names.push('rain');
+        }
         if (activeLayers.has('pressure') && !windOn) names.push('pressure');
         for (const [layer, name] of PASSAGE_UNSYNCED_LAYER_NAMES) {
             if (activeLayers.has(layer)) names.push(name);
@@ -1374,8 +1401,104 @@ export function useWeatherLayers(
         reportPassageUnsyncedLayers(names);
         return () => reportPassageUnsyncedLayers([]);
         // activeKey is the layer set, as a string: a Set is a new object each time.
+        // rainFrameCount: the forecast frames arrive after the radar ones, and
+        // that is the moment rain stops being "unsynced".
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [passageLookAheadOn, activeKey]);
+    }, [passageLookAheadOn, activeKey, rainFrameCount, rainReady, rainFollowFailed]);
+
+    // ── …and RAIN follows it, as far as the imagery reaches (phase 3) ──
+    // Shane 2026-09-17: "squalls or rain depending on where we are … all of the
+    // wind and rain etc should alter as the yacht progresses along the route."
+    // The forecast frames reach about 3 h 45; on a coastal hop that is most of
+    // what a skipper scrubs for ("will that line reach us?"). Rules, each one a
+    // trap found by reading this pipeline before touching it:
+    //   - frames are chosen by CLOCK, never by index (uneven 10/20/30-min steps);
+    //   - at NOW it is the newest OBSERVED radar, not the nearest forecast frame;
+    //   - past the reach it goes BACK to that observed frame and the scrubber
+    //     says where the rain ended — the +4 h frame is never held under a
+    //     clock reading tomorrow;
+    //   - the index only moves when the integer target changes, and never while
+    //     a frame is still warming up: every request cancels the one in flight,
+    //     so a follower at drag rate would cancel for ever and commit nothing;
+    //   - it re-applies when the frames are rebuilt (every ten minutes, and when
+    //     the forecast frames arrive), and hands back to Now when the glance ends.
+    const rainFrameIndexRef = useRef(0);
+    rainFrameIndexRef.current = rainFrameIndex;
+    const rainLayerOn = activeLayers.has('rain');
+    useEffect(() => {
+        if (!passageLookAheadOn || !rainLayerOn || !rainReady) {
+            reportPassageRainCoverage(null);
+            return;
+        }
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let failed: { target: number; at: number } | null = null;
+        let requestedAt = 0;
+        /** The stage deadline is 6 s; a request is not judged to have failed before that. */
+        const STAGE_GRACE_MS = 7_000;
+        const apply = () => {
+            timer = null;
+            const frames = unifiedFramesRef.current;
+            const now = Date.now();
+            reportPassageRainCoverage(rainReachHours(frames, now));
+            const look = getPassageLookAhead();
+            if (!look.on || frames.length === 0) return;
+            // An INTEGER, always: the swap effect indexes the frame array with it.
+            const target = rainFollowIndex(frames, rainNowIdxRef.current, now, look.aheadMs);
+            const observed = Math.max(0, Math.min(rainNowIdxRef.current, frames.length - 1));
+            const busy = rainTransitionRef.current?.isTransitioning() ?? false;
+            if (target === rainFrameIndexRef.current) {
+                // Asked for already. Is it what is PAINTED? The index moves before
+                // the pixels do, and a stage that misses its 6 s deadline fails
+                // open: the old image stays up under the new index — observed
+                // radar under a +2 h clock, credited to the forecast's provider.
+                if (target === observed || rainCommittedIdxRef.current === target) {
+                    failed = null;
+                    setRainFollowFailed(false);
+                    return;
+                }
+                // Still warming up, or asked too recently to have had its chance.
+                if (busy || now - requestedAt < STAGE_GRACE_MS) {
+                    timer = setTimeout(apply, 400);
+                    return;
+                }
+                // It failed open. Put the index back where the image is, so the
+                // index, the image and the credit agree again — and say so.
+                failed = { target, at: now };
+                setRainFrameIndex(observed);
+                setRainFollowFailed(true);
+                return;
+            }
+            if (busy) {
+                timer = setTimeout(apply, 400);
+                return;
+            }
+            // A dead link must not become a request-fail-request loop every 7 s:
+            // the 60 s keep-alive is the retry.
+            if (failed && failed.target === target && now - failed.at < 30_000) return;
+            requestedAt = now;
+            setRainFrameIndex(target);
+            // Nothing else re-runs this after a request: come back and check it landed.
+            timer = setTimeout(apply, 400);
+        };
+        const schedule = () => {
+            if (!timer) timer = setTimeout(apply, 400);
+        };
+        apply();
+        const unsubscribe = subscribePassageLookAhead(schedule);
+        const keepAlive = setInterval(schedule, 60_000);
+        return () => {
+            unsubscribe();
+            clearInterval(keepAlive);
+            if (timer) clearTimeout(timer);
+            reportPassageRainCoverage(null);
+            setRainFollowFailed(false);
+            // The glance is over (or rain went off): back to the observed frame.
+            const frames = unifiedFramesRef.current;
+            if (frames.length > 0) setRainFrameIndex(Math.max(0, Math.min(rainNowIdxRef.current, frames.length - 1)));
+        };
+        // rainFrameCount: the frames are rebuilt every ten minutes, and the
+        // forecast frames arrive after the radar ones — re-apply onto both.
+    }, [passageLookAheadOn, rainLayerOn, rainReady, rainFrameCount]);
 
     // ── CMEMS Now-alignment helpers ───────────────────────────────────
     // Shared by the six CMEMS layers (currents, waves, sst, chl, seaice,
@@ -1861,7 +1984,13 @@ export function useWeatherLayers(
             visibleForecastIdxRef.current === null ? null : `rainbow-fc-${visibleForecastIdxRef.current}`,
         ].filter((id): id is string => id !== null);
 
-        rainTransitionRef.current?.request(m as unknown as RainFrameMap, targetId, visibleIds, commitVisibleFrame);
+        const requestedIndex = rainFrameIndex;
+        const commitInner = commitVisibleFrame;
+        const commitAndRecord = () => {
+            commitInner();
+            rainCommittedIdxRef.current = requestedIndex;
+        };
+        rainTransitionRef.current?.request(m as unknown as RainFrameMap, targetId, visibleIds, commitAndRecord);
 
         return () => cancelRainFrameTransition(m);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1907,6 +2036,7 @@ export function useWeatherLayers(
             // a real blank frame now that hiding is a layout write.
             visibleRadarIdxRef.current = null;
             visibleForecastIdxRef.current = null;
+            rainCommittedIdxRef.current = null;
             setRainFrameCount(0);
             setRainFrameIndex(0);
             setRainImageLoading(false);
@@ -2118,6 +2248,7 @@ export function useWeatherLayers(
                 rainFetchedAtRef.current = 0;
                 visibleRadarIdxRef.current = null;
                 visibleForecastIdxRef.current = null;
+                rainCommittedIdxRef.current = null;
             }
             rainLastAttemptRef.current = Date.now();
             setRainLoading(true);
@@ -2237,6 +2368,7 @@ export function useWeatherLayers(
                             radarHost,
                             radarTime: f.time,
                             label,
+                            timeMs: f.time * 1000,
                         });
                     }
 
@@ -2437,6 +2569,7 @@ export function useWeatherLayers(
                         const current = unifiedFramesRef.current;
                         const forecastAppendStart = current.length;
                         const appended = [...current];
+                        const snapshotMs = snapshotClockMs(rainbowSnapshot, Date.now());
                         for (const mins of RAINBOW_FORECAST_MINUTES) {
                             let label: string;
                             if (mins < 60) label = `+${mins}m`;
@@ -2444,7 +2577,12 @@ export function useWeatherLayers(
                             else label = `+${Math.floor(mins / 60)}h${mins % 60}m`;
                             const forecastSecs = mins * 60;
                             const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&layer=precip-global&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
-                            appended.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
+                            appended.push({
+                                type: 'forecast',
+                                forecastTileUrl: tileUrl,
+                                label,
+                                ...(snapshotMs === null ? {} : { timeMs: snapshotMs + mins * 60_000 }),
+                            });
                         }
                         // Pre-create forecast layers (all hidden initially).
                         for (let i = 0; i < RAINBOW_FORECAST_MINUTES.length; i++) {

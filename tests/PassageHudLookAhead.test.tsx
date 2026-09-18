@@ -85,7 +85,10 @@ const proxy = vi.hoisted(() => ({
     offline: false,
     hold: null as null | Promise<void>,
     failNext: false,
+    /** The five-model request fails; the strip must fall back to its one model. */
+    spreadFails: false,
     speedFor: (model: string, station: number) => (model === 'dwd_icon' ? 30 : 10) + station,
+    dirFor: (_model: string) => 90 as number,
 }));
 vi.mock('../services/weather/openMeteoProxy', () => ({
     fetchOpenMeteoPoints: async (
@@ -93,23 +96,29 @@ vi.mock('../services/weather/openMeteoProxy', () => ({
         points: { lat: number; lon: number }[],
         params: Record<string, unknown>,
     ) => {
-        const model = String(params.models);
-        proxy.calls.push({ models: model, points: points.length });
+        const asked = String(params.models);
+        const models = asked.split(',');
+        proxy.calls.push({ models: asked, points: points.length });
         if (proxy.hold) await proxy.hold;
         if (proxy.offline || proxy.failNext) throw new Error('offline');
+        if (models.length > 1 && proxy.spreadFails) throw new Error('Weather service request failed (400)');
         const start = Math.floor(Date.now() / HOUR) * HOUR;
-        return points.map((_, station) => ({
-            hourly: {
-                time: Array.from({ length: proxy.hours }, (_h, h) => (start + h * HOUR) / 1000),
-                wind_speed_10m: Array.from({ length: proxy.hours }, () => proxy.speedFor(model, station)),
-                wind_direction_10m: Array.from({ length: proxy.hours }, () => 90),
-                wind_gusts_10m: Array.from({ length: proxy.hours }, () =>
-                    model === 'jma_gsm' ? null : proxy.speedFor(model, station) + 8,
-                ),
-                precipitation: Array.from({ length: proxy.hours }, () => 1.2),
-                precipitation_probability: Array.from({ length: proxy.hours }, () => 60),
-            },
-        }));
+        const fill = (value: (h: number) => number | null) => Array.from({ length: proxy.hours }, (_h, h) => value(h));
+        return points.map((_, station) => {
+            const hourly: Record<string, (number | null)[]> = { time: fill((h) => (start + h * HOUR) / 1000) };
+            for (const model of models) {
+                // One model is answered unsuffixed, several are suffixed — as the service does.
+                const sfx = models.length > 1 ? `_${model}` : '';
+                hourly[`wind_speed_10m${sfx}`] = fill(() => proxy.speedFor(model, station));
+                hourly[`wind_direction_10m${sfx}`] = fill(() => proxy.dirFor(model));
+                hourly[`wind_gusts_10m${sfx}`] = fill(() =>
+                    model === 'jma_gsm' || model === 'ecmwf_aifs025_single' ? null : proxy.speedFor(model, station) + 8,
+                );
+                hourly[`precipitation${sfx}`] = fill(() => 1.2);
+                hourly[`precipitation_probability${sfx}`] = fill(() => 60);
+            }
+            return { hourly };
+        });
     },
 }));
 
@@ -127,9 +136,11 @@ import {
     setPassageAheadMs,
     setPassageHudEnabled,
     setPassageHudOpen,
+    setPassageSpeedPref,
 } from '../stores/passageHudStore';
 import { __resetPassageOverlayForTests, isPassageOverlayOn } from '../stores/chartPassageOverlay';
 import { __clearRouteForecastCacheForTests } from '../services/routeForecastSampler';
+import { __clearRouteSpreadCacheForTests } from '../services/routeForecastSpread';
 import { consumeMapFit, peekMapFit } from '../stores/MapFitTargetStore';
 import type { VoyagePlan } from '../types';
 
@@ -192,6 +203,7 @@ beforeEach(() => {
     __resetPassageHudForTests();
     __resetPassageOverlayForTests();
     __clearRouteForecastCacheForTests();
+    __clearRouteSpreadCacheForTests();
     WindStore.reset();
     setPassageHudEnabled(true);
     setPassageHudOpen(true);
@@ -203,6 +215,12 @@ beforeEach(() => {
     proxy.offline = false;
     proxy.hold = null;
     proxy.failNext = false;
+    proxy.spreadFails = false;
+    proxy.speedFor = (model: string, station: number) => (model === 'dwd_icon' ? 30 : 10) + station;
+    proxy.dirFor = () => 90;
+    // Phase 2's tests pin the FLAT cruising-speed plan, which is still a mode
+    // (and what Shane first asked for). "By the wind" has its own tests below.
+    setPassageSpeedPref('cruise');
     consumeMapFit();
     mob.subs.clear();
 });
@@ -266,7 +284,7 @@ describe('a forecast never wears a live reading’s face', () => {
             expect(screen.queryByTestId(id)).toBeNull();
         }
         expect(screen.getByTestId('hud-tws').getAttribute('data-freshness')).toBe('forecast');
-        expect(label('hud-tws')).toMatch(/^Forecast true wind speed .* ECMWF$/);
+        expect(label('hud-tws')).toMatch(/^Forecast true wind speed \d+ knots, ECMWF\./);
     });
 
     it('marks apparent wind as an ESTIMATE, in the label and to a screen reader', async () => {
@@ -289,7 +307,7 @@ describe('a forecast never wears a live reading’s face', () => {
         render(<PassageHudPane />);
         expect(text('hud-tws')).toBe('TWS27kn');
         await lookAhead();
-        expect(text('hud-tws')).toBe('TWS13kn');
+        expect(text('hud-tws')).toMatch(/^TWS13kn/);
         expect(screen.getByTestId('passage-hud').textContent).not.toContain('27');
     });
 });
@@ -398,7 +416,7 @@ describe('the ghost leaves from where she IS', () => {
         render(<PassageHudPane />);
         await lookAhead();
         act(() => setPassageAheadMs(5 * HOUR));
-        expect(text('hud-route')).toMatch(/To go5[2-5]NMAT 6\.0 KN/);
+        expect(text('hud-route')).toMatch(/To go5[2-5]NM6\.0KN CRUISE/);
         expect(label('hud-route')).toContain('A plan, not a measurement.');
     });
 
@@ -434,9 +452,13 @@ describe('the wind she will sail INTO', () => {
         underWay();
         render(<PassageHudPane />);
         await lookAhead();
-        expect(proxy.calls).toEqual([{ models: 'ecmwf_ifs025', points: expect.any(Number) }]);
+        // ONE request, for all five by name — the pinned model is in it.
+        expect(proxy.calls).toHaveLength(1);
+        expect(proxy.calls[0].models.split(',')).toContain('ecmwf_ifs025');
+        expect(proxy.calls[0].models.split(',')).toHaveLength(5);
         expect(text('route-scrub-model')).toContain('ECMWF');
-        expect(text('route-scrub-credit')).toBe('Forecast data: ECMWF');
+        // …and whoever's numbers are in the band is credited, the pinned model's provider first.
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
     });
 
     it('past the end of the forecast is dashes and the words — never the last hour held', async () => {
@@ -475,7 +497,7 @@ describe('a boat that is OFF her line', () => {
         render(<PassageHudPane />);
         const live = text('hud-route').match(/(\d+)NM/)![1];
         await lookAhead();
-        expect(text('hud-route')).toBe(`To go${live}NMAT 6.0 KN`);
+        expect(text('hud-route')).toBe(`To go${live}NM6.0KN CRUISE`);
         expect(Number(live)).toBeGreaterThan(90); // 83 along + ~10 back
     });
 
@@ -595,6 +617,345 @@ describe('the credit can never come out nameless', () => {
     });
 });
 
+describe('where the models disagree, it says so', () => {
+    it('the headline stays the chart’s ONE model; the others’ range sits under it, with how many answered', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        // ECMWF (pinned) ~13; ICON blows 20 kn harder in this mock: 13 to 33 across all five.
+        expect(text('hud-tws')).toMatch(/^TWS13kn/);
+        expect(text('hud-tws-spread')).toBe('12–33');
+        expect(screen.getByTestId('hud-tws-spread').className).toContain('text-red-400');
+        expect(text('hud-models-split')).toBe('MODELS SPLIT');
+        // Rounded OUTWARD for a screen reader too, so it holds the headline as the visible range does.
+        expect(label('hud-tws')).toContain('5 of 5 models say 12 to 33 knots — the models disagree');
+    });
+
+    it('says how many answered ONLY when someone did not — "4/5" is the news, "5/5" is not', async () => {
+        const normal = proxy.speedFor;
+        proxy.speedFor = (model, station) =>
+            model === 'jma_gsm' ? (null as unknown as number) : normal(model, station);
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-tws-spread')).toBe('12–33 4/5');
+        expect(label('hud-tws')).toContain('4 of 5 models say');
+    });
+
+    it('the range always HOLDS the headline: rounded outward, never "6–9" under 9.4', async () => {
+        proxy.speedFor = (model) => (model === 'ecmwf_ifs025' ? 9.4 : 5.9);
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-tws')).toMatch(/^TWS9\.4kn/);
+        expect(text('hud-tws-spread')).toBe('5–10');
+    });
+
+    it('when they agree the range is quiet and nothing shouts', async () => {
+        proxy.speedFor = (_model, station) => 12 + station;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(screen.getByTestId('hud-tws-spread').className).toContain('text-gray-400');
+        expect(screen.queryByTestId('hud-models-split')).toBeNull();
+        expect(label('hud-tws')).toContain('the models agree');
+    });
+
+    it('agreeing on speed but not on where it blows from is still a split', async () => {
+        proxy.speedFor = () => 18;
+        proxy.dirFor = (model) => (model === 'jma_gsm' ? 170 : 90);
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-tws-spread')).toBe('18–18');
+        expect(text('hud-models-split')).toBe('MODELS SPLIT');
+        // The SPEED range has nothing wrong with it and is not painted red; the
+        // disagreement is named where it is — on the direction.
+        expect(screen.getByTestId('hud-tws-spread').className).toContain('text-gray-400');
+        expect(text('hud-twd-spread')).toBe('80° apart');
+        expect(screen.getByTestId('hud-twd-spread').className).toContain('text-red-400');
+        expect(label('hud-twd')).toContain('80 degrees apart on direction');
+        // …and the scrubber's band marks it red although the range is zero knots wide.
+        expect(screen.getAllByTestId('route-scrub-band-split').length).toBeGreaterThan(0);
+    });
+
+    it('the two WARNINGS stand outside the scrolling cells — whatever overflows is a cell, never a warning', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        const scroller = screen.getByTestId('passage-hud').querySelector('.overflow-y-auto')!;
+        expect(scroller.contains(screen.getByTestId('hud-tws'))).toBe(true);
+        expect(scroller.contains(screen.getByTestId('hud-models-split'))).toBe(false);
+        act(() => setPassageAheadMs(1 * HOUR));
+        proxy.hours = 2;
+    });
+
+    it('draws the band on the scrubber — red where they are split — and credits everyone in it', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(screen.getByTestId('route-scrub-band')).toBeTruthy();
+        expect(screen.getAllByTestId('route-scrub-band-split').length).toBeGreaterThan(0);
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+    });
+
+    it('past the forecast there is no range either — a band is not drawn across nothing', async () => {
+        proxy.hours = 6;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        act(() => setPassageAheadMs(12 * HOUR));
+        expect(screen.queryByTestId('hud-tws-spread')).toBeNull();
+        expect(screen.queryByTestId('hud-models-split')).toBeNull();
+        expect(text('hud-forecast-note')).toBe('PAST FORECAST');
+    });
+});
+
+describe('by the wind: the ghost slows on the nose', () => {
+    // Northbound up the first leg (course 000°).
+    const byTheWind = () => setPassageSpeedPref('polar');
+
+    it('says HOW she is making her way, and at what speed — not a flat "at 6 kn"', async () => {
+        byTheWind();
+        proxy.speedFor = () => 16;
+        proxy.dirFor = () => 90; // a beam reach
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-route')).toMatch(/KN SAIL$/);
+        expect(label('hud-route')).toContain('under sail');
+    });
+
+    it('on the nose takes longer than dead astern over the same water: the axis itself gets longer', async () => {
+        // She has 30 NM of northing left, then 53 NM due east. The second leg is a
+        // beam reach either way; only the first differs — and the first cut of
+        // this test got that wrong, which is how easily a route fools the eye.
+        byTheWind();
+        proxy.speedFor = () => 18;
+        proxy.dirFor = () => 180; // a southerly: dead astern up the first leg
+        underWay();
+        const astern = render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-route')).toMatch(/KN SAIL$/);
+        const asternMax = Number(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax'));
+        astern.unmount();
+
+        __clearRouteForecastCacheForTests();
+        __clearRouteSpreadCacheForTests();
+        proxy.dirFor = () => 0; // a northerly: dead on the nose
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-route')).toMatch(/KN TACK$/);
+        const noseMax = Number(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax'));
+        expect(noseMax).toBeGreaterThan(asternMax * 1.05);
+    });
+
+    it('in light air she motors, at her cruising speed, and says MOTOR', async () => {
+        byTheWind();
+        proxy.speedFor = () => 2;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-route')).toMatch(/6\.0KN MOTOR$/);
+        expect(label('hud-route')).toContain('under engine');
+    });
+
+    it('the apparent-wind estimate uses the speed the PLAN has her doing, not the flat one', async () => {
+        byTheWind();
+        proxy.speedFor = () => 2; // motoring at 6 into next to nothing
+        proxy.dirFor = () => 0;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        // 2 kn true on the nose + her own 6 (less the small headwind loss) ≈ 8 apparent
+        expect(text('hud-aws')).toMatch(/AWS est[78]\.\dkn/);
+    });
+
+    it('past the wind forecast her speed is ASSUMED, and both the strip and the scrubber say so', async () => {
+        byTheWind();
+        proxy.hours = 4;
+        proxy.speedFor = () => 16;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        act(() => setPassageAheadMs(8 * HOUR));
+        expect(text('hud-route')).toMatch(/6\.0KN NO WX$/);
+        expect(label('hud-route')).toContain('assumed, because there is no wind forecast');
+        expect(text('route-scrub-note')).toBe('No wind forecast here — 6.0 kn assumed');
+    });
+
+    it('a power vessel is planned at her cruising speed whatever the setting says', async () => {
+        byTheWind();
+        profile.vessel = { cruisingSpeed: 18, length: 40, type: 'power' };
+        proxy.speedFor = () => 25;
+        proxy.dirFor = () => 0;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-route')).toMatch(/18KN CRUISE$|18\.0KN CRUISE$/);
+    });
+
+    it('LIVE and FCST still agree at NOW, by the wind too', async () => {
+        byTheWind();
+        underWay();
+        render(<PassageHudPane />);
+        const live = text('hud-route').match(/(\d+)NM/)![1];
+        await lookAhead();
+        expect(text('hud-route')).toMatch(new RegExp(`^To go${live}NM`));
+    });
+});
+
+describe('what the review of phase 3 caught', () => {
+    const byTheWind = () => setPassageSpeedPref('polar');
+
+    it('changing model does NOT drag a parked offset back to the flat-speed arrival', async () => {
+        byTheWind();
+        proxy.speedFor = () => 18;
+        proxy.dirFor = () => 0; // on the nose: by the wind the passage is LONGER than 83 NM / 6 kn
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        const maxMin = Number(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax'));
+        expect(maxMin).toBeGreaterThan(14.2 * 60); // past the flat-speed arrival
+        const parked = (maxMin - 20) * 60_000;
+        act(() => setPassageAheadMs(parked));
+        expect(getPassageLookAhead().aheadMs).toBe(parked);
+        act(() => WindStore.setModel('icon'));
+        await waitFor(() => expect(text('route-scrub-model')).toContain('ICON'));
+        expect(getPassageLookAhead().aheadMs).toBe(parked);
+    });
+
+    it('…nor while a model has to LOAD: the axis holds, the offset is not rewritten', async () => {
+        byTheWind();
+        proxy.spreadFails = true;
+        proxy.speedFor = () => 18;
+        proxy.dirFor = () => 0;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        const maxMin = Number(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax'));
+        const parked = (maxMin - 20) * 60_000;
+        act(() => setPassageAheadMs(parked));
+        let release!: () => void;
+        proxy.hold = new Promise<void>((resolve) => (release = resolve));
+        act(() => WindStore.setModel('icon'));
+        expect(text('hud-forecast-note')).toBe('LOADING');
+        expect(getPassageLookAhead().aheadMs).toBe(parked);
+        expect(Number(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax'))).toBe(maxMin);
+        await act(async () => {
+            release();
+            await Promise.resolve();
+        });
+        await waitFor(() => expect(screen.queryByTestId('hud-forecast-note')).toBeNull());
+        expect(getPassageLookAhead().aheadMs).toBe(parked);
+    });
+
+    it('tacking, the apparent wind is worked on her CLOSE-HAULED heading — not "0°S" dead along a line she is not steering', async () => {
+        byTheWind();
+        proxy.speedFor = () => 18;
+        proxy.dirFor = () => 0; // dead on the nose up the first leg
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-route')).toMatch(/KN TACK$/);
+        const awa = text('hud-awa');
+        expect(awa).not.toContain('0°S');
+        expect(awa).toMatch(/AWA est\d{2}°$/); // an angle, and no P or S: the side alternates
+        expect(label('hud-awa')).toContain('close-hauled on either tack');
+        // …and the speed in it is her way through the water, which is more than she is making good.
+        const aws = Number.parseFloat(text('hud-aws').replace('AWS est', ''));
+        expect(aws).toBeGreaterThan(18);
+    });
+
+    it('at the END she is ARRIVED — not "0.0KN SAIL" with an apparent wind for a boat standing still', async () => {
+        byTheWind();
+        proxy.speedFor = () => 16;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        fireEvent.keyDown(screen.getByTestId('route-scrub-track'), { key: 'End' });
+        expect(text('hud-route')).toMatch(/ARRIVED$/);
+        expect(text('hud-route')).not.toContain('0.0KN');
+        expect(text('hud-aws')).toContain('—');
+        expect(label('hud-route')).toContain('arrived');
+    });
+
+    it('parked at the END she STAYS at the end as the plan is re-walked — and Play offers to start again', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            byTheWind();
+            proxy.speedFor = () => 16;
+            underWay();
+            render(<PassageHudPane />);
+            await lookAhead();
+            fireEvent.keyDown(screen.getByTestId('route-scrub-track'), { key: 'End' });
+            for (let i = 0; i < 4; i++) {
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(30_000);
+                });
+                await boatStillReporting();
+                expect(text('hud-route')).toMatch(/ARRIVED$/);
+            }
+            expect(screen.getByTestId('route-scrub-play').getAttribute('aria-label')).toBe('Play again from now');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a STALE five-model bundle never stands in for the headline: the strip goes back for its one model', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            underWay();
+            render(<PassageHudPane />);
+            await lookAhead();
+            expect(proxy.calls).toHaveLength(1);
+            proxy.spreadFails = true; // the five-model request starts being refused; one model still answers
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(64 * 60_000);
+            });
+            await boatStillReporting();
+            // It asked for the ONE model and got it: fresh numbers, no age note, and no old range under them.
+            expect(proxy.calls.some((c) => c.models === 'ecmwf_ifs025')).toBe(true);
+            expect(screen.queryByTestId('hud-forecast-note')).toBeNull();
+            expect(screen.queryByTestId('hud-tws-spread')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe('choosing how the ghost makes her way', () => {
+    it('the dialog offers both, says plainly what "by the wind" assumes, and the choice is remembered', async () => {
+        setPassageSpeedPref('polar');
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        fireEvent.click(screen.getByTestId('route-scrub-model'));
+        const wind = screen.getByTestId('passage-speed-polar');
+        const flat = screen.getByTestId('passage-speed-cruise');
+        expect(wind.getAttribute('aria-pressed')).toBe('true');
+        expect(wind.textContent).toContain('generic cruising polar');
+        expect(wind.textContent).toContain('scaled so a fair reaching breeze gives her 6.0 kn');
+        expect(wind.textContent).toContain('motors under 4 kn of wind');
+        expect(wind.textContent).toContain('An estimate.');
+        expect(flat.textContent).toContain('Cruising speed — 6.0 kn');
+        fireEvent.click(flat);
+        expect(localStorage.getItem('thalassa_passage_speed_mode_v1')).toBe('cruise');
+        expect(flat.getAttribute('aria-pressed')).toBe('true');
+        expect(text('hud-route')).toMatch(/6\.0KN CRUISE$/);
+    });
+
+    it('a power vessel is not offered "by the wind"', async () => {
+        profile.vessel = { cruisingSpeed: 18, length: 40, type: 'power' };
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        fireEvent.click(screen.getByTestId('route-scrub-model'));
+        expect((screen.getByTestId('passage-speed-polar') as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.getByTestId('passage-speed-cruise').getAttribute('aria-pressed')).toBe('true');
+    });
+});
+
 describe('changing the model', () => {
     it('opens a centred dialog from the scrubber, and one tap changes the model for the chart too', async () => {
         underWay();
@@ -602,7 +963,7 @@ describe('changing the model', () => {
         await lookAhead();
         fireEvent.click(screen.getByTestId('route-scrub-model'));
         const dialog = screen.getByRole('dialog');
-        expect(dialog.getAttribute('aria-label')).toBe('Change forecast model');
+        expect(dialog.getAttribute('aria-label')).toBe('Forecast model and ghost speed');
         expect(dialog.parentElement?.className).toContain('items-center');
         expect(dialog.parentElement?.className).toContain('pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]');
         expect(dialog.textContent).toContain('(CC-BY-4.0)');
@@ -610,12 +971,29 @@ describe('changing the model', () => {
         expect(WindStore.getState().model).toBe('icon');
         expect(screen.queryByRole('dialog')).toBeNull();
         await waitFor(() => expect(text('route-scrub-model')).toContain('ICON'));
-        await waitFor(() => expect(text('hud-tws')).toMatch(/3\d/));
-        expect(proxy.calls.map((c) => c.models)).toEqual(['ecmwf_ifs025', 'dwd_icon']);
-        expect(text('route-scrub-credit')).toBe('Forecast data: DWD');
+        // Anchored on the HEADLINE: the range under it ("12–33") contains a 3 too,
+        // and the first version of this assertion could not fail (review).
+        await waitFor(() => expect(text('hud-tws')).toMatch(/^TWS3\dkn/));
+        // INSTANT, and free: ICON came in the same five-model reply. No second request.
+        expect(proxy.calls).toHaveLength(1);
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+    });
+
+    it('if the five-model request fails, the strip still gets its ONE model — the spread is extra, never a precondition', async () => {
+        proxy.spreadFails = true;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        expect(text('hud-tws')).toMatch(/TWS1\d/);
+        expect(proxy.calls.map((c) => c.models.split(',').length)).toEqual([5, 1]);
+        expect(proxy.calls[1].models).toBe('ecmwf_ifs025');
+        expect(screen.queryByTestId('hud-tws-spread')).toBeNull(); // no spread to show, and none invented
+        expect(screen.queryByTestId('route-scrub-band')).toBeNull();
+        expect(text('route-scrub-credit')).toBe('Forecast data: ECMWF');
     });
 
     it('NEVER shows the old model’s numbers under the new model’s name while the new ones load', async () => {
+        proxy.spreadFails = true; // the single-model path: the only one on which a model change has to LOAD
         underWay();
         render(<PassageHudPane />);
         await lookAhead();

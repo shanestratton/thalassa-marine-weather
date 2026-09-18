@@ -297,6 +297,85 @@ export function usePassageWindCoverageHours(): number | null {
     return useSyncExternalStore(subscribePassageWindCoverage, getPassageWindCoverageHours, getPassageWindCoverageHours);
 }
 
+// ── How the ghost makes her way (phase 3) ──────────────────────
+
+/**
+ * 'polar' — by the wind: the vessel's polar, scaled to her cruising speed,
+ * tacking inside her close-hauled angle and motoring when it gets slow.
+ * 'cruise' — phase 2's flat cruising speed, exactly as Shane first asked for it.
+ * A PREFERENCE, so unlike the look-ahead itself it is remembered on this device.
+ */
+export type PassageSpeedPref = 'polar' | 'cruise';
+const SPEED_KEY = 'thalassa_passage_speed_mode_v1';
+const readSpeedPref = (): PassageSpeedPref => {
+    try {
+        return localStorage.getItem(SPEED_KEY) === 'cruise' ? 'cruise' : 'polar';
+    } catch {
+        return 'polar';
+    }
+};
+let speedPref: PassageSpeedPref = readSpeedPref();
+const speedPrefListeners = new Set<() => void>();
+
+export function getPassageSpeedPref(): PassageSpeedPref {
+    return speedPref;
+}
+
+export function setPassageSpeedPref(next: PassageSpeedPref): void {
+    if (next === speedPref) return;
+    speedPref = next;
+    try {
+        if (next === 'cruise') localStorage.setItem(SPEED_KEY, 'cruise');
+        else localStorage.removeItem(SPEED_KEY);
+    } catch {
+        /* storage unavailable — the in-session value still rules */
+    }
+    speedPrefListeners.forEach((fn) => fn());
+}
+
+function subscribePassageSpeedPref(fn: () => void): () => void {
+    speedPrefListeners.add(fn);
+    return () => {
+        speedPrefListeners.delete(fn);
+    };
+}
+
+export function usePassageSpeedPref(): PassageSpeedPref {
+    return useSyncExternalStore(subscribePassageSpeedPref, getPassageSpeedPref, getPassageSpeedPref);
+}
+
+// ── How far the chart's RAIN reaches ───────────────────────────
+
+/**
+ * Hours ahead of NOW that the chart's rain imagery can follow the scrubber to
+ * (the forecast frames reach about four), or null when the rain layer is off or
+ * has no frame it can put a clock time on. Twin of the wind coverage above.
+ */
+let rainCoverageHours: number | null = null;
+const rainCoverageListeners = new Set<() => void>();
+
+export function getPassageRainCoverageHours(): number | null {
+    return rainCoverageHours;
+}
+
+export function reportPassageRainCoverage(hours: number | null): void {
+    const next = hours !== null && Number.isFinite(hours) && hours > 0 ? Math.round(hours * 10) / 10 : null;
+    if (next === rainCoverageHours) return;
+    rainCoverageHours = next;
+    rainCoverageListeners.forEach((fn) => fn());
+}
+
+function subscribePassageRainCoverage(fn: () => void): () => void {
+    rainCoverageListeners.add(fn);
+    return () => {
+        rainCoverageListeners.delete(fn);
+    };
+}
+
+export function usePassageRainCoverageHours(): number | null {
+    return useSyncExternalStore(subscribePassageRainCoverage, getPassageRainCoverageHours, getPassageRainCoverageHours);
+}
+
 // ── Layers that do NOT follow the scrubber ─────────────────────
 
 /**
@@ -341,5 +420,7 @@ export function __resetPassageHudForTests(): void {
     ghost = null;
     ghostPath = null;
     windCoverageHours = null;
+    rainCoverageHours = null;
+    speedPref = readSpeedPref();
     unsyncedLayers = NO_LAYERS;
 }

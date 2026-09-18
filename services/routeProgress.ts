@@ -210,6 +210,90 @@ export function pointAlongRoute(coords: readonly RoutePoint[], alongNm: number):
     };
 }
 
+/**
+ * A route measured ONCE: cumulative distance and bearing per leg.
+ *
+ * `pointAlongRoute` re-measures every leg on every call — fine for one ghost,
+ * but phase 3's passage plan asks "where is she after this many miles?" several
+ * hundred times per plan, and a traced route can be thousands of points. Build
+ * the index once per route array; `stationOnIndex` is then a binary search.
+ */
+export interface RouteIndex {
+    /** The valid points, in order. */
+    points: RoutePoint[];
+    /** cumNm[i] = distance from the start to points[i]. Same length as `points`. */
+    cumNm: number[];
+    /** bearingDeg[i] = bearing of leg i (points[i] → points[i+1]); NaN for a zero-length leg. */
+    bearingDeg: number[];
+    totalNm: number;
+    /** Index of the last leg that has any length, or -1 when there is none. */
+    lastRealLeg: number;
+}
+
+export function buildRouteIndex(coords: readonly RoutePoint[]): RouteIndex | null {
+    const points = coords.filter(valid);
+    if (points.length < 2) return null;
+    const cumNm = [0];
+    const bearingDeg: number[] = [];
+    let lastRealLeg = -1;
+    for (let i = 0; i + 1 < points.length; i++) {
+        const nm = calculateDistance(points[i].lat, points[i].lon, points[i + 1].lat, points[i + 1].lon);
+        cumNm.push(cumNm[i] + nm);
+        if (nm > 0) {
+            lastRealLeg = i;
+            bearingDeg.push(calculateBearing(points[i].lat, points[i].lon, points[i + 1].lat, points[i + 1].lon));
+        } else {
+            bearingDeg.push(Number.NaN);
+        }
+    }
+    if (lastRealLeg < 0) return null; // every point is the same point: not a route
+    return { points, cumNm, bearingDeg, totalNm: cumNm[cumNm.length - 1], lastRealLeg };
+}
+
+/** `pointAlongRoute` on a prebuilt index: same answers, O(log n). */
+export function stationOnIndex(index: RouteIndex, alongNm: number): RouteStation | null {
+    if (!Number.isFinite(alongNm)) return null;
+    const { points, cumNm, bearingDeg, totalNm, lastRealLeg } = index;
+    const want = Math.max(0, Math.min(alongNm, totalNm));
+    if (want >= totalNm) {
+        const end = points[lastRealLeg + 1];
+        return {
+            lat: end.lat,
+            lon: end.lon,
+            bearingDeg: bearingDeg[lastRealLeg],
+            legIndex: lastRealLeg,
+            alongNm: totalNm,
+            arrived: alongNm >= totalNm,
+        };
+    }
+    // The LAST point whose cumulative distance is <= want: at a waypoint she is
+    // already looking down the next leg, and zero-length legs are stepped over.
+    let lo = 0;
+    let hi = cumNm.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (cumNm[mid] <= want) lo = mid;
+        else hi = mid - 1;
+    }
+    let leg = Math.min(lo, points.length - 2);
+    while (leg < lastRealLeg && !(cumNm[leg + 1] > cumNm[leg])) leg += 1;
+    const length = cumNm[leg + 1] - cumNm[leg];
+    const t = length > 0 ? (want - cumNm[leg]) / length : 0;
+    const a = points[leg];
+    const b = points[leg + 1];
+    let lon = a.lon + dLon(a.lon, b.lon) * t;
+    if (lon > 180) lon -= 360;
+    if (lon < -180) lon += 360;
+    return {
+        lat: a.lat + (b.lat - a.lat) * t,
+        lon,
+        bearingDeg: bearingDeg[leg],
+        legIndex: leg,
+        alongNm: want,
+        arrived: false,
+    };
+}
+
 interface Candidate {
     legIndex: number;
     point: RoutePoint;

@@ -185,12 +185,12 @@ chart page in WebKit**, that slot sat its right end on the Locate button, clippe
 its Play button over the Mapbox wordmark. The second cut fixed that at 393 px in plain pixels — and clipped the wordmark
 by one pixel at 430 px, because the app's root font is fluid below 768 px and the wordmark is anchored in rem. Final:
 
-|                                     |                                                                                         |
-| ----------------------------------- | --------------------------------------------------------------------------------------- |
-| `bottom: calc(4rem + 38px + inset)` | the wordmark's own units: 8 px clear at 320, 375, 393, 430 and 1180 px                  |
-| `right: 116px`                      | clear of Locate, the ⓘ and a full-width (100 px) scale bar at any zoom                  |
-| strip `max-height` in forecast mode | `… − 4rem − 150px`: all seven forecast cells show at once on 393×852 paying both insets |
-| "This is a passage" nudge           | steps **up** over the scrubber (`body:has(...)`) — the control in use does not move     |
+|                                     |                                                                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `bottom: calc(4rem + 38px + inset)` | the wordmark's own units: 8 px clear at 320, 375, 393, 430 and 1180 px                                                          |
+| `right: 116px`                      | clear of Locate, the ⓘ and a full-width (100 px) scale bar at any zoom                                                          |
+| strip `max-height` in forecast mode | `… − 4rem − 175px` since phase 3 (the scrubber's credit wraps to two lines); the two warnings stand outside the scrolling cells |
+| "This is a passage" nudge           | steps **up** over the scrubber (`body:has(...)`) — the control in use does not move                                             |
 
 Zero overlaps between the scrubber and any credit, button or the strip at all five sizes. The one remaining overlap is
 the transient nudge card over the strip's lower cells until Not now is tapped.
@@ -225,8 +225,156 @@ and its line off the chart.
 7. Look ahead again, then go to The Glass and come back: you are LIVE.
 8. Airplane mode, then AHEAD: dashes, NO FORECAST, ghost and line still there. Signal back: numbers within two minutes.
 
-## Phase 3 — spectrum and rain (next)
+## Phase 3 — spread, speed and rain (built 2026-09-19)
 
-Model-spread envelope along the route (where the five disagree, say so — a "spectrum" strip above the scrubber's
-track), rain/squall imagery synced where a product reaches that far, currents on the axis, and a polar-backed speed
-behind a `SpeedModel` so the ghost slows on the nose and the ETA moves with the forecast.
+Shane: "phase 3 - go". Three things: **where the models disagree, say so**; the ghost **slows on the nose** and the ETA
+moves with the forecast; **rain follows the scrubber** where a product reaches that far. A read-only survey of the four
+subsystems came first (polars, the multi-model services, the rain pipeline, marine point forecasts) and changed the plan
+in three places — noted below.
+
+### Where the models disagree
+
+`services/routeForecastSpread.ts`. **One** request for all five models along the route — probed live off Gladstone
+while building this: ECMWF 3.9 kn from 198°, JMA 11.0 kn from 143°, same place, same hour. It is a **superset** of
+phase 2's request: every member is handed to the sampler's cache, so the pinned model needs no request of its own
+(1 quota unit an hour, not 2) and **changing model in the dialog is instant**. If it fails, the strip falls back to
+phase 2's single-model request — the spread is extra, never a precondition.
+
+- The strip's **headline stays the chart's one named model**. The spread is the range around it — `5–10` under TWS,
+  rounded **outward** so it always contains the headline, with a count (`4/5`) only when someone did not answer. A
+  five-model mean would be a number that matches no field on the chart and no provider.
+- Each member is taken to the ghost's place and moment **first**, then compared. Members are **counted**: a model that
+  runs out (UKMO ≈ day 7) or answered nothing drops out by name, so a band that narrows late in the axis is not read as
+  agreement. Fewer than two members is no spread.
+- **Only suffixed keys** are read: a degraded unsuffixed reply read five times would be a perfect, false zero.
+- Thresholds are the Glass convergence sheet's (4 / 8 kn; 20° / 45°), so the two cannot contradict each other. Direction
+  is the short way round and is **not judged under 6 kn** — light air from anywhere is not a disagreement. Gust is
+  compared only among the three models that publish it.
+- At 8 kn or 45° apart the strip says **MODELS SPLIT**, in red, on its own line.
+- The scrubber draws **the band**: the five models' wind along _her plan_, the pinned model's line through it, red where
+  they are split, broken (not stretched) where models ran out. It lives inside the track and costs no height. The
+  credit then names **every** provider in it.
+
+Deliberately **not** reused: `ConsensusMatrixEngine` (turns a null into a 0-knot calm, fabricates a gust as speed × 1.4,
+and on fetch failure invents four "models" from sin-noise) and `MultiModelWeatherService` (`?? 0` on missing data).
+
+### The ghost sails by the wind
+
+`services/passagePlan.ts`. Phase 2 ran the ghost at one flat speed, so offset → distance was a multiplication done in
+five places. By the wind it is non-linear **and sequential**, so it is walked **once** into a table (15-minute rows) and
+everything reads that table: the axis length, the ghost, TO GO, the speed tag, the apparent-wind estimate, the
+screen-reader sentence.
+
+**Why the polar is scaled.** The app holds three polars for the same boat that disagree by about 2× (a 55-footer: 4.2 kn
+peak from the yacht database's _generated_ table, 6.8 from the generic default, 8.2 in the edge router's bundled curve),
+while the one speed the skipper has actually set — and asked for by name — is the profile's cruising speed. An unscaled
+table would silently move the ETA by hours. So the polar supplies only the **shape**; it is scaled so a fair reaching
+breeze (mean of 60/90/120/150° at 15 kn) gives exactly her cruising speed. A table that would need scaling by more than
+2.5× or less than 0.4× is about another boat and is not used. The skipper's own `settings.polarData` when she has chosen
+one, else the generic cruising polar; **never** the learned "smart" polar (it loads async, only after the Polars page is
+opened, and its unfilled cells are literal zeros).
+
+- Inside her close-hauled angle she **tacks**: `v(θc)·cos θc / cos α`. (`createPolarSpeedLookup` alone clamps and
+  _holds_ — dead on the nose it returns close-hauled boat speed, the opposite of slowing on the nose.)
+- She **motors** under 4 kn of wind (the isochrone router's own rule) or when sailing would give less than 60% of her
+  cruising speed; motoring loses way into a headwind (the edge router's factor).
+- A **power vessel** does her cruising speed and the tag says CRUISE — there is no client-side power model worth trusting.
+- **No wind forecast is not a speed**: she is _assumed_ at cruising speed, the plan records from when, the tag reads
+  `NO WX` and the scrubber says "No wind forecast here — 6.0 kn assumed".
+- The tag reads `5.2KN SAIL / TACK / MOTOR / CRUISE / NO WX`. An arrival worked from the wind is called an estimate.
+
+**Flat cruising speed is one tap away** — it is what Shane first asked for. The dialog (now "Forecast model and ghost
+speed") offers both and says in plain words what "by the wind" assumes. The choice is a remembered preference; the
+look-ahead itself still is not.
+
+### Rain follows, as far as it reaches
+
+The survey found the forecast frames carried **no clock time** and that the steps are uneven (10/20/30 min) — the
+existing wind+rain combo's "frames are 10 minutes apart" arithmetic is wrong past +1 h. One live probe settled it: the
+Rainbow snapshot id **is** a unix time (on the hour, ~16 min old). So frames now carry `timeMs`, and
+`components/map/rainTimeAxis.ts` picks a frame by **clock**, never by index:
+
+- at NOW (and for ten minutes) it is the newest **observed** radar frame — the clock-nearest frame at 03:16 is the 03:20
+  _forecast_, and now is not a forecast;
+- within reach (~3 h 45 — four hours less the snapshot's age) it is the frame for that moment;
+- past the reach it goes **back** to observed radar and the scrubber says `Chart rain ends +3.7 h`. The last forecast
+  frame is never held under a clock reading tomorrow;
+- the index only moves when the integer target changes and never while a frame is still warming up — every request
+  cancels the one in flight, so a follower at drag rate would cancel for ever and paint nothing;
+- it re-applies when the frames are rebuilt (every ten minutes) and hands back to Now when the glance ends. This also
+  fixes a phase 2 flaw: rain used to be **frozen wherever its autoplay happened to be**, with no label, under the words
+  "still at its own time".
+
+`rain` is on the scrubber's "still at its own time" list only when it has no timed reach at all (radar alone, a snapshot
+that is not a clock, forecast still loading).
+
+**A credit that was missing.** Until now nobody was named while a _forecast_ rain frame was on screen (the RainViewer
+credit is, rightly, for radar frames only). Look-ahead shows forecast frames far more often, so the gap is closed:
+`Rain forecast by Rainbow.ai`, same slot, never gated on the time controls or on look-ahead, and the Copernicus credit
+stacks under either.
+
+### What the independent review found (before the first commit)
+
+Three reviewers, each finding separately verified; **all eleven were real** and are fixed, each with a test.
+
+1. **Changing model dragged a parked scrubber to a different arrival — for good.** A model change passed through one
+   render with no forecast; that walked the flat "assumed" plan, shortened the axis, and the clamp wrote the shorter
+   offset into the store. Now a cached member is read _in render_, the axis is held while a series loads, and the store
+   is never written from a plan walked while loading.
+2. **The polar was held at both ends.** The yacht database's tables start at 6 kn of wind, so in a 4-knot drift the
+   lookup handed back the 6-kn speed: "6.1KN SAIL". Boat speed now runs down to nothing at no wind (and the 60% rule
+   sends her to the engine); above the last column she is never credited more than her cruising speed.
+3. **Tacking, the apparent wind was worked dead along the rhumb line at VMG** — "AWA EST 0°S" beside the word TACK. It
+   is now worked on her close-hauled heading at her speed _through the water_, and shows an angle with no P or S (the
+   side alternates).
+4. **A close-hauled angle below the polar's first row** was credited the 45° speed at 40°: 8–28% too good upwind. She
+   is never priced pointing higher than the table can price.
+5. **A stale five-model bundle blocked the single-model fallback**, so after the first hour a spread outage became a
+   headline outage. The strip goes back for its one model, and never shows an un-aged old range under a fresher headline.
+6. **A split that is all about direction** (five models at 18 kn, 80° apart) drew no red on the band — its range is
+   zero knots wide — and painted the _speed_ range red on the strip. Every split stretch now gets a red rule along the
+   top of the band; the TWS range is coloured by speed alone; the direction split is named on TWD (`80° apart`).
+7. **A split shorter than two band samples drew nothing** — one sample is 4.2 h of a seven-day axis. A single sample
+   now paints, and each band point's level is the worst found anywhere in its interval, hour by hour.
+8. **The rain follower trusted the frame it asked for, not the one painted.** A stage that misses its 6 s deadline fails
+   open and leaves the old image up: observed radar under a +2 h clock, credited to the forecast's provider. The follower
+   now records committed frames, puts the index back where the image is, and reports rain as not following.
+9. **Past the wind field, the rain note was swallowed by the wind note**, leaving observed radar unlabelled under a
+   two-day clock. Past both reaches rain goes back on the "still at its own time" row.
+10. **MODELS SPLIT and the age of a stale run were the two lines below the fold** on a 393×852 phone paying both insets.
+    They now stand outside the scrolling cells: whatever overflows is a cell, never a warning.
+11. **At the end of the axis the strip read "0.0KN SAIL"**, and every 30-second re-walk un-arrived her so Play did
+    nothing. It reads ARRIVED; a skipper parked at the end stays at the end; Play offers to start again.
+
+Also: a five-model request that keeps failing now backs off (1, 2, 4 … 30 min) instead of costing a quota unit every
+two minutes for ever, and during the back-off the strip goes straight to its one model; the spoken range rounds outward
+like the visible one; and an assertion that could not fail (`/3\d/` also matched the range "12–33") was anchored.
+
+### Deliberately not in this phase
+
+**Sea state and current at the ghost.** The survey found traps that need a measured probe first: Open-Meteo marine
+**snaps** a harbour or river station to open-water waves up to 10+ km away with no null and no warning (route ends are
+usually berths); wave height arrives in metres while the app's report path expects feet; current arrives in km/h where
+the legacy path assumes m/s; wave direction is FROM and current direction is TO; the atmospheric model pin does not
+exist on the marine API, so a wave number under "ECMWF" would break the one-model rule; and the strip's height was
+measured for seven cells. It is phase 4, with the probe list in the survey.
+
+### Re-test on the boat (phase 3)
+
+1. AHEAD ▸. Under TWS there is now a small range (`5–10`). Scrub along: where it turns amber then red, the strip says
+   **MODELS SPLIT** and the band on the scrubber is red there.
+2. The tag under TO GO reads e.g. `5.2KN SAIL`. Scrub to a stretch where the forecast wind is on the nose: `TACK` (or
+   `MOTOR`), a lower number, and the arrival moves later than the flat-speed one.
+3. **ECMWF ▾** → the dialog is now "Forecast model and ghost speed". Pick ICON: the numbers change **at once**, no
+   LOADING. Pick _Cruising speed — 6.0 kn_: the tag reads `6.0KN CRUISE` and the axis is phase 2's again. It stays that
+   way next time.
+4. Rain layer on, scrub inside four hours: the rain imagery steps with the scrubber and the top-centre credit reads
+   _Rain forecast by Rainbow.ai_. Past ~3.7 h: observed radar comes back and the scrubber says where the rain ended.
+5. LIVE ‹: rain is back on its newest radar frame, wind at Now.
+
+## Phase 4 — sea state, and what is left
+
+Sea state and current at the ghost (behind the probe described above); SPITFIRE as its own labelled band where the
+ghost is inside one of its sites; squall cells following the scrubber (the proxy already serves `forecast=600…14400`);
+a motoring-speed and motor-below setting in the vessel profile instead of the two constants; polar-aware reefing above
+the table's last column.

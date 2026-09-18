@@ -228,8 +228,15 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
     });
 
     it('look-ahead is never persisted: the chart cannot boot into a forecast', () => {
-        const lookAheadCode = store.slice(store.indexOf('// ── Look ahead'));
-        expect(lookAheadCode).not.toMatch(/localStorage|sessionStorage/);
+        // The look-ahead's own section, up to the ghost-speed PREFERENCE that follows
+        // it (which IS remembered — it is a setting, not a glance).
+        const from = store.indexOf('// ── Look ahead');
+        const to = store.indexOf('// ── How the ghost makes her way');
+        expect(from).toBeGreaterThan(-1);
+        expect(to).toBeGreaterThan(from);
+        expect(store.slice(from, to)).not.toMatch(/localStorage|sessionStorage/);
+        // …and nothing after it stores an offset, a playing flag or a ghost.
+        expect(store.slice(to)).not.toMatch(/setItem\([^)]*(ahead|ghost|playing)/i);
     });
 
     it('the scrubber’s slot is in the Mapbox credits’ own units, and clears the right-hand column', () => {
@@ -260,7 +267,8 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
             'thalassa-passage-kit-prompt fixed',
         );
         expect(flat(cssCode)).toContain(
-            'body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt { bottom: calc(4rem + 146px + env(safe-area-inset-bottom)) !important; }',
+            // 171px since phase 3: the credit names every provider in the band and wraps to two lines.
+            'body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt { bottom: calc(4rem + 171px + env(safe-area-inset-bottom)) !important; }',
         );
     });
 
@@ -284,5 +292,127 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
         expect(modal).toContain('overflow-y-auto');
         expect(modal).toContain('WindStore.setModel(choice.id);');
         expect(modal).toContain('{MODEL_ATTRIBUTION_LINE}');
+    });
+});
+
+/**
+ * Phase 3 — model spread, the speed model, rain following the scrubber. Pins
+ * for the things that fail without a sound.
+ */
+describe('phase 3: spread, speed and rain', () => {
+    const flat = (text: string) => text.replace(/\s+/g, ' ');
+    const code = (path: string) =>
+        readFileSync(path, 'utf8')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '');
+    const spread = code('services/routeForecastSpread.ts');
+    const plan = code('services/passagePlan.ts');
+    const layers = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
+    const controls = readFileSync('components/map/MapWeatherControls.tsx', 'utf8');
+
+    it('the spread reads ONLY suffixed keys — an unsuffixed reply can never become five models agreeing perfectly', () => {
+        expect(spread).toContain('hourly?.[`${key}_${model}`]');
+        expect(spread).not.toMatch(/hourly\?\.\[key\]/);
+    });
+
+    it('the spread never replaces the headline: the strip’s number is still the chart’s one model', () => {
+        expect(flat(paneCode)).toContain('value={fmtKnots(fc(sample?.twsKts))}');
+        expect(paneCode).not.toMatch(/meanKts|averageKts|consensusKts/);
+    });
+
+    it('one request for all five, by name — and the single-model request is only the fallback', () => {
+        expect(spread).toContain("models: ids.join(','),");
+        expect(flat(paneCode)).toContain(
+            // A FRESH bundle's member is the headline; a stale one never is.
+            'const forecast = (spreadFresh ? member : null) ?? (await loadRouteForecast(routeCoords, id)) ?? member;',
+        );
+    });
+
+    it('thresholds are the Glass convergence sheet’s, so the two cannot contradict each other', () => {
+        expect(spread).toContain('export const SPREAD_SOME_KTS = 4;');
+        expect(spread).toContain('export const SPREAD_SPLIT_KTS = 8;');
+        expect(spread).toContain('export const SPREAD_SOME_DEG = 20;');
+        expect(spread).toContain('export const SPREAD_SPLIT_DEG = 45;');
+    });
+
+    it('no wind forecast is never fed to a polar: it is ASSUMED at cruising speed, and said', () => {
+        expect(flat(plan)).toContain(
+            "if (twsKts === null || twdDeg === null || !Number.isFinite(courseDeg)) return flat('assumed');",
+        );
+        // …and that return sits ABOVE the polar lookup, not after it.
+        expect(plan.indexOf("return flat('assumed');")).toBeLessThan(
+            plan.indexOf('createPolarSpeedLookup(model.polar, twsKts)'),
+        );
+        expect(paneCode).toContain("assumed: 'NO WX'");
+    });
+
+    it('never the learned "smart" polar: it loads async and its empty cells are zeros', () => {
+        expect(paneCode).not.toMatch(/SmartPolarStore/);
+        expect(plan).not.toMatch(/SmartPolarStore/);
+        expect(flat(paneCode)).toContain('polar: polarData ?? DEFAULT_CRUISING_POLAR,');
+    });
+
+    it('everything on screen reads ONE plan table — no second copy of the arithmetic', () => {
+        // Phase 2's linear formula is gone from the strip.
+        expect(paneCode).not.toMatch(/cruiseKts \* aheadMs/);
+        expect(paneCode).not.toMatch(/toGoNm \/ cruiseKts/);
+        expect(flat(paneCode)).toContain('const moment = plan ? planAt(plan, aheadMs) : null;');
+    });
+
+    it('rain is chosen by CLOCK, as an integer, and never while a frame is still warming up', () => {
+        expect(layers).toContain('rainFollowIndex(frames, rainNowIdxRef.current, now, look.aheadMs)');
+        expect(flat(layers)).toContain('if (busy) { timer = setTimeout(apply, 400); return; }');
+        expect(layers).toContain('timeMs: f.time * 1000,');
+        expect(layers).toContain('snapshotClockMs(rainbowSnapshot, Date.now())');
+    });
+
+    it('rain is "unsynced" only when it has no timed reach at all', () => {
+        expect(flat(layers)).toContain(
+            "activeLayers.has('rain') && (rainReachHours(unifiedFramesRef.current, Date.now()) === null || rainFollowFailed)",
+        );
+    });
+
+    it('whoever’s rain imagery is on screen is named — radar AND forecast — and never gated on look-ahead', () => {
+        expect(controls).toContain('Rain forecast by Rainbow.ai');
+        expect(controls).toContain("currentRainFrame?.type === 'forecast';");
+        expect(controls).not.toMatch(/showRainForecastAttribution\s*=[^;]*lookingAhead/);
+        expect(flat(controls)).toContain('{showRainForecastAttribution && (');
+        // …and the Copernicus credit stacks under either of them.
+        const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+        expect(flat(hub)).toMatch(
+            /const rainCreditShown = weather\.activeLayers\.has\('rain'\) && weather\.rainReady &&/,
+        );
+        expect(hub).toContain('!!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];');
+    });
+
+    it('the speed choice is a remembered PREFERENCE; the look-ahead itself still is not', () => {
+        const store = readFileSync('stores/passageHudStore.ts', 'utf8');
+        expect(store).toContain("const SPEED_KEY = 'thalassa_passage_speed_mode_v1';");
+    });
+
+    it('review: the rain follower judges the frame that is PAINTED, not the one it asked for', () => {
+        expect(layers).toContain('rainCommittedIdxRef.current = requestedIndex;');
+        expect(layers).toContain('if (target === observed || rainCommittedIdxRef.current === target) {');
+        expect(layers).toContain('setRainFollowFailed(true);');
+        expect(flat(layers)).toContain(
+            '(rainReachHours(unifiedFramesRef.current, Date.now()) === null || rainFollowFailed)',
+        );
+    });
+
+    it('review: the offset is never rewritten from a plan walked while the series is still loading', () => {
+        expect(flat(paneCode)).toContain('if (!look.on || !plan || !axisKnown) return;');
+        expect(flat(paneCode)).toContain(
+            'const axisKnown = !!plan && (forecastSettled || forecast !== null || lastMaxRef.current === 0);',
+        );
+    });
+
+    it('review: the two warnings are outside the scrolling cells', () => {
+        const scrollerAt = pane.indexOf('className="min-h-0 flex-1 overflow-y-auto"');
+        const warningsAt = pane.indexOf('THE WARNINGS STAND OUTSIDE THE SCROLLER');
+        const lookAheadButtonAt = pane.indexOf('data-testid="hud-look-ahead"');
+        expect(scrollerAt).toBeGreaterThan(-1);
+        expect(warningsAt).toBeGreaterThan(scrollerAt);
+        expect(lookAheadButtonAt).toBeGreaterThan(warningsAt);
+        expect(pane.indexOf('data-testid="hud-models-split"')).toBeGreaterThan(warningsAt);
     });
 });

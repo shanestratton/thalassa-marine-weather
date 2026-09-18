@@ -3880,18 +3880,20 @@ body.animation-diet [class*='slide-in'] {
 }
 /* The "This is a passage" nudge is anchored 9rem up and is wider than the
    scrubber: measured, it lay across the scrubber's clock and its change-model
-   button. It is the one that moves — up, clear of the scrubber's tallest state
-   (about 100px with its note row) — because it is a card with a Not now button
-   and the scrubber is a control in use. !important: its bottom is inline. */
+   button. It is the one that moves — up, clear of the scrubber's tallest state —
+   because it is a card with a Not now button and the scrubber is a control in
+   use. Phase 3 made that tallest state taller: the credit now names every
+   provider in the model band and wraps to two lines on a phone, so it is
+   ~77px + a wrapped credit line + both note rows = ~125px. !important: its
+   bottom is inline. */
 body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt {
-    bottom: calc(4rem + 146px + env(safe-area-inset-bottom)) !important;
+    bottom: calc(4rem + 171px + env(safe-area-inset-bottom)) !important;
 }
 /* Looking ahead, the weather-model row that the 232px stood clear of is not on
-   screen; the scrubber tops out at 4rem + 138px, so the strip may run lower —
-   which is what lets every forecast cell show at once on a 393x852 phone that
-   is also paying both safe-area insets (measured: 447px of strip, 486 free). */
+   screen; the scrubber tops out at 4rem + 163px in its tallest state (see
+   above), so the strip may run lower than in LIVE — and never into it. */
 .thalassa-passage-hud[data-mode='forecast'] {
-    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 150px - env(safe-area-inset-bottom));
+    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 175px - env(safe-area-inset-bottom));
 }
 /* Surfaces that own the chart: no strip and no tab. Only MapHub knows when the
    passage planner, the consensus matrix or a storm card is up, so CSS asks the

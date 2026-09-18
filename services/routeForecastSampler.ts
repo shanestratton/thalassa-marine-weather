@@ -185,7 +185,35 @@ interface CacheEntry {
     inflight: Promise<RouteForecast | null> | null;
 }
 const cache = new Map<string, CacheEntry>();
-const CACHE_MAX = 6;
+/** Two routes' worth of five models, and a little: the spread request primes every member. */
+const CACHE_MAX = 12;
+
+function evictOldest(): void {
+    while (cache.size > CACHE_MAX) {
+        const oldest = cache.keys().next().value;
+        if (oldest === undefined) break;
+        cache.delete(oldest);
+    }
+}
+
+/**
+ * Hand the cache a series that arrived another way — routeForecastSpread's one
+ * multi-model request is a superset of this module's single-model one, so each
+ * member becomes that model's cached series and the pinned model never needs a
+ * request of its own. Never replaces a newer series with an older one.
+ */
+export function primeRouteForecast(coords: readonly RoutePoint[], forecast: RouteForecast): void {
+    const key = routeForecastKey(coords, forecast.model);
+    const entry = cache.get(key);
+    if (entry?.forecast && entry.forecast.fetchedAt >= forecast.fetchedAt) return;
+    if (entry) {
+        entry.forecast = forecast;
+        entry.failedAt = 0;
+        return;
+    }
+    cache.set(key, { forecast, failedAt: 0, inflight: null });
+    evictOldest();
+}
 
 /** The cached series, if there is one and it is still fresh. No fetch. */
 export function peekRouteForecast(
@@ -219,11 +247,7 @@ export async function loadRouteForecast(coords: readonly RoutePoint[], model: st
     if (!entry) {
         entry = { forecast: null, failedAt: 0, inflight: null };
         cache.set(key, entry);
-        while (cache.size > CACHE_MAX) {
-            const oldest = cache.keys().next().value;
-            if (oldest === undefined) break;
-            cache.delete(oldest);
-        }
+        evictOldest();
     }
     const mine = entry;
     mine.inflight = (async () => {
@@ -235,7 +259,8 @@ export async function loadRouteForecast(coords: readonly RoutePoint[], model: st
                 timeformat: 'unixtime',
                 forecast_hours: FORECAST_HOURS,
             });
-            mine.forecast = parseRouteForecast(stations, replies, model, totalNm, Date.now());
+            const fresh = parseRouteForecast(stations, replies, model, totalNm, Date.now());
+            if (!mine.forecast || mine.forecast.fetchedAt <= fresh.fetchedAt) mine.forecast = fresh;
             mine.failedAt = 0;
         } catch (err) {
             mine.failedAt = Date.now();
