@@ -3252,7 +3252,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const rainCreditShown =
         weather.activeLayers.has('rain') &&
         weather.rainReady &&
-        weather.unifiedFramesRef?.current?.[weather.rainFrameIndex]?.type === 'radar';
+        // Either kind of frame carries a credit in slot 0 (RainViewer for radar,
+        // Rainbow.ai for forecast — MapWeatherControls), so Copernicus stacks
+        // under both. Testing for 'radar' alone let the two overlap.
+        !!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
 
     return (
