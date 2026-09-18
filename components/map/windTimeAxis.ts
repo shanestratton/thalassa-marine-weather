@@ -68,3 +68,32 @@ export function windHoursFromNow(forecastHours: number[], frameIndex: number, no
     const nowHour = windForecastHourAtFrame(forecastHours, nowFrameIndex);
     return frameHour === null || nowHour === null ? null : frameHour - nowHour;
 }
+
+/**
+ * The inverse of `windForecastHourAtFrame`: which (fractional) frame shows the
+ * field `forecastHour` hours after the grid's reference time?
+ *
+ * For the passage look-ahead, which asks for "now + 6 h" and must be TOLD when
+ * the grid does not reach that far — `beyond` — rather than being handed the
+ * last frame as though it were the answer. `frame` is still the nearest end of
+ * the axis, so the caller can park the layer there while it says so.
+ */
+export function windFrameForForecastHour(
+    forecastHours: number[],
+    forecastHour: number,
+): { frame: number; beyond: boolean } | null {
+    const n = forecastHours.length;
+    if (n === 0 || !Number.isFinite(forecastHour)) return null;
+    if (forecastHour <= forecastHours[0]) return { frame: 0, beyond: forecastHour < forecastHours[0] - 1 };
+    if (forecastHour >= forecastHours[n - 1]) {
+        return { frame: n - 1, beyond: forecastHour > forecastHours[n - 1] };
+    }
+    for (let i = 1; i < n; i += 1) {
+        if (forecastHour <= forecastHours[i]) {
+            const span = forecastHours[i] - forecastHours[i - 1];
+            const t = span > 0 ? (forecastHour - forecastHours[i - 1]) / span : 0;
+            return { frame: i - 1 + t, beyond: false };
+        }
+    }
+    return { frame: n - 1, beyond: true };
+}

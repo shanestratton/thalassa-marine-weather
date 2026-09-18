@@ -12,8 +12,24 @@
  * glance. Same shape as chartPassageOverlay: a module value, a listener set,
  * and useSyncExternalStore for the components — no zustand, nothing to hydrate.
  *
- * Phase 2 adds the time axis (`t`, playing, speed) beside this flag; keep them
- * in this module so the pane and the scrubber read one store.
+ * PHASE 2 — LOOK AHEAD (Shane 2026-09-18: "ok next phase"). The same module
+ * now carries the one time axis the chart shares while the skipper is looking
+ * ahead along the route:
+ *
+ *   lookAhead.on       — false = LIVE. Nothing on the chart is a forecast.
+ *   lookAhead.aheadMs  — how far ahead of NOW the scrubber stands. An OFFSET,
+ *                        not a clock time: parked at +6 h it stays +6 h from
+ *                        wherever she is when the skipper next looks.
+ *   lookAhead.playing  — the scrubber is running itself forward.
+ *
+ * Three readers, one writer each way: the strip (forecast cells), the ghost on
+ * the chart (useRouteGhostMarker) and the wind timeline (useWeatherLayers) all
+ * follow `aheadMs`; the wind timeline reports back how many hours of field it
+ * actually has, so the scrubber can say where the chart's wind stops instead
+ * of holding its last frame under a ghost that has sailed on.
+ *
+ * NEVER PERSISTED. Look-ahead is a glance, not a state to boot into: the chart
+ * must never open showing tomorrow's wind to someone who did not ask for it.
  */
 import { useSyncExternalStore } from 'react';
 
@@ -41,6 +57,8 @@ export function isPassageHudOpen(): boolean {
 export function setPassageHudOpen(next: boolean): void {
     if (next === open) return;
     open = next;
+    // The scrubber belongs to the open strip. Hiding the strip ends the glance.
+    if (!next) stopPassageLookAhead();
     try {
         if (next) localStorage.setItem(KEY, '1');
         else localStorage.removeItem(KEY);
@@ -93,6 +111,7 @@ export function setPassageHudEnabled(next: boolean): void {
             /* as above */
         }
     }
+    if (!next) stopPassageLookAhead();
     listeners.forEach((fn) => fn());
 }
 
@@ -100,8 +119,227 @@ export function usePassageHudEnabled(): boolean {
     return useSyncExternalStore(subscribePassageHud, isPassageHudEnabled, isPassageHudEnabled);
 }
 
+// ── Look ahead ─────────────────────────────────────────────────
+
+/** Shane 2026-09-18: "lets get it out to 7 days". */
+export const LOOK_AHEAD_MAX_MS = 7 * 24 * 3_600_000;
+
+export interface PassageLookAhead {
+    on: boolean;
+    aheadMs: number;
+    playing: boolean;
+}
+
+const LIVE: PassageLookAhead = Object.freeze({ on: false, aheadMs: 0, playing: false });
+// A NEW object on every change and the SAME object otherwise — what
+// useSyncExternalStore needs from a snapshot.
+let lookAhead: PassageLookAhead = LIVE;
+const lookAheadListeners = new Set<() => void>();
+
+function setLookAhead(next: PassageLookAhead): void {
+    if (next.on === lookAhead.on && next.aheadMs === lookAhead.aheadMs && next.playing === lookAhead.playing) return;
+    lookAhead = next.on ? next : LIVE;
+    lookAheadListeners.forEach((fn) => fn());
+}
+
+export function getPassageLookAhead(): PassageLookAhead {
+    return lookAhead;
+}
+
+export function subscribePassageLookAhead(fn: () => void): () => void {
+    lookAheadListeners.add(fn);
+    return () => {
+        lookAheadListeners.delete(fn);
+    };
+}
+
+export function usePassageLookAhead(): PassageLookAhead {
+    return useSyncExternalStore(subscribePassageLookAhead, getPassageLookAhead, getPassageLookAhead);
+}
+
+const isLookingAhead = (): boolean => lookAhead.on;
+
+/**
+ * Just the on/off. For the chart furniture that only needs to step aside: the
+ * full snapshot changes at pointer rate during a drag, and re-rendering the
+ * weather controls sixty times a second to learn "still on" is pure waste.
+ */
+export function usePassageLookAheadOn(): boolean {
+    return useSyncExternalStore(subscribePassageLookAhead, isLookingAhead, isLookingAhead);
+}
+
+/** Into look-ahead, standing at NOW: the model's numbers for this hour. */
+export function startPassageLookAhead(): void {
+    if (lookAhead.on) return;
+    setLookAhead({ on: true, aheadMs: 0, playing: false });
+}
+
+/** Back to LIVE. Also forgets the ghost: there is no ghost of the present. */
+export function stopPassageLookAhead(): void {
+    setLookAhead(LIVE);
+    publishPassageGhost(null);
+    publishPassageGhostPath(null);
+}
+
+/** Move the scrubber. Ignored while live; clamped to 0…`maxMs` (≤ 7 days). */
+export function setPassageAheadMs(ms: number, maxMs: number = LOOK_AHEAD_MAX_MS): void {
+    if (!lookAhead.on || !Number.isFinite(ms)) return;
+    const ceiling = Math.max(0, Math.min(Number.isFinite(maxMs) ? maxMs : LOOK_AHEAD_MAX_MS, LOOK_AHEAD_MAX_MS));
+    setLookAhead({ ...lookAhead, aheadMs: Math.max(0, Math.min(ms, ceiling)) });
+}
+
+export function setPassageLookAheadPlaying(playing: boolean): void {
+    if (!lookAhead.on) return;
+    setLookAhead({ ...lookAhead, playing });
+}
+
+// ── The ghost ──────────────────────────────────────────────────
+
+/** Where she will be at the scrubbed moment, for the chart to draw. */
+export interface PassageGhost {
+    lat: number;
+    lon: number;
+    /** The way the route runs there, degrees true. */
+    bearingDeg: number;
+    /** Short chip under the ghost — "+6 h". */
+    label: string;
+}
+
+let ghost: PassageGhost | null = null;
+/**
+ * The water still to sail: from the point abeam of the boat to the route's
+ * end. The Obs chart stopped drawing the followed route on its own account on
+ * 2026-08-03 ("remove all of the spaghetti"), and the Passage overlay only
+ * draws a line it can match to an active voyage — so without this a ghost can
+ * ride a line nobody can see. Drawn for exactly as long as the glance lasts:
+ * opt-in per look, which is the shape Shane asked routes on this chart to be.
+ */
+let ghostPath: readonly { lat: number; lon: number }[] | null = null;
+const ghostListeners = new Set<() => void>();
+
+export function getPassageGhostPath(): readonly { lat: number; lon: number }[] | null {
+    return ghostPath;
+}
+
+export function publishPassageGhostPath(next: readonly { lat: number; lon: number }[] | null): void {
+    const clean = next && next.length >= 2 ? next : null;
+    if (clean === ghostPath) return;
+    if (
+        clean &&
+        ghostPath &&
+        clean.length === ghostPath.length &&
+        clean.every((p, i) => p.lat === ghostPath![i].lat && p.lon === ghostPath![i].lon)
+    ) {
+        return;
+    }
+    ghostPath = clean;
+    ghostListeners.forEach((fn) => fn());
+}
+
+export function getPassageGhost(): PassageGhost | null {
+    return ghost;
+}
+
+export function subscribePassageGhost(fn: () => void): () => void {
+    ghostListeners.add(fn);
+    return () => {
+        ghostListeners.delete(fn);
+    };
+}
+
+export function publishPassageGhost(next: PassageGhost | null): void {
+    if (next === ghost) return;
+    if (
+        next &&
+        ghost &&
+        next.lat === ghost.lat &&
+        next.lon === ghost.lon &&
+        next.bearingDeg === ghost.bearingDeg &&
+        next.label === ghost.label
+    ) {
+        return;
+    }
+    ghost = next;
+    ghostListeners.forEach((fn) => fn());
+}
+
+// ── How much wind the chart actually has ───────────────────────
+
+/**
+ * Hours of wind field ahead of NOW that the chart's wind layer holds, or null
+ * when that layer is off / has no grid. The field is 48 hourly frames; the
+ * strip's numbers reach seven days. The scrubber says where the one stops.
+ */
+let windCoverageHours: number | null = null;
+const windCoverageListeners = new Set<() => void>();
+
+export function getPassageWindCoverageHours(): number | null {
+    return windCoverageHours;
+}
+
+export function reportPassageWindCoverage(hours: number | null): void {
+    const next = hours !== null && Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 10) / 10 : null;
+    if (next === windCoverageHours) return;
+    windCoverageHours = next;
+    windCoverageListeners.forEach((fn) => fn());
+}
+
+// Module-level, so useSyncExternalStore sees ONE subscribe function and does
+// not tear down and re-add its listener on every render.
+function subscribePassageWindCoverage(fn: () => void): () => void {
+    windCoverageListeners.add(fn);
+    return () => {
+        windCoverageListeners.delete(fn);
+    };
+}
+
+export function usePassageWindCoverageHours(): number | null {
+    return useSyncExternalStore(subscribePassageWindCoverage, getPassageWindCoverageHours, getPassageWindCoverageHours);
+}
+
+// ── Layers that do NOT follow the scrubber ─────────────────────
+
+/**
+ * Only the wind field follows the look-ahead (and the isobars, when they ride
+ * it). Rain radar reaches about two hours; the ocean products are 8–12 MB a
+ * step. While their own time pills are stood down they carry NO time label at
+ * all — so a rain layer showing this minute's radar would sit under a clock
+ * reading Saturday 18:00 with nothing to say otherwise (review, 2026-09-18).
+ * The chart reports which of them are up; the scrubber says so in words.
+ */
+const NO_LAYERS: readonly string[] = Object.freeze([]);
+let unsyncedLayers: readonly string[] = NO_LAYERS;
+const unsyncedListeners = new Set<() => void>();
+
+export function getPassageUnsyncedLayers(): readonly string[] {
+    return unsyncedLayers;
+}
+
+export function reportPassageUnsyncedLayers(names: readonly string[]): void {
+    const next = names.length === 0 ? NO_LAYERS : names;
+    if (next.length === unsyncedLayers.length && next.every((n, i) => n === unsyncedLayers[i])) return;
+    unsyncedLayers = next === NO_LAYERS ? NO_LAYERS : Object.freeze([...next]);
+    unsyncedListeners.forEach((fn) => fn());
+}
+
+function subscribePassageUnsyncedLayers(fn: () => void): () => void {
+    unsyncedListeners.add(fn);
+    return () => {
+        unsyncedListeners.delete(fn);
+    };
+}
+
+export function usePassageUnsyncedLayers(): readonly string[] {
+    return useSyncExternalStore(subscribePassageUnsyncedLayers, getPassageUnsyncedLayers, getPassageUnsyncedLayers);
+}
+
 /** Test seam. */
 export function __resetPassageHudForTests(): void {
     open = read();
     enabled = readFlag(ENABLED_KEY);
+    lookAhead = LIVE;
+    ghost = null;
+    ghostPath = null;
+    windCoverageHours = null;
+    unsyncedLayers = NO_LAYERS;
 }

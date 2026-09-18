@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
     MOTION_MIN_NM,
     legLengthsNm,
+    pointAlongRoute,
     progressAlongRoute,
     routeLengthNm,
     type RoutePoint,
@@ -263,5 +264,72 @@ describe('sailed fix by fix, with the memory the pane carries', () => {
         expect(progressAlongRoute(route, spot, { alongNm: 16.01 })!.legIndex).toBe(1);
         expect(progressAlongRoute(route, spot, { alongNm: 3.99 })!.legIndex).toBe(0);
         expect(progressAlongRoute(route, spot)!.legIndex).toBe(0); // just set off
+    });
+});
+
+describe('the point a given distance down the route — where the ghost will be', () => {
+    it('is the inverse of progressAlongRoute, all the way along a dog-leg', () => {
+        const total = routeLengthNm(ROUTE);
+        for (let along = 0; along <= total; along += 3.7) {
+            const at = pointAlongRoute(ROUTE, along)!;
+            const back = progressAlongRoute(ROUTE, at)!;
+            expect(back.alongNm).toBeCloseTo(along, 2);
+            expect(back.offTrackNm).toBeLessThan(0.01);
+        }
+    });
+
+    it('points the way the route runs THERE: north on the first leg, east on the second', () => {
+        expect(pointAlongRoute(ROUTE, 30)!.bearingDeg).toBeCloseTo(0, 0);
+        const east = pointAlongRoute(ROUTE, 80)!;
+        expect(east.legIndex).toBe(1);
+        expect(east.bearingDeg).toBeGreaterThan(85);
+        expect(east.bearingDeg).toBeLessThan(95);
+    });
+
+    it('at a waypoint she is already looking down the NEXT leg', () => {
+        const atB = pointAlongRoute(ROUTE, legLengthsNm(ROUTE)[0])!;
+        expect(atB.lat).toBeCloseTo(B.lat, 6);
+        expect(atB.legIndex).toBe(1);
+    });
+
+    it('holds at the end and SAYS she has arrived — it does not sail on past the destination', () => {
+        const total = routeLengthNm(ROUTE);
+        const end = pointAlongRoute(ROUTE, total + 500)!;
+        expect(end.lat).toBeCloseTo(C.lat, 6);
+        expect(end.lon).toBeCloseTo(C.lon, 6);
+        expect(end.alongNm).toBeCloseTo(total, 6);
+        expect(end.arrived).toBe(true);
+        expect(pointAlongRoute(ROUTE, total - 1)!.arrived).toBe(false);
+    });
+
+    it('holds at the start for a negative distance', () => {
+        const start = pointAlongRoute(ROUTE, -5)!;
+        expect(start.lat).toBeCloseTo(A.lat, 6);
+        expect(start.alongNm).toBe(0);
+    });
+
+    it('walks over a doubled waypoint instead of dividing by its zero length', () => {
+        const doubled = [A, B, B, C];
+        const at = pointAlongRoute(doubled, legLengthsNm(doubled)[0] + 10)!;
+        expect(Number.isFinite(at.lat) && Number.isFinite(at.lon) && Number.isFinite(at.bearingDeg)).toBe(true);
+        expect(at.legIndex).toBe(2);
+        const end = pointAlongRoute([A, B, C, C], 9999)!;
+        expect(end.bearingDeg).toBeGreaterThan(85); // the last REAL leg, not a 0° from C to C
+    });
+
+    it('crosses the antimeridian without going the long way round', () => {
+        const fiji = [
+            { lat: -17, lon: 179 },
+            { lat: -17, lon: -179 },
+        ];
+        const mid = pointAlongRoute(fiji, routeLengthNm(fiji) / 2)!;
+        expect(Math.abs(Math.abs(mid.lon) - 180)).toBeLessThan(0.01);
+    });
+
+    it('is nothing for no route, a single point, or a route that is all one point', () => {
+        expect(pointAlongRoute([], 1)).toBeNull();
+        expect(pointAlongRoute([A], 1)).toBeNull();
+        expect(pointAlongRoute([A, A, A], 1)).toBeNull();
+        expect(pointAlongRoute(ROUTE, Number.NaN)).toBeNull();
     });
 });

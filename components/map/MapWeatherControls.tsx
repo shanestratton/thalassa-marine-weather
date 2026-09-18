@@ -11,6 +11,7 @@ import type { useWeatherLayers } from './useWeatherLayers';
 import type { WeatherLayer } from './mapConstants';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { WindModelFieldSelector } from './WindModelFieldSelector';
+import { usePassageLookAheadOn } from '../../stores/passageHudStore';
 import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
 import { isUsableWindGrid, windHoursFromNow } from './windTimeAxis';
 import type { CmemsLayerId } from './CmemsAttribution';
@@ -55,6 +56,8 @@ export function MapWeatherControls({
     controlsHidden,
     onControlsHiddenChange,
 }: MapWeatherControlsProps): React.ReactElement | null {
+    // Above the early return: a hook is called on every render or on none.
+    const passageLookAheadOn = usePassageLookAheadOn();
     if (!visible) return null;
 
     // Identify active weather layers (only scrubber-capable types).
@@ -78,7 +81,14 @@ export function MapWeatherControls({
             ? weather.activeLayers.has('wind' as WeatherLayer) || weather.activeLayers.has('velocity')
             : weather.activeLayers.has(key as WeatherLayer),
     );
-    const showTimeline = !controlsHidden;
+    // While the skipper is looking ahead along the route, the passage strip's
+    // scrubber stands in this row and drives the wind timeline itself. Two time
+    // sliders for one field is how a skipper reads the wrong hour, so these
+    // controls take their own designed "hidden" state — and do not offer to
+    // come back until the glance is over. Credits are not part of that state:
+    // they stay exactly where they are.
+    const lookingAhead = passageLookAheadOn && !embedded;
+    const showTimeline = !controlsHidden && !lookingAhead;
     // The minimise button lives IN the scrubber's row as its trailing square —
     // same height as the pill, same glass — rather than at a hardcoded left
     // offset that drifted to the right edge whenever the pill's width changed
@@ -626,7 +636,7 @@ export function MapWeatherControls({
                     </a>
                 </div>
             )}
-            {controlsHidden ? (
+            {lookingAhead ? null : controlsHidden ? (
                 <button
                     type="button"
                     onClick={() => onControlsHiddenChange(false)}

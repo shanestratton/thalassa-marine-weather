@@ -40,7 +40,15 @@ describe('the credits strip anchor', () => {
 describe('every chart credit sits on the strip', () => {
     it('RainViewer: first slot, same spot shown or hidden', () => {
         const src = strip(readFileSync('components/map/MapWeatherControls.tsx', 'utf8'));
-        const block = src.slice(src.indexOf('{showRainViewerAttribution && ('), src.indexOf('{controlsHidden ? ('));
+        // The credit's block ends where the show/hide pill begins. That line
+        // gained a look-ahead arm (passage strip phase 2); assert BOTH markers
+        // are found, because a missing end marker turns this slice into "to
+        // the end of the file" and the test into one about something else.
+        const start = src.indexOf('{showRainViewerAttribution && (');
+        const end = src.indexOf('{lookingAhead ? null : controlsHidden ? (');
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+        const block = src.slice(start, end);
         expect(block).toContain('${CREDITS_STRIP_POSITION_CLASS}');
         expect(block).toContain('top: creditsStripTop(0)');
         expect(block).not.toContain('bottom:');

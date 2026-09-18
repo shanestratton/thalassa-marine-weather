@@ -3852,6 +3852,47 @@ body.animation-diet [class*='slide-in'] {
 .thalassa-passage-hud-tab {
     top: calc(50% + 40px);
 }
+/* LOOK AHEAD (phase 2). The scrubber takes the bottom row while the chart's own
+   time controls stand down (MapWeatherControls), so there is never a second
+   slider. MEASURED on the real chart page in WebKit (2026-09-18) at 320, 375,
+   393 and 430px wide, because the first cut simply reused the weather
+   scrubber's slot and that slot turned out to be no model of good behaviour —
+   its right end sat on the Locate button and clipped Mapbox's (i), and its
+   Play button lay over the Mapbox wordmark.
+
+   BOTTOM is in the wordmark's own units. Mapbox's bottom-left container is
+   anchored at 4rem + 1px (above), its control carries a 10px margin and the
+   wordmark is 23px tall, so its top is 4rem + 34px up — and the root font is
+   FLUID below 768px, so that is 96.9px on a 393px phone and 102px on a 430px
+   one. A first cut in plain px (97) cleared the one and clipped the other by
+   a pixel. 4rem + 38px clears both by 4px, at any width.
+
+   RIGHT clears the whole right-hand column whatever its height: the Locate
+   button (16px + 3rem), Mapbox's (i) and the scale bar, which is up to 100px
+   wide on a 10px margin — so 116px, not the 96px that only cleared the scale
+   at the zoom it happened to be measured at. Neither credit is moved,
+   restyled or covered. Capped so a tablet does not get a metre of slider. */
+.thalassa-route-scrubber {
+    left: 12px;
+    right: 116px;
+    max-width: 30rem;
+    bottom: calc(4rem + 38px + env(safe-area-inset-bottom));
+}
+/* The "This is a passage" nudge is anchored 9rem up and is wider than the
+   scrubber: measured, it lay across the scrubber's clock and its change-model
+   button. It is the one that moves — up, clear of the scrubber's tallest state
+   (about 100px with its note row) — because it is a card with a Not now button
+   and the scrubber is a control in use. !important: its bottom is inline. */
+body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt {
+    bottom: calc(4rem + 146px + env(safe-area-inset-bottom)) !important;
+}
+/* Looking ahead, the weather-model row that the 232px stood clear of is not on
+   screen; the scrubber tops out at 4rem + 138px, so the strip may run lower —
+   which is what lets every forecast cell show at once on a 393x852 phone that
+   is also paying both safe-area insets (measured: 447px of strip, 486 free). */
+.thalassa-passage-hud[data-mode='forecast'] {
+    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 150px - env(safe-area-inset-bottom));
+}
 /* Surfaces that own the chart: no strip and no tab. Only MapHub knows when the
    passage planner, the consensus matrix or a storm card is up, so CSS asks the
    DOM. The storm card keeps Shane's standing rule — it stays on top of every
@@ -3862,14 +3903,18 @@ main:has(.thalassa-passage-banner) .thalassa-passage-hud-tab,
 main:has(button[aria-label='Close consensus matrix']) .thalassa-passage-hud,
 main:has(button[aria-label='Close consensus matrix']) .thalassa-passage-hud-tab,
 main:has(.storm-hud-badges) .thalassa-passage-hud,
-main:has(.storm-hud-badges) .thalassa-passage-hud-tab {
+main:has(.storm-hud-badges) .thalassa-passage-hud-tab,
+main:has(.thalassa-passage-banner) .thalassa-route-scrubber,
+main:has(button[aria-label='Close consensus matrix']) .thalassa-route-scrubber,
+main:has(.storm-hud-badges) .thalassa-route-scrubber {
     display: none;
 }
 /* A landscape phone has ~390px of height and a full bottom-left rail: there is
    no honest place for seven numbers. Phase 1 stands down there. */
 @media (orientation: landscape) and (max-height: 600px) {
     .thalassa-passage-hud,
-    .thalassa-passage-hud-tab {
+    .thalassa-passage-hud-tab,
+    .thalassa-route-scrubber {
         display: none;
     }
 }
