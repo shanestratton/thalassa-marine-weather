@@ -68,8 +68,9 @@ const profile = vi.hoisted(() => ({
         | { cruisingSpeed?: number; length?: number; type?: string }
         | undefined,
 }));
+const unitsPref = vi.hoisted(() => ({ waveHeight: 'm' as 'm' | 'ft' }));
 vi.mock('../stores/settingsStore', () => {
-    const state = () => ({ settings: { vessel: profile.vessel } });
+    const state = () => ({ settings: { vessel: profile.vessel, units: { waveHeight: unitsPref.waveHeight } } });
     const useSettingsStore = Object.assign((selector: (s: ReturnType<typeof state>) => unknown) => selector(state()), {
         getState: state,
         subscribe: () => () => undefined,
@@ -87,6 +88,18 @@ const proxy = vi.hoisted(() => ({
     failNext: false,
     /** The five-model request fails; the strip must fall back to its one model. */
     spreadFails: false,
+    // ── the sea (phase 4) ──
+    seaCalls: [] as { models: string; points: number }[],
+    seaFails: false,
+    /** Keyed by distance along the route, NOT by station index: the station layout is not this test's business. */
+    waveFor: (_station: number, p: { alongNm?: number }): number | null => 1.4 + (p.alongNm ?? 0) * 0.01,
+    currentKmh: 1.852 as number | null,
+    setDeg: 0 as number | null,
+    /** Where the service says its answer came from; a few km off is just the grid. */
+    snapFor: (_station: number, p: { lat: number; lon: number }): { lat: number; lon: number } | null => ({
+        lat: p.lat + 0.02,
+        lon: p.lon + 0.02,
+    }),
     speedFor: (model: string, station: number) => (model === 'dwd_icon' ? 30 : 10) + station,
     dirFor: (_model: string) => 90 as number,
 }));
@@ -96,6 +109,35 @@ vi.mock('../services/weather/openMeteoProxy', () => ({
         points: { lat: number; lon: number }[],
         params: Record<string, unknown>,
     ) => {
+        if (_op === 'marine') {
+            proxy.seaCalls.push({ models: String(params.models), points: points.length });
+            if (proxy.offline || proxy.seaFails) throw new Error('offline');
+            const t0 = Math.floor(Date.now() / HOUR) * HOUR;
+            const col = (value: number | null) => Array.from({ length: proxy.hours }, () => value);
+            return points.map((p, station) => {
+                const wave = proxy.waveFor(station, p as { alongNm?: number });
+                const echo = proxy.snapFor(station, p);
+                return {
+                    ...(echo ? { latitude: echo.lat, longitude: echo.lon } : {}),
+                    hourly_units: {
+                        wave_height_meteofrance_wave: 'm',
+                        wave_period_meteofrance_wave: 's',
+                        ocean_current_velocity_marine_best_match: 'km/h',
+                        ocean_current_direction_marine_best_match: '°',
+                    },
+                    hourly: {
+                        time: Array.from({ length: proxy.hours }, (_h, h) => (t0 + h * HOUR) / 1000),
+                        wave_height_meteofrance_wave: col(wave),
+                        wave_period_meteofrance_wave: col(wave === null ? null : 7),
+                        wave_direction_meteofrance_wave: col(wave === null ? null : 120),
+                        ocean_current_velocity_meteofrance_wave: col(null),
+                        ocean_current_direction_meteofrance_wave: col(null),
+                        ocean_current_velocity_marine_best_match: col(proxy.currentKmh),
+                        ocean_current_direction_marine_best_match: col(proxy.setDeg),
+                    },
+                };
+            });
+        }
         const asked = String(params.models);
         const models = asked.split(',');
         proxy.calls.push({ models: asked, points: points.length });
@@ -141,6 +183,7 @@ import {
 import { __resetPassageOverlayForTests, isPassageOverlayOn } from '../stores/chartPassageOverlay';
 import { __clearRouteForecastCacheForTests } from '../services/routeForecastSampler';
 import { __clearRouteSpreadCacheForTests } from '../services/routeForecastSpread';
+import { __clearRouteSeaCacheForTests } from '../services/routeSeaSampler';
 import { consumeMapFit, peekMapFit } from '../stores/MapFitTargetStore';
 import type { VoyagePlan } from '../types';
 
@@ -216,6 +259,14 @@ beforeEach(() => {
     proxy.hold = null;
     proxy.failNext = false;
     proxy.spreadFails = false;
+    proxy.seaCalls.length = 0;
+    proxy.seaFails = false;
+    proxy.waveFor = (_station, p) => 1.4 + (p.alongNm ?? 0) * 0.01;
+    proxy.currentKmh = 1.852;
+    proxy.setDeg = 0;
+    proxy.snapFor = (_station, p) => ({ lat: p.lat + 0.02, lon: p.lon + 0.02 });
+    unitsPref.waveHeight = 'm';
+    __clearRouteSeaCacheForTests();
     proxy.speedFor = (model: string, station: number) => (model === 'dwd_icon' ? 30 : 10) + station;
     proxy.dirFor = () => 90;
     // Phase 2's tests pin the FLAT cruising-speed plan, which is still a mode
@@ -291,9 +342,11 @@ describe('a forecast never wears a live reading’s face', () => {
         underWay();
         render(<PassageHudPane />);
         await lookAhead();
-        expect(text('hud-aws')).toContain('AWS est');
+        expect(text('hud-aws')).toContain('AW est');
         expect(label('hud-aws')).toContain('not measured');
-        expect(label('hud-awa')).toContain('not measured');
+        expect(label('hud-aws')).toContain('P is port, S is starboard');
+        // One cell since phase 4: the angle rides under the speed.
+        expect(screen.getByTestId('hud-aws').contains(screen.getByTestId('hud-awa'))).toBe(true);
     });
 
     it('the boat’s own 27 knots is nowhere on a strip that is showing the model’s 13', async () => {
@@ -458,7 +511,9 @@ describe('the wind she will sail INTO', () => {
         expect(proxy.calls[0].models.split(',')).toHaveLength(5);
         expect(text('route-scrub-model')).toContain('ECMWF');
         // …and whoever's numbers are in the band is credited, the pinned model's provider first.
-        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+        expect(text('route-scrub-credit')).toBe(
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+        );
     });
 
     it('past the end of the forecast is dashes and the words — never the last hour held', async () => {
@@ -696,7 +751,9 @@ describe('where the models disagree, it says so', () => {
         await lookAhead();
         expect(screen.getByTestId('route-scrub-band')).toBeTruthy();
         expect(screen.getAllByTestId('route-scrub-band-split').length).toBeGreaterThan(0);
-        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+        expect(text('route-scrub-credit')).toBe(
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+        );
     });
 
     it('past the forecast there is no range either — a band is not drawn across nothing', async () => {
@@ -768,7 +825,7 @@ describe('by the wind: the ghost slows on the nose', () => {
         render(<PassageHudPane />);
         await lookAhead();
         // 2 kn true on the nose + her own 6 (less the small headwind loss) ≈ 8 apparent
-        expect(text('hud-aws')).toMatch(/AWS est[78]\.\dkn/);
+        expect(text('hud-aws')).toMatch(/^AW est[78]\.\dkn/);
     });
 
     it('past the wind forecast her speed is ASSUMED, and both the strip and the scrubber say so', async () => {
@@ -860,10 +917,10 @@ describe('what the review of phase 3 caught', () => {
         expect(text('hud-route')).toMatch(/KN TACK$/);
         const awa = text('hud-awa');
         expect(awa).not.toContain('0°S');
-        expect(awa).toMatch(/AWA est\d{2}°$/); // an angle, and no P or S: the side alternates
-        expect(label('hud-awa')).toContain('close-hauled on either tack');
+        expect(awa).toMatch(/^\d{2}°$/); // an angle, and no P or S: the side alternates
+        expect(label('hud-aws')).toContain('close-hauled on either tack');
         // …and the speed in it is her way through the water, which is more than she is making good.
-        const aws = Number.parseFloat(text('hud-aws').replace('AWS est', ''));
+        const aws = Number.parseFloat(text('hud-aws').replace('AW est', ''));
         expect(aws).toBeGreaterThan(18);
     });
 
@@ -956,6 +1013,199 @@ describe('choosing how the ghost makes her way', () => {
     });
 });
 
+describe('the sea she will be in (phase 4)', () => {
+    it('shows the wave height at the ghost, the period beside it, and names whose model it is', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        // 30 NM along a fixture that rises 0.01 m a mile from 1.4 m: 1.7 m, however the stations fall.
+        await waitFor(() => expect(text('hud-sea')).toBe('Sea 7s1.7m'));
+        expect(label('hud-sea')).toBe(
+            'Forecast sea 1.7 metres, 7 second period, from 120 true, Météo-France wave model',
+        );
+        expect(screen.getByTestId('hud-sea').getAttribute('data-freshness')).toBe('forecast');
+    });
+
+    it('the sea changes as she moves along the route', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-sea')).toMatch(/m$/));
+        const first = Number.parseFloat(text('hud-sea').replace(/^Sea \d+s/, ''));
+        act(() => setPassageAheadMs(12 * HOUR));
+        const later = Number.parseFloat(text('hud-sea').replace(/^Sea \d+s/, ''));
+        expect(later).toBeGreaterThan(first);
+    });
+
+    it('in the skipper’s own unit: the series is METRES, and 1.5 m is 4.9 ft — never "1.5 ft"', async () => {
+        unitsPref.waveHeight = 'ft';
+        proxy.waveFor = () => 1.5;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-sea')).toBe('Sea 7s4.9ft'));
+        expect(label('hud-sea')).toContain('4.9 feet');
+    });
+
+    it('the current is where it SETS, marked approximate, fair or foul — and says what it cannot see', async () => {
+        proxy.currentKmh = 1.852; // one knot
+        proxy.setDeg = 0; // setting north; she is heading north up the first leg
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set')).toBe('Set 000°~1.0knFAIR'));
+        expect(label('hud-set')).toContain('about 1.0 knots, setting toward 000 true, fair on this course');
+        expect(label('hud-set')).toContain('tidal streams in passages and off headlands run much harder than it shows');
+        expect(label('hud-set')).toContain('not applied to the arrival time');
+    });
+
+    it('against her it is FOUL, in amber; abeam it is neither', async () => {
+        proxy.setDeg = 180;
+        underWay();
+        const first = render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set-along')).toBe('FOUL'));
+        expect(screen.getByTestId('hud-set-along').className).toContain('text-amber-300');
+        first.unmount();
+        __clearRouteSeaCacheForTests();
+        proxy.setDeg = 90;
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set')).toMatch(/^Set 090°~1\.0kn$/));
+        expect(screen.queryByTestId('hud-set-along')).toBeNull();
+    });
+
+    it('the current NEVER moves the arrival: a five-mile model that under-reads passages does not set the ETA', async () => {
+        proxy.currentKmh = 0;
+        underWay();
+        const still = render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set')).toContain('0.0'));
+        const max = screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax');
+        still.unmount();
+        __clearRouteSeaCacheForTests();
+        proxy.currentKmh = 9.26; // five knots dead astern
+        proxy.setDeg = 0;
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set')).toContain('~5.0'));
+        expect(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax')).toBe(max);
+    });
+
+    it('off a berth the service could only answer from open water it says INSHORE — no swell painted onto a marina', async () => {
+        // The first station's answer really came from ~13 km away, as Gladstone marina's did.
+        proxy.snapFor = (station, p) =>
+            station === 0 ? { lat: p.lat + 0.12, lon: p.lon } : { lat: p.lat + 0.02, lon: p.lon };
+        // Following from the very start of the route, where that station is.
+        act(() => {
+            void NmeaStore.ingestRemote(snapshot({ lat: -27.98, lon: 153 }));
+            useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
+        });
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-sea-reason')).toBe('INSHORE'));
+        expect(text('hud-sea')).toContain('—');
+        expect(text('hud-set')).toContain('—');
+        expect(label('hud-sea')).toContain('could only answer for open water');
+        // Ten miles on she is in the open-water station's own half of the gap.
+        act(() => setPassageAheadMs(2 * HOUR));
+        expect(screen.queryByTestId('hud-sea-reason')).toBeNull();
+        expect(text('hud-sea')).toMatch(/m$/);
+    });
+
+    it('no sea data is dashes and NO DATA — and the wind never waited on it', async () => {
+        proxy.seaFails = true;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead(); // resolves on the WIND cell
+        await waitFor(() => expect(text('hud-sea-reason')).toBe('NO DATA'));
+        expect(text('hud-sea')).toContain('—');
+        expect(text('hud-tws')).toMatch(/^TWS1\dkn/);
+        // …and nobody is credited for numbers that are not on screen.
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+    });
+
+    it('one marine request per route: changing the WIND model does not ask for the sea again', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-sea')).toMatch(/m$/));
+        expect(proxy.seaCalls).toEqual([{ models: 'meteofrance_wave,best_match', points: expect.any(Number) }]);
+        act(() => WindStore.setModel('icon'));
+        await waitFor(() => expect(text('route-scrub-model')).toContain('ICON'));
+        expect(text('hud-sea')).toMatch(/m$/); // still there, no LOADING flash
+        expect(proxy.seaCalls).toHaveLength(1);
+    });
+
+    it('the sea sits ABOVE rain and apparent wind: what she will be in outranks an estimate of an estimate', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        const order = [...screen.getByTestId('passage-hud').querySelectorAll('[data-testid]')]
+            .map((el) => el.getAttribute('data-testid'))
+            .filter((id) => ['hud-twd', 'hud-sea', 'hud-set', 'hud-rain', 'hud-aws'].includes(id ?? ''));
+        expect(order).toEqual(['hud-twd', 'hud-sea', 'hud-set', 'hud-rain', 'hud-aws']);
+    });
+
+    it('arrived, the sea at the destination is still shown — and a stopped boat has no FAIR or FOUL', async () => {
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set-along')).toBe('FAIR'));
+        fireEvent.keyDown(screen.getByTestId('route-scrub-track'), { key: 'End' });
+        expect(text('hud-route')).toMatch(/ARRIVED$/);
+        expect(text('hud-sea')).toMatch(/m$/);
+        expect(label('hud-sea')).toContain('Forecast sea');
+        expect(screen.queryByTestId('hud-set-along')).toBeNull();
+    });
+
+    it('a dash NEVER stands without words: a hole in the wave run reads NO DATA, not a bare dash', async () => {
+        proxy.waveFor = () => null; // currents, but no waves at all
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-set')).toContain('~1.0'));
+        expect(text('hud-sea')).toContain('—');
+        expect(text('hud-sea-reason')).toBe('NO DATA'); // and NOT "PAST FCST" at +0 h
+    });
+
+    it('a route that never leaves the river says INSHORE throughout — an answer, not a failure', async () => {
+        proxy.snapFor = (_station, p) => ({ lat: p.lat + 0.12, lon: p.lon }); // every station ~13 km off
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        await waitFor(() => expect(text('hud-sea-reason')).toBe('INSHORE'));
+        act(() => setPassageAheadMs(6 * HOUR));
+        expect(text('hud-sea-reason')).toBe('INSHORE');
+        // Nobody is credited for a sea that is not on screen…
+        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+        // …and it was ONE request: kept for the hour, not retried as though it had failed.
+        expect(proxy.seaCalls).toHaveLength(1);
+    });
+
+    it('a sea series that could not be refreshed WEARS ITS AGE, as the wind’s does', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            underWay();
+            render(<PassageHudPane />);
+            await lookAhead();
+            await waitFor(() => expect(text('hud-sea')).toMatch(/m$/));
+            expect(screen.queryByTestId('hud-sea-reason')).toBeNull();
+            proxy.seaFails = true; // the marine request starts failing; the wind still refreshes
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(3 * 3_600_000 + 10 * 60_000);
+            });
+            await boatStillReporting();
+            expect(text('hud-sea')).toMatch(/m/); // the old run's number is still there…
+            expect(text('hud-sea-reason')).toBe('3 H OLD'); // …wearing its age
+            expect(label('hud-sea')).toContain('fetched 3 h old');
+            expect(label('hud-set')).toContain('fetched 3 h old');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
 describe('changing the model', () => {
     it('opens a centred dialog from the scrubber, and one tap changes the model for the chart too', async () => {
         underWay();
@@ -976,7 +1226,9 @@ describe('changing the model', () => {
         await waitFor(() => expect(text('hud-tws')).toMatch(/^TWS3\dkn/));
         // INSTANT, and free: ICON came in the same five-model reply. No second request.
         expect(proxy.calls).toHaveLength(1);
-        expect(text('route-scrub-credit')).toBe('Forecast data: DWD, ECMWF, UK Met Office, JMA');
+        expect(text('route-scrub-credit')).toBe(
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+        );
     });
 
     it('if the five-model request fails, the strip still gets its ONE model — the spread is extra, never a precondition', async () => {
@@ -989,7 +1241,7 @@ describe('changing the model', () => {
         expect(proxy.calls[1].models).toBe('ecmwf_ifs025');
         expect(screen.queryByTestId('hud-tws-spread')).toBeNull(); // no spread to show, and none invented
         expect(screen.queryByTestId('route-scrub-band')).toBeNull();
-        expect(text('route-scrub-credit')).toBe('Forecast data: ECMWF');
+        expect(text('route-scrub-credit')).toBe('Forecast data: ECMWF, Météo-France, Open-Meteo');
     });
 
     it('NEVER shows the old model’s numbers under the new model’s name while the new ones load', async () => {

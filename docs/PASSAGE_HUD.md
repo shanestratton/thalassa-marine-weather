@@ -372,9 +372,106 @@ measured for seven cells. It is phase 4, with the probe list in the survey.
    _Rain forecast by Rainbow.ai_. Past ~3.7 h: observed radar comes back and the scrubber says where the rain ended.
 5. LIVE ‹: rain is back on its newest radar frame, wind at Now.
 
-## Phase 4 — sea state, and what is left
+## Phase 4 — the sea at the ghost (built 2026-09-19)
 
-Sea state and current at the ghost (behind the probe described above); SPITFIRE as its own labelled band where the
-ghost is inside one of its sites; squall cells following the scrubber (the proxy already serves `forecast=600…14400`);
-a motoring-speed and motor-below setting in the vessel profile instead of the two constants; polar-aware reefing above
-the table's last column.
+Shane: "phase 4 - go". Sea state and current at the ghost's place and moment. The survey before phase 3 had warned that
+this data misreports near the coast, so it began with a **measured probe** through the project's own proxy — six points,
+each wave model, the units and the echoed coordinates — and the probe decided the design.
+
+### What the probe measured
+
+| point                     | MFWAM / best match (1/12°) | ECMWF WAM (0.25°)  | GFS Wave (0.25°)            |
+| ------------------------- | -------------------------- | ------------------ | --------------------------- |
+| open water E of Curtis I. | snapped 2.9 km · 0.46 m    | 12.2 km · 1.10 m   | 12.2 km · 1.00 m            |
+| Whitsunday Passage        | 6.2 km · 0.62 m            | 16.6 km · **null** | 11.8 km · 0.92 m            |
+| Coral Sea, outer shelf    | 5.3 km · 0.64 m            | 10.3 km · 1.58 m   | 10.3 km · 0.96 m            |
+| Mackay marina             | 7.1 km · 0.52 m            | 12.5 km            | 12.5 km                     |
+| Gladstone marina          | **13.1 km** · 0.36 m       | 26.7 km            | 9.5 km · **0 m / 0 s / 0°** |
+| Newport, Moreton Bay      | **10.7 km** · 0.32 m       | 15.5 km            | 15.5 km                     |
+
+- **Snapping is real and silent.** An inshore request is not refused and does not return nulls: it is answered from the
+  nearest wet cell, confidently. Gladstone marina's "sea state" came from 13 km out to sea.
+- **"Best match" is Météo-France MFWAM here** — identical values and snaps at all six points. It is the finest grid and
+  the only one that answers inside the reef: ECMWF WAM is null in the Whitsunday Passage, and GFS Wave returned a
+  land-mask zero for Gladstone harbour.
+- **Currents come only with best match.** Every named wave model returns nulls for them (units `undefined`). One request
+  carries both: `models=meteofrance_wave,best_match`, read as `wave_*_meteofrance_wave` and
+  `ocean_current_*_marine_best_match` (note that suffix).
+- **Units:** waves m, period s, direction ° (FROM); current **km/h**, direction ° (the way it SETS). Passing
+  `wind_speed_unit=kn` does convert the current — but to 0.1-kn steps, so km/h is kept for its finer grain.
+- **The current is tidal, but coarse.** Thirty hours in the Whitsunday Passage: 0.8 kn toward 330° → slack → 0.4 kn toward
+  150° → back, about twelve hours peak to peak. It is a five-mile grid reading 0.8 kn in a passage that runs two to four.
+
+### What was built on it
+
+`services/routeSeaSampler.ts` — one marine request per **route** (the sea does not change when the skipper picks another
+wind model), on the wind's own stations, cached an hour with the spread's back-off.
+
+- Every station's **echoed position** is checked against the app's one existing guard (`maxLegitimateSnapKm`: half the
+  1/12° grid diagonal). Snapped further — or no echo at all — and the station is **INSHORE**: no sea state, and it is
+  **never interpolated through**. Between a berth and open water the open-water station speaks for its own half of the
+  gap only; in the other half the strip says INSHORE. Open-water swell is not lerped down onto a marina.
+- **One named wave model, no wave spread.** Four models that mostly cannot see the water she is in are not a second
+  opinion. Best match's _waves_ are never read: a wave number always has a named model.
+- A land-mask cell (0 m with no period) is not a flat calm from the north. A genuine calm _with_ a period is kept.
+- The reply's own `hourly_units` are checked; waves in anything but metres, or a current unit this code does not know, is
+  no data — never a number under the wrong unit. The strip converts metres once with `convertMetersTo` (the app's report
+  path holds _feet_ and has its own, feet-based converter — that bug has shipped before).
+- **The current is shown, marked `~`, with FAIR or FOUL on her course — and never applied to the arrival time.** No
+  wind-against-tide warning is built on it either: a warning built on a model that under-reads is a false all-clear. The
+  screen-reader sentence says what it cannot see.
+
+On the strip: **SEA 6S · 0.5m** and **SET 217° · ~0.5kn** sit above RAIN; apparent wind's two cells became one (`AW EST`
+with the angle under it) and moved last — it is arithmetic on a forecast and a planned speed, and the strip has a fold.
+The cells now carry a scroll-shadow cue when there is more below. The scrubber's credit names the sea's makers too
+(`… Météo-France, Open-Meteo`), which can run to a third line on a phone; both CSS clearances rose 15 px for it.
+
+### What the independent review found (before the first commit)
+
+Two reviewers, each finding separately verified; **all eight were real** and are fixed, each with a test.
+
+1. **The snap guard believed the probe's own Mackay marina.** The report path pads half the grid diagonal by 15%, and
+   Mackay's 7.1 km snap sat inside that band — open-coast sea painted onto a berth. Geometry allows half the diagonal
+   (6.34 km at 21°S) plus coordinate rounding (~8 m), so the sea pads **3%**: Mackay is refused, the Whitsunday Passage
+   (6.2 km) and the offshore probe (5.3 km) are still believed. It is still the app's one guard _function_ — it takes an
+   optional pad now, and the report path's default is untouched.
+2. **A route whose every station is inshore was treated as a failed fetch**: the strip said NO DATA (offline's words),
+   and the request was repeated six times in its first hour and every half hour for ever. It is an _answer_: kept for
+   the hour, and the strip says INSHORE throughout. Nobody is credited for a sea that is not on screen.
+3. **My own late change left the tree red**: a strip test's fixture was keyed by station _index_, and broke when the sea
+   got its own stations. It is keyed by distance along the route now.
+4. **A sea series that could not be refreshed wore no age** — the wind's did. A three-hour-old tidal set shown as this
+   hour's is worse than a three-hour-old wind. Same grace, same words, under the SEA cell and in both sentences.
+5. **At arrival the sea was a bare dash under a false sentence** ("no forecast") after every Play run. It is shown at
+   the destination — a berth reads INSHORE by the guard — without FAIR or FOUL on a boat that has stopped.
+6. **A dash could stand without words** — a hole in the wave run, or currents with no waves at all, which also read
+   PAST FCST at +0 h because there was no last wave hour to be past. Both now read NO DATA.
+7. **The fold arithmetic was hoped, not worked out.** At 393×852 paying both insets the cells overflow by 77–90 px: RAIN
+   and AW EST, the two last cells by design, are below the fold, and each standing warning lifts it further. The CSS
+   comment and this doc now say so; the age tags were shortened (`65M OLD`) to stay on one line.
+8. The sampler's tests did not exercise the null-padded tail the service really sends, and the cache test would have
+   passed on total failure (`null === null`). Both fixed.
+
+### Known limits (phase 4)
+
+- The sea has **its own stations** — about the wave grid's spacing (4 NM, never fewer than four), where the wind's are
+  10 NM. Both ends of a route are usually berths the model cannot see, and on the wind's stations a fifteen-mile hop
+  between two anchorages had no sea state at all. Within ~2 NM of a refused berth the strip still says INSHORE.
+- The current under-reads tidal streams in passages and off headlands — by design it informs, it does not plan.
+- MFWAM is one model. Where it is wrong there is no band to show it.
+
+### Re-test on the boat (phase 4)
+
+1. AHEAD ▸ with a route that leaves harbour. While the ghost is still near the berth the SEA cell reads `—` with
+   **INSHORE** under it; a few miles out it fills in: `SEA 6S 0.5m`, `SET 217° ~0.5kn`.
+2. Scrub through a tide: the SET swings and FAIR/FOUL changes. The arrival time does **not** move with it.
+3. Settings → units → wave height in feet: the SEA cell reads feet (1.5 m → 4.9 ft).
+4. On a phone RAIN and `AW EST` are below the fold by design (the cells that matter most are above it): a sky-blue glow
+   along the bottom edge says there is more. Scroll, and it goes when you reach the end.
+5. The scrubber's credit now ends `… Météo-France, Open-Meteo`.
+
+## Phase 5 — what is left
+
+SPITFIRE as its own labelled band where the ghost is inside one of its sites; squall cells following the scrubber (the
+proxy already serves `forecast=600…14400`); a motoring-speed and motor-below setting in the vessel profile instead of the two constants;
+polar-aware reefing above the table's last column; a real tidal-stream source for the passages the ocean model cannot see.

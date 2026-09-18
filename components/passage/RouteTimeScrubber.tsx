@@ -177,6 +177,8 @@ export interface RouteTimeScrubberProps {
     spreadBand?: readonly SpreadBandPoint[] | null;
     /** Every provider whose numbers are in the band — all of them are credited. */
     spreadProviders?: readonly string[] | null;
+    /** Whoever made the SEA numbers on the strip (waves, current) — credited with the rest. */
+    seaProviders?: readonly string[] | null;
     /** Hours ahead the chart's RAIN imagery can follow to; null when it cannot or is off. */
     rainCoverageHours?: number | null;
     modelLabel: string;
@@ -199,6 +201,7 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     assumedFromMs = null,
     spreadBand = null,
     spreadProviders = null,
+    seaProviders = null,
     rainCoverageHours = null,
     modelLabel,
     modelProvider,
@@ -305,12 +308,16 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     const ownTime: readonly string[] =
         pastRain && pastField && !unsyncedLayers.includes('rain') ? ['rain', ...unsyncedLayers] : unsyncedLayers;
     const band = spreadBand && spreadBand.length > 1 ? spreadBandPaths(spreadBand) : null;
-    const credited =
+    // Everyone whose numbers are on screen, once each: the wind models in the
+    // band (the pinned model's provider among them, first if it was missing from
+    // the band), then the sea's. Never truncated; it wraps.
+    const windProviders =
         spreadProviders && spreadProviders.length > 0
             ? spreadProviders.includes(modelProvider)
                 ? spreadProviders
                 : [modelProvider, ...spreadProviders]
             : [modelProvider];
+    const credited = [...new Set([...windProviders, ...(seaProviders ?? [])])];
 
     return (
         <div
