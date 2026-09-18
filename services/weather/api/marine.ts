@@ -59,10 +59,13 @@ const SNAP_TOLERANCE = 1.15;
  * and left the app with no marine data at all. Scaled by latitude because a
  * degree of longitude shrinks toward the poles.
  */
-export function maxLegitimateSnapKm(lat: number): number {
+export function maxLegitimateSnapKm(lat: number, tolerance: number = SNAP_TOLERANCE): number {
     const ns = 0.5 * GRID_DEG * 111.32;
     const ew = ns * Math.cos((lat * Math.PI) / 180);
-    return Math.hypot(ns, ew) * SNAP_TOLERANCE;
+    // `tolerance` defaults to this module's own pad, so the live report path is
+    // unchanged. The passage strip's sea sampler passes a tighter one: measured
+    // 2026-09-19, the default believed Mackay marina's 7.1 km snap.
+    return Math.hypot(ns, ew) * tolerance;
 }
 
 /** Per-hop budget. AbortSignal is a no-op under CapacitorHttp, so this is the

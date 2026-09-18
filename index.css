@@ -3887,13 +3887,29 @@ body.animation-diet [class*='slide-in'] {
    ~77px + a wrapped credit line + both note rows = ~125px. !important: its
    bottom is inline. */
 body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt {
-    bottom: calc(4rem + 171px + env(safe-area-inset-bottom)) !important;
+    bottom: calc(4rem + 186px + env(safe-area-inset-bottom)) !important;
 }
 /* Looking ahead, the weather-model row that the 232px stood clear of is not on
    screen; the scrubber tops out at 4rem + 163px in its tallest state (see
    above), so the strip may run lower than in LIVE — and never into it. */
 .thalassa-passage-hud[data-mode='forecast'] {
-    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 175px - env(safe-area-inset-bottom));
+    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 190px - env(safe-area-inset-bottom));
+}
+/* Phase 4 put the sea's providers in the scrubber's credit, which can run to a
+   third line on a phone: +15px on both clearances above (171 -> 186, 175 -> 190).
+
+   …and gave the strip an eighth forecast cell. WORKED OUT, not hoped: at 393x852
+   paying both insets the cells overflow by 77-90px, so RAIN and AW EST — the two
+   LAST cells, by design — sit below the fold; each standing warning (they stand
+   outside the scroller) lifts the fold another 20-40px. TWS, GUST, TWD and SEA
+   stay above it. A cell that is exactly hidden gives no cue that it is there, so
+   the scroller says so itself: the classic scroll-shadow — a sky glow along the
+   bottom edge that a cover the colour of the strip slides over once the skipper
+   has scrolled to the end. No JS, no layout cost. */
+.thalassa-passage-hud-cells {
+    background:
+        linear-gradient(rgb(2 6 23 / 0), rgb(2 6 23)) bottom / 100% 18px no-repeat local,
+        linear-gradient(rgb(56 189 248 / 0), rgb(56 189 248 / 0.55)) bottom / 100% 9px no-repeat scroll;
 }
 /* Surfaces that own the chart: no strip and no tab. Only MapHub knows when the
    passage planner, the consensus matrix or a storm card is up, so CSS asks the

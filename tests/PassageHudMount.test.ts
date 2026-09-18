@@ -267,8 +267,9 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
             'thalassa-passage-kit-prompt fixed',
         );
         expect(flat(cssCode)).toContain(
-            // 171px since phase 3: the credit names every provider in the band and wraps to two lines.
-            'body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt { bottom: calc(4rem + 171px + env(safe-area-inset-bottom)) !important; }',
+            // 171px in phase 3 (the credit names every provider in the band and wraps); 186px since
+            // phase 4 added the sea's providers and a possible third line.
+            'body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt { bottom: calc(4rem + 186px + env(safe-area-inset-bottom)) !important; }',
         );
     });
 
@@ -407,12 +408,75 @@ describe('phase 3: spread, speed and rain', () => {
     });
 
     it('review: the two warnings are outside the scrolling cells', () => {
-        const scrollerAt = pane.indexOf('className="min-h-0 flex-1 overflow-y-auto"');
+        const scrollerAt = pane.indexOf('className="thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto"');
         const warningsAt = pane.indexOf('THE WARNINGS STAND OUTSIDE THE SCROLLER');
         const lookAheadButtonAt = pane.indexOf('data-testid="hud-look-ahead"');
         expect(scrollerAt).toBeGreaterThan(-1);
         expect(warningsAt).toBeGreaterThan(scrollerAt);
         expect(lookAheadButtonAt).toBeGreaterThan(warningsAt);
         expect(pane.indexOf('data-testid="hud-models-split"')).toBeGreaterThan(warningsAt);
+    });
+});
+
+/**
+ * Phase 4 — sea state and current at the ghost. Built on a measured probe; the
+ * pins are the probe's conclusions, so that nobody "simplifies" them away.
+ */
+describe('phase 4: the sea at the ghost', () => {
+    const flat = (text: string) => text.replace(/\s+/g, ' ');
+    const seaSrc = readFileSync('services/routeSeaSampler.ts', 'utf8');
+    const seaCode = seaSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    it('every station’s echoed position is checked by the app’s ONE snap guard function — with the sea’s own, tighter pad', () => {
+        expect(seaCode).toContain("import { maxLegitimateSnapKm } from './weather/api/marine';");
+        expect(flat(seaCode)).toContain(
+            'const inshore = snapKm === null || snapKm > maxLegitimateSnapKm(station.lat, SEA_SNAP_PAD);',
+        );
+        expect(seaCode).toContain('const SEA_SNAP_PAD = 1.03;');
+        expect(seaCode).not.toMatch(/SNAP_TOLERANCE|GRID_DEG/);
+        // The report path's own pad is untouched: the default argument is its constant.
+        expect(readFileSync('services/weather/api/marine.ts', 'utf8')).toContain(
+            'export function maxLegitimateSnapKm(lat: number, tolerance: number = SNAP_TOLERANCE): number {',
+        );
+    });
+
+    it('one request: the NAMED wave model and best match — the only thing that carries currents', () => {
+        expect(seaCode).toContain("export const SEA_WAVE_MODEL = 'meteofrance_wave';");
+        expect(seaCode).toContain('models: `${SEA_WAVE_MODEL},best_match`,');
+        expect(seaCode).toContain("const CURRENT_SUFFIX = 'marine_best_match';");
+        // Best match's WAVES are never read: a wave number always has a named model.
+        expect(seaCode).not.toMatch(
+            /wave_(height|period|direction)_\$\{CURRENT_SUFFIX\}|wave_height_marine_best_match/,
+        );
+    });
+
+    it('units are checked, not assumed: metres for waves, km/h (or knots) for current, anything else is no data', () => {
+        expect(flat(seaCode)).toContain("const waveUnitOk = units?.[`wave_height_${SEA_WAVE_MODEL}`] === 'm';");
+        expect(flat(seaCode)).toContain(
+            "const toKts = currentUnit === 'km/h' ? 1 / NM_TO_KM : currentUnit === 'kn' ? 1 : null;",
+        );
+        // …and the strip converts metres with the METRES converter, never the feet-based one.
+        expect(paneCode).toContain("import { convertMetersTo } from '../../utils/units';");
+        expect(paneCode).not.toMatch(/convertLength\(/);
+    });
+
+    it('the current is never applied to the plan, and no wind-against-tide warning is built on it', () => {
+        const planCode = readFileSync('services/passagePlan.ts', 'utf8');
+        expect(planCode).not.toMatch(/routeSeaSampler|currentKts|currentAlong/);
+        expect(paneCode).not.toMatch(/wind.?against|windVsTide|WIND V TIDE/i);
+    });
+
+    it('the sea is keyed by the ROUTE alone, and the wind cells never wait on it', () => {
+        expect(seaCode).toContain("routeForecastKey(coords, 'sea')");
+        expect(flat(paneCode)).toContain('}, [look.on, following, routeCoords]);');
+        // Its own effect and its own state: a marine failure cannot blank the wind.
+        expect(paneCode).toContain('const [seaLoaded, setSeaLoaded] = useState');
+    });
+
+    it('the cells say when there is more below the fold', () => {
+        expect(pane).toContain('className="thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto"');
+        const rule = /\.thalassa-passage-hud-cells \{([^}]*)\}/.exec(css.replace(/\/\*[\s\S]*?\*\//g, ''))?.[1] ?? '';
+        expect(rule).toContain('no-repeat local');
+        expect(rule).toContain('no-repeat scroll');
     });
 });

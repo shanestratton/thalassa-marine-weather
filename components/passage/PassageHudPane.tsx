@@ -107,6 +107,16 @@ import {
     type SpreadLevel,
 } from '../../services/routeForecastSpread';
 import { planAt, planPassage, pointingDeg, type PassageSpeedModel, type SpeedHow } from '../../services/passagePlan';
+import {
+    SEA_CURRENT_PROVIDER,
+    SEA_WAVE_PROVIDER,
+    currentAlongKts,
+    loadRouteSea,
+    peekRouteSea,
+    sampleRouteSea,
+    type RouteSea,
+} from '../../services/routeSeaSampler';
+import { convertMetersTo } from '../../utils/units';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import {
@@ -495,7 +505,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                 const forecast = (spreadFresh ? member : null) ?? (await loadRouteForecast(routeCoords, id)) ?? member;
                 // …and never an un-aged old range under a fresher headline: the
                 // range is shown only when it is fresh, or exactly as old as the
-                // headline (then the "N MIN OLD" note covers both).
+                // headline (then the age note covers both).
                 const shownSpread =
                     spread && (spreadFresh || (forecast !== null && spread.fetchedAt >= forecast.fetchedAt))
                         ? spread
@@ -516,6 +526,35 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
             clearInterval(id);
         };
     }, [look.on, following, routeCoords, model.openMeteoModel]);
+    // THE SEA (phase 4): sea state and current along the route. Keyed by the
+    // ROUTE alone — the sea does not change when the skipper picks another wind
+    // model — and entirely optional: the wind cells never wait on it.
+    const seaKey = following ? routeForecastKey(routeCoords, 'sea') : '';
+    const [seaLoaded, setSeaLoaded] = useState<{ key: string; sea: RouteSea | null } | null>(null);
+    useEffect(() => {
+        if (!look.on || !following) return;
+        let cancelled = false;
+        const key = routeForecastKey(routeCoords, 'sea');
+        const run = () => {
+            const cached = peekRouteSea(routeCoords);
+            if (cached) {
+                setSeaLoaded({ key, sea: cached });
+                return;
+            }
+            void loadRouteSea(routeCoords).then((sea) => {
+                if (!cancelled) setSeaLoaded({ key, sea });
+            });
+        };
+        run();
+        const id = setInterval(run, 2 * 60_000);
+        return () => {
+            cancelled = true;
+            clearInterval(id);
+        };
+    }, [look.on, following, routeCoords]);
+    const seaMine = seaLoaded && seaLoaded.key === seaKey ? seaLoaded : null;
+    const sea = seaMine ? seaMine.sea : look.on && following ? peekRouteSea(routeCoords) : null;
+
     const mine = loaded && loaded.key === forecastKey ? loaded : null;
     // While this key's series is still arriving, a CACHED member (the spread
     // request primes all five) is read here, synchronously, so a model change
@@ -661,6 +700,50 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
             : tackingNow && sample.twdDeg !== null
               ? estimateApparentWind(sample.twsKts, sample.twdDeg, planBoatKts, sample.twdDeg - pointingDeg(speedModel))
               : estimateApparentWind(sample.twsKts, sample.twdDeg, planKts, station.bearingDeg);
+    // The sea at the ghost's place and moment. Waves in the skipper's own unit
+    // (the series is METRES — convertMetersTo, never the feet-based converter).
+    const waveUnit = useSettingsStore((st) => st.settings.units?.waveHeight) === 'ft' ? 'ft' : 'm';
+    // Shown at ARRIVAL too: a berth reads INSHORE by the snap guard, an open
+    // anchorage shows its forecast. (Withheld, it was a bare dash under a sentence
+    // that said there was no forecast — after every Play run.)
+    const seaNow = station ? sampleRouteSea(sea, station.alongNm, nowMs + aheadMs) : null;
+    const waveShown = seaNow && seaNow.waveM !== null ? convertMetersTo(seaNow.waveM, waveUnit) : null;
+    // Fair or foul, for the skipper's eye. It is NOT applied to the plan: this is
+    // a five-mile model that reads 0.8 kn in a passage that runs two to four.
+    // …but not FAIR or FOUL on a boat that has stopped.
+    const alongKts =
+        seaNow && !planArrived
+            ? currentAlongKts(seaNow.currentKts, seaNow.currentSetDeg, station?.bearingDeg ?? null)
+            : null;
+    const fairFoul = alongKts === null || Math.abs(alongKts) < 0.2 ? null : alongKts > 0 ? 'fair' : 'foul';
+    // A sea series that could not be refreshed is kept — and WEARS ITS AGE, as the
+    // wind's does. A three-hour-old tidal set shown as this hour's is worse than a
+    // three-hour-old wind (review, 2026-09-19). Same grace, same words.
+    const seaAgeMs = sea ? Math.max(0, nowMs - sea.fetchedAt) : 0;
+    const seaOld = seaAgeMs > FORECAST_TTL_MS + 5 * 60_000;
+    const seaAgeTag =
+        seaAgeMs < 2 * 3_600_000
+            ? `${Math.round(seaAgeMs / 60_000)}M OLD`
+            : `${Math.floor(seaAgeMs / 3_600_000)} H OLD`;
+    const seaShown = !!seaNow && (seaNow.waveM !== null || seaNow.currentKts !== null);
+    const seaReason = !look.on
+        ? null
+        : !seaMine && !sea
+          ? 'LOADING'
+          : !sea
+            ? 'NO DATA'
+            : seaNow?.inshore
+              ? 'INSHORE'
+              : seaNow?.beyond
+                ? 'PAST FCST'
+                : seaNow && seaNow.waveM === null
+                  ? // A hole in the run, or a unit this build refused: a dash must
+                    // never stand without words.
+                    'NO DATA'
+                  : seaOld && seaShown
+                    ? seaAgeTag
+                    : null;
+
     // The five models at the ghost's place and moment — the range AROUND the
     // pinned model's number, never instead of it (one model on the chart).
     const spreadNow = station ? sampleRouteSpread(spread, station.alongNm, nowMs + aheadMs) : null;
@@ -709,6 +792,11 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
         const names = PASSAGE_MODEL_CHOICES.filter((c) => spread.members[c.openMeteoModel]).map((c) => c.provider);
         return [...new Set(names)];
     }, [spread]);
+    // …the sea's too, for exactly as long as the sea is on the strip.
+    const seaProviders = useMemo(
+        () => (sea && sea.stations.some((s) => !s.inshore) ? [SEA_WAVE_PROVIDER, SEA_CURRENT_PROVIDER] : null),
+        [sea],
+    );
     const rainCoverageHours = usePassageRainCoverageHours();
 
     const fc = (value: number | null | undefined): HudMetric => ({
@@ -723,7 +811,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     const forecastOld = forecastAgeMs > FORECAST_TTL_MS + 5 * 60_000;
     const forecastAgeTag =
         forecastAgeMs < 2 * 3_600_000
-            ? `${Math.round(forecastAgeMs / 60_000)} MIN OLD`
+            ? `${Math.round(forecastAgeMs / 60_000)}M OLD`
             : `${Math.floor(forecastAgeMs / 3_600_000)} H OLD`;
     const forecastNote = !look.on
         ? null
@@ -844,7 +932,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                     </p>
                 )}
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto">
                     {look.on ? (
                         <>
                             {/* FORECAST. Nothing in this branch is an instrument. */}
@@ -949,37 +1037,71 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                                         : null
                                 }
                             />
+                            {/* THE SEA, above rain and apparent wind: what she will be IN
+                                outranks an estimate worked from an estimate. */}
                             <Cell
                                 forecast
-                                label="AWS est"
-                                value={fmtKnots(fc(apparent?.awsKts))}
-                                unit="kn"
-                                metric={fc(apparent?.awsKts)}
-                                testId="hud-aws"
-                                sentence={`Estimated apparent wind speed ${fmtKnots(
-                                    fc(apparent?.awsKts),
-                                )} knots — worked from the forecast and her planned speed, not measured`}
+                                // The period rides in the label, as the rain's chance does.
+                                label={
+                                    seaNow && seaNow.wavePeriodS !== null
+                                        ? `Sea ${Math.round(seaNow.wavePeriodS)}s`
+                                        : 'Sea'
+                                }
+                                value={waveShown === null ? DASH : waveShown.toFixed(1)}
+                                unit={waveUnit}
+                                metric={fc(waveShown)}
+                                testId="hud-sea"
+                                sentence={
+                                    waveShown === null
+                                        ? seaReason === 'INSHORE'
+                                            ? 'No sea state here: the wave model could only answer for open water, miles from this point'
+                                            : 'No sea state forecast for that moment'
+                                        : `Forecast sea ${waveShown.toFixed(1)} ${waveUnit === 'ft' ? 'feet' : 'metres'}${
+                                              seaNow?.wavePeriodS != null
+                                                  ? `, ${Math.round(seaNow.wavePeriodS)} second period`
+                                                  : ''
+                                          }${
+                                              seaNow?.waveFromDeg != null
+                                                  ? `, from ${String(Math.round(seaNow.waveFromDeg) % 360).padStart(3, '0')} true`
+                                                  : ''
+                                          }, ${SEA_WAVE_PROVIDER} wave model${
+                                              seaOld ? `, fetched ${seaAgeTag.toLowerCase()}` : ''
+                                          }`
+                                }
+                                sub={seaReason ? { text: seaReason, tone: 'amber', testId: 'hud-sea-reason' } : null}
                             />
                             <Cell
                                 forecast
-                                label="AWA est"
-                                // Tacking, the side alternates and is not knowable:
-                                // the angle, and no P or S.
-                                value={
-                                    tackingNow && apparent
-                                        ? `${Math.round(Math.abs(apparent.awaDeg))}°`
-                                        : fmtRelative(fc(apparent?.awaDeg))
+                                // Where it SETS (toward), in the label; "~" because this is a
+                                // five-mile ocean model that under-reads tidal streams in passages.
+                                label={
+                                    seaNow && seaNow.currentSetDeg !== null
+                                        ? `Set ${String(Math.round(seaNow.currentSetDeg) % 360).padStart(3, '0')}°`
+                                        : 'Set'
                                 }
-                                metric={fc(apparent?.awaDeg)}
-                                testId="hud-awa"
+                                value={seaNow && seaNow.currentKts !== null ? `~${seaNow.currentKts.toFixed(1)}` : DASH}
+                                unit="kn"
+                                metric={fc(seaNow?.currentKts)}
+                                testId="hud-set"
                                 sentence={
-                                    tackingNow && apparent
-                                        ? `Estimated apparent wind angle ${Math.round(
-                                              Math.abs(apparent.awaDeg),
-                                          )} degrees, close-hauled on either tack — worked from the forecast, not measured`
-                                        : `Estimated apparent wind angle ${fmtRelative(
-                                              fc(apparent?.awaDeg),
-                                          )}, P is port, S is starboard — worked from the forecast, not measured`
+                                    !seaNow || seaNow.currentKts === null
+                                        ? 'No current forecast for that moment'
+                                        : `Forecast current about ${seaNow.currentKts.toFixed(1)} knots${
+                                              seaNow.currentSetDeg !== null
+                                                  ? `, setting toward ${String(Math.round(seaNow.currentSetDeg) % 360).padStart(3, '0')} true`
+                                                  : ''
+                                          }${fairFoul ? `, ${fairFoul} on this course` : ''}${
+                                              seaOld ? `, fetched ${seaAgeTag.toLowerCase()}` : ''
+                                          }. From a five-mile ocean model: tidal streams in passages and off headlands run much harder than it shows. It is not applied to the arrival time.`
+                                }
+                                sub={
+                                    fairFoul
+                                        ? {
+                                              text: fairFoul === 'fair' ? 'FAIR' : 'FOUL',
+                                              tone: fairFoul === 'fair' ? 'quiet' : 'amber',
+                                              testId: 'hud-set-along',
+                                          }
+                                        : null
                                 }
                             />
                             <Cell
@@ -1008,6 +1130,39 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                                                   ? ''
                                                   : `, ${Math.round(sample.precipProb)} percent chance`
                                           }, ${model.label}`
+                                }
+                            />
+                            {/* Apparent wind LAST, and in one cell: it is arithmetic on a
+                                forecast and a planned speed, and the strip has a fold. */}
+                            <Cell
+                                forecast
+                                label="AW est"
+                                value={fmtKnots(fc(apparent?.awsKts))}
+                                unit="kn"
+                                metric={fc(apparent?.awsKts)}
+                                testId="hud-aws"
+                                sentence={
+                                    !apparent
+                                        ? 'No apparent wind estimate'
+                                        : tackingNow
+                                          ? `Estimated apparent wind ${fmtKnots(fc(apparent.awsKts))} knots at ${Math.round(
+                                                Math.abs(apparent.awaDeg),
+                                            )} degrees, close-hauled on either tack — worked from the forecast and her planned speed, not measured`
+                                          : `Estimated apparent wind ${fmtKnots(fc(apparent.awsKts))} knots at ${fmtRelative(
+                                                fc(apparent.awaDeg),
+                                            )}, P is port, S is starboard — worked from the forecast and her planned speed, not measured`
+                                }
+                                // Tacking, the side alternates and is not knowable: the angle, no P or S.
+                                sub={
+                                    apparent
+                                        ? {
+                                              text: tackingNow
+                                                  ? `${Math.round(Math.abs(apparent.awaDeg))}°`
+                                                  : fmtRelative(fc(apparent.awaDeg)),
+                                              tone: 'quiet',
+                                              testId: 'hud-awa',
+                                          }
+                                        : null
                                 }
                             />
                             {/* The MODEL is named on the scrubber, which is on
@@ -1270,6 +1425,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                     assumedFromMs={plan?.assumedFromMs ?? null}
                     spreadBand={spreadBand}
                     spreadProviders={spreadProviders}
+                    seaProviders={seaProviders}
                     rainCoverageHours={rainCoverageHours}
                     playing={look.playing}
                     nowMs={nowMs}

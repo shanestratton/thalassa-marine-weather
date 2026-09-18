@@ -409,3 +409,31 @@ describe('what the review of phase 3 caught on the scrubber', () => {
         expect(props.onAhead).toHaveBeenCalledWith(0);
     });
 });
+
+describe('phase 4: the sea has makers too', () => {
+    it('credits the wave and current providers beside the wind models — everyone whose numbers are on the strip', () => {
+        setup({
+            modelProvider: 'ECMWF',
+            spreadProviders: ['DWD', 'ECMWF', 'UK Met Office', 'JMA'],
+            seaProviders: ['Météo-France', 'Open-Meteo'],
+        });
+        expect(screen.getByTestId('route-scrub-credit').textContent).toBe(
+            'Forecast data: DWD, ECMWF, UK Met Office, JMA, Météo-France, Open-Meteo',
+        );
+    });
+
+    it('names nobody twice, and nobody whose numbers are not on screen', () => {
+        setup({ modelProvider: 'ECMWF', seaProviders: ['Météo-France', 'ECMWF'] });
+        expect(screen.getByTestId('route-scrub-credit').textContent).toBe('Forecast data: ECMWF, Météo-France');
+        cleanup();
+        setup({ modelProvider: 'ECMWF', seaProviders: null });
+        expect(screen.getByTestId('route-scrub-credit').textContent).toBe('Forecast data: ECMWF');
+    });
+
+    it('the credit may run to three lines on a phone — and is still never cut off', () => {
+        setup({ seaProviders: ['Météo-France', 'Open-Meteo'] });
+        expect(screen.getByTestId('route-scrub-credit').className).not.toMatch(
+            /truncate|line-clamp|whitespace-nowrap|overflow-hidden/,
+        );
+    });
+});

@@ -103,11 +103,21 @@ const EMPTY: RouteForecastSample = Object.freeze({
 
 // ── Stations ───────────────────────────────────────────────────
 
-/** Stations along the WHOLE route, both ends included, evenly spaced. */
-export function routeStations(coords: readonly RoutePoint[]): { alongNm: number; lat: number; lon: number }[] {
+/**
+ * Stations along the WHOLE route, both ends included, evenly spaced. The wind
+ * asks for them no closer than a model grid cell (10 NM); the SEA asks closer
+ * (its grid is ~5 NM, and both ends of a route are usually berths the wave
+ * model cannot see — at 10 NM a short coastal hop had no sea state at all).
+ */
+export function routeStations(
+    coords: readonly RoutePoint[],
+    minSpacingNm: number = MIN_STATION_SPACING_NM,
+    minCount = 2,
+): { alongNm: number; lat: number; lon: number }[] {
     const totalNm = routeLengthNm(coords.filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon)));
     if (!(totalNm > 0)) return [];
-    const count = Math.max(2, Math.min(MAX_STATIONS, Math.floor(totalNm / MIN_STATION_SPACING_NM) + 1));
+    const spacing = minSpacingNm > 0 ? minSpacingNm : MIN_STATION_SPACING_NM;
+    const count = Math.max(2, minCount, Math.min(MAX_STATIONS, Math.floor(totalNm / spacing) + 1));
     const out: { alongNm: number; lat: number; lon: number }[] = [];
     for (let i = 0; i < count; i++) {
         const alongNm = (totalNm * i) / (count - 1);
