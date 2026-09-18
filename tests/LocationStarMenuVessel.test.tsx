@@ -18,7 +18,7 @@ const h = vi.hoisted(() => ({
         vessel: { name: 'Serene Summer' } as { name?: string } | undefined,
     },
     updateSettings: vi.fn(),
-    selectLocation: vi.fn(async () => undefined),
+    selectLocation: vi.fn<() => Promise<void>>(async () => undefined),
     weatherData: { locationName: 'Newport', coordinates: { lat: -27.2, lon: 153.1 } },
     boatOrHeldFix: vi.fn<() => Promise<unknown>>(async () => null),
     requestCurrentForegroundPosition: vi.fn(async () => ({ latitude: -27.47, longitude: 153.02, timestamp: 1 })),
@@ -50,6 +50,9 @@ beforeEach(() => {
     localStorage.clear();
     setAuthIdentityScope('skipper');
     h.settings.vessel = { name: 'Serene Summer' };
+    h.settings.savedLocations = [];
+    h.settings.savedLocationCoords = {};
+    h.selectLocation.mockResolvedValue(undefined);
     h.boatOrHeldFix.mockResolvedValue(null);
 });
 
@@ -68,27 +71,24 @@ describe('★ menu — the vessel as a special saved location', () => {
         expect(screen.getByTestId('location-star-vessel').querySelectorAll('svg').length).toBe(1);
     });
 
-    it('picking the boat moves the weather to her fix and remembers the choice', async () => {
+    it('picking the boat registers its intent immediately without awaiting a fix in the menu', async () => {
         h.boatOrHeldFix.mockResolvedValue({ lat: -27.2, lon: 153.11, timestamp: 1, kind: 'pi', rung: 'pi' });
         render(<LocationStarMenu />);
         openMenu();
         fireEvent.click(screen.getByTestId('location-star-vessel'));
-        await waitFor(() =>
-            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', { lat: -27.2, lon: 153.11 }),
-        );
+        await waitFor(() => expect(h.selectLocation).toHaveBeenCalledWith('Current Location'));
         expect(getWeatherFollowTarget()).toBe('boat');
         expect(h.requestCurrentForegroundPosition).not.toHaveBeenCalled();
+        expect(h.boatOrHeldFix).not.toHaveBeenCalled();
     });
 
-    it('with no fix from her yet it says so inline, stays open, and still remembers the choice', async () => {
+    it('registers vessel follow even without a fix, leaving unavailable UI to the context', async () => {
         render(<LocationStarMenu />);
         openMenu();
         fireEvent.click(screen.getByTestId('location-star-vessel'));
-        await waitFor(() => expect(screen.getByTestId('location-star-boat-notice')).toBeInTheDocument());
-        expect(screen.getByTestId('location-star-boat-notice')).toHaveTextContent('No position from Serene Summer yet');
-        expect(h.selectLocation).not.toHaveBeenCalled();
+        expect(h.selectLocation).toHaveBeenCalledWith('Current Location');
         expect(getWeatherFollowTarget()).toBe('boat');
-        expect(screen.getByRole('menu')).toBeInTheDocument();
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
 
     it('Current Location puts the weather back on the phone', async () => {
@@ -99,15 +99,42 @@ describe('★ menu — the vessel as a special saved location', () => {
         expect(screen.getByTestId('location-star-vessel').querySelectorAll('svg').length).toBe(2);
         fireEvent.click(screen.getByRole('menuitem', { name: /Current Location/ }));
         await waitFor(() =>
-            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', { lat: -27.47, lon: 153.02 }),
+            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', undefined, {
+                requestPhonePermission: true,
+            }),
         );
         expect(getWeatherFollowTarget()).toBe('phone');
     });
 
-    it('no vessel name, no row', () => {
+    it('offers Vessel location when the boat has no configured name', () => {
         h.settings.vessel = { name: '' };
         render(<LocationStarMenu />);
         openMenu();
-        expect(screen.queryByTestId('location-star-vessel')).toBeNull();
+        expect(screen.getByTestId('location-star-vessel')).toHaveTextContent('Vessel location');
+        fireEvent.click(screen.getByTestId('location-star-vessel'));
+        expect(getWeatherFollowTarget()).toBe('boat');
+        expect(h.selectLocation).toHaveBeenCalledWith('Current Location');
+    });
+
+    it('a second choice is delivered before the previous asynchronous lookup completes', async () => {
+        let finish!: () => void;
+        h.selectLocation.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        h.settings.savedLocations = ['Mackay'];
+        h.settings.savedLocationCoords = { Mackay: { lat: -21.1, lon: 149.2 } };
+        render(<LocationStarMenu />);
+        openMenu();
+        fireEvent.click(screen.getByTestId('location-star-vessel'));
+        openMenu();
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Mackay' }));
+        expect(h.selectLocation).toHaveBeenNthCalledWith(1, 'Current Location');
+        expect(h.selectLocation).toHaveBeenNthCalledWith(2, 'Mackay', { lat: -21.1, lon: 149.2 });
+        finish();
+        await Promise.resolve();
+        expect(h.selectLocation).toHaveBeenCalledTimes(2);
     });
 });

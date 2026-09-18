@@ -65,6 +65,116 @@ public class AppleMusicPlugin: CAPPlugin {
     // never flip the shared session back to `.playback` underneath capture.
     private var voiceInputSessionGeneration = 0
 
+    // Every explicit transport intent supersedes older async hydration/play.
+    // Bridge calls and artwork tasks may run on different executors.
+    private let playbackIntentLock = NSLock()
+    private var playbackRequest = 0
+    private var playbackStopped = false
+    private var playbackPaused = false
+
+    private func beginPlaybackRequest(stopped: Bool = false) -> Int {
+        playbackIntentLock.lock()
+        defer { playbackIntentLock.unlock() }
+        playbackRequest &+= 1
+        playbackStopped = stopped
+        playbackPaused = false
+        return playbackRequest
+    }
+
+    private func beginPauseRequest() -> Int {
+        playbackIntentLock.lock()
+        defer { playbackIntentLock.unlock() }
+        playbackRequest &+= 1
+        playbackPaused = true
+        return playbackRequest
+    }
+
+    private func currentPlaybackRequest() -> Int {
+        playbackIntentLock.lock()
+        defer { playbackIntentLock.unlock() }
+        return playbackRequest
+    }
+
+    private func isPlaybackStopped() -> Bool {
+        playbackIntentLock.lock()
+        defer { playbackIntentLock.unlock() }
+        return playbackStopped
+    }
+
+    private func latestQuietIntent() -> (stopped: Bool, paused: Bool) {
+        playbackIntentLock.lock()
+        defer { playbackIntentLock.unlock() }
+        return (playbackStopped, playbackPaused)
+    }
+
+    @available(iOS 15.0, *)
+    @MainActor private func clearPlaybackQueue() {
+        let player = ApplicationMusicPlayer.shared
+        player.pause()
+        player.queue = ApplicationMusicPlayer.Queue()
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        ttsPausedMusic = false
+        resumeMusicAfterVoiceInput = false
+    }
+
+    @available(iOS 15.0, *)
+    @MainActor private func enforceLatestQuietIntent() {
+        let intent = latestQuietIntent()
+        if intent.stopped {
+            clearPlaybackQueue()
+        } else if intent.paused {
+            ApplicationMusicPlayer.shared.pause()
+            ttsPausedMusic = false
+            resumeMusicAfterVoiceInput = false
+        }
+    }
+
+    @available(iOS 15.0, *)
+    @MainActor private func playCurrentQueue(request: Int) async throws -> Bool {
+        let player = ApplicationMusicPlayer.shared
+        // MusicKit can complete play after a newer Pause/Stop. Reassert the
+        // latest quiet intent on success or error, without clearing Pause's queue.
+        defer {
+            if request != currentPlaybackRequest() { enforceLatestQuietIntent() }
+        }
+        // A newly assigned MusicKit queue can still be loading its entries.
+        // Let prepareToPlay resolve it; empty-before-prepare is not cancellation.
+        // Only a newer transport intent may return "superseded".
+        guard request == currentPlaybackRequest() else { return false }
+        await prepareAudioSessionActivated()
+        guard request == currentPlaybackRequest() else { return false }
+        try await player.prepareToPlay()
+        guard request == currentPlaybackRequest() else { return false }
+        try await player.play()
+        guard request == currentPlaybackRequest() else { return false }
+        return true
+    }
+
+    @available(iOS 15.0, *)
+    @MainActor private func skipQueueEntry(forward: Bool, request: Int) async -> Bool {
+        guard request == currentPlaybackRequest(), !isPlaybackStopped() else { return false }
+        defer {
+            if request != currentPlaybackRequest() { enforceLatestQuietIntent() }
+        }
+        do {
+            if forward {
+                try await ApplicationMusicPlayer.shared.skipToNextEntry()
+            } else {
+                try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+            }
+            return request == currentPlaybackRequest()
+        } catch {
+            return false
+        }
+    }
+
+    @MainActor private func resolveEmptyNowPlaying(_ call: CAPPluginCall) {
+        call.resolve([
+            "is_playing": false, "state": "stopped", "title": "", "artist": "",
+            "album": "", "artwork_url": "", "playback_time": 0, "duration": 0,
+        ])
+    }
+
     // ── Hydrated playlist cache ─────────────────────────────────────
     // After getPlaylistTracks hydrates a playlist via .with([.tracks]),
     // we stash the resulting Track array here keyed by playlist ID.
@@ -271,12 +381,13 @@ public class AppleMusicPlugin: CAPPlugin {
             if self.resumeMusicAfterVoiceInput {
                 self.resumeMusicAfterVoiceInput = false
                 if #available(iOS 15.0, *) {
+                    let request = self.currentPlaybackRequest()
                     // play() strictly after activation — the completion is
                     // the ordering the old synchronous call provided.
                     self.prepareAudioSession {
                         Task { @MainActor in
                             do {
-                                try await ApplicationMusicPlayer.shared.play()
+                                guard try await self.playCurrentQueue(request: request) else { return }
                                 NSLog("[AppleMusic] releaseVoiceInput: resumed music paused for voice capture")
                             } catch {
                                 // If resumption is unavailable, don't leave an
@@ -348,53 +459,62 @@ public class AppleMusicPlugin: CAPPlugin {
 
         center.playCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
-            guard #available(iOS 15.0, *) else { return .commandFailed }
+            guard #available(iOS 15.0, *), let self = self else { return .commandFailed }
+            let request = self.beginPlaybackRequest()
             // Audio session needs re-asserting before play in case TTS
             // or another plugin nudged it. Re-fired from a Task so we
             // can return synchronously.
             Task { @MainActor in
-                await self?.prepareAudioSessionActivated()
-                try? await ApplicationMusicPlayer.shared.play()
+                _ = try? await self.playCurrentQueue(request: request)
             }
             return .success
         }
 
         center.pauseCommand.isEnabled = true
-        center.pauseCommand.addTarget { _ in
-            guard #available(iOS 15.0, *) else { return .commandFailed }
-            Task { @MainActor in ApplicationMusicPlayer.shared.pause() }
+        center.pauseCommand.addTarget { [weak self] _ in
+            guard #available(iOS 15.0, *), let self = self else { return .commandFailed }
+            let request = self.beginPauseRequest()
+            Task { @MainActor in
+                guard request == self.currentPlaybackRequest() else { return }
+                self.enforceLatestQuietIntent()
+            }
             return .success
         }
 
         center.togglePlayPauseCommand.isEnabled = true
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard #available(iOS 15.0, *) else { return .commandFailed }
+            guard #available(iOS 15.0, *), let self = self else { return .commandFailed }
+            let request = self.currentPlaybackRequest()
             Task { @MainActor in
+                guard request == self.currentPlaybackRequest() else { return }
                 let player = ApplicationMusicPlayer.shared
                 if player.state.playbackStatus == .playing {
-                    player.pause()
+                    _ = self.beginPauseRequest()
+                    self.enforceLatestQuietIntent()
                 } else {
-                    await self?.prepareAudioSessionActivated()
-                    try? await player.play()
+                    let playRequest = self.beginPlaybackRequest()
+                    _ = try? await self.playCurrentQueue(request: playRequest)
                 }
             }
             return .success
         }
 
         center.nextTrackCommand.isEnabled = true
-        center.nextTrackCommand.addTarget { _ in
-            guard #available(iOS 15.0, *) else { return .commandFailed }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            guard #available(iOS 15.0, *), let self = self else { return .commandFailed }
+            let request = self.currentPlaybackRequest()
             Task { @MainActor in
-                try? await ApplicationMusicPlayer.shared.skipToNextEntry()
+                _ = await self.skipQueueEntry(forward: true, request: request)
             }
             return .success
         }
 
         center.previousTrackCommand.isEnabled = true
-        center.previousTrackCommand.addTarget { _ in
-            guard #available(iOS 15.0, *) else { return .commandFailed }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            guard #available(iOS 15.0, *), let self = self else { return .commandFailed }
+            let request = self.currentPlaybackRequest()
             Task { @MainActor in
-                try? await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+                _ = await self.skipQueueEntry(forward: false, request: request)
             }
             return .success
         }
@@ -564,9 +684,10 @@ public class AppleMusicPlugin: CAPPlugin {
             return
         }
         let kindArg = call.getString("kind") ?? "auto"
+        let request = beginPlaybackRequest()
         NSLog("[AppleMusic] searchAndPlay query='\(query)' kind=\(kindArg)")
 
-        Task {
+        Task { @MainActor in
             // Authorization gate — request inline if notDetermined.
             let status = MusicAuthorization.currentStatus
             if status == .notDetermined {
@@ -609,7 +730,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 switch outcome {
                 case .match(let result):
                     NSLog("[AppleMusic] kind=\(kind) → playing '\(result.title)'")
-                    let played = await self.startPlayback(result: result)
+                    let played = await self.startPlayback(result: result, request: request)
                     await MainActor.run {
                         if played {
                             call.resolve([
@@ -768,7 +889,7 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     @available(iOS 15.0, *)
-    private func startPlayback(result: CatalogResult) async -> Bool {
+    @MainActor private func startPlayback(result: CatalogResult, request: Int) async -> Bool {
         let player = ApplicationMusicPlayer.shared
         do {
             // We avoid Queue(album:) and Queue(playlist:) here — those
@@ -781,6 +902,7 @@ public class AppleMusicPlugin: CAPPlugin {
             // playback purposes.
             switch result.queueSource {
             case .songs(let songs):
+                guard request == currentPlaybackRequest() else { return false }
                 player.queue = ApplicationMusicPlayer.Queue(for: songs)
                 self.prewarmArtwork(
                     titlesAndArtists: songs.prefix(8).map { (title: $0.title, artist: $0.artistName) }
@@ -791,6 +913,7 @@ public class AppleMusicPlugin: CAPPlugin {
                     NSLog("[AppleMusic] album has no tracks: \(album.title)")
                     return false
                 }
+                guard request == currentPlaybackRequest() else { return false }
                 player.queue = ApplicationMusicPlayer.Queue(for: tracks)
                 self.prewarmArtwork(
                     titlesAndArtists: tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
@@ -801,14 +924,13 @@ public class AppleMusicPlugin: CAPPlugin {
                     NSLog("[AppleMusic] playlist has no tracks: \(playlist.name)")
                     return false
                 }
+                guard request == currentPlaybackRequest() else { return false }
                 player.queue = ApplicationMusicPlayer.Queue(for: tracks)
                 self.prewarmArtwork(
                     titlesAndArtists: tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
             }
-            await self.prepareAudioSessionActivated()
-            try await player.prepareToPlay()
-            try await player.play()
+            guard try await playCurrentQueue(request: request) else { return false }
             NSLog("[AppleMusic] ApplicationMusicPlayer.play() succeeded")
             return true
         } catch {
@@ -907,7 +1029,8 @@ public class AppleMusicPlugin: CAPPlugin {
             call.reject("id is required")
             return
         }
-        Task {
+        let request = beginPlaybackRequest()
+        Task { @MainActor in
             do {
                 let req = MusicLibraryRequest<Playlist>()
                 let resp = try await req.response()
@@ -933,13 +1056,18 @@ public class AppleMusicPlugin: CAPPlugin {
                     }
                     return
                 }
+                guard request == self.currentPlaybackRequest() else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 player.queue = ApplicationMusicPlayer.Queue(for: tracks)
                 self.prewarmArtwork(
                     titlesAndArtists: Array(tracks).prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await self.prepareAudioSessionActivated()
-                try await player.prepareToPlay()
-                try await player.play()
+                guard try await self.playCurrentQueue(request: request) else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 let trackCount = tracks.count
                 let firstTrack = tracks.first
                 await MainActor.run {
@@ -953,16 +1081,9 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
             } catch {
                 NSLog("[AppleMusic] playPlaylist failed: \(error)")
-                // MPMusicPlayerControllerErrorDomain code 2 — "Queue was
-                // interrupted by another queue". Happens when the
-                // skipper rapid-taps multiple playlists: the newest
-                // queue wins (Apple Music's intended behaviour), so
-                // THIS older task's error is expected and not a real
-                // user-facing failure. Resolve as superseded so the
-                // JS side can treat it as a successful no-op rather
-                // than dumping the raw NSError into the UI.
-                let ns = error as NSError
-                if ns.domain == "MPMusicPlayerControllerErrorDomain" && ns.code == 2 {
+                // Suppress only an actually replaced request. A queue error
+                // in the latest request must remain a real, retryable failure.
+                if request != self.currentPlaybackRequest() {
                     await MainActor.run {
                         call.resolve(["status": "superseded"])
                     }
@@ -1078,7 +1199,8 @@ public class AppleMusicPlugin: CAPPlugin {
             call.reject("query is required")
             return
         }
-        Task {
+        let request = beginPlaybackRequest()
+        Task { @MainActor in
             do {
                 let req = MusicLibraryRequest<Playlist>()
                 let resp = try await req.response()
@@ -1137,13 +1259,18 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.cachePlaylist(id: best.id.rawValue, name: best.name, tracks: trackArray)
 
                 let player = ApplicationMusicPlayer.shared
+                guard request == self.currentPlaybackRequest() else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 player.queue = ApplicationMusicPlayer.Queue(for: trackArray)
                 self.prewarmArtwork(
                     titlesAndArtists: trackArray.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await self.prepareAudioSessionActivated()
-                try await player.prepareToPlay()
-                try await player.play()
+                guard try await self.playCurrentQueue(request: request) else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 let firstTrack = trackArray.first
                 await MainActor.run {
                     call.resolve([
@@ -1180,7 +1307,8 @@ public class AppleMusicPlugin: CAPPlugin {
             call.reject("id is required")
             return
         }
-        Task {
+        let request = beginPlaybackRequest()
+        Task { @MainActor in
             do {
                 guard let resolved = try await resolveHydrated(id: id) else {
                     await MainActor.run {
@@ -1195,13 +1323,18 @@ public class AppleMusicPlugin: CAPPlugin {
                     return
                 }
                 let player = ApplicationMusicPlayer.shared
+                guard request == self.currentPlaybackRequest() else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 player.queue = ApplicationMusicPlayer.Queue(for: resolved.tracks)
                 self.prewarmArtwork(
                     titlesAndArtists: resolved.tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await self.prepareAudioSessionActivated()
-                try await player.prepareToPlay()
-                try await player.play()
+                guard try await self.playCurrentQueue(request: request) else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 await MainActor.run {
                     call.resolve([
                         "status": "playing",
@@ -1670,7 +1803,8 @@ public class AppleMusicPlugin: CAPPlugin {
             call.reject("track_id is required")
             return
         }
-        Task {
+        let request = beginPlaybackRequest()
+        Task { @MainActor in
             do {
                 guard let resolved = try await resolveHydrated(id: playlistId) else {
                     await MainActor.run {
@@ -1692,13 +1826,18 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
                 let fromHere = Array(resolved.tracks[idx...])
                 let player = ApplicationMusicPlayer.shared
+                guard request == self.currentPlaybackRequest() else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 player.queue = ApplicationMusicPlayer.Queue(for: fromHere)
                 self.prewarmArtwork(
                     titlesAndArtists: fromHere.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await self.prepareAudioSessionActivated()
-                try await player.prepareToPlay()
-                try await player.play()
+                guard try await self.playCurrentQueue(request: request) else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 let firstTrack = fromHere.first
                 await MainActor.run {
                     call.resolve([
@@ -1798,8 +1937,15 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     @objc func pause(_ call: CAPPluginCall) {
-        ApplicationMusicPlayer.shared.pause()
-        call.resolve(["status": "paused"])
+        let request = beginPauseRequest()
+        Task { @MainActor in
+            guard request == self.currentPlaybackRequest() else {
+                call.resolve(["status": "superseded"])
+                return
+            }
+            self.enforceLatestQuietIntent()
+            call.resolve(["status": self.isPlaybackStopped() ? "stopped" : "paused"])
+        }
     }
 
     @available(iOS 15.0, *)
@@ -1807,20 +1953,24 @@ public class AppleMusicPlugin: CAPPlugin {
         // "Stop" = pause + clear the queue, so the now-playing bar
         // disappears and there's nothing to resume into. Backs the X
         // (dismiss) button on the global now-playing bar.
+        let request = beginPlaybackRequest(stopped: true)
         Task { @MainActor in
-            let player = ApplicationMusicPlayer.shared
-            player.pause()
-            // Replacing .queue with an empty Queue() drops every
-            // entry. This is the closest MusicKit gives us to a
-            // hard stop — there's no player.stop() in the API.
-            player.queue = ApplicationMusicPlayer.Queue()
+            // A later Pause still wants this queue cleared. Only a newer
+            // playback intent may supersede Stop; remote Pause has no JS call
+            // of its own to deliver the stop confirmation back to the page.
+            guard request == self.currentPlaybackRequest() || self.isPlaybackStopped() else {
+                call.resolve(["status": "superseded"])
+                return
+            }
+            self.clearPlaybackQueue()
             call.resolve(["status": "stopped"])
         }
     }
 
     @available(iOS 15.0, *)
     @objc func resume(_ call: CAPPluginCall) {
-        Task {
+        let request = beginPlaybackRequest()
+        Task { @MainActor in
             let player = ApplicationMusicPlayer.shared
             // Empty queue → play() can sit indefinitely without
             // throwing OR resolving. Bail with a clear status code so
@@ -1835,9 +1985,11 @@ public class AppleMusicPlugin: CAPPlugin {
             // Re-assert audio session every time — see
             // prepareAudioSession() doc for why this prevents hangs
             // after Calypso TTS / other plugins mutate the session.
-            await self.prepareAudioSessionActivated()
             do {
-                try await player.play()
+                guard try await self.playCurrentQueue(request: request) else {
+                    call.resolve(["status": "superseded"])
+                    return
+                }
                 await MainActor.run { call.resolve(["status": "playing"]) }
             } catch {
                 await MainActor.run {
@@ -1849,17 +2001,19 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @available(iOS 15.0, *)
     @objc func next(_ call: CAPPluginCall) {
-        Task {
-            try? await ApplicationMusicPlayer.shared.skipToNextEntry()
-            await MainActor.run { call.resolve(["status": "skipped"]) }
+        let request = currentPlaybackRequest()
+        Task { @MainActor in
+            let skipped = await self.skipQueueEntry(forward: true, request: request)
+            call.resolve(["status": skipped ? "skipped" : "superseded"])
         }
     }
 
     @available(iOS 15.0, *)
     @objc func previous(_ call: CAPPluginCall) {
-        Task {
-            try? await ApplicationMusicPlayer.shared.skipToPreviousEntry()
-            await MainActor.run { call.resolve(["status": "skipped"]) }
+        let request = currentPlaybackRequest()
+        Task { @MainActor in
+            let skipped = await self.skipQueueEntry(forward: false, request: request)
+            call.resolve(["status": skipped ? "skipped" : "superseded"])
         }
     }
 
@@ -1868,13 +2022,18 @@ public class AppleMusicPlugin: CAPPlugin {
         // The whole resolver is async because we may need to do a
         // MusicCatalogSearchRequest to convert library-track artwork
         // into a public mzstatic.com URL the WebView can render.
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self = self else {
                 await MainActor.run { call.resolve(["is_playing": false, "state": "stopped"]) }
                 return
             }
 
             let player = ApplicationMusicPlayer.shared
+            let request = self.currentPlaybackRequest()
+            if self.isPlaybackStopped() || player.queue.entries.isEmpty {
+                self.resolveEmptyNowPlaying(call)
+                return
+            }
             let state = player.state
             let isPlaying = state.playbackStatus == .playing
             let entry = player.queue.currentEntry
@@ -2095,6 +2254,11 @@ public class AppleMusicPlugin: CAPPlugin {
             let finalDuration = duration
 
             await MainActor.run {
+                guard request == self.currentPlaybackRequest(), !self.isPlaybackStopped(),
+                      !player.queue.entries.isEmpty else {
+                    self.resolveEmptyNowPlaying(call)
+                    return
+                }
                 call.resolve([
                     "is_playing": isPlaying,
                     "state": stateString,
@@ -2159,6 +2323,7 @@ public class AppleMusicPlugin: CAPPlugin {
             let musicStateBefore = musicPlayer.state.playbackStatus
             let musicWasPlaying = musicStateBefore == .playing
             let voiceInputGenerationAtPlayback = self.voiceInputSessionGeneration
+            let playbackRequestAtTts = self.currentPlaybackRequest()
             self.ttsPausedMusic = musicWasPlaying
             NSLog("[AppleMusic] playTtsAudio: musicState before TTS = \(musicStateBefore), willPauseAndResume=\(musicWasPlaying)")
             if musicWasPlaying {
@@ -2184,6 +2349,7 @@ public class AppleMusicPlugin: CAPPlugin {
                             // then call play() to resume.
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                                 guard let self = self else { return }
+                                guard playbackRequestAtTts == self.currentPlaybackRequest(), !self.isPlaybackStopped() else { return }
                                 guard self.voiceInputSessionGeneration == voiceInputGenerationAtPlayback else {
                                     // The response finished just as the
                                     // skipper began another voice turn. Keep
@@ -2205,7 +2371,7 @@ public class AppleMusicPlugin: CAPPlugin {
                                     let preState = ApplicationMusicPlayer.shared.state.playbackStatus
                                     NSLog("[AppleMusic] resume(): preState=\(preState)")
                                     do {
-                                        try await ApplicationMusicPlayer.shared.play()
+                                        guard try await self.playCurrentQueue(request: playbackRequestAtTts) else { return }
                                         let postState = ApplicationMusicPlayer.shared.state.playbackStatus
                                         NSLog("[AppleMusic] resume(): postState=\(postState) — success")
                                     } catch {

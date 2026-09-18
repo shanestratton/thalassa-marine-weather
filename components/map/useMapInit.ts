@@ -22,6 +22,8 @@ import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../servic
 import { existingMapLayerIds } from './mapLayerQueries';
 import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
 import { crumb } from '../../utils/flightRecorder';
+import { installPaneAwareAttribution } from './paneAwareAttribution';
+import { deferEncPrewarm } from './encPrewarmLifecycle';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -76,6 +78,8 @@ interface UseMapInitOptions {
      */
     initialCenter?: { lat: number; lon: number };
     pickerMode?: boolean; // Kept as it's passed to usePickerMode
+    /** The live ENC browse switch; plotting may still require the chart. */
+    encVisible?: boolean;
     settingPoint: 'departure' | 'arrival' | null;
     showPassage: boolean;
     departure: { lat: number; lon: number; name: string } | null;
@@ -172,6 +176,12 @@ export function useMapInit(opts: UseMapInitOptions) {
     // passage/route on screen.
     const coordCaptureRef = useRef(opts.coordCapture ?? false);
     coordCaptureRef.current = opts.coordCapture ?? false;
+    // Prewarm is an optional full-chart optimization, not picker work. Read
+    // the current intent after its deferred import without recreating Mapbox
+    // when a switch changes. The normal ENC hook owns later enable/disable.
+    const encPrewarmAllowedRef = useRef(false);
+    encPrewarmAllowedRef.current =
+        !opts.pickerMode && !opts.embedded && (opts.encVisible !== false || opts.coordCapture === true);
 
     // ── Pin Drop Logic ──
     const dropPin = useCallback(
@@ -351,10 +361,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             style: mapStyle,
             center: startCenter,
             zoom: startZoom,
-            // Provider attribution and the Mapbox logo are mandatory map
-            // chrome, not optional decoration. Keep the native control so it
-            // automatically follows whichever style/source is visible.
-            attributionControl: true,
+            // Installed immediately below as a native pane-aware control.
+            // Provider/source credits and the default Mapbox logo stay intact.
+            attributionControl: false,
             // Deep zoom-in stays available; zoom-OUT floors at z3 (Shane
             // 2026-08-04: "prevent the zoom from going past level 3"). The
             // min() keeps the AU+NZ opening frame reachable on portrait
@@ -514,6 +523,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                 return { url };
             },
         });
+
+        const refreshAttribution = installPaneAwareAttribution(map, containerRef.current);
 
         // Match container background to ocean color — hides any sub-pixel WebGL tile seams
         if (containerRef.current) {
@@ -1516,11 +1527,12 @@ export function useMapInit(opts: UseMapInitOptions) {
         // existed and reported "tiles 0 across 0 srcs" over a live map.
         registerCensusMap(map);
 
-        // ENC boot pre-warm: run the first chart merge's CPU work (blob read/
-        // parse/glaze) UNDER the style+tile network wait instead of after it —
-        // the largest single warm-boot win (z10-boot audit #4). No-ops below
-        // the merge floor (the wide no-fix fallback boot) or with no cells.
-        void import('./useEncVectorLayer').then(({ prewarmEncMerge }) => prewarmEncMerge(map)).catch(() => undefined);
+        // ENC boot prewarm overlaps blob/geometry work with style loading.
+        // It must obey the same chart intent as the normal render path: the
+        // old unconditional call still merged with ENC OFF. A late import
+        // must also stand down if the map was removed or intent changed.
+        const cancelPrewarm = deferEncPrewarm(map, () => mapRef.current === map && encPrewarmAllowedRef.current);
+        map.once('remove', cancelPrewarm);
 
         // Dev-only escape hatch: layer/source forensics from the browser
         // console ("why isn't X painting") without prop-drilling a debug
@@ -1553,12 +1565,14 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         // ResizeObserver — recalculate fill-width minZoom on resize
         const resizeObserver = new ResizeObserver(() => {
+            refreshAttribution();
             map.resize();
             refineAusNzFitZoom();
         });
         resizeObserver.observe(containerRef.current);
 
         return () => {
+            cancelPrewarm();
             window.removeEventListener('map-recenter', handleRecenter);
             resizeObserver.disconnect();
             crumb('map:remove', `#${mapInstanceSeq}`);

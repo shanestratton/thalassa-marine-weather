@@ -592,7 +592,7 @@ function MapContainer({
 
     return (
         <div
-            className={`w-full h-full relative bg-slate-900 ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
+            className={`public-voyage-map w-full h-full relative bg-slate-900 ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
         >
             <Map
                 ref={mapRef}
@@ -819,12 +819,24 @@ function MapContainer({
                             type="button"
                             onClick={exploreDestination}
                             aria-label={'Explore destination ' + destinationTarget.name + ' in satellite detail'}
-                            className="mb-2 flex min-h-11 max-w-56 flex-col items-start rounded-xl border border-teal-200/50 bg-slate-950/90 px-3 py-2 text-left shadow-lg shadow-black/40 backdrop-blur-md focus-visible:outline-2 focus-visible:outline-teal-200"
+                            className="mb-2 flex h-11 min-h-[44px] w-11 min-w-[44px] items-center justify-center rounded-xl border border-teal-200/50 bg-slate-950/90 text-teal-200 shadow-lg shadow-black/40 backdrop-blur-md focus-visible:outline-2 focus-visible:outline-teal-200 lg:h-auto lg:w-auto lg:max-w-56 lg:flex-col lg:items-start lg:px-3 lg:py-2 lg:text-left"
                         >
-                            <span className="max-w-full truncate text-sm font-semibold text-white">
+                            <svg
+                                aria-hidden="true"
+                                className="h-5 w-5 lg:hidden"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <path d="M5 21V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0" />
+                            </svg>
+                            <span className="hidden max-w-full truncate text-sm font-semibold text-white lg:block">
                                 {destinationTarget.name}
                             </span>
-                            <span className="text-xs text-teal-200">Explore coast &amp; reef ↗</span>
+                            <span className="hidden text-xs text-teal-200 lg:block">Explore coast &amp; reef ↗</span>
                         </button>
                     </Marker>
                 )}
@@ -886,7 +898,7 @@ function MapContainer({
                                 type="button"
                                 onClick={() => onEntryClick(entry)}
                                 aria-label={`Voyage log entry: ${entry.title || 'Untitled'}`}
-                                className={`relative cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95 ${
+                                className={`relative flex min-h-[44px] min-w-[44px] items-center justify-center cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95 ${
                                     isSelected ? 'scale-125' : ''
                                 }`}
                             >
@@ -1133,7 +1145,7 @@ function MapContainer({
                 render only for layers actually on the map. Sits above the
                 compass rose in the bottom-left stack. */}
             {(trackCoords.length >= 2 || passageGeojson) && (
-                <div className="absolute bottom-[116px] left-4 z-10 pointer-events-none select-none rounded-lg border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg px-3 py-2 space-y-1.5 text-[10px] font-semibold tracking-wide text-slate-200">
+                <div className="absolute bottom-24 left-3 right-3 z-10 flex flex-wrap gap-x-3 gap-y-1 pointer-events-none select-none rounded-lg border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg px-2 py-1 text-[10px] font-semibold text-slate-200 lg:bottom-[116px] lg:left-4 lg:right-auto lg:block lg:space-y-1.5 lg:px-3 lg:py-2 lg:tracking-wide">
                     {passageGeojson && (
                         <div className="flex items-center gap-2">
                             <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#c4b5fd' }} />

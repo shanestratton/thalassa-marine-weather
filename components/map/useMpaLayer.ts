@@ -17,6 +17,7 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 import { toast } from '../Toast';
 import {
     deactivateMpaLayerAndProveSafe,
@@ -109,7 +110,7 @@ export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string):
             min-width: 220px;
             max-width: 280px;
             padding-right: 38px;
-            color: #f3f4f6;
+            color: var(--day-ui-text, #f3f4f6);
             position: relative;
         ">
             <button
@@ -124,8 +125,8 @@ export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string):
                     height: 44px;
                     border-radius: 999px;
                     border: 1px solid rgba(255,255,255,0.18);
-                    background: rgba(15,23,42,0.85);
-                    color: #d1d5db;
+                    background: var(--day-ui-surface, rgba(15,23,42,0.85));
+                    color: var(--day-ui-text, #d1d5db);
                     font-size: 16px;
                     line-height: 1;
                     font-weight: 600;
@@ -140,31 +141,31 @@ export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string):
             <div style="font-weight: 600; font-size: 14px; line-height: 1.3; margin-bottom: 4px;">
                 ${escape(props.name ?? 'Marine reserve')}
             </div>
-            ${sub ? `<div style="font-size: 11px; color: #9ca3af; margin-bottom: 8px;">${sub}</div>` : ''}
+            ${sub ? `<div style="font-size: 11px; color: var(--day-ui-muted, #9ca3af); margin-bottom: 8px;">${sub}</div>` : ''}
             <div style="
                 display: inline-block;
                 padding: 3px 8px;
                 border-radius: 999px;
                 background: ${meta.tone}33;
-                color: ${meta.tone};
+                color: ${daylightUiColor(meta.tone)};
                 font-size: 11px;
                 font-weight: 600;
                 margin-bottom: 8px;
                 border: 1px solid ${meta.tone}66;
             ">${meta.label}</div>
-            <div style="font-size: 12px; color: #d1d5db; line-height: 1.4; margin-bottom: 6px;">
+            <div style="font-size: 12px; color: var(--day-ui-text, #d1d5db); line-height: 1.4; margin-bottom: 6px;">
                 ${meta.hint}
             </div>
             ${
                 area || auth || sourceDate
-                    ? `<div style="font-size: 11px; color: #cbd5e1; padding-top: 6px; border-top: 1px solid #374151;">
+                    ? `<div style="font-size: 11px; color: var(--day-ui-muted, #cbd5e1); padding-top: 6px; border-top: 1px solid #374151;">
                 ${area ? `<div>Area: ${area}</div>` : ''}
                 ${auth ? `<div>Managed by: ${auth}</div>` : ''}
                 ${sourceDate ? `<div>Dataset snapshot: ${escape(sourceDate)}</div>` : ''}
             </div>`
                     : ''
             }
-            <div style="font-size: 11px; color: #b6c2d1; margin-top: 6px; font-style: italic;">
+            <div style="font-size: 11px; color: var(--day-ui-muted, #b6c2d1); margin-top: 6px; font-style: italic;">
                 Indicative CAPAD overlay only — not legal advice and not for navigation.
             </div>
         </div>
@@ -351,8 +352,8 @@ export function useMpaLayer(
                         closeBtn.style.color = '#ffffff';
                     });
                     closeBtn.addEventListener('mouseleave', () => {
-                        closeBtn.style.background = 'rgba(15, 23, 42, 0.85)';
-                        closeBtn.style.color = '#d1d5db';
+                        closeBtn.style.background = 'var(--day-ui-surface, rgba(15, 23, 42, 0.85))';
+                        closeBtn.style.color = 'var(--day-ui-text, #d1d5db)';
                     });
                     closeBtn.focus();
                 }

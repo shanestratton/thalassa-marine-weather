@@ -205,9 +205,13 @@ function isScrollContainer(element: HTMLElement): boolean {
 }
 
 function findScrollParent(element: HTMLElement): HTMLElement | null {
+    // The frame/portal host is a hard scroll boundary. Keyboard corrections
+    // in either half must never move the shared app shell or the other pane.
+    if (element.matches('[data-split-pane], [data-pane-portal]')) return null;
     let parent = element.parentElement;
     while (parent) {
         if (isScrollContainer(parent)) return parent;
+        if (parent.matches('[data-split-pane], [data-pane-portal]')) return null;
         parent = parent.parentElement;
     }
     return null;
@@ -326,6 +330,7 @@ export function keepEditableAboveKeyboard(target: EventTarget | null, center = f
     // Most Thalassa forms live inside an overflow-y-auto panel.  This fallback
     // covers standalone web forms and native modals whose parent becomes
     // scrollable only after a browser layout pass.
+    if (element.closest('[data-split-pane], [data-pane-portal]')) return;
     element.scrollIntoView?.({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
 
     // `scrollIntoView` is allowed to be a no-op in a fixed Capacitor shell.

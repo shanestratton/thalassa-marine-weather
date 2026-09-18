@@ -103,7 +103,10 @@ export const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         <div className="mb-1 text-[10px] font-black uppercase tracking-[0.17em] text-sky-200/65">
                             Playlist
                         </div>
-                        <div id={titleId} className="truncate text-lg font-extrabold leading-tight text-white">
+                        <div
+                            id={titleId}
+                            className="line-clamp-2 break-words text-lg font-extrabold leading-tight text-white"
+                        >
                             {playlist.name}
                         </div>
                         <div className="text-white/60 text-sm mt-0.5">

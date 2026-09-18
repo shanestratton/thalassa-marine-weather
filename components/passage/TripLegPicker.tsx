@@ -16,6 +16,7 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { usePaneModalLock, usePanePortalTarget } from '../../context/PanePortalContext';
 import {
     loadSavedTraces,
     groupTracesByTrip,
@@ -37,6 +38,7 @@ import {
 const buildTrips = (scope: AuthIdentityScope): TripGroup[] => groupTracesByTrip(loadSavedTraces(scope));
 
 export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenChart }) => {
+    const portalTarget = usePanePortalTarget();
     const [tripSnapshot, setTripSnapshot] = React.useState(() => {
         const scope = getAuthIdentityScope();
         return { scope, trips: buildTrips(scope) };
@@ -55,6 +57,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
     // event and the modal never reopens. Resetting to '' puts the placeholder
     // back and keeps the control honest about what it does.
     const [legsOpen, setLegsOpen] = React.useState(false);
+    usePaneModalLock(legsOpen);
     const closeLegs = (): void => {
         setLegsOpen(false);
         setSelectedKey('');
@@ -143,6 +146,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
             </select>
             {selected &&
                 legsOpen &&
+                portalTarget &&
                 createPortal(
                     // Portalled to <body>: the PLAN page rides inside
                     // PageTransition, whose translate3d makes it the containing
@@ -157,7 +161,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                         <div
                             ref={dialogRef}
                             role="dialog"
-                            aria-modal="true"
+                            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby="trip-leg-picker-title"
                             className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-amber-500/30 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
@@ -227,7 +231,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                             </div>
                         </div>
                     </div>,
-                    document.body,
+                    portalTarget,
                 )}
         </div>
     );

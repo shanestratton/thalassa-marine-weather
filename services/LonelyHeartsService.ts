@@ -2469,10 +2469,20 @@ class LonelyHeartsServiceClass {
         const ownerId = await this.getAuthenticatedOwner(scope);
         const target = this.normalizeTargetId(targetId);
         if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
-        const { error } = await supabase
-            .from(BLOCKS_TABLE)
-            .upsert({ blocker_id: ownerId, blocked_id: target }, { onConflict: 'blocker_id,blocked_id' });
-        return !error && isAuthIdentityScopeCurrent(scope);
+        try {
+            const { data, error } = await supabase.rpc('set_chat_user_block', {
+                p_other_user_id: target,
+                p_blocked: true,
+            });
+            return (
+                !error &&
+                data?.blockedByMe === true &&
+                data?.blockedEitherDirection === true &&
+                isAuthIdentityScopeCurrent(scope)
+            );
+        } catch {
+            return false;
+        }
     }
 
     /** Unblock a user */
@@ -2482,8 +2492,20 @@ class LonelyHeartsServiceClass {
         const ownerId = await this.getAuthenticatedOwner(scope);
         const target = this.normalizeTargetId(targetId);
         if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
-        const { error } = await supabase.from(BLOCKS_TABLE).delete().eq('blocker_id', ownerId).eq('blocked_id', target);
-        return !error && isAuthIdentityScopeCurrent(scope);
+        try {
+            const { data, error } = await supabase.rpc('set_chat_user_block', {
+                p_other_user_id: target,
+                p_blocked: false,
+            });
+            return (
+                !error &&
+                data?.blockedByMe === false &&
+                typeof data?.blockedEitherDirection === 'boolean' &&
+                isAuthIdentityScopeCurrent(scope)
+            );
+        } catch {
+            return false;
+        }
     }
 
     /** Get IDs of users this person has blocked */

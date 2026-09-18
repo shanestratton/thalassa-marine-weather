@@ -31,6 +31,10 @@ interface DateGroupedTimelineProps {
     isTracking?: boolean;
 }
 
+// One budget for the whole timeline, rather than per day: a long passage
+// must never mount its complete GPS history when the live card closes.
+const ENTRIES_PER_PAGE = 50;
+
 // Get today's date as YYYY-MM-DD in local timezone
 function getTodayDateString(): string {
     const d = new Date();
@@ -64,6 +68,27 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
 
     // Track expanded individual entries
     const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+    const [pageIndex, setPageIndex] = useState(0);
+
+    const entryCount = groupedEntries.reduce((total, group) => total + group.entries.length, 0);
+    const pageCount = Math.max(1, Math.ceil(entryCount / ENTRIES_PER_PAGE));
+    // A filter or deletion can shrink the result while a later page is open.
+    const currentPage = Math.min(pageIndex, pageCount - 1);
+    const pageStart = currentPage * ENTRIES_PER_PAGE;
+    const pageEnd = Math.min(pageStart + ENTRIES_PER_PAGE, entryCount);
+    let groupStart = 0;
+    const pageGroups: GroupedEntries[] = [];
+    for (const group of groupedEntries) {
+        const groupEnd = groupStart + group.entries.length;
+        if (groupStart < pageEnd && groupEnd > pageStart) {
+            pageGroups.push({
+                ...group,
+                entries: group.entries.slice(Math.max(0, pageStart - groupStart), pageEnd - groupStart),
+            });
+        }
+        groupStart = groupEnd;
+        if (groupStart >= pageEnd) break;
+    }
 
     // PERF: Stable callbacks prevent child re-renders (used by React.memo'd CompactLogEntry)
     const toggleDate = useCallback((date: string) => {
@@ -98,7 +123,7 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
         [onEditEntry],
     );
 
-    if (groupedEntries.length === 0) {
+    if (entryCount === 0) {
         return (
             <div className="text-center py-12 text-slate-400">
                 <svg
@@ -117,7 +142,32 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
 
     return (
         <div className="space-y-2">
-            {groupedEntries.map((group) => {
+            {pageCount > 1 && (
+                <nav aria-label="Log entry pages" className="flex items-center justify-between gap-2 py-2">
+                    <button
+                        type="button"
+                        aria-label="Previous entries"
+                        disabled={currentPage === 0}
+                        onClick={() => setPageIndex(currentPage - 1)}
+                        className="rounded-lg px-3 py-2 text-sm font-bold text-sky-400 disabled:opacity-30"
+                    >
+                        Previous
+                    </button>
+                    <span className="text-xs text-slate-400" aria-live="polite">
+                        Entries {pageStart + 1}–{pageEnd} of {entryCount.toLocaleString()}
+                    </span>
+                    <button
+                        type="button"
+                        aria-label="Next entries"
+                        disabled={currentPage === pageCount - 1}
+                        onClick={() => setPageIndex(currentPage + 1)}
+                        className="rounded-lg px-3 py-2 text-sm font-bold text-sky-400 disabled:opacity-30"
+                    >
+                        Next
+                    </button>
+                </nav>
+            )}
+            {pageGroups.map((group) => {
                 const isExpanded = expandedDates.has(group.date);
                 const isToday = group.date === todayStr;
 
@@ -181,29 +231,26 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                             </div>
                         </button>
 
-                        {/* Entries — animated collapse; SCROLLS when open. The old
-                            overflow-hidden + max-h-[2000px] silently amputated a
-                            full-day passage's timeline at ~38 of ~5,000+ rows
-                            (audit 2026-07-03) — everything below the clip was
-                            unreachable. Open = bounded scroll region. */}
-                        <div
-                            className={`transition-all duration-200 ease-out ${isExpanded ? 'max-h-[2000px] opacity-100 overflow-y-auto' : 'max-h-0 opacity-0 overflow-hidden'}`}
-                        >
-                            <div className="p-1.5 space-y-1">
-                                {group.entries.map((entry) => (
-                                    <CompactLogEntry
-                                        key={entry.id}
-                                        entry={entry}
-                                        isExpanded={expandedEntries.has(entry.id)}
-                                        onToggle={toggleEntry}
-                                        onDelete={onDeleteEntry ? handleDeleteEntry : undefined}
-                                        onEdit={onEditEntry ? handleEditEntry : undefined}
-                                        isVoyageStart={entry.id === voyageFirstEntryId}
-                                        isVoyageEnd={entry.id === voyageLastEntryId}
-                                    />
-                                ))}
+                        {/* Closed days release their rows; open days share the
+                            fixed page budget and scroll without clipping entries. */}
+                        {isExpanded && (
+                            <div className="max-h-[2000px] overflow-y-auto">
+                                <div className="p-1.5 space-y-1">
+                                    {group.entries.map((entry) => (
+                                        <CompactLogEntry
+                                            key={entry.id}
+                                            entry={entry}
+                                            isExpanded={expandedEntries.has(entry.id)}
+                                            onToggle={toggleEntry}
+                                            onDelete={onDeleteEntry ? handleDeleteEntry : undefined}
+                                            onEdit={onEditEntry ? handleEditEntry : undefined}
+                                            isVoyageStart={entry.id === voyageFirstEntryId}
+                                            isVoyageEnd={entry.id === voyageLastEntryId}
+                                        />
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 );
             })}
@@ -350,6 +397,8 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                 >
                     {/* Compact Row - Always Visible */}
                     <button
+                        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} log entry ${timeStr}`}
+                        aria-expanded={isExpanded}
                         onClick={() => onToggle(entry.id)}
                         className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
                     >
@@ -434,172 +483,173 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                         </svg>
                     </button>
 
-                    {/* Expanded Details */}
-                    <div
-                        className={`transition-all duration-200 ease-out overflow-hidden ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
-                    >
-                        <div className="px-3 pb-3 pt-1 border-t border-white/5">
-                            {/* Position */}
-                            <div className="mb-2">
-                                <div className="text-[11px] text-slate-400 uppercase">Position</div>
-                                <div className="text-emerald-400 font-mono font-bold text-sm">
-                                    {entry.positionFormatted}
+                    {/* Mount details only on request. CSS-hidden details used
+                        to multiply the DOM for every recorded GPS point. */}
+                    {isExpanded && (
+                        <div>
+                            <div className="px-3 pb-3 pt-1 border-t border-white/5">
+                                {/* Position */}
+                                <div className="mb-2">
+                                    <div className="text-[11px] text-slate-400 uppercase">Position</div>
+                                    <div className="text-emerald-400 font-mono font-bold text-sm">
+                                        {entry.positionFormatted}
+                                    </div>
                                 </div>
-                            </div>
 
-                            {/* Nav Stats Grid */}
-                            <div className="grid grid-cols-3 gap-2 mb-2">
-                                {entry.distanceNM != null && (
-                                    <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                        <div className="text-[11px] text-slate-400 uppercase">Dist</div>
-                                        <div className="text-sm font-bold text-white tabular-nums">
-                                            {(entry.distanceNM ?? 0).toFixed(1)} NM
+                                {/* Nav Stats Grid */}
+                                <div className="grid grid-cols-3 gap-2 mb-2">
+                                    {entry.distanceNM != null && (
+                                        <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
+                                            <div className="text-[11px] text-slate-400 uppercase">Dist</div>
+                                            <div className="text-sm font-bold text-white tabular-nums">
+                                                {(entry.distanceNM ?? 0).toFixed(1)} NM
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                {entry.speedKts != null && (
-                                    <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                        <div className="text-[11px] text-slate-400 uppercase">Speed</div>
-                                        <div className="text-sm font-bold text-white tabular-nums">
-                                            {(entry.speedKts ?? 0).toFixed(1)} kts
+                                    )}
+                                    {entry.speedKts != null && (
+                                        <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
+                                            <div className="text-[11px] text-slate-400 uppercase">Speed</div>
+                                            <div className="text-sm font-bold text-white tabular-nums">
+                                                {(entry.speedKts ?? 0).toFixed(1)} kts
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                {entry.courseDeg != null && (
-                                    <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                        <div className="text-[11px] text-slate-400 uppercase">Course</div>
-                                        <div className="text-sm font-bold text-white tabular-nums">
-                                            {formatCourseTrue(entry.courseDeg)}
+                                    )}
+                                    {entry.courseDeg != null && (
+                                        <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
+                                            <div className="text-[11px] text-slate-400 uppercase">Course</div>
+                                            <div className="text-sm font-bold text-white tabular-nums">
+                                                {formatCourseTrue(entry.courseDeg)}
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
+                                    )}
+                                </div>
 
-                            {/* Weather Details */}
-                            {(entry.windSpeed || entry.waveHeight || entry.pressure) && (
-                                <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
-                                    {entry.windSpeed != null && (
-                                        <span className="flex items-center gap-1">
-                                            <WindIcon className="w-3 h-3" />
-                                            <span className="text-white font-bold">
-                                                {entry.windSpeed.toFixed(1)} kts
-                                            </span>
-                                            {entry.windDirection}
-                                            {entry.beaufortScale != null && (
-                                                <span className={getBfColor(entry.beaufortScale)}>
-                                                    ({getBeaufortDescription(entry.beaufortScale)})
+                                {/* Weather Details */}
+                                {(entry.windSpeed || entry.waveHeight || entry.pressure) && (
+                                    <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
+                                        {entry.windSpeed != null && (
+                                            <span className="flex items-center gap-1">
+                                                <WindIcon className="w-3 h-3" />
+                                                <span className="text-white font-bold">
+                                                    {entry.windSpeed.toFixed(1)} kts
                                                 </span>
-                                            )}
-                                        </span>
-                                    )}
-                                    {entry.waveHeight != null && (
-                                        <span>
-                                            Seas{' '}
-                                            <span className="text-white font-bold">
-                                                {((entry.waveHeight ?? 0) / 3.28084).toFixed(1)}m
+                                                {entry.windDirection}
+                                                {entry.beaufortScale != null && (
+                                                    <span className={getBfColor(entry.beaufortScale)}>
+                                                        ({getBeaufortDescription(entry.beaufortScale)})
+                                                    </span>
+                                                )}
                                             </span>
-                                            {entry.seaState !== undefined &&
-                                                ` (${getSeaStateDescription(entry.seaState)})`}
-                                        </span>
-                                    )}
-                                    {entry.pressure != null && (
-                                        <span>
-                                            <span className="text-white font-bold">
-                                                {(entry.pressure ?? 0).toFixed(0)}
+                                        )}
+                                        {entry.waveHeight != null && (
+                                            <span>
+                                                Seas{' '}
+                                                <span className="text-white font-bold">
+                                                    {((entry.waveHeight ?? 0) / 3.28084).toFixed(1)}m
+                                                </span>
+                                                {entry.seaState !== undefined &&
+                                                    ` (${getSeaStateDescription(entry.seaState)})`}
                                             </span>
-                                            hPa
+                                        )}
+                                        {entry.pressure != null && (
+                                            <span>
+                                                <span className="text-white font-bold">
+                                                    {(entry.pressure ?? 0).toFixed(0)}
+                                                </span>
+                                                hPa
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Notes */}
+                                {entry.notes && (
+                                    <div className="bg-slate-900/30 rounded-lg p-2 text-sm text-white italic">
+                                        "{entry.notes}"
+                                    </div>
+                                )}
+
+                                {/* Waypoint — hide system names */}
+                                {showWaypointName && (
+                                    <div className="mt-2 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded-sm text-sky-400 text-xs font-bold">
+                                        📍 {entry.waypointName}
+                                    </div>
+                                )}
+
+                                {/* Event Category */}
+                                {entry.eventCategory && (
+                                    <div className="mt-2">
+                                        <span className="px-2 py-0.5 bg-slate-700/50 rounded-sm text-[11px] text-slate-300 uppercase tracking-wider">
+                                            {entry.eventCategory === 'equipment' ? 'repair' : entry.eventCategory}
                                         </span>
-                                    )}
-                                </div>
-                            )}
+                                    </div>
+                                )}
 
-                            {/* Notes */}
-                            {entry.notes && (
-                                <div className="bg-slate-900/30 rounded-lg p-2 text-sm text-white italic">
-                                    "{entry.notes}"
-                                </div>
-                            )}
+                                {/* Watch Period */}
+                                {entry.watchPeriod && (
+                                    <div className="mt-2 text-[11px] text-slate-400">
+                                        {getWatchPeriodName(entry.watchPeriod)}
+                                    </div>
+                                )}
 
-                            {/* Waypoint — hide system names */}
-                            {showWaypointName && (
-                                <div className="mt-2 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded-sm text-sky-400 text-xs font-bold">
-                                    📍 {entry.waypointName}
-                                </div>
-                            )}
-
-                            {/* Event Category */}
-                            {entry.eventCategory && (
-                                <div className="mt-2">
-                                    <span className="px-2 py-0.5 bg-slate-700/50 rounded-sm text-[11px] text-slate-300 uppercase tracking-wider">
-                                        {entry.eventCategory === 'equipment' ? 'repair' : entry.eventCategory}
-                                    </span>
-                                </div>
-                            )}
-
-                            {/* Watch Period */}
-                            {entry.watchPeriod && (
-                                <div className="mt-2 text-[11px] text-slate-400">
-                                    {getWatchPeriodName(entry.watchPeriod)}
-                                </div>
-                            )}
-
-                            {/* Action Buttons — hidden for auto GPS entries and system start/end entries */}
-                            {!isSystemEntry && (onEdit || (onDelete && entry.entryType !== 'auto')) && (
-                                <div className="mt-3 flex gap-2">
-                                    {onEdit && (
-                                        <button
-                                            aria-label={`Edit log entry ${timeStr}`}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onEdit!(entry);
-                                            }}
-                                            className="flex-1 px-3 py-2 bg-sky-600/20 hover:bg-sky-600/40 border border-sky-500/30 rounded-lg text-sky-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                                        >
-                                            <svg
-                                                className="w-3.5 h-3.5"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
+                                {/* Action Buttons — hidden for auto GPS entries and system start/end entries */}
+                                {!isSystemEntry && (onEdit || (onDelete && entry.entryType !== 'auto')) && (
+                                    <div className="mt-3 flex gap-2">
+                                        {onEdit && (
+                                            <button
+                                                aria-label={`Edit log entry ${timeStr}`}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onEdit!(entry);
+                                                }}
+                                                className="flex-1 px-3 py-2 bg-sky-600/20 hover:bg-sky-600/40 border border-sky-500/30 rounded-lg text-sky-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                                             >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                                                />
-                                            </svg>
-                                            Edit
-                                        </button>
-                                    )}
-                                    {onDelete && entry.entryType !== 'auto' && (
-                                        <button
-                                            aria-label={`Delete log entry ${timeStr}`}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onDelete!(entry.id);
-                                            }}
-                                            className="flex-1 px-3 py-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 rounded-lg text-red-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                                        >
-                                            <svg
-                                                className="w-3.5 h-3.5"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
+                                                <svg
+                                                    className="w-3.5 h-3.5"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        strokeWidth={2}
+                                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                                    />
+                                                </svg>
+                                                Edit
+                                            </button>
+                                        )}
+                                        {onDelete && entry.entryType !== 'auto' && (
+                                            <button
+                                                aria-label={`Delete log entry ${timeStr}`}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDelete!(entry.id);
+                                                }}
+                                                className="flex-1 px-3 py-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 rounded-lg text-red-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                                             >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                                />
-                                            </svg>
-                                            Delete
-                                        </button>
-                                    )}
-                                </div>
-                            )}
+                                                <svg
+                                                    className="w-3.5 h-3.5"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        strokeWidth={2}
+                                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                                    />
+                                                </svg>
+                                                Delete
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
         );

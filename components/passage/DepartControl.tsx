@@ -3,8 +3,8 @@
  * "morph the planner into the tracer front door… keep the departure").
  *
  * Same semantics as the tracer card's inline Depart row: empty = leave now;
- * two lines (date, then time) so neither is squeezed; OK blurs the native
- * picker closed (iOS keeps the wheel up until the input blurs).
+ * date/time edits apply immediately. The persistent Now action clears a
+ * scheduled departure and dismisses any focused native picker.
  *
  * Sync: single source of truth is an account-scoped sessionStorage departure
  * (the tracer reads it on mount) + an identity-tagged window event so an
@@ -132,26 +132,16 @@ export const DepartControl: React.FC = () => {
             </div>
             <div className="mt-2 flex gap-2">
                 <button
+                    type="button"
                     onClick={() => {
                         triggerHaptic('light');
                         (document.activeElement as HTMLElement | null)?.blur?.();
+                        setDeparture(null);
                     }}
-                    className="min-h-[44px] flex-1 rounded-xl bg-sky-500/20 text-[11px] font-black uppercase tracking-widest text-sky-300 active:scale-95"
+                    className="min-h-[44px] flex-1 rounded-xl bg-white/10 text-[11px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
                 >
-                    OK
+                    Now
                 </button>
-                {departureMs !== null && (
-                    <button
-                        onClick={() => {
-                            triggerHaptic('light');
-                            (document.activeElement as HTMLElement | null)?.blur?.();
-                            setDeparture(null);
-                        }}
-                        className="min-h-[44px] flex-1 rounded-xl bg-white/10 text-[11px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
-                    >
-                        Now
-                    </button>
-                )}
             </div>
         </div>
     );

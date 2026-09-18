@@ -552,16 +552,20 @@ async function fetchVisibleProjectionEntries(
         includeArchived: boolean;
         columns?: string;
         maxRows?: number;
+        signal?: AbortSignal;
+        requireComplete?: boolean;
     },
 ): Promise<ShipLogEntry[]> {
-    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return [];
+    const current = () => isAuthIdentityScopeCurrent(scope) && !options.signal?.aborted;
+    if (!supabase || !scope.userId || !current()) return [];
     const targetVoyageId = options.targetVoyageId ? normalizeVoyageId(options.targetVoyageId.trim()) : undefined;
     const maxRows = options.maxRows ?? FALLBACK_MAX_ROWS;
     const rows: Record<string, unknown>[] = [];
     let offset = 0;
 
     while (rows.length < maxRows) {
-        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        if (!current()) return [];
+        const pageSize = Math.min(FALLBACK_PAGE_SIZE, maxRows - rows.length);
         let query = supabase
             .from(SHIP_LOGS_TABLE)
             .select(options.columns ?? SUMMARY_COLUMNS)
@@ -575,15 +579,17 @@ async function fetchVisibleProjectionEntries(
         query = query
             .order('timestamp', { ascending: false })
             .order('id', { ascending: false })
-            .range(offset, offset + FALLBACK_PAGE_SIZE - 1);
+            .range(offset, offset + pageSize - 1);
+        if (options.signal) query = query.abortSignal(options.signal);
 
         const { data, error } = await query;
-        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        if (!current()) return [];
         if (error) {
             log.warn('voyage projection page failed:', error.message);
             break;
         }
         const page = (data || []) as unknown as Record<string, unknown>[];
+        if (page.length > pageSize) return []; // a bounded read must never accept an over-sized response
         if (
             page.some(
                 (row) =>
@@ -595,20 +601,20 @@ async function fetchVisibleProjectionEntries(
             return [];
         }
         rows.push(...page);
-        if (page.length < FALLBACK_PAGE_SIZE) break;
-        offset += FALLBACK_PAGE_SIZE;
+        if (page.length < pageSize) break;
+        offset += pageSize;
     }
 
-    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    if (!current() || (options.requireComplete && rows.length >= maxRows)) return [];
     let entries = rows.map((row) => {
         const entry = fromDbFormat(row);
         entry.voyageId = normalizeVoyageId(row.voyage_id);
         return entry;
     });
     entries = await filterVoyageTombstonedEntries(entries, scope);
-    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    if (!current()) return [];
     entries = await applyVoyageArchiveIntentOverlay(entries, scope);
-    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    if (!current()) return [];
     return options.includeArchived ? entries : entries.filter((entry) => entry.archived !== true);
 }
 
@@ -793,16 +799,21 @@ async function summariesFromProjection(includeArchived: boolean, scope: AuthIden
  * Lazy-load the FULL entry list for a single voyage — called when the user
  * expands a card or opens its track map. Bounded; newest-first.
  */
-export async function getVoyageEntries(voyageId: string, includeArchived = false): Promise<ShipLogEntry[]> {
+export async function getVoyageEntries(
+    voyageId: string,
+    includeArchived = false,
+    options: { maxRows?: number; signal?: AbortSignal; requireComplete?: boolean } = {},
+): Promise<ShipLogEntry[]> {
     const scope = getAuthIdentityScope();
     const targetVoyageId = normalizeVoyageId(voyageId.trim());
-    if (!supabase || !scope.userId || !voyageId.trim()) return [];
+    if (!supabase || !scope.userId || !voyageId.trim() || options.signal?.aborted) return [];
+    if (options.maxRows !== undefined && (!Number.isInteger(options.maxRows) || options.maxRows < 1)) return [];
     try {
         const sessionUserId = await getCurrentUserId();
-        if (!isAuthIdentityScopeCurrent(scope) || sessionUserId !== scope.userId) return [];
+        if (!isAuthIdentityScopeCurrent(scope) || options.signal?.aborted || sessionUserId !== scope.userId) return [];
 
         const intents = await getVoyageArchiveIntentSnapshot(scope);
-        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        if (!isAuthIdentityScopeCurrent(scope) || options.signal?.aborted) return [];
         const pendingUnarchive = intents.some(
             (intent) => !intent.archived && normalizeVoyageId(intent.voyageId) === targetVoyageId,
         );
@@ -811,7 +822,9 @@ export async function getVoyageEntries(voyageId: string, includeArchived = false
             queryArchived: includeArchived || pendingUnarchive,
             includeArchived,
             columns: '*',
-            maxRows: DETAIL_MAX_ROWS,
+            maxRows: Math.min(options.maxRows ?? DETAIL_MAX_ROWS, DETAIL_MAX_ROWS),
+            signal: options.signal,
+            requireComplete: options.requireComplete,
         });
         return isAuthIdentityScopeCurrent(scope) ? entries : [];
     } catch (error) {

@@ -13,6 +13,75 @@ import { calculateFeelsLike, getSunTimes } from '../../utils/math';
 import { degreesToCardinal } from '../../utils/format';
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../utils/advisory';
 import { resolveTimeZone, formatTimeInZone } from '../../utils/timezone';
+import { resolveOffshoreModel } from './forecastModels';
+
+/** Availability travels with the cached report: legacy numeric placeholders
+ * must never overwrite real fallback forecasts when a model omits a field. */
+interface StormGlassCoverage {
+    current: string[];
+    hourly: Record<string, string[]>;
+    daily: Record<string, string[]>;
+}
+type CoveredStormGlassReport = MarineWeatherReport & { _stormglassCoverage?: StormGlassCoverage };
+
+/** Selected StormGlass values win at every horizon; other real sources only
+ * fill absent fields. Return a new report so a model switch cannot mutate a
+ * provider cache entry or another caller's in-flight result. */
+export function blendOffshoreForecast(
+    selected: MarineWeatherReport,
+    fallback: MarineWeatherReport | null,
+): MarineWeatherReport {
+    if (!fallback) return structuredClone(selected);
+    const coverage = (selected as CoveredStormGlassReport)._stormglassCoverage;
+    if (!coverage) return structuredClone(selected);
+    const overlay = <T extends object>(base: T, preferred: T, keys: string[]): T => {
+        const out = { ...base };
+        for (const key of keys as (keyof T)[]) {
+            if (preferred[key] != null) out[key] = preferred[key];
+        }
+        return out;
+    };
+    const toHour = (time: string) => Math.floor(new Date(time).getTime() / 3_600_000);
+    const preferredHours = new Map(selected.hourly.map((h) => [toHour(h.time), h]));
+    const preferredDays = new Map(selected.forecast.map((d) => [d.isoDate || d.date, d]));
+    const report = structuredClone(fallback);
+    report.current = overlay(report.current, selected.current, coverage.current);
+    report.current.sources = { ...fallback.current.sources };
+    for (const key of coverage.current as (keyof WeatherMetrics)[]) {
+        if (selected.current.sources?.[key]) report.current.sources[key] = selected.current.sources[key];
+    }
+    const seenHours = new Set<number>();
+    report.hourly = report.hourly.map((h) => {
+        const key = toHour(h.time);
+        seenHours.add(key);
+        const sg = preferredHours.get(key);
+        return sg ? overlay(h, sg, coverage.hourly[sg.time] || []) : h;
+    });
+    report.hourly.push(...selected.hourly.filter((h) => !seenHours.has(toHour(h.time))).map((h) => ({ ...h })));
+    report.hourly.sort((a, b) => toHour(a.time) - toHour(b.time));
+    const seenDays = new Set<string>();
+    report.forecast = report.forecast.map((d) => {
+        const key = d.isoDate || d.date;
+        seenDays.add(key);
+        const sg = preferredDays.get(key);
+        return sg ? overlay(d, sg, coverage.daily[key] || []) : d;
+    });
+    report.forecast.push(...selected.forecast.filter((d) => !seenDays.has(d.isoDate || d.date)).map((d) => ({ ...d })));
+    report.forecast.sort((a, b) => (a.isoDate || a.date).localeCompare(b.isoDate || b.date));
+    // Keep warnings from both actual sources. Selecting forecast winds must
+    // not discard their hazards merely because another report filled UV.
+    report.alerts = [...new Set([...(fallback.alerts || []), ...(selected.alerts || [])])];
+    report.boatingAdvice = generateTacticalAdvice(
+        { ...report.current, waveHeight: selected.current.waveHeight ?? report.current.waveHeight },
+        false,
+        selected.locationName,
+        undefined,
+        [],
+        report.current.sunset,
+    );
+    report.modelUsed = `${selected.modelUsed}+fallback:${fallback.modelUsed}`;
+    return report;
+}
 
 /** StormGlass Astronomy API response shape */
 export interface AstroEntry {
@@ -70,12 +139,12 @@ export const mapStormGlassToReport = (
     dailyUV?: { time: string[]; uv_index_max: number[] },
     tides: Tide[] = [],
     seaLevels: Partial<StormGlassTideData>[] = [],
-    _model: string = 'sg',
+    model: string = 'sg',
     astro?: AstroEntry[], // Pass astronomy data
     existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
     utcOffset?: number,
-): MarineWeatherReport => {
+): CoveredStormGlassReport => {
     // Resolve target-location IANA tz. Prefer an upstream-supplied tz (e.g. from
     // OpenMeteo) if valid; otherwise derive from lat/lon so sunrise/sunset
     // render in LOCAL-TO-LOCATION time regardless of where the skipper stands.
@@ -122,52 +191,55 @@ export const mapStormGlassToReport = (
     }
     if (!currentHour) throw new Error('Stormglass returned no data');
 
-    const trustedSources = ['icon', 'dwd', 'meto', 'metno', 'sg', 'noaa'];
-    let winnerSource = 'sg';
-
-    // Helper Interfaces
+    const selectedModel = resolveOffshoreModel(model);
+    // StormGlass documents GFS under NOAA, not the UI's friendly `gfs` id.
+    const selectedSources = selectedModel === 'gfs' ? ['noaa', 'gfs'] : [selectedModel];
+    const sourceOrder = [...new Set([...selectedSources, 'sg', 'ecmwf', 'noaa', 'icon', 'dwd', 'meto', 'metno'])];
+    const usedSources = new Set<string>();
     type MultiSourceField = number | Record<string, number | undefined> | null | undefined;
-
-    // Scan for highest wind speed
-    if (currentHour.windSpeed) {
-        const ws = currentHour.windSpeed as Record<string, number | undefined>;
-        let maxWind = -1;
-        trustedSources.forEach((src) => {
-            const val = ws[src];
-            if (typeof val === 'number' && val > maxWind) {
-                maxWind = val;
-                winnerSource = src;
-            }
-        });
-    }
-
-    const getBest = (field: MultiSourceField): number => {
-        if (field === undefined || field === null) return 0;
-        if (typeof field === 'number') return field;
-
-        const rec = field as Record<string, number | undefined>;
-
-        const winVal = rec[winnerSource];
-        if (typeof winVal === 'number') return winVal;
-
-        for (const src of trustedSources) {
-            const val = rec[src];
-            if (typeof val === 'number') return val;
+    const select = (field: MultiSourceField): { value: number; source: string } | null => {
+        if (typeof field === 'number') return Number.isFinite(field) ? { value: field, source: 'unlabelled' } : null;
+        if (!field) return null;
+        for (const source of [...new Set([...sourceOrder, ...Object.keys(field)])]) {
+            const value = field[source];
+            if (typeof value === 'number' && Number.isFinite(value)) return { value, source };
         }
-
-        // Final Fallback: First value found
-        const firstVal = Object.values(rec)[0];
-        return typeof firstVal === 'number' ? firstVal : 0;
+        return null;
     };
-
     const getVal = (field: MultiSourceField): number | null => {
-        if (field === undefined || field === null) return null;
-        if (typeof field === 'number') return field;
-        const rec = field as Record<string, number | undefined>;
-
-        const val = rec.icon ?? rec.dwd ?? rec.metno ?? rec.meto ?? rec.sg ?? rec.noaa ?? Object.values(rec)[0];
-        return typeof val === 'number' ? val : null;
+        const reading = select(field);
+        if (reading) usedSources.add(reading.source);
+        return reading?.value ?? null;
     };
+    const atmosphericInputs: Record<string, string[]> = {
+        windSpeed: ['windSpeed'],
+        windGust: ['gust'],
+        windDirection: ['windDirection'],
+        windDegree: ['windDirection'],
+        airTemperature: ['airTemperature'],
+        temperature: ['airTemperature'],
+        highTemp: ['airTemperature'],
+        lowTemp: ['airTemperature'],
+        pressure: ['pressure'],
+        humidity: ['humidity'],
+        visibility: ['visibility'],
+        cloudCover: ['cloudCover'],
+        precipitation: ['precipitation'],
+        precipLabel: ['precipitation'],
+        precipValue: ['precipitation'],
+        dewPoint: ['dewPointTemperature'],
+        uvIndex: ['uvIndex'],
+        feelsLike: ['airTemperature', 'humidity', 'windSpeed'],
+        condition: ['cloudCover', 'precipitation'],
+        description: ['cloudCover', 'precipitation', 'windSpeed', 'windDirection'],
+    };
+    const providedKeys = (rows: StormGlassHour[]) =>
+        Object.entries(atmosphericInputs)
+            .filter(([, inputs]) =>
+                inputs.every((field) => rows.some((h) => select(h[field] as MultiSourceField) !== null)),
+            )
+            .map(([key]) => key);
+    const coverage: StormGlassCoverage = { current: providedKeys([currentHour]), hourly: {}, daily: {} };
 
     // ── Unit conversion that PRESERVES ABSENCE ──────────────────────────
     // Marine fields used `?? 0` before a unit multiply, which turned "the
@@ -193,9 +265,9 @@ export const mapStormGlassToReport = (
 
     // Cast properties to compatible types for helpers
     // StormGlassHour keys are string | number | StormGlassValue...
-    const wSpeed = getBest(currentHour.windSpeed as MultiSourceField) * 1.94384;
-    const wGust = getBest(currentHour.gust as MultiSourceField) * 1.94384;
-    const wDir = getBest(currentHour.windDirection as MultiSourceField);
+    const wSpeed = (getVal(currentHour.windSpeed as MultiSourceField) ?? 0) * 1.94384;
+    const wGust = (getVal(currentHour.gust as MultiSourceField) ?? 0) * 1.94384;
+    const wDir = getVal(currentHour.windDirection as MultiSourceField) ?? 0;
     const temp = getVal(currentHour.airTemperature as MultiSourceField) ?? 0;
     const pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
 
@@ -285,6 +357,7 @@ export const mapStormGlassToReport = (
 
     // 2. Map Hourly
     const hourlyStr: HourlyForecast[] = hours.map((h, _i) => {
+        coverage.hourly[h.time] = providedKeys([h]);
         const windKts = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
         const windDeg = getVal(h.windDirection as MultiSourceField) ?? 0;
         return {
@@ -345,6 +418,7 @@ export const mapStormGlassToReport = (
     uniqueDays.forEach((dayIso) => {
         const dayHours = hours.filter((h) => new Date(h.time).toLocaleDateString('en-CA') === dayIso);
         if (dayHours.length > 0) {
+            coverage.daily[dayIso] = providedKeys(dayHours);
             let minT = 100,
                 maxT = -100;
             let maxWind = 0,
@@ -376,9 +450,9 @@ export const mapStormGlassToReport = (
             let maxUV = 0;
 
             dayHours.forEach((h) => {
-                const t = getVal(h.airTemperature as MultiSourceField) ?? 0;
-                if (t < minT) minT = t;
-                if (t > maxT) maxT = t;
+                const t = getVal(h.airTemperature as MultiSourceField);
+                if (t !== null && t < minT) minT = t;
+                if (t !== null && t > maxT) maxT = t;
 
                 const w = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
                 if (w > maxWind) maxWind = w;
@@ -438,7 +512,9 @@ export const mapStormGlassToReport = (
                 }
             }
 
-            const avgCloud = totalCloud / dayHours.length;
+            const count = (field: string) =>
+                dayHours.filter((h) => select(h[field] as MultiSourceField) !== null).length || 1;
+            const avgCloud = totalCloud / count('cloudCover');
 
             const spl = dayIso.split('-');
             const dateObj = new Date(parseInt(spl[0]), parseInt(spl[1]) - 1, parseInt(spl[2]));
@@ -458,8 +534,8 @@ export const mapStormGlassToReport = (
                 day: new Date(dayIso).toLocaleDateString('en-US', { weekday: 'long' }),
                 date: new Date(dayIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                 isoDate: dayIso,
-                highTemp: parseFloat(maxT.toFixed(1)),
-                lowTemp: parseFloat(minT.toFixed(1)),
+                highTemp: maxT === -100 ? 0 : parseFloat(maxT.toFixed(1)),
+                lowTemp: minT === 100 ? 0 : parseFloat(minT.toFixed(1)),
                 windSpeed: parseFloat(maxWind.toFixed(1)),
                 windGust: parseFloat(maxGust.toFixed(1)),
                 waveHeight: waveCount > 0 ? parseFloat(maxWave.toFixed(1)) : null,
@@ -468,11 +544,11 @@ export const mapStormGlassToReport = (
                 uvIndex: maxUV,
                 sunrise: sunTimesDay ? formatTimeInZone(sunTimesDay.sunrise, tz) : '06:00',
                 sunset: sunTimesDay ? formatTimeInZone(sunTimesDay.sunset, tz) : '18:00',
-                pressure: parseFloat((totalPress / dayHours.length).toFixed(1)),
+                pressure: parseFloat((totalPress / count('pressure')).toFixed(1)),
                 cloudCover: Math.round(avgCloud),
                 isEstimated: false,
-                humidity: Math.round(totalHum / dayHours.length),
-                visibility: parseFloat((totalVis / dayHours.length).toFixed(1)),
+                humidity: Math.round(totalHum / count('humidity')),
+                visibility: parseFloat((totalVis / count('visibility')).toFixed(1)),
                 waterTemperature:
                     waterTempCount > 0 ? parseFloat((totalWaterTemp / waterTempCount).toFixed(1)) : undefined,
                 // undefined, not null: ForecastDay.currentSpeed is `number?`
@@ -533,16 +609,30 @@ export const mapStormGlassToReport = (
         else locType = 'inland';
     }
 
+    const currentSources: NonNullable<MarineWeatherReport['current']['sources']> = {};
+    for (const key of coverage.current as (keyof WeatherMetrics)[]) {
+        const reading = select(currentHour[atmosphericInputs[key][0]] as MultiSourceField);
+        if (reading && key in current) {
+            currentSources[key] = {
+                value: current[key as keyof WeatherMetrics] as number | string | null,
+                source: 'stormglass',
+                sourceColor: 'sky',
+                sourceName: `StormGlass · ${reading.source.toUpperCase()}`,
+            };
+        }
+    }
+    const fallbackSources = [...usedSources].filter((source) => !selectedSources.includes(source));
     return {
         locationName: name,
         coordinates: { lat, lon },
         generatedAt: now.toISOString(),
-        current,
+        current: { ...current, sources: currentSources },
         hourly: hourlyStr,
         forecast: dailies,
         tides: tides || [],
         tideHourly: seaLevels?.map((sl) => ({ time: sl.time!, height: (sl.sg || sl.noaa || 0) * 3.28084 })) || [],
-        modelUsed: 'stormglass_sg',
+        modelUsed: `stormglass_${selectedModel}${fallbackSources.length ? `+fallback:${fallbackSources.sort().join(',')}` : ''}`,
+        _stormglassCoverage: coverage,
         boatingAdvice: advice,
         isLandlocked: locType === 'inland',
         locationType: locType,

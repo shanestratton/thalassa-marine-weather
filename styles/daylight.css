@@ -1,0 +1,281 @@
+/* Build 107: sunlight surfaces. Explicit tokens, not a filter over the app:
+   photographs, chart tiles, warning colours and the night palette stay intact.
+   Root specificity also wins when the passage stylesheet is loaded lazily. */
+:root.display-light {
+    color-scheme: light;
+    --ocean-abyss: #f1f5f9;
+    --ocean-deep: #ffffff;
+    --ocean-mid: #e2e8f0;
+    --glass-bg: rgba(255, 255, 255, 0.96);
+    --glass-bg-dense: rgba(248, 250, 252, 0.98);
+    --glass-border: rgba(15, 23, 42, 0.22);
+    --glass-border-bright: rgba(3, 105, 161, 0.4);
+    --glass-glow: rgba(3, 105, 161, 0.03);
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-dim: #475569;
+    --neon-cyan: #0369a1;
+    --neon-cyan-muted: #075985;
+    --neon-cyan-dim: rgba(3, 105, 161, 0.12);
+    --neon-purple: #6d28d9;
+    --neon-purple-dim: rgba(109, 40, 217, 0.12);
+    --neon-amber: #92400e;
+    --neon-red: #be123c;
+    --neon-green: #047857;
+}
+
+:root.display-light .bio-header {
+    color: var(--text-primary);
+}
+:root.display-light :is(.bio-data, .bio-data--warning, .bio-data--danger) {
+    text-shadow: none;
+}
+:root.display-light :is(.glass-panel, .glass-panel--bright, .temporal-scrubber) {
+    box-shadow: 0 6px 24px rgba(15, 23, 42, 0.12);
+}
+:root.display-light .neon-slider::-webkit-slider-runnable-track {
+    background: #94a3b8;
+    border-color: #64748b;
+}
+:root.display-light .neon-slider::-moz-range-track {
+    background: #94a3b8;
+}
+:root.display-light .neon-slider::-webkit-slider-thumb {
+    box-shadow: 0 1px 5px rgba(15, 23, 42, 0.3);
+}
+:root.display-light .neon-slider::-moz-range-thumb {
+    box-shadow: 0 1px 5px rgba(15, 23, 42, 0.3);
+}
+:root.display-light .sparkline-cursor {
+    stroke: #475569;
+}
+
+/* React popup content and Mapbox's surrounding shell must change together. */
+:root.display-light :is(.seamark-popup, .mpa-popup, .ntm-popup, .tide-station-popup) .mapboxgl-popup-content {
+    background: #ffffff !important;
+    color: #0f172a;
+    border-color: #94a3b8 !important;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2) !important;
+}
+:root.display-light :is(.seamark-popup, .ais-vessel-popup, .ntm-popup) .mapboxgl-popup-tip {
+    border-top-color: #ffffff !important;
+}
+:root.display-light .ntm-popup .mapboxgl-popup-tip {
+    border-bottom-color: #ffffff !important;
+}
+:root.display-light :is(.seamark-popup, .ais-vessel-popup, .ntm-popup, .mpa-popup) .mapboxgl-popup-close-button {
+    color: #334155 !important;
+    background: #f1f5f9 !important;
+}
+:root.display-light
+    .weather-inspect-popup:is(
+        .mapboxgl-popup-anchor-top,
+        .mapboxgl-popup-anchor-top-left,
+        .mapboxgl-popup-anchor-top-right
+    )
+    .mapboxgl-popup-tip {
+    border-bottom-color: #ffffff !important;
+}
+:root.display-light
+    .weather-inspect-popup:is(
+        .mapboxgl-popup-anchor-bottom,
+        .mapboxgl-popup-anchor-bottom-left,
+        .mapboxgl-popup-anchor-bottom-right
+    )
+    .mapboxgl-popup-tip {
+    border-top-color: #ffffff !important;
+}
+:root.display-light .weather-inspect-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+    border-right-color: #ffffff !important;
+}
+:root.display-light .weather-inspect-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+    border-left-color: #ffffff !important;
+}
+
+/* Log-map chrome inherits this palette. Tiles, track colours and marker
+   symbols are deliberately not touched. */
+:root.display-light .thalassa-log-leaflet-map.leaflet-container {
+    background: #f1f5f9;
+}
+:root.display-light .thalassa-log-leaflet-map .leaflet-control-attribution {
+    background: rgba(255, 255, 255, 0.96);
+    color: #475569;
+}
+:root.display-light .thalassa-log-leaflet-map .leaflet-control-attribution a {
+    color: #0369a1;
+}
+:root.display-light .thalassa-log-leaflet-map .leaflet-control-attribution:not(.is-open)::after {
+    color: #475569;
+}
+:root.display-light .thalassa-log-leaflet-map :is(.leaflet-popup-content-wrapper, .leaflet-popup-tip) {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: #94a3b8;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.16);
+}
+:root.display-light .thalassa-log-leaflet-map a.leaflet-popup-close-button {
+    color: #475569;
+}
+:root.display-light .thalassa-log-leaflet-map::after {
+    box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.1);
+}
+
+/* Opaque/dense dark utility panels that were missed by the legacy allow-list. */
+:root.display-light
+    :is(
+        [class~='bg-slate-950/80'],
+        [class~='bg-slate-950/70'],
+        [class~='bg-slate-950/75'],
+        [class~='bg-slate-950/60'],
+        [class~='bg-slate-950/92'],
+        [class~='bg-slate-900/92'],
+        [class~='bg-slate-900/94'],
+        [class~='bg-slate-800/70'],
+        [class~='bg-slate-800/95'],
+        [class~='bg-gray-900/95']
+    ) {
+    background-color: rgba(248, 250, 252, 0.97);
+}
+:root.display-light
+    :is(
+        [class~='bg-slate-950/30'],
+        [class~='bg-slate-950/40'],
+        [class~='bg-slate-900/20'],
+        [class~='bg-slate-900/45'],
+        [class~='bg-slate-800/30']
+    ) {
+    background-color: rgba(226, 232, 240, 0.75);
+}
+:root.display-light .bg-gray-700 {
+    background-color: #cbd5e1;
+}
+:root.display-light :is([class~='bg-[#1a1d2e]'], [class~='bg-[#0c1220]']) {
+    background-color: #f8fafc;
+}
+:root.display-light [class~='from-[#0c1220]'] {
+    --tw-gradient-from: #f8fafc;
+}
+:root.display-light :is(.fill-gray-400, .fill-slate-400) {
+    fill: #475569;
+}
+:root.display-light select[style*='data:image/svg+xml'] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23475569'%3E%3Cpath d='m5 7 5 5 5-5' fill='none' stroke='%23475569' stroke-width='2'/%3E%3C/svg%3E") !important;
+}
+
+/* Keep gradient geometry and chromatic safety stops; replace only neutral
+   night stops. Do not use a blanket background-image:none on image cards. */
+:root.display-light :is(.from-slate-950, .from-slate-900, .from-slate-800, .from-slate-700) {
+    --tw-gradient-from: #f8fafc;
+}
+:root.display-light
+    :is(
+        [class~='from-slate-950/40'],
+        [class~='from-slate-900/70'],
+        [class~='from-slate-800/60'],
+        [class~='from-slate-800/70'],
+        [class~='from-slate-700/95']
+    ) {
+    --tw-gradient-from: rgba(248, 250, 252, 0.9);
+}
+:root.display-light :is(.via-slate-950, .via-slate-900, .via-slate-800, [class~='via-[#0f172a]']) {
+    --tw-gradient-via: #f1f5f9;
+}
+:root.display-light
+    :is(
+        [class~='via-slate-950/18'],
+        [class~='via-slate-950/40'],
+        [class~='via-slate-950/60'],
+        [class~='via-slate-900/50'],
+        [class~='via-slate-900/70']
+    ) {
+    --tw-gradient-via: rgba(241, 245, 249, 0.8);
+}
+:root.display-light :is(.to-slate-950, .to-slate-900, .to-slate-800, .to-slate-700) {
+    --tw-gradient-to: #e2e8f0;
+}
+:root.display-light
+    :is(
+        [class~='to-slate-950/10'],
+        [class~='to-slate-950/50'],
+        [class~='to-slate-950/70'],
+        [class~='to-slate-950/85'],
+        [class~='to-slate-900/30'],
+        [class~='to-slate-900/40'],
+        [class~='to-slate-800/95'],
+        [class~='to-slate-700/60']
+    ) {
+    --tw-gradient-to: rgba(226, 232, 240, 0.8);
+}
+
+/* Solid ink for useful secondary text: low-alpha dark text still disappears
+   on a grey sunlit card. Disabled controls remain distinguished by opacity. */
+:root.display-light
+    :is(
+        .text-gray-300,
+        .text-gray-400,
+        .text-slate-400,
+        [class~='text-white/20'],
+        [class~='text-white/25'],
+        [class~='text-white/30'],
+        [class~='text-white/35'],
+        [class~='text-white/40'],
+        [class~='text-white/45'],
+        [class~='text-white/50'],
+        [class~='text-white/60'],
+        [class~='text-white/70'],
+        [class~='text-white/80']
+    ) {
+    color: #475569;
+}
+:root.display-light input::placeholder,
+:root.display-light textarea::placeholder {
+    color: #64748b;
+    opacity: 1;
+}
+
+/* Hue keeps its meaning, but a pale neon on white is not readable. */
+:root.display-light :is(.text-sky-200, .text-sky-300, .text-sky-400) {
+    color: #0369a1;
+}
+:root.display-light :is(.text-cyan-300, .text-cyan-400) {
+    color: #0e7490;
+}
+:root.display-light :is(.text-teal-300, .text-teal-400) {
+    color: #0f766e;
+}
+:root.display-light :is(.text-emerald-100, .text-emerald-300, .text-emerald-400) {
+    color: #047857;
+}
+:root.display-light :is(.text-green-300, .text-green-400) {
+    color: #15803d;
+}
+:root.display-light :is(.text-amber-300, .text-amber-400, .text-yellow-400) {
+    color: #92400e;
+}
+
+/* Filled action buttons are NOT white cards: keep their label white. Restrict
+   to interactive controls so neutral content text elsewhere still inverts. */
+:root.display-light
+    :is(button, a, [role='button']):is(.bg-sky-600, .bg-blue-600, .bg-red-600, .bg-emerald-600).text-white:not(
+        :disabled
+    ) {
+    color: #ffffff;
+}
+:root.display-light :is(button, a, [role='button']).bg-sky-600.text-white:not(:disabled) {
+    background-color: #0369a1;
+}
+:root.display-light :is(button, a, [role='button']).bg-emerald-600.text-white:not(:disabled) {
+    background-color: #047857;
+}
+
+:root.display-light :is(button, a, [role='button']):is(.from-sky-600, .from-red-600).text-white:not(:disabled) {
+    color: #ffffff;
+}
+:root.display-light :is(button, a, [role='button']).from-sky-600.text-white:not(:disabled) {
+    --tw-gradient-from: #0369a1;
+    --tw-gradient-to: #075985;
+}
+:root.display-light :is(button, a, [role='button']).from-red-600.text-white:not(:disabled) {
+    --tw-gradient-from: #b91c1c;
+    --tw-gradient-to: #991b1b;
+}

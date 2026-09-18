@@ -48,7 +48,10 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
             ref={dialogRef}
             layer="critical"
             className="anchor-alarm-overlay flex min-h-0 flex-col overflow-hidden"
-            style={{ background: 'radial-gradient(circle at center, #450a0a 0%, #1c0505 50%, #0a0202 100%)' }}
+            style={{
+                background:
+                    'var(--day-ui-alarm-surface, radial-gradient(circle at center, #450a0a 0%, #1c0505 50%, #0a0202 100%))',
+            }}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby={titleId}

@@ -113,6 +113,7 @@ vi.mock('../services/ChatService', () => ({
         blockUser: vi.fn(),
         unblockUser: vi.fn(),
         isBlocked: vi.fn().mockResolvedValue(false),
+        getDMBlockStatus: vi.fn().mockResolvedValue({ blockedByMe: false, blockedEitherDirection: false }),
         getBlockedUsers: vi.fn().mockResolvedValue([]),
         getChannelsFresh: vi.fn().mockResolvedValue([]),
         listAllUsersWithRoles: vi.fn().mockResolvedValue([]),

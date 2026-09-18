@@ -14,6 +14,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { NmeaStore } from '../services/NmeaStore';
+import { deriveNmeaBackboneStatus } from '../utils/nmeaBackboneStatus';
 
 const src = readFileSync('components/vessel/NmeaPage.tsx', 'utf8');
 
@@ -63,18 +65,30 @@ describe('legacy gateway default migration', () => {
 
 describe('the status FAB', () => {
     const fab = readFileSync('components/SystemStatusButton.tsx', 'utf8');
+    const diagnosed = (lastError: string) =>
+        deriveNmeaBackboneStatus({
+            store: { ...NmeaStore.getState(), remote: null, connectionStatus: 'disconnected' },
+            directStatus: 'error',
+            deviceLabel: 'YDWG-02',
+            lastError,
+            viaRemoteAccess: false,
+        });
 
     it('shows the diagnosis instead of the flat "Not connected"', () => {
         // Every setStatus('error') writes a real sentence first; this panel
         // discarded all of them and rendered the same grey row as a gateway
         // the skipper had deliberately switched off.
-        expect(fab).toContain('shortNmeaFault(NmeaListenerService.getLastError())');
-        expect(fab).toContain("(fault ?? 'Not connected')");
+        expect(fab).toContain('lastError: NmeaListenerService.getLastError()');
+        expect(fab).toContain('deriveNmeaBackboneStatus(');
+        expect(diagnosed('No route to that network. Check the boat Wi-Fi.')).toMatchObject({
+            active: false,
+            faulted: true,
+            detail: 'No route to that network.',
+        });
     });
 
     it('drops the raw native tail, which does not belong in an 11px row', () => {
-        expect(fab).toContain('SocketError');
-        expect(fab).toContain('function shortNmeaFault');
+        expect(diagnosed('Connection refused (SocketError ECONNREFUSED)').detail).toBe('Connection refused');
     });
 
     it('distinguishes a fault from being switched off, by colour', () => {
@@ -83,6 +97,6 @@ describe('the status FAB', () => {
 
     it('offers a way to the page that can fix it', () => {
         expect(fab).toContain("detail: { tab: 'nmea' }");
-        expect(fab).toContain("label: 'Fix',");
+        expect(fab).toContain("label: state.nmea.faulted ? 'Fix' : 'View'");
     });
 });

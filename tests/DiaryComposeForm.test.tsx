@@ -8,6 +8,7 @@
  * the truth (fix shown / acquiring / none-yet-will-retry).
  */
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { DiaryComposeForm } from '../components/diary/DiaryComposeForm';
@@ -102,6 +103,57 @@ describe('DiaryComposeForm — text-first entry', () => {
         const cancelButtons = screen.getAllByRole('button', { name: 'Cancel this action' });
         expect(cancelButtons).toHaveLength(2);
         cancelButtons.forEach((button) => expect(button).toBeDisabled());
+    });
+
+    it.each([
+        { isEditing: false, mode: 'new' },
+        { isEditing: true, mode: 'edit' },
+    ])('keeps $mode entry text before video controls without losing typed content', ({ isEditing }) => {
+        const onVideoRemove = vi.fn();
+        const props = makeProps({ isEditing, onVideoRemove });
+        function ControlledForm({ videoUrl }: { videoUrl: string | null }) {
+            const [title, setTitle] = useState(props.title);
+            const [body, setBody] = useState(props.body);
+            return (
+                <DiaryComposeForm
+                    {...props}
+                    title={title}
+                    body={body}
+                    videoUrl={videoUrl}
+                    onSetTitle={setTitle}
+                    onSetBody={setBody}
+                />
+            );
+        }
+
+        const { container, rerender } = render(<ControlledForm videoUrl={null} />);
+        const body = screen.getByRole('textbox', { name: 'Diary entry text' });
+        const title = screen.getByPlaceholderText('Entry title (optional)');
+        const addVideo = screen.getByRole('button', { name: 'Add a video clip' });
+        expect(body.compareDocumentPosition(addVideo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+        fireEvent.change(title, { target: { value: 'Dolphins at Cape Moreton' } });
+        fireEvent.change(body, { target: { value: 'A pod stayed alongside while we crossed the bay.' } });
+
+        rerender(<ControlledForm videoUrl="blob:diary-compose-video" />);
+        const preview = container.querySelector('video');
+        expect(preview).toHaveAttribute('src', 'blob:diary-compose-video');
+        expect(body.compareDocumentPosition(preview!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(title).toHaveValue('Dolphins at Cape Moreton');
+        expect(body).toHaveValue('A pod stayed alongside while we crossed the bay.');
+        expect(screen.queryByRole('button', { name: 'Add a video clip' })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Remove the video' }));
+        expect(onVideoRemove).toHaveBeenCalledTimes(1);
+        rerender(<ControlledForm videoUrl={null} />);
+
+        expect(container.querySelector('video')).toBeNull();
+        expect(title).toHaveValue('Dolphins at Cape Moreton');
+        expect(body).toHaveValue('A pod stayed alongside while we crossed the bay.');
+        expect(
+            body.compareDocumentPosition(screen.getByRole('button', { name: 'Add a video clip' })) &
+                Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
     });
 });
 

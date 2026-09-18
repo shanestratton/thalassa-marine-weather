@@ -26,6 +26,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse, parseCoordinate, readJsonObject } from '../_shared/http-security.ts';
+import { cleanupCancelledDiaryMedia } from './media-cleanup.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -580,6 +581,48 @@ async function persistCancellation(
     if (!isRecord(outcome) || outcome.status !== 'cancelled') {
         console.error('[diary-relay] diary cancellation returned an invalid outcome');
         return json({ error: 'Diary cancellation failed' }, 503);
+    }
+
+    try {
+        await cleanupCancelledDiaryMedia(
+            outcome.media_cleanup_refs,
+            ownerId,
+            Deno.env.get('SUPABASE_URL') ?? '',
+            {
+                async isReferenced(bucket, path) {
+                    const result = await admin.rpc('diary_relay_media_is_referenced', {
+                        p_owner_id: ownerId,
+                        p_bucket: bucket,
+                        p_path: path,
+                    });
+                    if (result.error || typeof result.data !== 'boolean') {
+                        throw new Error('Could not verify surviving diary media references');
+                    }
+                    return result.data;
+                },
+                async remove(bucket, path) {
+                    const result = await admin.storage.from(bucket).remove([path]);
+                    if (result.error) throw new Error('Could not remove diary media');
+                },
+                async acknowledge(reference, removedPath) {
+                    const result = await admin.rpc('diary_relay_ack_media_cleanup', {
+                        p_owner_id: ownerId,
+                        p_client_operation_id: operationId,
+                        p_reference: reference,
+                        p_path: removedPath,
+                    });
+                    if (result.error || result.data !== true) {
+                        throw new Error('Could not confirm diary media cleanup');
+                    }
+                },
+            },
+        );
+    } catch (error) {
+        console.error(
+            '[diary-relay] diary media cleanup deferred:',
+            error instanceof Error ? error.message : 'Unknown failure',
+        );
+        return json({ error: 'Diary media cleanup is pending; retry cancellation' }, 503);
     }
 
     touchRelay(admin, relayId);

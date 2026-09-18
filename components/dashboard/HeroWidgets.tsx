@@ -166,7 +166,7 @@ const DirectionArrow: React.FC<{ degrees: number | null; size?: number }> = ({ d
             className="shrink-0 opacity-70"
             style={{ transform: `rotate(${degrees}deg)`, transition: 'transform 1s ease' }}
         >
-            <path d="M12 2L8 14h8L12 2Z" fill="rgba(94,234,212,0.7)" />
+            <path d="M12 2L8 14h8L12 2Z" fill="var(--day-ui-accent, rgba(94,234,212,0.7))" />
             <path d="M12 22L8 14h8L12 22Z" fill="rgba(148,163,184,0.25)" />
         </svg>
     );
@@ -193,14 +193,14 @@ const InstrumentCell: React.FC<{
             aria-label={`${label}: ${value}${unit ? ' ' + unit : ''}${tooltip ? `. ${tooltip}` : ''}`}
         >
             {/* Header: icon + label + trend — locked to a single 12px line */}
-            <div className="flex items-center gap-1 opacity-90 h-3">
+            <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
                 <span
                     className={`w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}
                 >
                     {icon}
                 </span>
                 <span
-                    className={`text-[11px] font-sans font-bold tracking-widest uppercase leading-none ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}
+                    className={`glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase leading-none ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}
                 >
                     {label}
                 </span>
@@ -237,11 +237,11 @@ const BarometerCell: React.FC<{
     return (
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
             {/* Header: icon + label + trend — locked to 12px line */}
-            <div className="flex items-center gap-1 opacity-90 h-3">
+            <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
                 <span className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400">
                     <GaugeIcon className="w-3 h-3 metric-anim-gauge" />
                 </span>
-                <span className="text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">
+                <span className="glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">
                     HPA
                 </span>
                 <TrendArrow trend={trend} improving={isRising} />

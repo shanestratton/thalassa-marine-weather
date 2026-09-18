@@ -1,236 +1,327 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RadioPositionFix } from '../services/radioPosition';
 
 const mocks = vi.hoisted(() => ({
     vessel: undefined as Record<string, unknown> | undefined,
-    position: null as {
-        latitude: number;
-        longitude: number;
-        accuracy: number;
-        altitude: number | null;
-        heading: number | null;
-        speed: number;
-        timestamp: number;
-    } | null,
-    mobState: {
-        active: null,
-        own: null,
-        distanceMeters: null,
-        bearingDeg: null,
-        ownPositionAgeMs: null,
-        ownPositionFresh: false,
-        elapsedSec: 0,
-        fixQuality: null,
-        persistenceStatus: 'idle',
-    } as Record<string, unknown>,
-    getCurrentPosition: vi.fn(),
-    mobSubscribe: vi.fn(),
-    speakSafetyMessage: vi.fn(),
-    prewarmSafetyMessage: vi.fn(),
-    clipboardWrite: vi.fn(),
+    activeVesselId: 'radio-test-boat',
+    position: null as RadioPositionFix | null,
+    isLive: true,
+    isFresh: true,
+    error: false,
+    mobState: { active: null } as Record<string, unknown>,
 }));
-
 vi.mock('../context/SettingsContext', () => ({
-    useSettings: () => ({ settings: { vessel: mocks.vessel } }),
+    useSettings: () => ({ settings: { vessel: mocks.vessel }, activeVesselId: mocks.activeVesselId }),
 }));
-
-vi.mock('../services/GpsService', () => ({
-    GpsService: {
-        requestCurrentForegroundPosition: (...args: unknown[]) => mocks.getCurrentPosition(...args),
-        getCurrentPositionIfGranted: (...args: unknown[]) => mocks.getCurrentPosition(...args),
-    },
+vi.mock('../hooks/useRadioPosition', () => ({
+    useRadioPosition: () => ({
+        position: mocks.position,
+        isLive: mocks.isLive,
+        isFresh: mocks.isFresh,
+        error: mocks.error,
+        acquiring: !mocks.position && !mocks.error,
+        requestGpsAccess: vi.fn(),
+    }),
 }));
-
 vi.mock('../hooks/useGpsHealth', () => ({
     useGpsHealth: () => null,
     gpsHealthMessage: vi.fn(),
     openDeviceSettings: vi.fn(),
 }));
-
 vi.mock('../services/MobService', () => ({
     MOB_PRECISE_FIX_ACCURACY_M: 100,
-    MobService: {
-        currentState: () => mocks.mobState,
-        subscribe: (...args: unknown[]) => mocks.mobSubscribe(...args),
-    },
+    MobService: { currentState: () => mocks.mobState, subscribe: () => vi.fn() },
 }));
-
-vi.mock('../services/voice/safetyTts', () => ({
-    speakSafetyMessage: (...args: unknown[]) => mocks.speakSafetyMessage(...args),
-    // Vitest THROWS on any export the factory omits, and the page reads both
-    // of these. Left out, the throw lands in handleSpeak's catch and presents
-    // as a button that does nothing — so the mock has to keep up with the
-    // module's real surface.
-    prewarmSafetyMessage: (...args: unknown[]) => mocks.prewarmSafetyMessage(...args),
-}));
-
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 
 import { RadioConsolePage } from '../components/vessel/RadioConsolePage';
-import { authScopedStorageKey } from '../services/authIdentityScope';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
-const CURRENT_POSITION = {
+const CURRENT_POSITION: RadioPositionFix = {
     latitude: -27.5,
     longitude: 153.5,
     accuracy: 6,
-    altitude: null,
     heading: null,
     speed: 2,
     timestamp: Date.now(),
+    source: 'bus',
+    sourceLabel: 'Boat GPS',
+    isVessel: true,
+    receiverKey: 'bus:test-receiver',
 };
-
-const MOB_SNAPSHOT = {
-    fixLat: -27.25,
-    fixLon: 153.125,
-    fixAccuracy: 12,
-    activatedAt: Date.UTC(2026, 7, 5, 3, 4),
-};
-
-/**
- * The transcript as the SKIPPER reads it.
- *
- * This used to read the argument handed to a mocked speakSafetyMessage. The
- * Speak and Copy buttons went on 2026-08-28 — "i am just not happy with the
- * voice… people will just have to read it out" — so there is no speech call
- * left to inspect.
- *
- * Asserting on the rendered text is the better test anyway. This page's whole
- * job is putting correct words in front of someone holding a handset, and now
- * these tests check the words on the screen rather than the words handed to a
- * speech engine that no longer runs.
- */
-async function lastSpokenText(): Promise<string> {
-    // The transcript needs the GPS fix before it says anything. The old tests
-    // waited by polling the Speak button's disabled state; with the button
-    // gone, wait on the thing actually being asserted.
-    await waitFor(() => expect(screen.getByTestId('dsc-transcript').textContent).not.toBe('Awaiting GPS…'));
-    return screen.getByTestId('dsc-transcript').textContent ?? '';
+const MOB_SNAPSHOT = { fixLat: -27.25, fixLon: 153.125, fixAccuracy: 12, activatedAt: Date.UTC(2026, 7, 5, 3, 4) };
+function instructions() {
+    return within(screen.getByRole('dialog', { name: 'VHF instructions' }));
 }
-
-async function renderWithFix() {
-    render(<RadioConsolePage onBack={vi.fn()} onNavigate={vi.fn()} />);
+function transcript() {
+    return within(screen.getByRole('dialog', { name: 'Voice transcript' }));
 }
-
+function readScript(mode?: RegExp, confirmReceiver = true): string {
+    if (screen.queryByRole('dialog', { name: 'Voice transcript' })) {
+        fireEvent.click(transcript().getByRole('button', { name: 'VHF instructions' }));
+    }
+    if (mode) fireEvent.click(instructions().getByRole('button', { name: mode }));
+    const confirmation = instructions().queryByRole('button', {
+        name: 'Confirm position receiver is aboard this vessel',
+    });
+    if (confirmReceiver && confirmation && confirmation.getAttribute('aria-pressed') !== 'true')
+        fireEvent.click(confirmation);
+    fireEvent.click(instructions().getByRole('button', { name: 'Continue to voice transcript' }));
+    return transcript().getByTestId('dsc-transcript').textContent ?? '';
+}
 describe('RadioConsole emergency transcript honesty', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         localStorage.clear();
+        setAuthIdentityScope('radio-test-operator');
         mocks.vessel = undefined;
+        mocks.activeVesselId = 'radio-test-boat';
         mocks.position = { ...CURRENT_POSITION, timestamp: Date.now() };
-        mocks.mobState = {
-            active: null,
-            own: null,
-            distanceMeters: null,
-            bearingDeg: null,
-            ownPositionAgeMs: null,
-            ownPositionFresh: false,
-            elapsedSec: 0,
-            fixQuality: null,
-            persistenceStatus: 'idle',
-        };
-        mocks.getCurrentPosition.mockImplementation(async () => mocks.position);
-        mocks.mobSubscribe.mockReturnValue(vi.fn());
-        mocks.speakSafetyMessage.mockReturnValue({
-            done: Promise.resolve(),
-            cancel: vi.fn(),
-            engineUsed: () => 'none',
-        });
-        mocks.clipboardWrite.mockResolvedValue(undefined);
-        Object.defineProperty(navigator, 'clipboard', {
-            configurable: true,
-            value: { writeText: mocks.clipboardWrite },
-        });
+        mocks.isLive = true;
+        mocks.isFresh = true;
+        mocks.error = false;
+        mocks.mobState = { active: null };
     });
-
-    afterEach(() => cleanup());
-
-    it('prompts a crew member to say an unset vessel name in routine, Pan-Pan, and Mayday scripts', async () => {
-        mocks.vessel = {
-            name: 'Not Set',
-            callSign: 'Not configured',
-            mmsi: 'N/A',
-            phoneticName: 'Unset',
-        };
-        await renderWithFix();
-
-        expect(await lastSpokenText()).toContain('Say your vessel name now');
-        expect(await lastSpokenText()).not.toMatch(/Thalassa|Not Set|Course 0/i);
-
-        fireEvent.click(screen.getByRole('button', { name: /Urgency/i }));
-        expect(await lastSpokenText()).toContain('Say your vessel name three times now');
-        expect(await lastSpokenText()).not.toMatch(/Thalassa|Not Set/i);
-
-        fireEvent.click(screen.getByRole('button', { name: /Distress/i }));
-        expect(await lastSpokenText()).toContain('Say your vessel name three times now');
-        expect(await lastSpokenText()).toContain('Say your vessel name once now');
-        expect(await lastSpokenText()).not.toMatch(/Thalassa|Not Set/i);
-        // The clipboard copy that used to be checked here is gone with the
-        // Copy button; the transcript assertions above already cover the same
-        // ground, on the surface the skipper actually reads from.
-    });
-
-    it('omits unavailable COG while preserving a real due-north course of zero', async () => {
-        mocks.vessel = { name: 'True North', type: 'sail' };
-        await renderWithFix();
-
-        // No heading available: the script must not mention a course at all
-        // rather than reading a placeholder as a real bearing.
-        expect(await lastSpokenText()).not.toMatch(/Course/i);
-
+    afterEach(() => {
         cleanup();
-        vi.clearAllMocks();
-        mocks.position = { ...CURRENT_POSITION, heading: 0, timestamp: Date.now() };
-        mocks.getCurrentPosition.mockImplementation(async () => mocks.position);
-        mocks.mobSubscribe.mockReturnValue(vi.fn());
-        mocks.speakSafetyMessage.mockReturnValue({
-            done: Promise.resolve(),
-            cancel: vi.fn(),
-            engineUsed: () => 'none',
-        });
+        setAuthIdentityScope(null);
+    });
+
+    it('opens instructions first and has an explicit exit from both dialogs', () => {
         render(<RadioConsolePage onBack={vi.fn()} />);
-        // The subject is that a REAL due-north course survives rather than
-        // being dropped as "missing". Bearings are now spelled and padded to
-        // three figures like every other number in a position report.
-        expect(await lastSpokenText()).toContain('Course. 0, 0, 0, degrees true');
+        expect(instructions().getByText(/agreed working channel for your position report/)).toBeVisible();
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        fireEvent.click(instructions().getByRole('button', { name: 'Close vhf instructions' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /Prepare voice call/ }));
+        readScript();
+        fireEvent.click(transcript().getByRole('button', { name: 'Close voice transcript' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('uses motor-vessel wording for power-vessel radio scripts', async () => {
-        mocks.vessel = { name: 'Rescue One', type: 'power' };
-        await renderWithFix();
-
-        fireEvent.click(screen.getByRole('button', { name: /Distress/i }));
-
-        expect(await lastSpokenText()).toContain('This is motor vessel Rescue One');
-        expect(await lastSpokenText()).not.toContain('sailing vessel Rescue One');
+    it('uses a compact reversible position action instead of the large acknowledgement card', () => {
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(instructions().queryByText(/I have checked these coordinates/)).not.toBeInTheDocument();
+        expect(instructions().queryByRole('checkbox')).not.toBeInTheDocument();
+        const usePosition = instructions().getByRole('button', {
+            name: 'Confirm position receiver is aboard this vessel',
+        });
+        expect(instructions().getByTestId('radio-position-status')).toContainElement(usePosition);
+        fireEvent.click(usePosition);
+        expect(usePosition).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(usePosition);
+        expect(usePosition).toHaveAttribute('aria-pressed', 'false');
+        expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
     });
 
-    it('keeps the handed-off MOB datum/time distinct from the moved vessel position', async () => {
+    it('keeps accessible call selectors in every state and returns transcript mode changes to instructions first', () => {
+        const onBack = vi.fn();
+        render(<RadioConsolePage onBack={onBack} />);
+        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
+        expect(instructions().getByRole('group', { name: 'Call type' })).toBeVisible();
+        expect(instructions().getByTestId('radio-instructions-body')).not.toContainElement(
+            instructions().getByRole('group', { name: 'Call type' }),
+        );
+        readScript();
+        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
+        expect(transcript().getByRole('button', { name: /Routine Position/i })).toHaveAttribute('aria-pressed', 'true');
+        expect(transcript().getByTestId('radio-transcript-body')).not.toContainElement(
+            transcript().getByRole('group', { name: 'Call type' }),
+        );
+        fireEvent.click(transcript().getByRole('button', { name: /Distress Mayday/i }));
+        expect(screen.queryByRole('dialog', { name: 'Voice transcript' })).not.toBeInTheDocument();
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        expect(instructions().getByRole('button', { name: /Distress Mayday/i })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(instructions().getByText(/MAYDAY is for grave and imminent danger/)).toBeVisible();
+        expect(readScript()).toContain('Mayday, Mayday, Mayday');
+        fireEvent.click(transcript().getByRole('button', { name: 'Close voice transcript' }));
+        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
+        expect(screen.getByRole('button', { name: /Distress Mayday/i })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', { name: /Urgency Pan-Pan/i }));
+        expect(instructions().getByRole('button', { name: /Urgency Pan-Pan/i })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /Back/i }));
+        expect(onBack).toHaveBeenCalledOnce();
+    });
+
+    it('prompts an unset vessel identity in routine, Pan-Pan and Mayday scripts', () => {
+        mocks.vessel = { name: 'Not Set', callSign: 'Not configured', mmsi: 'N/A', phoneticName: 'Unset' };
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(readScript()).toContain('Say your vessel name now');
+        const urgency = readScript(/Urgency/i);
+        expect(urgency).toContain('Say your vessel name three times now');
+        expect(urgency).not.toMatch(/Thalassa|Not Set|N\/A/i);
+        const distress = readScript(/Distress/i);
+        expect(distress).toContain('Say your vessel name once now');
+        expect(distress).toContain('State the number of persons on board');
+        expect(distress).not.toMatch(/Thalassa|Not Set/i);
+    });
+
+    it('never gates an emergency script on GPS or DSC acknowledgement', () => {
+        mocks.position = null;
+        mocks.error = true;
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        const urgency = readScript(/Urgency/i);
+        expect(urgency).toContain('Pan-Pan, Pan-Pan, Pan-Pan');
+        expect(urgency).toContain('Position unavailable in this app');
+        const mayday = readScript(/Distress/i);
+        expect(mayday).toContain('Mayday, Mayday, Mayday');
+        expect(mayday).toContain('another reliable source, or your last known position and time');
+        expect(mayday).toContain('Requesting immediate assistance. Over.');
+    });
+
+    it('omits unavailable course while preserving a genuine due-north zero', () => {
+        const view = render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(readScript()).not.toMatch(/Course\./);
+        mocks.position = { ...CURRENT_POSITION, heading: 0, timestamp: Date.now() };
+        view.rerender(<RadioConsolePage onBack={vi.fn()} />);
+        fireEvent.click(transcript().getByRole('button', { name: 'Update position' }));
+        expect(transcript().getByTestId('dsc-transcript')).toHaveTextContent('Course. 0, 0, 0, degrees true');
+    });
+
+    it('keeps readback stable until Update position is explicitly selected', () => {
+        const view = render(<RadioConsolePage onBack={vi.fn()} />);
+        const original = readScript();
+        mocks.position = { ...CURRENT_POSITION, latitude: -26, timestamp: Date.now() + 1 };
+        view.rerender(<RadioConsolePage onBack={vi.fn()} />);
+        expect(transcript().getByTestId('dsc-transcript').textContent).toBe(original);
+        fireEvent.click(transcript().getByRole('button', { name: 'Update position' }));
+        expect(transcript().getByTestId('dsc-transcript').textContent).not.toBe(original);
+        expect(transcript().getByTestId('dsc-transcript')).toHaveTextContent('2, 6, degrees');
+    });
+
+    it('announces held boat coordinates as last known, with UTC time and no stale motion', () => {
+        mocks.position = { ...CURRENT_POSITION, heading: 90, timestamp: Date.UTC(2026, 7, 5, 3, 4) };
+        mocks.isLive = false;
+        mocks.isFresh = false;
+        mocks.error = true;
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(instructions().getByTestId('radio-position-status')).toHaveTextContent('Boat GPS · Last known');
+        const script = readScript();
+        expect(script).toContain('Last known vessel position, recorded at 0, 3, 0, 4, U T C on 2026-08-05');
+        expect(script).not.toMatch(/Course\.|Speed over ground/i);
+    });
+
+    it('labels a phone as device GPS, not a verified vessel position', () => {
+        mocks.position = { ...CURRENT_POSITION, source: 'phone', sourceLabel: 'Phone GPS', isVessel: false };
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(instructions().getByText(/Confirm this device is aboard/)).toBeVisible();
+        expect(readScript()).toContain('Position from this device’s GPS');
+    });
+
+    it('allows an unconfirmed receiver to be displayed but not presented as this boat in the call', () => {
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(instructions().getByTestId('radio-position-status')).toHaveTextContent('27°30.000′S');
+        const script = readScript(/Distress/i, false);
+        expect(script).toContain('Position not verified for this vessel');
+        expect(script).not.toContain('2, 7, degrees');
+        expect(script).toContain('Requesting immediate assistance. Over.');
+    });
+
+    it('requires a receiver check even when a cloud row matches the selected boat', () => {
+        mocks.position = {
+            ...CURRENT_POSITION,
+            source: 'cloud',
+            sourceLabel: 'Boat GPS (via cloud)',
+            vesselId: mocks.activeVesselId,
+        };
+        mocks.isLive = false;
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(
+            instructions().getByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).toHaveAttribute('aria-pressed', 'false');
+        expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
+        expect(readScript()).toContain('Vessel position, recorded at');
+    });
+
+    it('clears receiver confirmation and frozen readback on a selected-boat switch', () => {
+        const view = render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(readScript()).toContain('2, 7, degrees');
+        mocks.activeVesselId = 'another-boat';
+        view.rerender(<RadioConsolePage onBack={vi.fn()} />);
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        expect(
+            instructions().getByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).toHaveAttribute('aria-pressed', 'false');
+        expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
+    });
+
+    it('does not apply receiver confirmation to a different receiver', () => {
+        const view = render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(readScript()).toContain('2, 7, degrees');
+        mocks.position = { ...CURRENT_POSITION, receiverKey: 'bus:different-gateway' };
+        view.rerender(<RadioConsolePage onBack={vi.fn()} />);
+        fireEvent.click(transcript().getByRole('button', { name: 'Update position' }));
+        expect(
+            instructions().getByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).toHaveAttribute('aria-pressed', 'false');
+        expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
+    });
+
+    it('never manually overrides a fix explicitly bound to another vessel', () => {
+        mocks.position = {
+            ...CURRENT_POSITION,
+            source: 'cloud',
+            sourceLabel: 'Boat GPS (via cloud)',
+            vesselId: 'wrong-boat',
+        };
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(
+            instructions().queryByRole('button', { name: 'Confirm position receiver is aboard this vessel' }),
+        ).not.toBeInTheDocument();
+        expect(readScript()).toContain('Position not verified for this vessel');
+    });
+
+    it('uses motor-vessel wording for a power boat', () => {
         mocks.vessel = { name: 'Rescue One', type: 'power' };
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        const script = readScript(/Distress/i);
+        expect(script).toContain('This is motor vessel Rescue One');
+        expect(script).not.toContain('sailing vessel Rescue One');
+    });
+
+    it('preserves a handed-off casualty datum independently of the boat position', () => {
         localStorage.setItem(
             authScopedStorageKey('thalassa_dsc_intent'),
             JSON.stringify({ version: 1, kind: 'distress-mob', snapshot: MOB_SNAPSHOT }),
         );
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        const datum = screen.getByText(/MOB datum · not current vessel position/).parentElement;
+        expect(datum).toHaveTextContent('27°15.000′S 153°07.500′E');
+        expect(datum).toHaveTextContent('Marked 03:04:00 UTC');
+        const script = readScript();
+        expect(script).toContain('Vessel position, recorded at');
+        expect(script).toContain('2, 7, degrees. 3, 0, decimal, 0, minutes. South');
+        expect(script).toContain('Man Overboard datum. 2, 7, degrees. 1, 5, decimal, 0, minutes. South');
+        expect(script).toContain('MOB marked at 0, 3, 0, 4, U T C');
+    });
 
-        await renderWithFix();
-        const datumCard = (await screen.findByText(/MOB datum · not current vessel position/i)).parentElement;
-        // Minutes carry two digits (07.500′) since 2026-09-02 — the DSC / chart
-        // convention. The spoken transcript below is digit-by-digit and unaffected.
-        expect(datumCard).toHaveTextContent('27°15.000′S 153°07.500′E');
-        expect(datumCard).toHaveTextContent('Marked 03:04:00 UTC');
-
-        const transcript = await lastSpokenText();
-        // The subject is that the two positions stay DISTINCT — the datum
-        // where the person went in, and where the vessel is now. Both are
-        // spoken at writing speed since 2026-08-28; the minutes and the
-        // datum time are spelled out rather than read as numbers.
-        expect(transcript).toContain('Current vessel position. 2, 7, degrees. 3, 0, decimal, 0, minutes. South');
-        expect(transcript).toContain('Man Overboard datum. 2, 7, degrees. 1, 5, decimal, 0, minutes. South');
-        expect(transcript).toContain('MOB marked at 0, 3, 0, 4, U T C');
-        // Still two different latitudes, which is the whole point of the test.
-        expect(transcript).not.toContain('Man Overboard datum. 2, 7, degrees. 3, 0, decimal, 0, minutes. South');
+    it('drops the frozen script and MOB handoff on account transition', () => {
+        mocks.vessel = { name: 'Previous Owner' };
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_dsc_intent'),
+            JSON.stringify({ version: 1, kind: 'distress-mob', snapshot: MOB_SNAPSHOT }),
+        );
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        expect(readScript()).toContain('Previous Owner');
+        mocks.vessel = { name: 'Next Owner' };
+        act(() => setAuthIdentityScope('next-radio-operator'));
+        expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
+        const freshScript = readScript();
+        expect(freshScript).toContain('Next Owner');
+        expect(freshScript).not.toMatch(/Previous Owner|Man Overboard datum/);
     });
 });

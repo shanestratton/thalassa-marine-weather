@@ -10,7 +10,6 @@ import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
 import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
-import { resolveWeatherPosition } from '../services/weatherPosition';
 import { LocationStore } from '../stores/LocationStore';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -225,7 +224,11 @@ export const useAppController = () => {
                     // forward-geocoding and picking a wrong match
                     // (e.g. Mapbox prefers Newport, Monmouthshire
                     // UK over Newport, QLD AU).
-                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                    fetchWeather(
+                        settings.defaultLocation,
+                        false,
+                        settings.defaultLocation === 'Current Location' ? undefined : settings.defaultLocationCoords,
+                    );
                 }
                 // No defaultLocation → leave weatherData null. The
                 // Dashboard branch in App.tsx renders an empty-state
@@ -320,7 +323,11 @@ export const useAppController = () => {
                     // deliberately dropped the !loading guard, so it
                     // fires while a fetch is still in flight.
                     if (currentViewRef.current === 'dashboard') setPage('dashboard');
-                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                    fetchWeather(
+                        settings.defaultLocation,
+                        false,
+                        settings.defaultLocation === 'Current Location' ? undefined : settings.defaultLocationCoords,
+                    );
                 }
                 return;
                 return;
@@ -334,7 +341,11 @@ export const useAppController = () => {
                 log.warn('boats cloud-check inconclusive after retries; leaving onboarding hidden');
                 if (!weatherData && settings.defaultLocation) {
                     if (currentViewRef.current === 'dashboard') setPage('dashboard');
-                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                    fetchWeather(
+                        settings.defaultLocation,
+                        false,
+                        settings.defaultLocation === 'Current Location' ? undefined : settings.defaultLocationCoords,
+                    );
                 }
                 return;
             }
@@ -366,20 +377,9 @@ export const useAppController = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation, authedUser, authChecked, identityScope, setShowOnboardingForScope]);
 
-    // 1b. CHARTPLOTTER DEFAULT — when Location has ALREADY been granted, an
-    // open re-centres on the live position and enters GPS-follow mode. A boot
-    // must never trigger Location or Motion permission UI: if permission is
-    // not already granted, the saved location remains in place until the
-    // skipper explicitly taps a location/GPS action.
-    //
-    // Runs once per launch (gpsBootRan) so it only sets the OPEN default; a
-    // port the user picks later in the session is respected until the next
-    // open. GPS denied/timeout → return early, keeping whatever 1a already
-    // painted (the last location) — never strands on a blank fix.
-    //
-    // (Superseded the old "only auto-update when sitting on the home port"
-    // rule — that was what let a stray named place from a weekend trip stick
-    // on open instead of re-centring to where you actually are.)
+    // 1b. GPS-follow is the open default. WeatherContext resolves the selected
+    // receiver passively and labels a missing fix unavailable; boot must never
+    // trigger Location/Motion permissions or asynchronously undo a later pick.
     useEffect(() => {
         if (!authChecked) return;
         const actionScope = identityScope;
@@ -389,45 +389,12 @@ export const useAppController = () => {
         if (!onboarded) return; // don't run during onboarding
 
         gpsBootScopeRef.current = scopeRunKey;
-        let cancelled = false;
-
-        void (async () => {
-            try {
-                // This already-granted-only path uses the foreground provider
-                // and fails closed before any prompt. It never initializes the
-                // Transistorsoft background or motion engine.
-                // The punter's phone by default, or the boat when her row in
-                // the ★ menu is picked (services/weatherPosition, 2026-09-08)
-                // — the phone read stays the passive, already-granted one.
-                const resolved = await resolveWeatherPosition(
-                    () =>
-                        GpsService.getCurrentPositionIfGranted({
-                            staleLimitMs: 60_000,
-                            timeoutSec: 8,
-                        }).then((p) => (p ? { lat: p.latitude, lon: p.longitude, timestamp: p.timestamp } : null)),
-                    { mayAsk: false },
-                );
-                const fix = resolved.fix ? { latitude: resolved.fix.lat, longitude: resolved.fix.lon } : null;
-                if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
-                if (!fix) return;
-
-                // Already following GPS → the WeatherContext follower owns it
-                // (renames + refetches underway without leaving 'gps' mode).
-                // Read the LIVE store, not the mount-time closure.
-                if (useSettingsStore.getState().settings.defaultLocation === 'Current Location') return;
-
-                const { latitude, longitude } = fix;
-                // Enter sticky GPS-follow mode at the live position.
-                log.info(`GPS boot: entering follow mode at ${latitude.toFixed(2)}, ${longitude.toFixed(2)}`);
-                await selectLocation('Current Location', { lat: latitude, lon: longitude });
-            } catch {
-                // Permission unavailable/denied, location services disabled,
-                // or a timed-out fix: retain the saved location silently.
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
+        // Register boot intent synchronously. WeatherContext owns the passive
+        // selected-receiver lookup and cancels it if a person picks somewhere
+        // else while GPS is still answering. Never request permission on boot.
+        if (useSettingsStore.getState().settings.defaultLocation !== 'Current Location') {
+            void selectLocation('Current Location', undefined, { onlyIfUnselected: true });
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authChecked, identityScope]);
 
@@ -652,7 +619,11 @@ export const useAppController = () => {
             // authoritative coords from the wizard kills that bug.
             setTimeout(() => {
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                void fetchWeather(newSettings.defaultLocation!, true, newSettings.defaultLocationCoords);
+                void fetchWeather(
+                    newSettings.defaultLocation!,
+                    true,
+                    newSettings.defaultLocation === 'Current Location' ? undefined : newSettings.defaultLocationCoords,
+                );
             }, 100);
         }
     };
@@ -841,14 +812,18 @@ export const useAppController = () => {
     );
 
     // Navigation Handlers (Encapsulate DOM/Window logic)
-    const handleTabDashboard = useCallback(() => {
-        if (currentView !== 'dashboard') {
-            setPage('dashboard');
-        } else {
-            // "Pull to Refresh" feel for tab click
-            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
-        }
-    }, [currentView, setPage]);
+    const handleTabDashboard = useCallback(
+        (glassAlreadyVisible = false) => {
+            if (currentView !== 'dashboard' && !glassAlreadyVisible) {
+                setPage('dashboard');
+            } else {
+                // Same reset-to-live for the full page and the pinned Glass;
+                // refreshing a pinned pane must not navigate its neighbour.
+                setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
+            }
+        },
+        [currentView, setPage],
+    );
 
     const handleTabMetrics = useCallback(() => {
         setPage('details');

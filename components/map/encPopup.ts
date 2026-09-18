@@ -12,6 +12,7 @@ import { LITCHR_LABELS, readS57 } from '../../services/enc/types';
 import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
 import { ENC_VEC_LAYERS } from './encLayerIds';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /**
  * Escape HTML special chars so feature properties (e.g. `OBJNAM`
@@ -342,14 +343,14 @@ export function buildFeaturePopupHtml(
     // "verify NtM" nudge the route panel + attribution chip carry.
     const staleSuffix =
         extras.chartAgeYears != null && isChartStale(extras.chartAgeYears)
-            ? ` · <b style="color:#fbbf24">~${esc(chartAgeLabel(extras.chartAgeYears) ?? '')} old — verify NtM</b>`
+            ? ` · <b style="color:var(--day-ui-amber, #fbbf24)">~${esc(chartAgeLabel(extras.chartAgeYears) ?? '')} old — verify NtM</b>`
             : '';
     const provenance = cellId
         ? `<div class="enc-popup-cell">${esc(cellId)}${sourceHO ? ` · ${esc(sourceHO)}` : ''}${staleSuffix}</div>`
         : '';
     const referenceCaveat =
         props._reference === true
-            ? '<div class="enc-popup-cell" style="color:#fbbf24"><b>Unverified reference pack</b> · ignored by route checks and Cast Off</div>'
+            ? '<div class="enc-popup-cell" style="color:var(--day-ui-amber, #fbbf24)"><b>Unverified reference pack</b> · ignored by route checks and Cast Off</div>'
             : '';
 
     let title = 'Feature';
@@ -394,7 +395,7 @@ export function buildFeaturePopupHtml(
                     lo <= 0 && hi !== null && hi <= 0
                         ? 'still dry'
                         : `≈ ${Math.max(0, lo).toFixed(1)}${hi !== null ? `–${Math.max(0, hi).toFixed(1)}` : ''} m`;
-                body += `<div class="enc-popup-row"><span>${esc(whenLabel)}</span><b style="color:${tideColor}">${esc(reads)} (tide ${h >= 0 ? '+' : ''}${h.toFixed(1)} m)</b></div>`;
+                body += `<div class="enc-popup-row"><span>${esc(whenLabel)}</span><b style="color:${daylightUiColor(tideColor)}">${esc(reads)} (tide ${h >= 0 ? '+' : ''}${h.toFixed(1)} m)</b></div>`;
             }
             const S = extras.safetyDepthM;
             if (S != null && S > 0) {
@@ -403,16 +404,16 @@ export function buildFeaturePopupHtml(
                 } else if (h != null && d1 + h >= S) {
                     body +=
                         scrubbedAt !== null
-                            ? `<div class="enc-popup-row"><span>Your keel</span><b style="color:${tideColor}">✓ enough water at ${esc(fmtHm(scrubbedAt))} — NOT necessarily now</b></div>`
-                            : `<div class="enc-popup-row"><span>Your keel</span><b style="color:${tideColor}">✓ enough water right now — the tide is in</b></div>`;
+                            ? `<div class="enc-popup-row"><span>Your keel</span><b style="color:${daylightUiColor(tideColor)}">✓ enough water at ${esc(fmtHm(scrubbedAt))} — NOT necessarily now</b></div>`
+                            : `<div class="enc-popup-row"><span>Your keel</span><b style="color:${daylightUiColor(tideColor)}">✓ enough water right now — the tide is in</b></div>`;
                 } else {
-                    body += `<div class="enc-popup-row"><span>Your keel</span><b style="color:#fbbf24">needs +${(S - d1).toFixed(1)} m of tide</b></div>`;
-                    body += `<div class="enc-popup-row"><span>Window</span><b class="enc-popup-tidewin" aria-live="polite" style="color:#fbbf24">checking tides…</b></div>`;
+                    body += `<div class="enc-popup-row"><span>Your keel</span><b style="color:var(--day-ui-amber, #fbbf24)">needs +${(S - d1).toFixed(1)} m of tide</b></div>`;
+                    body += `<div class="enc-popup-row"><span>Window</span><b class="enc-popup-tidewin" aria-live="polite" style="color:var(--day-ui-amber, #fbbf24)">checking tides…</b></div>`;
                 }
                 // Draft honesty (mirrors the tracer): a verdict against the
                 // fallback draft always says so.
                 if (extras.draftAssumed) {
-                    body += `<div class="enc-popup-row"><span></span><b style="color:#fbbf24">checked against a default 2.5 m draft — set your vessel</b></div>`;
+                    body += `<div class="enc-popup-row"><span></span><b style="color:var(--day-ui-amber, #fbbf24)">checked against a default 2.5 m draft — set your vessel</b></div>`;
                 }
             }
         } else {
@@ -437,7 +438,7 @@ export function buildFeaturePopupHtml(
             const detail =
                 restrn || (cls === 'CBLARE' || cls === 'PIPARE' ? 'No anchoring' : '') || CAUTION_NOTES[cls] || '';
             const colour = CAUTION_CLASS_COLOURS[cls] ?? '#e879f9';
-            body += `<div class="enc-popup-row"><span>⚠</span><b style="color:${colour}">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
+            body += `<div class="enc-popup-row"><span>⚠</span><b style="color:${daylightUiColor(colour)}">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
         }
     } else if (layerId === ENC_VEC_LAYERS.LNDARE) {
         title = 'Land';
@@ -503,7 +504,7 @@ export function buildFeaturePopupHtml(
         accent = secColor;
         const colourName = props.COLOUR != null && String(props.COLOUR) !== '' ? colourNames(props.COLOUR) : null;
         if (colourName) {
-            body += `<div class="enc-popup-row"><span>Sector</span><b style="color:${secColor};text-transform:capitalize">${esc(
+            body += `<div class="enc-popup-row"><span>Sector</span><b style="color:${daylightUiColor(secColor)};text-transform:capitalize">${esc(
                 colourName,
             )}</b></div>`;
         }
@@ -599,7 +600,7 @@ export function buildFeaturePopupHtml(
     } else if (layerId === ENC_VEC_LAYERS.BOYISD || layerId === ENC_VEC_LAYERS.BCNISD) {
         title = layerId === ENC_VEC_LAYERS.BCNISD ? 'Isolated-danger beacon' : 'Isolated-danger buoy';
         accent = '#f87171';
-        body += `<div class="enc-popup-row"><span>Meaning</span><b style="color:#fbbf24">Danger below — navigable water AROUND it, keep clear of the mark</b></div>`;
+        body += `<div class="enc-popup-row"><span>Meaning</span><b style="color:var(--day-ui-amber, #fbbf24)">Danger below — navigable water AROUND it, keep clear of the mark</b></div>`;
         const isdName = readS57(props, 'OBJNAM');
         if (typeof isdName === 'string' && isdName)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(isdName)}</b></div>`;
@@ -683,7 +684,7 @@ export function buildFeaturePopupHtml(
     // the light character follows. Never on the standalone Light popup.
     if (extras.light && layerId !== ENC_VEC_LAYERS.LIGHTS) {
         const rows = lightRows(extras.light);
-        if (rows) body += `<div class="enc-popup-sub" style="color:#fde047">Light</div>${rows}`;
+        if (rows) body += `<div class="enc-popup-sub" style="color:var(--day-ui-amber, #fde047)">Light</div>${rows}`;
     }
 
     if (!body) body = `<div class="enc-popup-row"><span>Feature</span><b>${esc(title)}</b></div>`;
@@ -691,7 +692,7 @@ export function buildFeaturePopupHtml(
     return `
         <div class="enc-popup" role="dialog" aria-label="${esc(title)}">
             <button type="button" class="enc-popup-close" aria-label="Close">×</button>
-            <div class="enc-popup-title" style="color:${accent}">${esc(title)}</div>
+            <div class="enc-popup-title" style="color:${daylightUiColor(accent)}">${esc(title)}</div>
             <div class="enc-popup-body">${body}</div>
             ${provenance}
             ${referenceCaveat}
@@ -704,11 +705,11 @@ export function buildFeaturePopupHtml(
                    the clamp keeps a 13px floor and a sane ceiling. */
                 font: -apple-system-body;
                 font-family: system-ui, -apple-system, sans-serif;
-                color: rgb(229, 231, 235);
-                background: rgba(15, 23, 42, 0.92);
+                color: var(--day-ui-text, rgb(229, 231, 235));
+                background: var(--day-ui-surface, rgba(15, 23, 42, 0.92));
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                border: 1px solid var(--day-ui-border, rgba(255, 255, 255, 0.12));
                 border-radius: 10px;
                 padding: 10px 12px;
                 font-size: clamp(13px, 1em, 18px);
@@ -726,9 +727,9 @@ export function buildFeaturePopupHtml(
                    free with nothing to mis-hit around it. */
                 top: -12px;
                 right: -12px;
-                background: rgba(15, 23, 42, 0.96);
-                border: 1px solid rgba(255, 255, 255, 0.22);
-                color: rgb(209, 213, 219);
+                background: var(--day-ui-surface, rgba(15, 23, 42, 0.96));
+                border: 1px solid var(--day-ui-border, rgba(255, 255, 255, 0.22));
+                color: var(--day-ui-text, rgb(209, 213, 219));
                 border-radius: 999px;
                 width: 32px;
                 height: 32px;
@@ -758,20 +759,20 @@ export function buildFeaturePopupHtml(
             .enc-popup-sub {
                 margin-top: 6px;
                 padding-top: 6px;
-                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-top: 1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08));
                 font-size: 12px;
                 font-weight: 700;
             }
             .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
-            .enc-popup-row span { color: rgba(229, 231, 235, 0.55); }
-            .enc-popup-row b { font-weight: 600; color: rgb(229, 231, 235); }
+            .enc-popup-row span { color: var(--day-ui-muted, rgba(229, 231, 235, 0.55)); }
+            .enc-popup-row b { font-weight: 600; color: var(--day-ui-text, rgb(229, 231, 235)); }
             .enc-popup-cell {
                 margin-top: 6px;
                 padding-top: 6px;
-                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-top: 1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08));
                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                 font-size: 12px;
-                color: rgba(229, 231, 235, 0.55);
+                color: var(--day-ui-muted, rgba(229, 231, 235, 0.55));
             }
             .mapboxgl-popup-content { background: transparent !important; padding: 0 !important; box-shadow: none !important; }
             .mapboxgl-popup-tip { display: none !important; }
@@ -815,7 +816,7 @@ export function buildGebcoDepthPopupBodyHtml(
             // this caveat, but the LEAST-certain read (coarse ETOPO) was missing
             // it — a keel verdict against an assumed default draft must say so.
             if (draftAssumed) {
-                body += `<div class="enc-popup-row"><span></span><b style="color:#fbbf24">checked against a default 2.5 m draft — set your vessel</b></div>`;
+                body += `<div class="enc-popup-row"><span></span><b style="color:var(--day-ui-amber, #fbbf24)">checked against a default 2.5 m draft — set your vessel</b></div>`;
             }
         }
     }
@@ -838,19 +839,19 @@ export function buildGebcoDepthPopupHtml(
     return `
         <div class="enc-popup" role="dialog" aria-label="Uncharted water">
             <button type="button" class="enc-popup-close" aria-label="Close">×</button>
-            <div class="enc-popup-title" style="color:${accent}">Uncharted water</div>
+            <div class="enc-popup-title" style="color:${daylightUiColor(accent)}">Uncharted water</div>
             <div class="enc-popup-body" aria-live="polite" aria-atomic="true" aria-busy="${phase === 'loading'}">${body}</div>
         </div>
         <style>
-            .enc-popup { position: relative; font: -apple-system-body; font-family: system-ui, -apple-system, sans-serif; color: rgb(229,231,235); background: rgba(15,23,42,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; font-size: clamp(13px,1em,18px); line-height: 1.5; min-width: 180px; max-width: 280px; }
-            .enc-popup-close { position: absolute; top: -12px; right: -12px; background: rgba(15,23,42,0.96); border: 1px solid rgba(255,255,255,0.22); color: rgb(209,213,219); border-radius: 999px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 17px; line-height: 1; font-weight: bold; padding: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.45); }
+            .enc-popup { position: relative; font: -apple-system-body; font-family: system-ui, -apple-system, sans-serif; color: var(--day-ui-text, rgb(229,231,235)); background: var(--day-ui-surface, rgba(15,23,42,0.92)); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--day-ui-border, rgba(255,255,255,0.12)); border-radius: 10px; padding: 10px 12px; font-size: clamp(13px,1em,18px); line-height: 1.5; min-width: 180px; max-width: 280px; }
+            .enc-popup-close { position: absolute; top: -12px; right: -12px; background: var(--day-ui-surface, rgba(15,23,42,0.96)); border: 1px solid var(--day-ui-border, rgba(255,255,255,0.22)); color: var(--day-ui-text, rgb(209,213,219)); border-radius: 999px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 17px; line-height: 1; font-weight: bold; padding: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.45); }
             .enc-popup-close:hover { background: rgba(220,38,38,0.9); color: white; }
             .enc-popup-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; padding-right: 14px; }
             .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
-            .enc-popup-sub { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; font-weight: 700; }
+            .enc-popup-sub { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--day-ui-border, rgba(255,255,255,0.08)); font-size: 12px; font-weight: 700; }
             .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
-            .enc-popup-row span { color: rgba(229,231,235,0.55); }
-            .enc-popup-row b { font-weight: 600; color: rgb(229,231,235); }
+            .enc-popup-row span { color: var(--day-ui-muted, rgba(229,231,235,0.55)); }
+            .enc-popup-row b { font-weight: 600; color: var(--day-ui-text, rgb(229,231,235)); }
             .mapboxgl-popup-content { background: transparent !important; padding: 0 !important; box-shadow: none !important; }
             .mapboxgl-popup-tip { display: none !important; }
         </style>

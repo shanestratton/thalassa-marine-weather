@@ -1,15 +1,4 @@
-/**
- * Shane 2026-08-28: "whole area claude, i just dont want to confuse punters
- * if i can help it."
- *
- * The survey found the confusion was not where either of us expected. The two
- * ENC screens are NOT duplicates — they are disjoint by construction, and
- * merging them would have been actively dangerous. What actually collided was
- * the NAMES: two screens both called "Boat Network", one hop apart in the same
- * menu, with the identical description. A punter who failed to find the Pi on
- * one tried the other, got the same failure in different words, and concluded
- * the app was broken.
- */
+/** Boat hardware now has one entry point: Vessel → Boat Network. */
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -20,20 +9,23 @@ const avNav = readFileSync('components/vessel/AvNavPage.tsx', 'utf8');
 const banner = readFileSync('components/map/ChartDepthControls.tsx', 'utf8');
 const encCard = readFileSync('components/vessel/EncCellManager.tsx', 'utf8');
 
-describe('two screens, two names', () => {
+describe('boat hardware belongs to Boat Network', () => {
     it('leaves the everyday glance called Boat Network', () => {
         // The one you tap to ask "is the boat there?" keeps the name.
         expect(vesselHub).toContain('label="Boat Network"');
     });
 
-    it('names the settings tab for what it actually owns', () => {
-        // Pairing, the security fingerprint, Forget, the mDNS-spoof alarm,
-        // cache purge and the new-Pi wizard all live only here.
-        expect(settings).toContain("label: 'Boat Pi — setup & cache',");
-        expect(settings).toContain("description: 'Pairing, install, cache & anchor',");
+    it('puts hardware setup on the network page before its chart controls', () => {
+        const setup = avNav.indexOf('<BoatHardwareIntegrations');
+        expect(setup).toBeGreaterThan(0);
+        expect(setup).toBeLessThan(avNav.indexOf('<EncCellManager'));
     });
 
-    it('does not use the name twice', () => {
+    it('removes the old Settings group, entry and outlet', () => {
+        expect(settings).not.toContain('Advanced — Boat Hardware & Integrations');
+        expect(settings).not.toContain("id: 'boatNetwork'");
+        expect(settings).not.toContain("activeTab === 'boatNetwork'");
+        expect(settings).not.toContain('import { PiCacheTab }');
         expect(settings).not.toContain("label: 'Boat Network'");
     });
 

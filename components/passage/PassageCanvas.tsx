@@ -426,7 +426,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 width: '100%',
                 height: '100%',
                 overflow: 'hidden',
-                background: '#040d1a',
+                background: 'var(--day-ui-surface, #040d1a)',
             }}
         >
             {/* ═══ MAP LOADING STATE ═══ */}
@@ -438,7 +438,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     opacity: mapReady ? 0 : 1,
                     transition: 'opacity 0.6s ease',
                     pointerEvents: mapReady ? 'none' : 'auto',
-                    background: '#040d1a',
+                    background: 'var(--day-ui-surface, #040d1a)',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -463,7 +463,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         fontWeight: 600,
                         letterSpacing: '0.15em',
                         textTransform: 'uppercase' as const,
-                        color: '#64748b',
+                        color: 'var(--day-ui-muted, #64748b)',
                     }}
                 >
                     Plotting Course…
@@ -511,10 +511,10 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                     width: 44,
                                     height: 44,
                                     borderRadius: '50%',
-                                    border: '1px solid rgba(255,255,255,0.15)',
-                                    background: 'rgba(15, 23, 42, 0.85)',
+                                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.15))',
+                                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.85))',
 
-                                    color: '#94a3b8',
+                                    color: 'var(--day-ui-muted, #94a3b8)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',

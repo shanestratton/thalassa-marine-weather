@@ -94,7 +94,8 @@ describe('diary video rail', () => {
     });
 
     it('deleting an entry cleans the video bucket, via the tombstone if offline', () => {
-        expect(service).toContain('video: video ?? null,');
+        expect(service).toContain('video: video ?? existing?.video ?? null,');
+        expect(service).toContain("video: typeof rec.video === 'string' ? rec.video : null,");
         expect(service).toContain('tombstone.video,');
         expect(service).toContain('this._extractStoragePath(videoUrl, VIDEO_BUCKET)');
         expect(service).toContain('supabase.storage.from(VIDEO_BUCKET).remove([videoPath])');

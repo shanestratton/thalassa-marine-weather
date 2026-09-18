@@ -76,7 +76,12 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { handoffDiaryToPi, submitDiaryDirect, type DiaryRelayEnvelope } from '../services/DiaryRelayTransport';
+import {
+    cancelDiaryDirect,
+    handoffDiaryToPi,
+    submitDiaryDirect,
+    type DiaryRelayEnvelope,
+} from '../services/DiaryRelayTransport';
 
 const envelope: DiaryRelayEnvelope = {
     client_operation_id: 'diary_transport_1',
@@ -169,5 +174,39 @@ describe('submitDiaryDirect names the delivery outcome', () => {
         const result = await submitDiaryDirect(envelope);
         expect(result?.status).toBe('stale');
         expect(result?.entry).toMatchObject({ body: 'the winner’s words' });
+    });
+});
+
+describe('cancelDiaryDirect verifies the cancelled operation', () => {
+    beforeEach(() => {
+        mocks.satellite = false;
+        mocks.fetch.mockReset();
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        vi.stubGlobal('fetch', mocks.fetch);
+    });
+
+    it('accepts an authoritative acknowledgement for the requested operation', async () => {
+        mocks.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ ok: true, cancelled: true, client_operation_id: envelope.client_operation_id }),
+        });
+
+        await expect(cancelDiaryDirect(envelope.client_operation_id)).resolves.toBe(true);
+        expect(mocks.fetch).toHaveBeenCalledWith(
+            'https://example.supabase.co/functions/v1/diary-relay',
+            expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({ action: 'cancel', client_operation_id: envelope.client_operation_id }),
+            }),
+        );
+    });
+
+    it.each([
+        ['missing operation id', { ok: true, cancelled: true }],
+        ['different operation id', { ok: true, cancelled: true, client_operation_id: 'diary_another_operation' }],
+    ])('rejects a success response with %s so the deletion can retry', async (_label, acknowledgement) => {
+        mocks.fetch.mockResolvedValue({ ok: true, json: async () => acknowledgement });
+
+        await expect(cancelDiaryDirect(envelope.client_operation_id)).resolves.toBe(false);
     });
 });

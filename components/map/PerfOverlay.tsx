@@ -138,15 +138,15 @@ export const PerfOverlay: React.FC<PerfOverlayProps> = ({ mapRef, activeLayerCou
             style={{
                 top: 'max(4px, env(safe-area-inset-top))',
                 left: 4,
-                background: 'rgba(0, 0, 0, 0.78)',
-                color: '#fff',
+                background: 'var(--day-ui-surface, rgba(0, 0, 0, 0.78))',
+                color: 'var(--day-ui-text, #fff)',
                 fontFamily: 'monospace',
                 fontSize: 9,
                 padding: '4px 6px',
                 borderRadius: 6,
                 lineHeight: 1.45,
                 letterSpacing: 0.2,
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.1))',
             }}
             aria-hidden
         >

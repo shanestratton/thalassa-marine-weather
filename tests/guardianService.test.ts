@@ -62,6 +62,23 @@ let HAIL_MESSAGES: any;
 
 let WEATHER_TEMPLATES: any;
 
+function broadcastReceipt(alertType = 'suspicious', notified = 0) {
+    return {
+        notified,
+        alert: {
+            id: 'server-alert-1',
+            alert_type: alertType,
+            source_vessel_name: 'Test Vessel',
+            title: 'Server-confirmed alert',
+            body: 'Server-confirmed body',
+            lat: -36.849,
+            lon: 174.763,
+            data: { sent_by_you: true },
+            created_at: new Date().toISOString(),
+        },
+    };
+}
+
 beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
@@ -293,15 +310,15 @@ describe('GuardianService — Report Suspicious', () => {
         await GuardianService.fetchProfile();
         mockGetUser.mockResolvedValueOnce({ data: { user: { id: 'test-user' } } });
         mockRpc
-            .mockResolvedValueOnce({ data: 3, error: null }) // broadcast
-            .mockResolvedValueOnce({ data: [], error: null }); // fetchAlerts follow-up
+            .mockResolvedValueOnce({ error: null }) // fresh heartbeat
+            .mockResolvedValueOnce({ data: broadcastReceipt('suspicious', 3), error: null });
 
         const result = await GuardianService.reportSuspicious('Unknown dinghy at 2 AM');
         expect(result.success).toBe(true);
         expect(result.notified).toBe(3);
 
         expect(mockRpc).toHaveBeenCalledWith(
-            'broadcast_guardian_alert',
+            'broadcast_guardian_alert_with_receipt',
             expect.objectContaining({
                 sender_user_id: 'test-user',
                 p_alert_type: 'suspicious',
@@ -317,6 +334,140 @@ describe('GuardianService — Report Suspicious', () => {
         });
         expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
         expect(mockRpc).not.toHaveBeenCalled();
+    });
+});
+
+describe('GuardianService — server-confirmed sender feed', () => {
+    beforeEach(async () => {
+        mockRpc.mockReset();
+        mockMaybeSingle.mockResolvedValueOnce({ data: { user_id: 'test-user', armed: true }, error: null });
+        await GuardianService.fetchProfile();
+    });
+
+    it.each(['suspicious', 'weather_spike'])(
+        'shows a %s receipt immediately even with no nearby vessels',
+        async (type) => {
+            const receipt = broadcastReceipt(type);
+            mockRpc.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ data: receipt, error: null });
+            const listener = vi.fn();
+            const unsubscribe = GuardianService.subscribe(listener);
+
+            const result =
+                type === 'suspicious'
+                    ? await GuardianService.reportSuspicious('Please check the bay')
+                    : await GuardianService.broadcastWeatherSpike('Wind building');
+
+            expect(result).toEqual({ success: true, notified: 0, feedConfirmed: true });
+            expect(GuardianService.getState().alerts).toEqual([receipt.alert]);
+            expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ alerts: [receipt.alert] }));
+            expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
+                'guardian_heartbeat',
+                'broadcast_guardian_alert_with_receipt',
+            ]);
+            unsubscribe();
+        },
+    );
+
+    it('does not duplicate the sent entry when the regular feed catches up', async () => {
+        const receipt = broadcastReceipt();
+        mockRpc
+            .mockResolvedValueOnce({ error: null })
+            .mockResolvedValueOnce({ data: receipt, error: null })
+            .mockResolvedValueOnce({ data: [receipt.alert], error: null });
+        await GuardianService.reportSuspicious('Please check the bay');
+        await GuardianService.fetchAlerts();
+        expect(GuardianService.getState().alerts).toEqual([receipt.alert]);
+    });
+
+    it('a slow pre-send feed response cannot erase the confirmed sent entry', async () => {
+        let resolvePoll!: (value: unknown) => void;
+        mockRpc.mockReturnValueOnce(new Promise((resolve) => (resolvePoll = resolve)));
+        const poll = GuardianService.fetchAlerts();
+        await vi.waitFor(() => expect(mockRpc).toHaveBeenCalledWith('guardian_alerts_nearby', expect.any(Object)));
+        const receipt = broadcastReceipt();
+        mockRpc.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ data: receipt, error: null });
+        await GuardianService.reportSuspicious('Please check the bay');
+        resolvePoll({ data: [], error: null });
+        await poll;
+        expect(GuardianService.getState().alerts).toEqual([receipt.alert]);
+    });
+
+    it('keeps the receipt if the later feed read fails', async () => {
+        const receipt = broadcastReceipt();
+        mockRpc
+            .mockResolvedValueOnce({ error: null })
+            .mockResolvedValueOnce({ data: receipt, error: null })
+            .mockResolvedValueOnce({ data: null, error: { message: 'Temporary network failure' } });
+        await GuardianService.reportSuspicious('Please check the bay');
+        await GuardianService.fetchAlerts();
+        expect(GuardianService.getState().alerts).toEqual([receipt.alert]);
+    });
+
+    it('does not show a made-up entry if the server rejects the broadcast', async () => {
+        mockRpc
+            .mockResolvedValueOnce({ error: null })
+            .mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'Quota exceeded' } });
+        expect(await GuardianService.reportSuspicious('Please check the bay')).toEqual({ success: false, notified: 0 });
+        expect(GuardianService.getState().alerts).toEqual([]);
+    });
+
+    it('does not broadcast if the fresh heartbeat fails', async () => {
+        mockRpc.mockResolvedValueOnce({ error: { message: 'Disarmed remotely' } });
+        expect(await GuardianService.broadcastWeatherSpike('Wind building')).toEqual({ success: false, notified: 0 });
+        expect(mockRpc).toHaveBeenCalledTimes(1);
+        expect(GuardianService.getState().alerts).toEqual([]);
+    });
+
+    it('does not retry a successful broadcast with a missing receipt or invent feed confirmation', async () => {
+        mockRpc
+            .mockResolvedValueOnce({ error: null })
+            .mockResolvedValueOnce({ data: { notified: 0 }, error: null })
+            .mockResolvedValueOnce({ data: [], error: null });
+        expect(await GuardianService.reportSuspicious('Please check the bay')).toEqual({
+            success: true,
+            notified: 0,
+            feedConfirmed: false,
+        });
+        await vi.waitFor(() => expect(mockRpc).toHaveBeenCalledTimes(3));
+        expect(mockRpc.mock.calls.filter(([name]) => name === 'broadcast_guardian_alert_with_receipt')).toHaveLength(1);
+        expect(GuardianService.getState().alerts).toEqual([]);
+    });
+
+    it.each(['switch account', 'stop', 'disarm'])('discards a delayed receipt after %s', async (action) => {
+        let resolveReceipt!: (value: unknown) => void;
+        mockRpc
+            .mockResolvedValueOnce({ error: null })
+            .mockReturnValueOnce(new Promise((resolve) => (resolveReceipt = resolve)));
+        const report = GuardianService.reportSuspicious('Private report');
+        await vi.waitFor(() => expect(mockRpc).toHaveBeenCalledTimes(2));
+        if (action === 'switch account') {
+            const { setAuthIdentityScope } = await import('../services/authIdentityScope');
+            setAuthIdentityScope('another-user');
+        } else if (action === 'disarm') {
+            mockRpc.mockResolvedValueOnce({ error: null });
+            mockMaybeSingle.mockResolvedValueOnce({ data: { user_id: 'test-user', armed: false }, error: null });
+            expect(await GuardianService.disarm()).toBe(true);
+        } else {
+            GuardianService.stop();
+        }
+        resolveReceipt({ data: broadcastReceipt(), error: null });
+        expect(await report).toEqual({ success: false, notified: 0 });
+        expect(GuardianService.getState().alerts).toEqual([]);
+    });
+
+    it('treats a lost broadcast response as uncertain and only retries the read', async () => {
+        mockRpc
+            .mockResolvedValueOnce({ error: null })
+            .mockResolvedValueOnce({ data: null, error: { code: '', message: 'Failed to fetch' } })
+            .mockResolvedValueOnce({ data: [], error: null });
+        expect(await GuardianService.reportSuspicious('Please check the bay')).toEqual({
+            success: false,
+            notified: 0,
+            uncertain: true,
+        });
+        await vi.waitFor(() => expect(mockRpc).toHaveBeenCalledTimes(3));
+        expect(mockRpc.mock.calls.filter(([name]) => name === 'broadcast_guardian_alert_with_receipt')).toHaveLength(1);
+        expect(GuardianService.getState().alerts).toEqual([]);
     });
 });
 

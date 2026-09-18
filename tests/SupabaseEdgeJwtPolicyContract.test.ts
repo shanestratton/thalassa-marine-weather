@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
  * legacy-secret gateway check. The rationale names the guard.
  */
 const FUNCTION_GUARDED_OFF = {
+    'autorouting-trial': 'requireAuthenticatedQuota plus server-only UUID allowlist, kill switch and hard expiry',
     'elevenlabs-tts': 'requireAuthenticatedQuota verifies the signed-in session',
     'fetch-wind-grid': 'per-client public quota; app and Pi-cache callers',
     'fetch-wind-velocity': 'per-client public quota; no client caller remains',
@@ -169,8 +170,8 @@ describe('Supabase Edge gateway JWT policy', () => {
             ).toHaveLength(1);
         }
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
-        // 16 function-guarded + 6 credentialless drifts = 22.
-        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(16);
+        // 16 original function-guarded drifts + the new authenticated trial.
+        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(17);
         // The six credentialless drifts, the eight already allowlisted,
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).

@@ -43,19 +43,21 @@
  * five named bands, not a measurement), the preventer's actual route, and
  * importing POS from sereneSailing.ts (dead code, and its sign is inverted).
  *
- * HARDWARE OFF THE BOAT, 2026-09-09. Shane: "can we have the traveller and the
- * yankee car off the vessel altogether. we know what they are, but it just
- * makes it very messy for the sail area." So the traveller track, its car and
- * the mainsheet, and the yankee track, its car, the rail block and the yankee
- * sheet are gone from the drawing. The words below the picture still carry
- * the traveller and car advice verbatim; the picture is now sails, boom, wind
- * and — because it puts a sail on the OTHER side of the boat — the pole.
+ * HARDWARE BESIDE / BELOW THE BOAT, 2026-09-10. The Yankee guide occupies its
+ * own aft-side inset; the traveller and warnings are in document flow below
+ * the SVG. These are qualitative guides, NOT control-position telemetry.
+ * The Yankee fore/aft setting is not known; never turn a leave-set instruction
+ * into an invented car position. Keep guidance aligned with TRIM, not POS.
  */
 import React from 'react';
+import '../instrumentDaylight.css';
+import './SailPlanDiagram.css';
 
 export interface SailPlanDiagramProps {
     /** 'Beating' | 'Close reach' | 'Beam reach' | 'Broad reach' | 'Running' */
     band: string;
+    /** Actual advice band; the rig may depict a reach while gybing downwind. */
+    adviceBand?: string;
     /** Where the wind is FROM, degrees off the bow 0–360. Null = unknown. */
     windAngle: number | null;
     main: string;
@@ -67,7 +69,7 @@ export interface SailPlanDiagramProps {
 }
 
 const W = 340;
-const H = 404;
+const H = 390;
 /**
  * How far the boat sits off the frame's centre, AWAY from the labels.
  *
@@ -115,7 +117,6 @@ const GRID = '#2c2c2a';
 /* Hull and stowed-sail strokes. Metal, not background. */
 const METAL = '#6f6b62';
 const CASING = '#0b0b0a';
-const WARN = '#fbbf24';
 
 /* A dark halo behind every label. The boom sweeps 8°–88° and will cross a
    label in SOME state wherever it is put; a mark whose position is data
@@ -123,14 +124,25 @@ const WARN = '#fbbf24';
    halo for exactly this. */
 const HALO: React.CSSProperties = {
     paintOrder: 'stroke',
-    stroke: CASING,
+    stroke: `var(--nmea-label-halo, ${CASING})`,
     strokeWidth: 4,
     strokeLinejoin: 'round',
 };
 const LABEL: React.CSSProperties = { ...HALO, letterSpacing: '.06em' };
 
+// Qualitative summaries of sereneSailing.TRIM, not new sailing calculations.
+// Offsets illustrate named zones, not measured positions or percentages.
+const TRAVELLER_GUIDE: Record<string, { label: string; leeOffset: number | null }> = {
+    Beating: { label: 'To windward', leeOffset: -0.4 },
+    'Close reach': { label: 'Centreline / slightly leeward', leeOffset: 0 },
+    'Beam reach': { label: 'Well to leeward', leeOffset: 0.65 },
+    'Broad reach': { label: 'Fully to leeward', leeOffset: 1 },
+    Running: { label: 'Not controlling trim', leeOffset: null },
+};
+
 export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
     band,
+    adviceBand = band,
     windAngle,
     main,
     yankee,
@@ -172,262 +184,303 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
        leeward; on the pole the yankee is goose-winged out on the opposite side
        to the mainsail. */
     const headSide = poled ? -lee : lee;
+    const knownGuide = hasWind && Object.hasOwn(TRAVELLER_GUIDE, adviceBand);
+    const traveller = mainDown
+        ? { label: 'Main down', leeOffset: null }
+        : knownGuide
+          ? TRAVELLER_GUIDE[adviceBand]
+          : { label: 'Awaiting wind / plan', leeOffset: null };
+    const carLabel = !yankeeSet
+        ? 'Sail stowed'
+        : !knownGuide
+          ? 'No plan'
+          : adviceBand === 'Broad reach'
+            ? 'Rail / pole'
+            : adviceBand === 'Running'
+              ? 'Pole / gybe'
+              : 'Leave set';
+    // Clear of the boom even close-hauled, the wind arrow, and the full hull.
+    const carX = lee > 0 ? 222 : 6;
 
     return (
-        <svg
-            viewBox={`0 0 ${W} ${H}`}
-            className={className}
-            role="img"
-            aria-label={`Sail plan: ${band}. Main ${main}, yankee ${yankee}, ${
-                staySet ? (stayStorm ? 'storm jib set' : 'staysail set') : 'staysail stowed'
-            }${prevent ? ', preventer on' : ''}.`}
-        >
-            {/* ── hull, bow up ── */}
-            <path
-                d={`M ${CX} 44 C ${CX + 50} 120, ${CX + 58} 236, ${CX + 34} 344
+        <div className={`nmea-sail-plan ${className}`}>
+            <p className="sail-guide-caption">Trim guide · not live positions</p>
+            <svg
+                data-mark="rig-diagram"
+                viewBox={`0 0 ${W} ${H}`}
+                className="nmea-instrument sail-rig-diagram"
+                role="img"
+                aria-label={`Sail plan: ${band}. Main ${main}, yankee ${yankee}, ${
+                    staySet ? (stayStorm ? 'storm jib set' : 'staysail set') : 'staysail stowed'
+                }. Yankee car: ${carLabel}; fore/aft position not measured.`}
+            >
+                {/* ── hull, bow up ── */}
+                <path
+                    data-mark="hull"
+                    d={`M ${CX} 44 C ${CX + 50} 120, ${CX + 58} 236, ${CX + 34} 344
                     L ${CX - 34} 344 C ${CX - 58} 236, ${CX - 50} 120, ${CX} 44 Z`}
-                fill="#12100f"
-                stroke={METAL}
-                strokeWidth={2.5}
-            />
-            {/* Centreline — the reference every angle here is measured from,
+                    fill="#12100f"
+                    stroke={METAL}
+                    strokeWidth={2.5}
+                />
+                {/* Centreline — the reference every angle here is measured from,
                 and the mark that makes "bow up, boat-fixed" legible. */}
-            <line x1={CX} y1={52} x2={CX} y2={338} stroke={GRID} strokeWidth={1.5} strokeDasharray="5 8" />
+                <line x1={CX} y1={52} x2={CX} y2={338} stroke={GRID} strokeWidth={1.5} strokeDasharray="5 8" />
 
-            {/* ── wind, drawn first so the rig sits over it ── */}
-            {hasWind && (
-                <g transform={`rotate(${ang} ${CX} ${MAST_Y})`}>
-                    {/* Arrow flies FROM the wind toward the boat, the way a
+                {/* ── wind, drawn first so the rig sits over it ── */}
+                {hasWind && (
+                    <g data-mark="wind-arrow" transform={`rotate(${ang} ${CX} ${MAST_Y})`}>
+                        {/* Arrow flies FROM the wind toward the boat, the way a
                         masthead fly and a burgee both read. */}
-                    {/* Cased, because the arrow is drawn UNDER the rig and
+                        {/* Cased, because the arrow is drawn UNDER the rig and
                         near head-to-wind it crosses the foredeck and the
                         yankee — without this it dissolves into the sail it
                         crosses. Shane says the wind is the part that works, so
                         it is scaled and cased, not redesigned. */}
-                    <line
-                        x1={CX}
-                        y1={MAST_Y - 140}
-                        x2={CX}
-                        y2={MAST_Y - 96}
-                        stroke={CASING}
-                        strokeWidth={13}
-                        strokeLinecap="round"
-                    />
-                    <path
-                        d={`M ${CX} ${MAST_Y - 82} l 15 -24 l -30 0 Z`}
-                        fill={CASING}
-                        stroke={CASING}
-                        strokeWidth={6}
-                    />
-                    <line
-                        x1={CX}
-                        y1={MAST_Y - 140}
-                        x2={CX}
-                        y2={MAST_Y - 96}
-                        stroke={windOnPort ? PORT : STBD}
-                        strokeWidth={7}
-                        strokeLinecap="round"
-                    />
-                    <path d={`M ${CX} ${MAST_Y - 86} l 13 -22 l -26 0 Z`} fill={windOnPort ? PORT : STBD} />
-                </g>
-            )}
+                        <line
+                            x1={CX}
+                            y1={MAST_Y - 140}
+                            x2={CX}
+                            y2={MAST_Y - 96}
+                            stroke={CASING}
+                            strokeWidth={13}
+                            strokeLinecap="round"
+                        />
+                        <path
+                            d={`M ${CX} ${MAST_Y - 82} l 15 -24 l -30 0 Z`}
+                            fill={CASING}
+                            stroke={CASING}
+                            strokeWidth={6}
+                        />
+                        <line
+                            x1={CX}
+                            y1={MAST_Y - 140}
+                            x2={CX}
+                            y2={MAST_Y - 96}
+                            stroke={windOnPort ? PORT : STBD}
+                            strokeWidth={7}
+                            strokeLinecap="round"
+                        />
+                        <path d={`M ${CX} ${MAST_Y - 86} l 13 -22 l -26 0 Z`} fill={windOnPort ? PORT : STBD} />
+                    </g>
+                )}
 
-            {/* ── headsails, forward of the mast, set to leeward ── */}
-            {yankeeSet && (
-                <path
-                    d={`M ${CX} 62 Q ${CX + headSide * 66} 128, ${CX + headSide * 18} 178 Z`}
-                    fill={windOnPort ? 'rgba(37,177,103,0.26)' : 'rgba(239,83,80,0.26)'}
-                    stroke={INK_2}
-                    strokeWidth={2.5}
-                />
-            )}
-            {/* The staysail. Drawn even when it is stowed — ghosted rather
+                {/* ── headsails, forward of the mast, set to leeward ── */}
+                {yankeeSet && (
+                    <path
+                        d={`M ${CX} 62 Q ${CX + headSide * 66} 128, ${CX + headSide * 18} 178 Z`}
+                        fill={windOnPort ? 'rgba(37,177,103,0.26)' : 'rgba(239,83,80,0.26)'}
+                        stroke={INK_2}
+                        strokeWidth={2.5}
+                    />
+                )}
+                {/* The staysail. Drawn even when it is stowed — ghosted rather
                 than absent, because Serene Summer is a CUTTER and the inner
                 sail is half of what that means. "Where everything goes" is a
                 reference for where things live on the boat, so a sail that
                 simply disappears when furled teaches the wrong rig (Shane
                 2026-08-28: "we need to show the staysail when we are drawing
                 pictures"). */}
-            <path
-                data-mark="staysail"
-                d={`M ${CX} 102 Q ${CX + headSide * 42} 148, ${CX + headSide * 14} 180 Z`}
-                fill={staySet ? (stayStorm ? 'rgba(239,83,80,0.32)' : 'rgba(255,255,255,0.16)') : 'none'}
-                stroke={staySet ? (stayStorm ? PORT : INK_2) : METAL}
-                strokeWidth={2.5}
-                strokeDasharray={staySet ? undefined : '4 5'}
-            />
+                <path
+                    data-mark="staysail"
+                    d={`M ${CX} 102 Q ${CX + headSide * 42} 148, ${CX + headSide * 14} 180 Z`}
+                    fill={staySet ? (stayStorm ? 'rgba(239,83,80,0.32)' : 'rgba(255,255,255,0.16)') : 'none'}
+                    stroke={staySet ? (stayStorm ? PORT : INK_2) : METAL}
+                    strokeWidth={2.5}
+                    strokeDasharray={staySet ? undefined : '4 5'}
+                />
 
-            {/* The two stay fittings on the foredeck. In plan view a stay is a
+                {/* The two stay fittings on the foredeck. In plan view a stay is a
                 point, and it is the SECOND one — aft of the headstay — that
                 makes her a cutter rather than a sloop. Standing rigging, so
                 both are drawn whatever the sails are doing. */}
-            <circle data-mark="stay-fitting" cx={CX} cy={62} r={4} fill={MUTED} stroke={CASING} strokeWidth={1.5} />
-            <circle
-                data-mark="stay-fitting"
-                cx={CX}
-                cy={102}
-                r={4}
-                fill={staySet ? INK_2 : MUTED}
-                stroke={CASING}
-                strokeWidth={1.5}
-            />
+                <circle data-mark="stay-fitting" cx={CX} cy={62} r={4} fill={MUTED} stroke={CASING} strokeWidth={1.5} />
+                <circle
+                    data-mark="stay-fitting"
+                    cx={CX}
+                    cy={102}
+                    r={4}
+                    fill={staySet ? INK_2 : MUTED}
+                    stroke={CASING}
+                    strokeWidth={1.5}
+                />
 
-            {/* Labels. The sails all sit to leeward, so the windward side is
+                {/* Labels. The sails all sit to leeward, so the windward side is
                 free — the inner sail's label goes there rather than fighting
                 the outer sail for room. */}
-            {/* BOTH headsail labels go to leeward, stacked. The old comment
+                {/* BOTH headsail labels go to leeward, stacked. The old comment
                 said the windward side was free "because the sails set to
                 leeward" — it is not: the wind arrow sweeps it and the whip
                 pole goes out on it, and STAYSAIL (STOWED) was clipping the
                 frame on both tacks. Stacking them here empties the windward
                 side for the two marks that must live there. */}
-            <text
-                x={CX + lee * 76}
-                y={112}
-                textAnchor={lee > 0 ? 'start' : 'end'}
-                fill={yankeeSet ? INK_2 : MUTED}
-                fontSize={15}
-                fontWeight={800}
-                style={LABEL}
-            >
-                YANKEE
-            </text>
-            <text
-                x={CX + lee * 76}
-                y={134}
-                textAnchor={lee > 0 ? 'start' : 'end'}
-                fill={staySet ? INK_2 : MUTED}
-                fontSize={15}
-                fontWeight={800}
-                style={LABEL}
-            >
-                {staySet ? (stayStorm ? 'STORM JIB' : 'STAYSAIL') : 'STAYSAIL'}
-            </text>
-            {/* "(STOWED)" on its own line. As a suffix it made the longest
-                string in the drawing, and the longest string is the one that
-                runs off the frame — which is exactly what it did. */}
-            {!staySet && (
                 <text
                     x={CX + lee * 76}
-                    y={152}
+                    y={112}
                     textAnchor={lee > 0 ? 'start' : 'end'}
-                    fill={MUTED}
-                    fontSize={14}
-                    fontWeight={700}
+                    fill={yankeeSet ? INK_2 : MUTED}
+                    fontSize={15}
+                    fontWeight={800}
                     style={LABEL}
                 >
-                    (STOWED)
+                    YANKEE
                 </text>
-            )}
+                <text
+                    x={CX + lee * 76}
+                    y={134}
+                    textAnchor={lee > 0 ? 'start' : 'end'}
+                    fill={staySet ? INK_2 : MUTED}
+                    fontSize={15}
+                    fontWeight={800}
+                    style={LABEL}
+                >
+                    {staySet ? (stayStorm ? 'STORM JIB' : 'STAYSAIL') : 'STAYSAIL'}
+                </text>
+                {/* "(STOWED)" on its own line. As a suffix it made the longest
+                string in the drawing, and the longest string is the one that
+                runs off the frame — which is exactly what it did. */}
+                {!staySet && (
+                    <text
+                        x={CX + lee * 76}
+                        y={152}
+                        textAnchor={lee > 0 ? 'start' : 'end'}
+                        fill={MUTED}
+                        fontSize={14}
+                        fontWeight={700}
+                        style={LABEL}
+                    >
+                        (STOWED)
+                    </text>
+                )}
 
-            {/* ── main + boom ── */}
-            {!mainDown && (
-                <path
-                    d={`M ${CX} ${MAST_Y} Q ${(CX + boomX) / 2 + lee * 30} ${(MAST_Y + boomY) / 2 - 18},
+                {/* ── main + boom ── */}
+                {!mainDown && (
+                    <path
+                        d={`M ${CX} ${MAST_Y} Q ${(CX + boomX) / 2 + lee * 30} ${(MAST_Y + boomY) / 2 - 18},
                         ${boomX.toFixed(1)} ${boomY.toFixed(1)} Z`}
-                    fill="rgba(255,255,255,0.22)"
-                    stroke={INK_2}
-                    strokeWidth={2.5}
-                />
-            )}
-            {/* data-mark on every mark a test needs to find. These used to be
+                        fill="rgba(255,255,255,0.22)"
+                        stroke={INK_2}
+                        strokeWidth={2.5}
+                    />
+                )}
+                {/* data-mark on every mark a test needs to find. These used to be
                 selected as querySelectorAll('line')[2] — a positional index
                 into the drawing, which every visual change silently breaks and
                 which says nothing about what it selected. */}
-            <line
-                data-mark="boom"
-                x1={CX}
-                y1={MAST_Y}
-                x2={boomX.toFixed(1)}
-                y2={boomY.toFixed(1)}
-                stroke={mainDown ? MUTED : INK}
-                strokeWidth={mainDown ? 3.5 : 6}
-                strokeLinecap="round"
-                opacity={mainDown ? 0.5 : 1}
-            />
-            <circle data-mark="mast" cx={CX} cy={MAST_Y} r={7} fill={INK} stroke={CASING} strokeWidth={2} />
+                <line
+                    data-mark="boom"
+                    x1={CX}
+                    y1={MAST_Y}
+                    x2={boomX.toFixed(1)}
+                    y2={boomY.toFixed(1)}
+                    stroke={mainDown ? MUTED : INK}
+                    strokeWidth={mainDown ? 3.5 : 6}
+                    strokeLinecap="round"
+                    opacity={mainDown ? 0.5 : 1}
+                />
+                <circle data-mark="mast" cx={CX} cy={MAST_Y} r={7} fill={INK} stroke={CASING} strokeWidth={2} />
 
-            {/* ── the pole, when the yankee is out on it ──
+                {/* ── the pole, when the yankee is out on it ──
                 The only piece of gear left on the drawing (2026-09-09): it
                 goes to WINDWARD, the opposite side to everything else, and it
                 is why the yankee is drawn on that side. The traveller, its
                 car, the mainsheet, the yankee car, its track and the rail
                 block came off the boat — "we know what they are". */}
-            {yankeeSet && poled && (
-                <>
-                    <line
-                        data-mark="pole"
-                        x1={CX}
-                        y1={MAST_Y - 8}
-                        x2={(CX - lee * 84).toFixed(1)}
-                        y2={(MAST_Y - 50).toFixed(1)}
-                        stroke={INK}
-                        strokeWidth={5}
-                        strokeLinecap="round"
-                    />
-                    <text
-                        x={(CX - lee * 84).toFixed(1)}
-                        y={(MAST_Y - 62).toFixed(1)}
-                        textAnchor="middle"
-                        fill={INK_2}
-                        fontSize={15}
-                        fontWeight={800}
-                        style={LABEL}
-                    >
-                        POLED
-                    </text>
-                </>
-            )}
-            {/* ── the two things that hurt people ──
-                These were the SMALLEST text in the drawing at 11px, under
-                marks four times their weight. An unexpected boom is the injury
-                this panel exists to prevent; that hierarchy was inverted. */}
-            {(() => {
-                const pills = [prevent && 'PREVENTER ON', runners && 'RUNNERS ON'].filter(Boolean) as string[];
-                if (pills.length === 0) {
-                    return hasWind ? null : (
+                {yankeeSet && poled && (
+                    <>
+                        <line
+                            data-mark="pole"
+                            x1={CX}
+                            y1={MAST_Y - 8}
+                            x2={(CX - lee * 84).toFixed(1)}
+                            y2={(MAST_Y - 50).toFixed(1)}
+                            stroke={INK}
+                            strokeWidth={5}
+                            strokeLinecap="round"
+                        />
                         <text
-                            x={CX}
-                            y={H - 26}
+                            x={(CX - lee * 84).toFixed(1)}
+                            y={(MAST_Y - 62).toFixed(1)}
                             textAnchor="middle"
-                            fill={MUTED}
-                            fontSize={14}
-                            fontWeight={700}
+                            fill={INK_2}
+                            fontSize={15}
+                            fontWeight={800}
                             style={LABEL}
                         >
-                            no wind angle
+                            POLED
                         </text>
-                    );
-                }
-                return pills.map((text, i) => {
-                    const y = H - 52 + i * 34;
-                    return (
-                        <g key={text}>
-                            <rect
-                                x={CX - 92}
-                                y={y}
-                                width={184}
-                                height={28}
-                                rx={9}
-                                fill="rgba(251,191,36,0.14)"
-                                stroke="rgba(251,191,36,0.45)"
-                                strokeWidth={1.5}
-                            />
-                            <text
-                                x={CX}
-                                y={y + 19}
-                                textAnchor="middle"
-                                fill={WARN}
-                                fontSize={15}
-                                fontWeight={800}
-                                style={LABEL}
-                            >
-                                {text}
-                            </text>
-                        </g>
-                    );
-                });
-            })()}
-        </svg>
+                    </>
+                )}
+                <g data-mark="yankee-car-guide">
+                    <rect x={carX} y={270} width={112} height={110} rx={12} fill="#0f172a" stroke={METAL} />
+                    <text x={carX + 56} y={290} textAnchor="middle" fill={INK_2} fontSize={14} fontWeight={800}>
+                        YANKEE CAR
+                    </text>
+                    <line x1={carX + 24} x2={carX + 24} y1={306} y2={350} stroke={METAL} strokeWidth={3} />
+                    {/* A dashed full-travel outline, not a dot at an invented position. */}
+                    <rect
+                        x={carX + 17}
+                        y={305}
+                        width={14}
+                        height={46}
+                        rx={4}
+                        fill="none"
+                        stroke={INK_2}
+                        strokeDasharray="3 3"
+                    />
+                    <text x={carX + 40} y={316} fill={MUTED} fontSize={14} fontWeight={700}>
+                        FWD
+                    </text>
+                    <text x={carX + 40} y={350} fill={MUTED} fontSize={14} fontWeight={700}>
+                        AFT
+                    </text>
+                    <text x={carX + 56} y={370} textAnchor="middle" fill={INK_2} fontSize={14} fontWeight={700}>
+                        {carLabel}
+                    </text>
+                </g>
+            </svg>
+            <p className="sail-guide-caption">Yankee fore/aft setting not measured.</p>
+            {!hasWind && <p className="sail-guide-caption">no wind angle</p>}
+            <section
+                className="sail-traveller-guide"
+                data-mark="traveller-guide"
+                aria-label={`Suggested traveller: ${traveller.label}`}
+            >
+                <h3>TRAVELLER</h3>
+                <p className="sail-traveller-setting">{traveller.label}</p>
+                <svg className="nmea-instrument" viewBox="0 0 340 62" aria-hidden="true">
+                    <line x1={42} x2={298} y1={22} y2={22} stroke={METAL} strokeWidth={5} strokeLinecap="round" />
+                    <line x1={170} x2={170} y1={10} y2={32} stroke={MUTED} strokeWidth={2} strokeDasharray="3 3" />
+                    {traveller.leeOffset !== null && (
+                        <rect
+                            data-mark="traveller-car"
+                            x={170 + lee * traveller.leeOffset * 120 - 10}
+                            y={12}
+                            width={20}
+                            height={20}
+                            rx={5}
+                            fill={INK_2}
+                            stroke={CASING}
+                            strokeWidth={2}
+                        />
+                    )}
+                    <text x={42} y={54} textAnchor="middle" fill={MUTED} fontSize={14} fontWeight={700}>
+                        PORT
+                    </text>
+                    <text x={170} y={54} textAnchor="middle" fill={MUTED} fontSize={14} fontWeight={700}>
+                        CENTRE
+                    </text>
+                    <text x={298} y={54} textAnchor="middle" fill={MUTED} fontSize={14} fontWeight={700}>
+                        STBD
+                    </text>
+                </svg>
+            </section>
+            {(prevent || runners) && (
+                <div className="sail-plan-warnings">
+                    {prevent && <p data-mark="sail-warning">PREVENTER ON</p>}
+                    {runners && <p data-mark="sail-warning">RUNNERS ON</p>}
+                </div>
+            )}
+        </div>
     );
 };

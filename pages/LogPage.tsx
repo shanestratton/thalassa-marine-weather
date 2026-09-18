@@ -85,6 +85,7 @@ import { RemotePassageCard } from './log/RemotePassageCard';
 import { isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
+import { useFollowRoutePickerIdentity } from '../hooks/useFollowRoutePickerIdentity';
 
 import {
     NO_ENTRIES,
@@ -586,14 +587,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // being offered).
     /** voyageId → savedRouteId, read off the resident plan entries (the link
      *  lives on entries, not summaries). */
-    const plannedRouteLinkIds = React.useMemo(() => derivePlannedRouteLinkIds(state.entries), [state.entries]);
+    const residentRouteLinkIds = React.useMemo(() => derivePlannedRouteLinkIds(state.entries), [state.entries]);
+    const followRouteIdentity = useFollowRoutePickerIdentity(
+        plannedSummaries,
+        residentRouteLinkIds,
+        state.entries,
+        identityScope,
+    );
+    const {
+        links: plannedRouteLinkIds,
+        geometryLinks: plannedRouteGeometryIds,
+        reconcileSnapshot: reconcileFollowSnapshot,
+    } = followRouteIdentity;
 
     // There-and-back day sails fold into one choice; a trip's legs never do
     // (Shane 2026-09-08: the fold ate the last leg of Newport → Whitsundays
     // under its own homeward twin).
     const plannedChoices = React.useMemo(
-        () => collapseOutsideTrips(plannedSummaries, plannedRouteLinkIds, currentFix),
-        [plannedSummaries, plannedRouteLinkIds, currentFix],
+        () => collapseOutsideTrips(followRouteIdentity.summaries, plannedRouteLinkIds, currentFix),
+        [followRouteIdentity.summaries, plannedRouteLinkIds, currentFix],
     );
 
     /**
@@ -617,6 +629,49 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         () => buildFollowSheetChoices(plannedChoices, plannedRouteLinkIds),
         [plannedChoices, plannedRouteLinkIds],
     );
+
+    // A historical mirror can be identified after the sheet opened. Refine
+    // only that frozen snapshot, preserving its directions and membership;
+    // never reload/sort the live voyage list under a skipper's finger.
+    React.useEffect(() => {
+        if (
+            (!preStartSheetOpen && followPromptVoyageId === null) ||
+            followPromptLoadingId ||
+            recheckingRouteId ||
+            ackReport
+        )
+            return;
+        setFollowPromptChoices((previous) => {
+            const identity = reconcileFollowSnapshot(previous.map((choice) => choice.summary));
+            const keep = new Set(identity.summaries.map((summary) => summary.voyageId));
+            const next = buildFollowSheetChoices(
+                previous.filter((choice) => keep.has(choice.summary.voyageId)),
+                identity.links,
+            );
+            const unchanged =
+                next.length === previous.length &&
+                next.every((choice, index) => {
+                    const prior = previous[index];
+                    return (
+                        choice.summary === prior.summary &&
+                        choice.savedRouteId === prior.savedRouteId &&
+                        choice.tripId === prior.tripId &&
+                        choice.legOrdinal === prior.legOrdinal &&
+                        choice.tripName === prior.tripName &&
+                        choice.legName === prior.legName &&
+                        choice.blockReason === prior.blockReason
+                    );
+                });
+            return unchanged ? previous : next;
+        });
+    }, [
+        reconcileFollowSnapshot,
+        preStartSheetOpen,
+        followPromptVoyageId,
+        followPromptLoadingId,
+        recheckingRouteId,
+        ackReport,
+    ]);
 
     /**
      * Take a blocked row to the one screen that can clear its block.
@@ -833,6 +888,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             const actionScope = identityScope;
             const voyageId = summary.voyageId;
             if (!voyageId || !isAuthIdentityScopeCurrent(actionScope)) return false;
+            const pickerTraceId = plannedRouteGeometryIds.get(voyageId);
 
             const selectionGeneration = ++followSelectionGenerationRef.current;
             const initialFollow = useFollowRouteStore.getState();
@@ -869,7 +925,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 // drew. One object from here on: verified, planned and
                 // followed are the same geometry by construction, which is
                 // what stops the check and the follow disagreeing.
-                const steerRoute = tracedRouteFollowGeometry(logRoute);
+                // Keep the picker’s proven canonical identity through the use
+                // gate too. Legacy entries may predate saved_route_id; otherwise
+                // the grouped row would be checked in the picker but treated as
+                // an unlinked ordinary plan when actually followed.
+                const linkedRoute =
+                    !logRoute.savedRouteId && pickerTraceId ? { ...logRoute, savedRouteId: pickerTraceId } : logRoute;
+                const steerRoute = tracedRouteFollowGeometry(linkedRoute);
                 const traceBlock = tracedRouteDirectUseBlockReason(steerRoute);
                 if (traceBlock) throw new Error(`${TRACE_ROUTE_USE_BLOCK_PREFIX}${traceBlock}`);
                 const exactPlan = buildFollowRoutePlanFromRoute(steerRoute);
@@ -882,7 +944,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 return false;
             }
         },
-        [identityScope, state.entries],
+        [identityScope, state.entries, plannedRouteGeometryIds],
     );
 
     /**

@@ -25,7 +25,8 @@ describe('paid weather upstream boundaries', () => {
         expect(source).toContain("allowedKeys: new Set<string>(['lat', 'lng', 'start', 'end'])");
         expect(source).toContain('WEATHER_PARAMETERS');
         expect(source).toContain("'secondarySwellHeight'");
-        expect(source).toContain("new Set(['sg', 'ecmwf', 'gfs', 'icon'])");
+        expect(source).toContain('normalizeStormGlassSources(params.source)');
+        expect(source).toContain('if (sources === null) return null');
         expect(source).toContain('end - start > maxWindowMs');
         expect(source).toContain('MAX_UPSTREAM_BYTES = 3_000_000');
         expect(source).toContain('isValidStormGlassResponse(');

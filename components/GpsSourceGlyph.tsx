@@ -14,7 +14,7 @@
 import React from 'react';
 import { useWeatherOptional } from '../context/WeatherContext';
 import { useNmeaConnectionStatus } from './nmea/useNmeaStore';
-import type { WeatherFixKind } from '../services/weatherPosition';
+import { formatFixAge, type WeatherFixKind, type WeatherFollowTarget } from '../services/weatherPosition';
 
 export type GpsGlyph = 'boat' | 'phone' | 'none';
 export type GpsTone = 'live' | 'cloud' | 'held' | 'phone' | 'none';
@@ -33,25 +33,61 @@ export function resolveGpsSourceState(input: {
     weatherKind: WeatherFixKind | null;
     storeStatus: 'connected' | 'connecting' | 'disconnected' | 'error' | 'remote';
     remoteVia: 'lan' | 'cloud' | null;
+    target?: WeatherFollowTarget;
+    status?: 'live' | 'last-known' | 'unavailable' | 'resolving';
+    retainedWeather?: boolean;
+    timestamp?: number;
+    hasWeatherContext?: boolean;
 }): GpsSourceState {
-    const { weatherKind, storeStatus, remoteVia } = input;
-    const busLive = storeStatus === 'connected' || (storeStatus === 'remote' && remoteVia === 'lan');
+    const { weatherKind, storeStatus, remoteVia, target, status, timestamp } = input;
+    if (status === 'resolving') {
+        return {
+            glyph: target ?? 'none',
+            tone: 'none',
+            label: `Position: finding ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS location`,
+            canChoose: false,
+        };
+    }
+    if (status === 'unavailable') {
+        const now = Date.now();
+        const fixAge =
+            typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0 && timestamp <= now
+                ? formatFixAge(now - timestamp)
+                : 'age unavailable';
+        return {
+            glyph: target ?? 'none',
+            tone: 'none',
+            label: `Position: ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS unavailable${input.retainedWeather ? ` — showing forecast for the last location · fix ${fixAge}` : ''}`,
+            canChoose: false,
+        };
+    }
+    if (weatherKind === 'phone') {
+        return status === 'last-known'
+            ? {
+                  glyph: 'phone',
+                  tone: 'held',
+                  label: `Position: this phone’s last fix · ${formatFixAge(Date.now() - (timestamp ?? 0))}`,
+                  canChoose: false,
+              }
+            : { glyph: 'phone', tone: 'phone', label: 'Position: this phone’s GPS', canChoose: false };
+    }
+    // Instrument connectivity cannot override which receiver weather follows.
+    const fallbackToInstruments = input.hasWeatherContext === false;
+    const busLive =
+        fallbackToInstruments && (storeStatus === 'connected' || (storeStatus === 'remote' && remoteVia === 'lan'));
     if (busLive || weatherKind === 'bus' || weatherKind === 'pi') {
         return { glyph: 'boat', tone: 'live', label: 'Position: the boat’s GPS, live', canChoose: false };
     }
-    if (weatherKind === 'cloud' || (storeStatus === 'remote' && remoteVia === 'cloud')) {
+    if (weatherKind === 'cloud' || (fallbackToInstruments && storeStatus === 'remote' && remoteVia === 'cloud')) {
         return { glyph: 'boat', tone: 'cloud', label: 'Position: the boat’s GPS, through the cloud', canChoose: false };
     }
     if (weatherKind === 'held') {
         return {
             glyph: 'boat',
             tone: 'held',
-            label: 'Position: the boat’s last fix — tap to choose the boat or this phone',
+            label: `Position: the boat’s last fix${timestamp ? ` · ${formatFixAge(Date.now() - timestamp)}` : ''} — tap to choose the boat or this phone`,
             canChoose: true,
         };
-    }
-    if (weatherKind === 'phone') {
-        return { glyph: 'phone', tone: 'phone', label: 'Position: this phone’s GPS', canChoose: false };
     }
     return { glyph: 'none', tone: 'none', label: 'Position: none yet', canChoose: false };
 }
@@ -110,6 +146,11 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
         weatherKind: weather?.positionSource?.kind ?? null,
         storeStatus: link.status,
         remoteVia: link.remote?.via ?? null,
+        target: weather?.positionSource?.target,
+        status: weather?.positionSource?.status,
+        retainedWeather: weather?.positionSource?.retainedWeather,
+        timestamp: weather?.positionSource?.timestamp,
+        hasWeatherContext: weather != null,
     });
     return { state, choice: weather?.positionChoice };
 }

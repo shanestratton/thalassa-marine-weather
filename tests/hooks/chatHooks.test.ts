@@ -119,6 +119,10 @@ vi.mock('../../services/ChatService', () => ({
         getDMConversations: mockGetDMConversations,
         getDMThread: mockGetDMThread,
         isBlocked: mockIsBlocked,
+        getDMBlockStatus: async (userId: string) => {
+            const blocked = await mockIsBlocked(userId);
+            return { blockedByMe: blocked, blockedEitherDirection: blocked };
+        },
         sendDM: mockSendDM,
         blockUser: mockBlockUser,
         unblockUser: mockUnblockUser,
@@ -618,6 +622,7 @@ describe('useChatDMs', () => {
 
     it('sendDMMessage handles blocked response', async () => {
         mockSendDM.mockResolvedValueOnce('blocked');
+        mockIsBlocked.mockResolvedValueOnce(true);
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
 
         act(() => {
@@ -631,6 +636,7 @@ describe('useChatDMs', () => {
     });
 
     it('handleBlockUser blocks and updates state', async () => {
+        mockIsBlocked.mockResolvedValueOnce(true);
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
         act(() => result.current.setDmPartner({ id: 'u2', name: 'Bob' }));
 

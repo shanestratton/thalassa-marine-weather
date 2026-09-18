@@ -70,6 +70,14 @@ export type GuardianState = {
     nearbyCount: number;
 };
 
+export type GuardianBroadcastResult = {
+    success: boolean;
+    /** Other vessels queued for a push, not confirmed delivery or readership. */
+    notified: number;
+    feedConfirmed?: boolean;
+    uncertain?: boolean;
+};
+
 type GuardianListener = (state: GuardianState) => void;
 
 export const HAIL_MESSAGES = [
@@ -159,6 +167,7 @@ class GuardianServiceClass {
     private initializedScopeKey: string | null = null;
     private initializePromise: Promise<void> | null = null;
     private lifecycleVersion = 0;
+    private alertFeedVersion = 0;
 
     constructor() {
         subscribeAuthIdentityScope(() => {
@@ -432,7 +441,7 @@ class GuardianServiceClass {
         }
     }
 
-    async reportSuspicious(description: string): Promise<{ success: boolean; notified: number }> {
+    async reportSuspicious(description: string): Promise<GuardianBroadcastResult> {
         const text = normaliseText(description, MAX_ALERT_TEXT);
         const operation = await this.captureVerifiedOperation();
         if (!text || !operation || !supabase || !this.state.armed) return { success: false, notified: 0 };
@@ -449,8 +458,14 @@ class GuardianServiceClass {
         const profile = this.state.profile?.user_id === ownerId ? cloneProfile(this.state.profile) : null;
         const vesselName = normaliseText(profile?.vessel_name, MAX_PROFILE_TEXT) ?? 'A nearby vessel';
 
+        let broadcastStarted = false;
         try {
-            const { data, error } = await supabase.rpc('broadcast_guardian_alert', {
+            const { error: heartbeatError } = await supabase.rpc('guardian_heartbeat', { lat, lon });
+            if (heartbeatError || !this.state.armed || !this.operationIsCurrent(scope, version)) {
+                return { success: false, notified: 0 };
+            }
+            broadcastStarted = true;
+            const { data, error } = await supabase.rpc('broadcast_guardian_alert_with_receipt', {
                 sender_user_id: ownerId,
                 p_alert_type: 'suspicious',
                 lat,
@@ -462,20 +477,22 @@ class GuardianServiceClass {
             });
             if (error || !this.state.armed || !this.operationIsCurrent(scope, version)) {
                 if (error) log.error('[Guardian] Report suspicious error:', error.message);
+                if (error && this.state.armed && this.operationIsCurrent(scope, version)) {
+                    return this.broadcastFailure(error, scope, version);
+                }
                 return { success: false, notified: 0 };
             }
-            await this.fetchAlertsFor(scope, version);
-            return {
-                success: this.state.armed && this.operationIsCurrent(scope, version),
-                notified: Number.isFinite(Number(data)) ? Number(data) : 0,
-            };
+            return this.acceptBroadcastReceipt(data, 'suspicious', scope, version);
         } catch (error) {
             log.error('[Guardian] Report suspicious exception:', error);
+            if (broadcastStarted && this.state.armed && this.operationIsCurrent(scope, version)) {
+                return this.broadcastFailure(error, scope, version);
+            }
             return { success: false, notified: 0 };
         }
     }
 
-    async broadcastWeatherSpike(message: string): Promise<{ success: boolean; notified: number }> {
+    async broadcastWeatherSpike(message: string): Promise<GuardianBroadcastResult> {
         const text = normaliseText(message, MAX_ALERT_TEXT);
         const operation = await this.captureVerifiedOperation();
         if (!text || !operation || !supabase || !this.state.armed) return { success: false, notified: 0 };
@@ -490,8 +507,14 @@ class GuardianServiceClass {
         const lat = position.lat;
         const lon = position.lon;
 
+        let broadcastStarted = false;
         try {
-            const { data, error } = await supabase.rpc('broadcast_guardian_alert', {
+            const { error: heartbeatError } = await supabase.rpc('guardian_heartbeat', { lat, lon });
+            if (heartbeatError || !this.state.armed || !this.operationIsCurrent(scope, version)) {
+                return { success: false, notified: 0 };
+            }
+            broadcastStarted = true;
+            const { data, error } = await supabase.rpc('broadcast_guardian_alert_with_receipt', {
                 sender_user_id: ownerId,
                 p_alert_type: 'weather_spike',
                 lat,
@@ -503,15 +526,17 @@ class GuardianServiceClass {
             });
             if (error || !this.state.armed || !this.operationIsCurrent(scope, version)) {
                 if (error) log.error('[Guardian] Weather broadcast error:', error.message);
+                if (error && this.state.armed && this.operationIsCurrent(scope, version)) {
+                    return this.broadcastFailure(error, scope, version);
+                }
                 return { success: false, notified: 0 };
             }
-            await this.fetchAlertsFor(scope, version);
-            return {
-                success: this.state.armed && this.operationIsCurrent(scope, version),
-                notified: Number.isFinite(Number(data)) ? Number(data) : 0,
-            };
+            return this.acceptBroadcastReceipt(data, 'weather_spike', scope, version);
         } catch (error) {
             log.error('[Guardian] Weather broadcast exception:', error);
+            if (broadcastStarted && this.state.armed && this.operationIsCurrent(scope, version)) {
+                return this.broadcastFailure(error, scope, version);
+            }
             return { success: false, notified: 0 };
         }
     }
@@ -700,8 +725,64 @@ class GuardianServiceClass {
         }
     }
 
+    /** Publish only the committed server row, never an optimistic alert or a self-push. */
+    private broadcastFailure(error: unknown, scope: AuthIdentityScope, version: number): GuardianBroadcastResult {
+        const code = (error as { code?: unknown } | null)?.code;
+        // A PostgreSQL statement error rolls the broadcast transaction back.
+        // A lost HTTP response does not tell us whether the server committed.
+        if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return { success: false, notified: 0 };
+        void this.fetchAlertsFor(scope, version);
+        return { success: false, notified: 0, uncertain: true };
+    }
+
+    private acceptBroadcastReceipt(
+        data: unknown,
+        alertType: GuardianAlert['alert_type'],
+        scope: AuthIdentityScope,
+        version: number,
+    ): GuardianBroadcastResult {
+        if (!this.state.armed || !this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
+        const receipt = data as { notified?: unknown; alert?: Partial<GuardianAlert> } | null;
+        const notified =
+            typeof receipt?.notified === 'number' && Number.isInteger(receipt.notified) && receipt.notified >= 0
+                ? receipt.notified
+                : 0;
+        const alert = receipt?.alert;
+        if (
+            !alert ||
+            typeof alert.id !== 'string' ||
+            !alert.id ||
+            alert.alert_type !== alertType ||
+            !validCoordinates(alert.lat, alert.lon) ||
+            typeof alert.title !== 'string' ||
+            typeof alert.body !== 'string' ||
+            typeof alert.created_at !== 'string' ||
+            !Number.isFinite(Date.parse(alert.created_at)) ||
+            alert.data?.sent_by_you !== true
+        ) {
+            // The RPC succeeded, so do not automatically retry and broadcast twice.
+            // Leave the feed unchanged and let the normal read path confirm it.
+            void this.fetchAlertsFor(scope, version);
+            return { success: true, notified, feedConfirmed: false };
+        }
+
+        // A poll started before the send may still contain an empty/older feed.
+        // It must not erase this server-confirmed receipt when it finally arrives.
+        this.alertFeedVersion += 1;
+        this.state = {
+            ...this.state,
+            alerts: cloneAlerts([
+                alert as GuardianAlert,
+                ...this.state.alerts.filter((existing) => existing.id !== alert.id),
+            ]).slice(0, 50),
+        };
+        this.notify();
+        return { success: true, notified, feedConfirmed: true };
+    }
+
     private async fetchAlertsFor(scope: AuthIdentityScope, version: number): Promise<GuardianAlert[]> {
         if (!supabase || !scope.userId || !this.state.armed || !this.operationIsCurrent(scope, version)) return [];
+        const feedVersion = ++this.alertFeedVersion;
         try {
             if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return [];
             if (!this.state.armed) return [];
@@ -709,7 +790,13 @@ class GuardianServiceClass {
                 radius_nm: 10,
                 max_hours: 24,
             });
-            if (!this.operationIsCurrent(scope, version)) return [];
+            if (
+                !this.state.armed ||
+                !this.operationIsCurrent(scope, version) ||
+                feedVersion !== this.alertFeedVersion
+            ) {
+                return [];
+            }
             if (error) {
                 log.warn('[Guardian] Alerts fetch error:', error.message);
                 return [];

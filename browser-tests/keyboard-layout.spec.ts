@@ -28,6 +28,18 @@ async function visibleAboveKeyboard(page: Page, field: Locator, height: number) 
         .toBe(true);
 }
 
+async function headerHasNotMovedBehindKeyboard(page: Page, height: number) {
+    // The current-location flow is a modal. Its intentional backdrop covers
+    // the chat header, which must retain its layout but is not interactive
+    // until the modal closes. The note itself still requires hit-testing.
+    await expect
+        .poll(async () => {
+            const box = await page.getByTestId('chat-header').boundingBox();
+            return !!box && box.y === 60 && box.y + box.height <= page.viewportSize()!.height - height;
+        })
+        .toBe(true);
+}
+
 for (const mode of ['short', 'long', 'legacy', 'bottom']) {
     for (const size of [
         { name: 'phone', width: 390, height: 844, keyboard: 344 },
@@ -109,7 +121,7 @@ for (const size of [
         await keyboard(page, size.keyboard);
         await expect(note).toBeFocused();
         await visibleAboveKeyboard(page, note, size.keyboard);
-        await visibleAboveKeyboard(page, page.getByTestId('chat-header'), size.keyboard);
+        await headerHasNotMovedBehindKeyboard(page, size.keyboard);
         await expect
             .poll(() =>
                 page.evaluate(() =>
@@ -126,8 +138,9 @@ for (const size of [
         await expect(page.getByTestId('shared-note')).toHaveText('Anchored for the night');
         await keyboard(page, 0);
         await visibleAboveKeyboard(page, note, 0);
-        await visibleAboveKeyboard(page, page.getByTestId('chat-header'), 0);
+        await headerHasNotMovedBehindKeyboard(page, 0);
         await page.getByRole('button', { name: 'Close current location sheet' }).click();
+        await visibleAboveKeyboard(page, page.getByTestId('chat-header'), 0);
         await expect(page.getByRole('textbox', { name: 'Type a message', exact: true })).toHaveValue(
             'Unsent channel draft',
         );

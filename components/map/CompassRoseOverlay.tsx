@@ -73,26 +73,33 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
                     cx="60"
                     cy="60"
                     r="57"
-                    fill="rgba(4,14,24,0.40)"
-                    stroke="rgba(255,255,255,0.4)"
+                    fill="var(--day-ui-surface, rgba(4,14,24,0.40))"
+                    stroke="var(--day-ui-border, rgba(255,255,255,0.4))"
                     strokeWidth="1.5"
                 />
-                <circle cx="60" cy="60" r="44" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="44"
+                    fill="none"
+                    stroke="var(--day-ui-grid, rgba(255,255,255,0.18))"
+                    strokeWidth="1"
+                />
                 {/* Intercardinal arms (shorter, muted) */}
                 {[45, 135, 225, 315].map((a) => (
                     <path
                         key={a}
                         d="M60 32 L64 55 L60 60 L56 55 Z"
-                        fill="rgba(148,163,184,0.75)"
+                        fill="var(--day-ui-muted, rgba(148,163,184,0.75))"
                         transform={`rotate(${a} 60 60)`}
                     />
                 ))}
                 {/* Cardinal arms — N red, the rest bone-white */}
                 {[
                     { a: 0, fill: '#ef4444' },
-                    { a: 90, fill: '#e2e8f0' },
-                    { a: 180, fill: '#e2e8f0' },
-                    { a: 270, fill: '#e2e8f0' },
+                    { a: 90, fill: 'var(--day-ui-text, #e2e8f0)' },
+                    { a: 180, fill: 'var(--day-ui-text, #e2e8f0)' },
+                    { a: 270, fill: 'var(--day-ui-text, #e2e8f0)' },
                 ].map(({ a, fill }) => (
                     <path
                         key={a}
@@ -103,13 +110,20 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
                         transform={`rotate(${a} 60 60)`}
                     />
                 ))}
-                <circle cx="60" cy="60" r="3.5" fill="#e2e8f0" stroke="rgba(2,10,18,0.7)" strokeWidth="1" />
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="3.5"
+                    fill="var(--day-ui-text, #e2e8f0)"
+                    stroke="rgba(2,10,18,0.7)"
+                    strokeWidth="1"
+                />
                 {/* Letters ride the card like a real compass rose */}
                 {[
-                    { l: 'N', x: 60, y: 15, fill: '#f87171' },
-                    { l: 'E', x: 106, y: 64.5, fill: '#e2e8f0' },
-                    { l: 'S', x: 60, y: 113, fill: '#e2e8f0' },
-                    { l: 'W', x: 14, y: 64.5, fill: '#e2e8f0' },
+                    { l: 'N', x: 60, y: 15, fill: 'var(--day-ui-danger, #f87171)' },
+                    { l: 'E', x: 106, y: 64.5, fill: 'var(--day-ui-text, #e2e8f0)' },
+                    { l: 'S', x: 60, y: 113, fill: 'var(--day-ui-text, #e2e8f0)' },
+                    { l: 'W', x: 14, y: 64.5, fill: 'var(--day-ui-text, #e2e8f0)' },
                 ].map(({ l, x, y, fill }) => (
                     <text
                         key={l}
@@ -120,7 +134,7 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
                         fontWeight="900"
                         fontFamily="system-ui, sans-serif"
                         textAnchor="middle"
-                        stroke="rgba(2,10,18,0.85)"
+                        stroke="var(--day-ui-surface, rgba(2,10,18,0.85))"
                         strokeWidth="2.5"
                         paintOrder="stroke"
                     >

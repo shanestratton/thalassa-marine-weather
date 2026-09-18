@@ -238,9 +238,9 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
 
     // Severity → colour scheme
     const severityStyle: Record<Threat['severity'], { border: string; text: string; pulse: boolean }> = {
-        caution: { border: 'rgba(251, 191, 36, 0.5)', text: '#fcd34d', pulse: false }, // amber
-        warning: { border: 'rgba(249, 115, 22, 0.6)', text: '#fdba74', pulse: false }, // orange
-        danger: { border: 'rgba(239, 68, 68, 0.7)', text: '#fca5a5', pulse: true }, // red
+        caution: { border: 'rgba(251, 191, 36, 0.5)', text: 'var(--day-ui-amber, #fcd34d)', pulse: false }, // amber
+        warning: { border: 'rgba(249, 115, 22, 0.6)', text: 'var(--day-ui-orange, #fdba74)', pulse: false }, // orange
+        danger: { border: 'rgba(239, 68, 68, 0.7)', text: 'var(--day-ui-danger, #fca5a5)', pulse: true }, // red
     };
     const sev = severityStyle[threat.severity];
 
@@ -258,13 +258,13 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
             className="fixed left-1/2 chart-chip-centered z-805 flex items-center gap-3 text-left transition-all chart-chip-in"
             style={{
                 top: 'max(58px, calc(env(safe-area-inset-top) + 56px))', // sits below the modes chip
-                background: 'rgba(15, 23, 42, 0.92)',
+                background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.92))',
                 backdropFilter: 'blur(20px)',
                 WebkitBackdropFilter: 'blur(20px)',
                 border: `1px solid ${sev.border}`,
                 borderRadius: 14,
                 padding: '8px 14px',
-                color: 'rgba(255,255,255,0.92)',
+                color: 'var(--day-ui-text, rgba(255,255,255,0.92))',
                 boxShadow: `0 8px 24px rgba(0,0,0,0.5), 0 0 16px ${sev.border}`,
                 animation: sev.pulse ? 'threat-pulse 2.4s ease-in-out infinite' : undefined,
                 maxWidth: 'calc(100vw - 32px)',

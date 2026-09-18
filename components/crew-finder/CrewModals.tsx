@@ -140,10 +140,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             className="bg-slate-900 border border-sky-500/20 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <h3
-                                id="introduction-note-title"
-                                className="text-lg font-bold text-transparent bg-clip-text bg-linear-to-r from-emerald-200 to-sky-200 mb-1"
-                            >
+                            <h3 id="introduction-note-title" className="ui-dialog-title mb-1">
                                 ✉️ Send an introduction
                             </h3>
                             <p className="text-xs text-white/40 mb-4">

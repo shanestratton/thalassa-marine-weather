@@ -7,6 +7,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 import mapboxgl from 'mapbox-gl';
 import { createGradientPinMarker } from '../../utils/createMarkerEl';
 import { exportPinAsGPX } from './chatUtils';
@@ -27,6 +28,7 @@ interface PinMapViewerProps {
 }
 
 export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng, caption, onClose }) => {
+    const portalTarget = usePanePortalTarget();
     const mapContainer = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const [mapReady, setMapReady] = useState(false);
@@ -173,12 +175,13 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
 
     // Block body scroll when open
     useEffect(() => {
+        if (portalTarget !== document.body) return;
         const previousOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
             document.body.style.overflow = previousOverflow;
         };
-    }, []);
+    }, [portalTarget]);
 
     const formattedLat = `${Math.abs(lat).toFixed(4)}°${lat < 0 ? 'S' : 'N'}`;
     const formattedLng = `${Math.abs(lng).toFixed(4)}°${lng < 0 ? 'W' : 'E'}`;
@@ -195,7 +198,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
         <div
             ref={dialogRef}
             role="dialog"
-            aria-modal="true"
+            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
             aria-labelledby="pin-map-viewer-title"
             className="fixed inset-0 z-9999 bg-black/95 flex flex-col"
         >
@@ -278,7 +281,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 </button>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 });
 

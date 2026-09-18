@@ -1,7 +1,7 @@
 /**
  * @filesize-justified Single React.memo component — monolithic render with no natural sub-component boundaries.
  */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { TideGraph } from './TideAndVessel';
 // MapHub removed from essential mode — uses static image to prevent GPU heating
 import { DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, CloudIcon, WaveIcon } from '../Icons';
@@ -114,8 +114,20 @@ const HeroSlideComponent = ({
     // 1. STATE HOISTING (Zero-Latency Architecture)
     // We define the scroll state AT THE TOP so it drives the entire component synchronously.
     const [activeHIdx, setActiveHIdx] = useState(0);
-    // Tide graph ↔ wind-vs-tide flip (single press on the tide card toggles).
+    // Press the tide graph to open wind-vs-tide; its back control closes it.
     const [showWindVsTide, setShowWindVsTide] = useState(false);
+    const windTideFocusTargetRef = useRef<HTMLDivElement | null>(null);
+    useLayoutEffect(() => {
+        // One face opens in every hourly slide, but only the keyboard-used
+        // card may take focus. Pointer/touch flips leave focus alone.
+        const card = windTideFocusTargetRef.current;
+        windTideFocusTargetRef.current = null;
+        if (!card?.isConnected) return;
+        const target = showWindVsTide
+            ? card.querySelector<HTMLElement>('[role="region"][aria-label="Wind versus tide details"]')
+            : card;
+        target?.focus({ preventScroll: true });
+    }, [showWindVsTide]);
     const floodDirection = useSettingsStore((s) => s.settings.tideFloodDirection);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
 
@@ -706,7 +718,15 @@ const HeroSlideComponent = ({
                                             graph shows: the wind-vs-tide face carries its own controls,
                                             and a button may not contain buttons. */}
                                         <div
-                                            onClick={() => setShowWindVsTide((v) => !v)}
+                                            data-wind-tide-card
+                                            onClick={
+                                                showWindVsTide
+                                                    ? undefined
+                                                    : () => {
+                                                          windTideFocusTargetRef.current = null;
+                                                          setShowWindVsTide(true);
+                                                      }
+                                            }
                                             role={showWindVsTide ? undefined : 'button'}
                                             tabIndex={showWindVsTide ? undefined : 0}
                                             aria-label={showWindVsTide ? undefined : 'Show wind versus tide'}
@@ -714,11 +734,12 @@ const HeroSlideComponent = ({
                                                 if (showWindVsTide) return;
                                                 if (e.key === 'Enter' || e.key === ' ') {
                                                     e.preventDefault();
+                                                    windTideFocusTargetRef.current = e.currentTarget;
                                                     setShowWindVsTide(true);
                                                 }
                                             }}
-                                            title="Tap for wind vs tide"
-                                            className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] cursor-pointer ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
+                                            title={showWindVsTide ? undefined : 'Tap for wind vs tide'}
+                                            className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${showWindVsTide ? '' : 'cursor-pointer'} ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
                                         >
                                             {/* BG Gradient — golden hour amber tinge */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
@@ -730,7 +751,6 @@ const HeroSlideComponent = ({
                                                 {showWindVsTide ? (
                                                     <WindVsTideView
                                                         tideSeries={tideHourly}
-                                                        hourly={hourly}
                                                         now={{
                                                             windDeg: cardData.windDegree,
                                                             windKts: cardData.windSpeed,
@@ -743,7 +763,15 @@ const HeroSlideComponent = ({
                                                             void updateSettings({ tideFloodDirection: deg });
                                                         }}
                                                         units={units}
-                                                        onClose={() => setShowWindVsTide(false)}
+                                                        onClose={(event) => {
+                                                            windTideFocusTargetRef.current =
+                                                                event.detail === 0
+                                                                    ? event.currentTarget.closest<HTMLDivElement>(
+                                                                          '[data-wind-tide-card]',
+                                                                      )
+                                                                    : null;
+                                                            setShowWindVsTide(false);
+                                                        }}
                                                     />
                                                 ) : shouldRenderChart ? (
                                                     <TideGraph

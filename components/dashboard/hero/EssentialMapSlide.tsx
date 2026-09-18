@@ -550,7 +550,7 @@ const EssentialMapSlideComponent: React.FC<EssentialMapSlideProps> = ({
                                 cy={rings.cy}
                                 r={r.px}
                                 fill="none"
-                                stroke="rgba(255,255,255,0.07)"
+                                stroke="var(--day-ui-grid, rgba(255,255,255,0.07))"
                                 strokeWidth={1}
                                 strokeDasharray={i === rings.radii.length - 1 ? 'none' : '3 5'}
                             />
@@ -559,7 +559,7 @@ const EssentialMapSlideComponent: React.FC<EssentialMapSlideProps> = ({
                             x={rings.cx}
                             y={rings.cy - rings.radii[rings.radii.length - 1].px + 14}
                             textAnchor="middle"
-                            fill="rgba(255,255,255,0.25)"
+                            fill="var(--day-ui-muted, rgba(255,255,255,0.25))"
                             style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}
                         >
                             {rings.radii[rings.radii.length - 1].nm} nm

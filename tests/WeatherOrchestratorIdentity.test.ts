@@ -203,6 +203,112 @@ afterEach(() => {
 });
 
 describe('WeatherOrchestrator identity fences', () => {
+    it('re-geocodes a 1 km move instead of attaching the previous suburb to fresh coordinates', async () => {
+        const { state, callbacks } = callbackHarness();
+        state.weatherData = makeReport('Scarborough', -27.2, 153.1);
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        weatherMocks.reverseGeocode.mockResolvedValueOnce('Newport, QLD, AU');
+        const coords = { lat: -27.209, lon: 153.1 };
+        expect(await orchestrator.resolveLocation('Current Location', coords)).toEqual({
+            name: 'Newport, QLD, AU',
+            coords,
+            timezone: undefined,
+        });
+        expect(weatherMocks.reverseGeocode).toHaveBeenCalledWith(coords.lat, coords.lon);
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+
+    it('does not trust even identical report coordinates as evidence a legacy name is current', async () => {
+        const { state, callbacks } = callbackHarness();
+        state.weatherData = makeReport('Scarborough', -27.209, 153.1);
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        weatherMocks.reverseGeocode.mockResolvedValueOnce('Newport');
+        const coords = { lat: -27.209, lon: 153.1 };
+        expect((await orchestrator.resolveLocation('Current Location', coords)).name).toBe('Newport');
+        // Now a known, successfully geocoded point may be reused for GPS jitter.
+        expect((await orchestrator.resolveLocation('Current Location', { lat: -27.2091, lon: 153.1 })).name).toBe(
+            'Newport',
+        );
+        expect(weatherMocks.reverseGeocode).toHaveBeenCalledTimes(1);
+    });
+
+    it('updates the locality independently when a fresh nearby forecast is reused', async () => {
+        const { state, callbacks } = callbackHarness();
+        state.weatherData = makeReport('Scarborough', -27.2, 153.1);
+        const generatedAt = state.weatherData.generatedAt;
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        weatherMocks.reverseGeocode.mockResolvedValueOnce('Newport');
+        await orchestrator.fetchWeather('Current Location', { coords: { lat: -27.209, lon: 153.1 } });
+        expect(state.weatherData?.locationName).toBe('Newport');
+        expect(state.weatherData?.coordinates).toEqual({ lat: -27.209, lon: 153.1 });
+        expect(state.weatherData?.generatedAt).toBe(generatedAt);
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+
+    it('keeps its geocoded baseline separate from drifting report coordinates', async () => {
+        const { state, callbacks } = callbackHarness();
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        weatherMocks.reverseGeocode.mockResolvedValueOnce('Scarborough').mockResolvedValueOnce('Newport');
+        await orchestrator.resolveLocation('Current Location', { lat: -27.2, lon: 153.1 });
+        state.weatherData = makeReport('Scarborough', -27.209, 153.1);
+        expect((await orchestrator.resolveLocation('Current Location', state.weatherData.coordinates!)).name).toBe(
+            'Newport',
+        );
+        expect(weatherMocks.reverseGeocode).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses coordinates instead of the old suburb if reverse geocoding is unavailable', async () => {
+        const { state, callbacks } = callbackHarness();
+        state.weatherData = makeReport('Scarborough', -27.2, 153.1);
+        weatherMocks.reverseGeocode.mockResolvedValueOnce(null);
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        expect((await orchestrator.resolveLocation('Current Location', { lat: -27.209, lon: 153.1 })).name).toBe(
+            '27.2090°S, 153.1000°E',
+        );
+    });
+
+    it('never substitutes home-port coordinates when the selected phone has no position', async () => {
+        const { callbacks } = callbackHarness({
+            defaultLocation: 'Current Location',
+            defaultLocationCoords: { lat: -20, lon: 149 },
+        });
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        await expect(orchestrator.resolveLocation('Current Location')).rejects.toThrow('Phone GPS unavailable');
+        expect(weatherMocks.parseLocation).not.toHaveBeenCalled();
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+
+    it('a cached selection can cancel a pending fetch without starting a replacement fetch', async () => {
+        const pending = deferred<MarineWeatherReport>();
+        const { state, callbacks } = callbackHarness();
+        weatherMocks.fetchWeatherByStrategy.mockReturnValueOnce(pending.promise);
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        const oldFetch = orchestrator.fetchWeather('Old place', { force: true, coords: { lat: -27.2, lon: 153.1 } });
+        await flushPromises();
+        orchestrator.cancelPendingLocation();
+        state.weatherData = makeReport('New selection');
+        pending.resolve(makeReport('Old place'));
+        await oldFetch;
+        expect(state.weatherData.locationName).toBe('New selection');
+        expect(state.isFetching).toBe(false);
+        expect(weatherMocks.saveLargeDataImmediate).not.toHaveBeenCalled();
+    });
+
+    it('a cache load that starts after a user selection cannot resurrect the startup report', async () => {
+        const { state, callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        weatherMocks.loadLargeData.mockImplementation(async (key: string) =>
+            key === weatherCacheKeysForScope().data ? makeReport('Sydney') : null,
+        );
+        orchestrator.cancelPendingLocation();
+        state.weatherData = null;
+        await orchestrator.loadCache();
+        await orchestrator.loadCacheAndInit();
+        expect(state.weatherData).toBeNull();
+        expect(weatherMocks.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+
     it('uses the reachability probe as the offline authority even when navigator reports a network interface', async () => {
         const { state, callbacks } = callbackHarness({ satelliteMode: false });
         state.isOffline = true;
@@ -495,6 +601,59 @@ describe('WeatherOrchestrator identity fences', () => {
 });
 
 describe('cached paint is independent of the settings store', () => {
+    it.each(['same-forecast GPS rename', 'newer forecast'])(
+        'does not let delayed startup cache overwrite a %s published during its read',
+        async (update) => {
+            const cached = makeReport('Sydney, NSW', -33.8688, 151.2093);
+            cached.generatedAt = new Date(Date.now() - 1_000).toISOString();
+            const result = deferred<MarineWeatherReport | null>();
+            const { state, callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
+            state.locationMode = 'gps';
+            state.weatherData = cached;
+            const keys = weatherCacheKeysForScope();
+            weatherMocks.loadLargeData.mockImplementation((key: string) =>
+                key === keys.data ? result.promise : Promise.resolve(null),
+            );
+            const orchestrator = new WeatherOrchestrator(callbacks);
+            const loading = orchestrator.loadCacheAndInit();
+            const current = {
+                ...cached,
+                locationName: '33.8688°S, 151.2093°E',
+                ...(update === 'newer forecast'
+                    ? { generatedAt: new Date().toISOString(), current: { ...cached.current, windSpeed: 14 } }
+                    : {}),
+            };
+            callbacks.setWeatherData(current);
+            result.resolve(cached);
+            await loading;
+
+            expect(state.weatherData).toBe(current);
+            expect(state.weatherData?.locationName).toBe('33.8688°S, 151.2093°E');
+            expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+            expect(weatherMocks.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not resurrect startup cache after a pending read is superseded by a location selection', async () => {
+        const result = deferred<MarineWeatherReport | null>();
+        const { state, callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
+        const keys = weatherCacheKeysForScope();
+        weatherMocks.loadLargeData.mockImplementation((key: string) =>
+            key === keys.data ? result.promise : Promise.resolve(null),
+        );
+        const orchestrator = new WeatherOrchestrator(callbacks);
+        const loading = orchestrator.loadCacheAndInit();
+        orchestrator.cancelPendingLocation();
+        const selected = makeReport('Selected port');
+        callbacks.setWeatherData(selected);
+        result.resolve(makeReport('Sydney, NSW'));
+        await loading;
+
+        expect(state.weatherData).toBe(selected);
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+        expect(weatherMocks.getCurrentPositionIfGranted).not.toHaveBeenCalled();
+    });
+
     /**
      * The Glass page's first paint used to be queued behind settings
      * hydration: loadCacheAndInit was the only way to read the weather cache,

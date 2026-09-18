@@ -258,7 +258,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
 
             <div
                 ref={panelRef}
-                className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95`}
+                className={`relative modal-panel-enter bg-slate-900 w-full min-h-0 max-h-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95`}
             >
                 <button
                     onClick={onClose}
@@ -332,13 +332,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                 <input
                                     id="auth-email"
                                     type="email"
+                                    inputMode="email"
+                                    autoComplete="email"
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    aria-describedby="auth-email-help"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
                                     placeholder="skipper@vessel.com"
-                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden transition-colors`}
+                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-base text-white focus:border-sky-500 outline-hidden transition-colors`}
                                     required
                                     autoFocus
                                 />
+                                <p id="auth-email-help" className="mt-2 text-sm leading-relaxed text-slate-300">
+                                    We'll email you a one-time code. No password needed. Your first sign-in creates your
+                                    account.
+                                </p>
                             </div>
 
                             {error && (

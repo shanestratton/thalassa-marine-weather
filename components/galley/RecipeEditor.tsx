@@ -33,10 +33,10 @@ interface RecipeEditorProps {
 const MEAL_TAGS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Sea-Friendly', 'Quick'];
 
 const GLASS = {
-    background: 'rgba(20, 25, 35, 0.6)',
+    background: 'var(--day-ui-surface, rgba(20, 25, 35, 0.6))',
     backdropFilter: 'blur(16px)',
     WebkitBackdropFilter: 'blur(16px)',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
+    border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08))',
     borderRadius: '16px',
 } as React.CSSProperties;
 

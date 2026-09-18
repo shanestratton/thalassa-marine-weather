@@ -88,6 +88,70 @@ beforeEach(() => {
 });
 
 describe('VoyageTrackCache account isolation', () => {
+    it('stops inspecting an oversized track and preserves its existing cache', async () => {
+        await setCachedVoyageTrack('same-voyage', track('existing'));
+        const oversized = track('oversized');
+        oversized[0].notes = 'x'.repeat(4_000_001);
+        const nextEntry = oversized[1];
+        const readNextEntry = vi.fn(() => nextEntry);
+        Object.defineProperty(oversized, 1, { get: readNextEntry });
+
+        await setCachedVoyageTrack('same-voyage', oversized);
+
+        expect(readNextEntry).not.toHaveBeenCalled();
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toEqual(track('existing'));
+    });
+
+    it('yields before preparing a large cache and abandons it if the account changes', async () => {
+        const entries = Array.from({ length: 10_000 }, () => track('large')[0]);
+        const readFirstEntry = vi.fn(() => track('large')[0]);
+        Object.defineProperty(entries, 0, { get: readFirstEntry });
+
+        const writing = setCachedVoyageTrack('same-voyage', entries);
+        // Let the account lock enter its callback, but not its first timer.
+        await Promise.resolve();
+        expect(readFirstEntry).not.toHaveBeenCalled();
+        setAuthIdentityScope('cache-b');
+        await writing;
+
+        expect(readFirstEntry).not.toHaveBeenCalled();
+        expect(mocks.files.size).toBe(0);
+        expect(mocks.prefs.size).toBe(0);
+    });
+
+    it('stops once the accumulated cache budget is exceeded without reading the remaining rows', async () => {
+        const entries = Array.from({ length: 3 }, () => ({ ...track('large')[0], notes: 'x'.repeat(2_000_000) }));
+        const thirdEntry = entries[2];
+        const readThirdEntry = vi.fn(() => thirdEntry);
+        Object.defineProperty(entries, 2, { get: readThirdEntry });
+
+        await setCachedVoyageTrack('same-voyage', entries);
+
+        expect(readThirdEntry).not.toHaveBeenCalled();
+        expect(mocks.files.size).toBe(0);
+        expect(mocks.prefs.size).toBe(0);
+    });
+
+    it('rechecks account ownership after yielding between cache preparation batches', async () => {
+        const entries = Array.from({ length: 300 }, () => track('large')[0]);
+        const firstBatchEnd = entries[127];
+        Object.defineProperty(entries, 127, {
+            get: () => {
+                setTimeout(() => setAuthIdentityScope('cache-b'), 0);
+                return firstBatchEnd;
+            },
+        });
+        const nextEntry = entries[128];
+        const readNextBatch = vi.fn(() => nextEntry);
+        Object.defineProperty(entries, 128, { get: readNextBatch });
+
+        await setCachedVoyageTrack('same-voyage', entries);
+
+        expect(readNextBatch).not.toHaveBeenCalled();
+        expect(mocks.files.size).toBe(0);
+        expect(mocks.prefs.size).toBe(0);
+    });
+
     it('namespaces identical voyage ids across A→B→A', async () => {
         await setCachedVoyageTrack('same-voyage', track('a'));
 

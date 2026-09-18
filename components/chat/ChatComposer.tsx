@@ -113,7 +113,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     aria-expanded={showAttachMenu}
                                     aria-haspopup="menu"
                                     aria-controls={showAttachMenu ? attachMenuId : undefined}
-                                    className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all duration-200 shrink-0 active:scale-90 ${
+                                    className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-lg transition-all duration-200 shrink-0 active:scale-90 ${
                                         showAttachMenu
                                             ? 'bg-sky-500/15 border border-sky-500/25'
                                             : 'bg-white/3 border border-white/4 hover:bg-white/6'
@@ -217,7 +217,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     isQuestion ? 'Unmark as question' : 'Mark as question — questions get priority'
                                 }
                                 aria-pressed={isQuestion}
-                                className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm transition-all duration-200 shrink-0 active:scale-90 ${
+                                className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-sm transition-all duration-200 shrink-0 active:scale-90 ${
                                     isQuestion
                                         ? 'bg-amber-500/15 border border-amber-500/25 shadow-lg shadow-amber-500/10'
                                         : 'bg-white/3 border border-white/4 hover:bg-white/6'
@@ -225,7 +225,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                             >
                                 ❓
                             </button>
-                            <div className="flex-1 relative">
+                            <div className="min-w-0 flex-1 relative">
                                 <input
                                     ref={inputRef as React.RefObject<HTMLInputElement>}
                                     type="text"
@@ -234,7 +234,16 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                         setMessageText(e.target.value);
                                         setFilterWarning(null);
                                     }}
-                                    onKeyDown={(e) => e.key === 'Enter' && onSend()}
+                                    onKeyDown={(e) => {
+                                        if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                                        e.preventDefault();
+                                        onSend();
+                                    }}
+                                    // The chat flex layout moves this field above the
+                                    // keyboard; the global form guard must not scroll
+                                    // the entire app to try to centre it a second time.
+                                    data-no-keyboard-scroll
+                                    enterKeyHint="send"
                                     placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
                                     aria-label={isQuestion ? 'Ask the crew a question' : 'Type a message'}
                                     aria-describedby={messageLimitId}
@@ -249,7 +258,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                 onClick={() => onSend()}
                                 disabled={!messageText.trim()}
                                 aria-label="Send message"
-                                className="w-11 h-11 rounded-xl bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/3 disabled:to-white/3 disabled:border disabled:border-white/4 flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
+                                className="w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 rounded-xl bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/3 disabled:to-white/3 disabled:border disabled:border-white/4 flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
                             >
                                 <svg
                                     width="16"

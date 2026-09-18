@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { useEnvironment } from '../../context/ThemeContext';
 import { formatAge } from '../ui/DataFreshness';
 import { MetricSource } from '../../types';
-import type { WeatherModel } from '../../types';
+import type { OffshoreModel, WeatherModel } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
 import { triggerHaptic } from '../../utils/system';
 import { AlertTriangleIcon } from '../Icons';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { resolveForecastModel, getForecastModelInfo, isSpitfire } from '../../services/weather/forecastModels';
+import {
+    resolveForecastModel,
+    getForecastModelInfo,
+    isSpitfire,
+    resolveOffshoreModel,
+    getOffshoreModelInfo,
+} from '../../services/weather/forecastModels';
 import { listPublishedModels } from '../../services/weather/wxPublished';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
@@ -24,9 +29,7 @@ interface StatusBadgesProps {
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     beaconName?: string;
     buoyName?: string;
-    /** When offshore, show the user's selected model in the badge */
-    offshoreModelLabel?: string;
-    /** Pulsing indicator when offshore */
+    /** Explicit open-water classification, independent of the selected model. */
     isOffshore?: boolean;
     // Dynamic source data
     sources?: Record<string, MetricSource>;
@@ -71,15 +74,12 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         modelUsed,
         generatedAt,
         coordinates,
-        offshoreModelLabel,
         isOffshore: isOffshoreProp,
     }) => {
-        const env = useEnvironment();
         const { refreshData, loading, backgroundUpdating, error, positionChoice } = useWeather();
         // Widened on purpose: test harnesses mock useWeather() without these.
         const choice: WeatherPositionChoice | undefined = positionChoice;
         const isSyncing = loading || backgroundUpdating;
-        const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
         // Error state takes precedence over staleness — if the last
         // refresh failed, the user needs to know the data they're
         // looking at is from BEFORE the failure, not "live". Added
@@ -96,13 +96,14 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         let statusBadgeColor: string;
         let statusBadgeGlow: string;
         let statusBadgeIcon: React.ReactNode;
-        let statusBadgePulse = false;
 
         // Shared tiny-icon style — matches the 12px label height
         const iconCls = 'w-3 h-3 shrink-0 opacity-90';
 
         if (offshore) {
-            statusBadgeLabel = offshoreModelLabel ? `OFFSHORE (${offshoreModelLabel})` : 'OFFSHORE';
+            // The selected model belongs in the picker on the right. Repeating
+            // it here made offshore wrap and grow taller than the other modes.
+            statusBadgeLabel = 'OFFSHORE';
             // Gradient gives the pill depth vs a flat wash
             statusBadgeColor =
                 'bg-linear-to-r from-sky-500/25 via-sky-500/20 to-sky-500/25 text-sky-200 border-sky-400/40';
@@ -115,7 +116,6 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                     <path d="M15 9l-3 6-3-6 6 0z" fill="currentColor" stroke="none" opacity="0.9" />
                 </svg>
             );
-            statusBadgePulse = true;
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
             statusBadgeLabel = 'INLAND';
             statusBadgeColor =
@@ -169,8 +169,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // escape hatch lives inside the sheet.
         const updateSettings = useSettingsStore((s) => s.updateSettings);
         const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+        const offshoreModel = resolveOffshoreModel(useSettingsStore((s) => s.settings.offshoreModel));
         const vesselName = useSettingsStore((s) => s.settings.vessel?.name?.trim() || 'The boat');
-        const modelInfo = getForecastModelInfo(glassModel);
+        const modelInfo = offshore ? getOffshoreModelInfo(offshoreModel) : getForecastModelInfo(glassModel);
         const [showModelSheet, setShowModelSheet] = useState(false);
 
         // FORECAST AGE. generatedAt was threaded all the way down here and
@@ -213,7 +214,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         useEffect(() => {
             const lat = coordinates?.lat;
             const lon = coordinates?.lon;
-            if (lat == null || lon == null) return;
+            setPublishedModels([]);
+            // Atmospheric publisher coverage says nothing about offshore
+            // StormGlass sources, and must not filter that separate menu.
+            if (offshore || lat == null || lon == null) return;
             let live = true;
             void listPublishedModels(lat, lon).then((models) => {
                 if (live) setPublishedModels(models);
@@ -221,8 +225,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             return () => {
                 live = false;
             };
-        }, [coordinates?.lat, coordinates?.lon]);
-        const spitfireSelected = isSpitfire(glassModel);
+        }, [coordinates?.lat, coordinates?.lon, offshore]);
+        const spitfireSelected = !offshore && isSpitfire(glassModel);
         const pillLabel = spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
         const pillHex = spitfireSelected ? '#facc15' : modelInfo?.hex || '#94a3b8';
         const pickModel = (id: WeatherModel) => {
@@ -230,13 +234,18 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             updateSettings({ forecastModel: id });
             setShowModelSheet(false);
         };
+        const pickOffshoreModel = (id: OffshoreModel) => {
+            void triggerHaptic('medium');
+            updateSettings({ offshoreModel: id });
+            setShowModelSheet(false);
+        };
 
         return (
             <>
-                <div className="px-0 shrink-0 relative z-20">
+                <div className="@container px-0 shrink-0 relative z-20">
                     <div
                         data-testid="glass-status-strip"
-                        className="flex items-center justify-between gap-2 w-full mb-0"
+                        className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(0,1fr)] items-center gap-1.5 w-full mb-0"
                     >
                         {/* Location-type Badge — informational only (no longer
                             tappable; the Data Sources modal was removed because
@@ -246,19 +255,19 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                         <div
                             role="status"
                             aria-label={`Location type: ${statusBadgeLabel}`}
-                            className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} ${statusBadgeGlow} min-w-[82px] text-center flex items-center justify-center gap-1.5`}
+                            className={`h-8 w-full max-w-32 min-w-0 justify-self-start px-1.5 rounded-lg border text-micro leading-4 whitespace-nowrap font-bold uppercase tracking-wider ${statusBadgeColor} ${statusBadgeGlow} text-center flex items-center justify-center gap-1`}
                         >
-                            {statusBadgeIcon}
-                            {statusBadgePulse && (
-                                <span className="relative flex w-1.5 h-1.5 shrink-0">
-                                    <span className="animate-ping absolute inset-0 rounded-full bg-sky-400 opacity-60" />
-                                    <span className="relative w-1.5 h-1.5 rounded-full bg-sky-400" />
-                                </span>
-                            )}
+                            {/* Reserve the text first in narrow phone/split panes;
+                                decorative glyphs never squeeze labels or age. */}
+                            <span aria-hidden="true" className="hidden @min-[320px]:block shrink-0">
+                                {statusBadgeIcon}
+                            </span>
                             {statusBadgeLabel}
                         </div>
 
-                        {/* Forecast age — the primary staleness signal on the
+                        {/* Forecast age — the track reserves 56px, then grows
+                            to the actual platform font instead of overflowing.
+                            The primary staleness signal on the
                             Glass. Silent when there is no timestamp rather
                             than guessing at one. ONE row, no receiver word:
                             the header glyph says boat or phone. */}
@@ -266,7 +275,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             <span
                                 role="status"
                                 aria-label={`Forecast updated ${forecastAge}`}
-                                className={`min-w-0 truncate text-xs font-semibold tabular-nums ${forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}`}
+                                className={`col-start-2 whitespace-nowrap text-center text-micro font-semibold tabular-nums ${forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}`}
                             >
                                 {forecastAge}
                             </span>
@@ -290,7 +299,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             }`}
                             title={servedModel ? `Served by ${servedModel}` : undefined}
                             aria-haspopup="dialog"
-                            className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
+                            className={`col-start-3 h-8 w-full max-w-32 min-w-0 justify-self-end px-1.5 rounded-lg border text-micro leading-4 whitespace-nowrap font-bold uppercase tracking-wider flex items-center gap-1 justify-center cursor-pointer active:scale-[0.95] transition-transform hit-target-44 ${
                                 hasError
                                     ? 'bg-red-500/25 text-red-100 border-red-400/50 status-badge-glow-red'
                                     : isSyncing
@@ -298,40 +307,47 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                       : 'bg-sky-500/20 text-sky-300 border-sky-500/30 status-badge-glow-sky'
                             }`}
                         >
-                            {isSyncing ? (
-                                <span className="flex items-center gap-0.5 shrink-0">
+                            <span aria-hidden="true" className="hidden @min-[320px]:flex w-4 shrink-0 justify-center">
+                                {isSyncing ? (
+                                    <span className="flex items-center gap-0.5 shrink-0">
+                                        <span
+                                            className="w-1 h-1 rounded-full bg-sky-200"
+                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0s infinite' }}
+                                        />
+                                        <span
+                                            className="w-1 h-1 rounded-full bg-sky-200"
+                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0.2s infinite' }}
+                                        />
+                                        <span
+                                            className="w-1 h-1 rounded-full bg-sky-200"
+                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0.4s infinite' }}
+                                        />
+                                    </span>
+                                ) : (
                                     <span
-                                        className="w-1 h-1 rounded-full bg-sky-200"
-                                        style={{ animation: 'hh-pulse 1.2s ease-in-out 0s infinite' }}
+                                        className="w-2 h-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: pillHex }}
                                     />
-                                    <span
-                                        className="w-1 h-1 rounded-full bg-sky-200"
-                                        style={{ animation: 'hh-pulse 1.2s ease-in-out 0.2s infinite' }}
-                                    />
-                                    <span
-                                        className="w-1 h-1 rounded-full bg-sky-200"
-                                        style={{ animation: 'hh-pulse 1.2s ease-in-out 0.4s infinite' }}
-                                    />
-                                </span>
-                            ) : (
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pillHex }} />
-                            )}
-                            {hasError && (
-                                <span aria-hidden="true" className="flex shrink-0">
-                                    <AlertTriangleIcon className="w-3 h-3" />
-                                </span>
-                            )}
+                                )}
+                            </span>
                             {pillLabel}
-                            {/* Chevron — signals this pill opens a picker */}
-                            <svg
-                                className="w-2.5 h-2.5 opacity-60 shrink-0"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={3}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
+                            {/* Keep a non-colour failure signal even in narrow
+                                panes, without adding width or hiding the model. */}
+                            <span aria-hidden="true" className="flex w-3 h-3 shrink-0 items-center justify-center">
+                                {hasError ? (
+                                    <AlertTriangleIcon className="w-3 h-3" />
+                                ) : (
+                                    <svg
+                                        className="w-2.5 h-2.5 opacity-60"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={3}
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                )}
+                            </span>
                         </button>
                     </div>
                 </div>
@@ -345,6 +361,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 <ModelPickerSheet
                     visible={showModelSheet}
                     currentModel={glassModel}
+                    offshore={offshore ? { currentModel: offshoreModel, onPick: pickOffshoreModel } : undefined}
                     spitfireAvailable={!!spitfireLoc || publishedModels.includes('spitfire')}
                     spitfireLocationName={spitfireLoc?.name}
                     publishedModels={publishedModels}

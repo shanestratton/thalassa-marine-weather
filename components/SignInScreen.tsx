@@ -86,6 +86,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     const [emailMode, setEmailMode] = useState(false);
     const authedUser = useAuthStore((s) => s.user);
     const primaryActionRef = useRef<HTMLButtonElement>(null);
+    const emailActionRef = useRef<HTMLButtonElement>(null);
     const emailModeWasOpenRef = useRef(false);
     // Native and browser Apple are separate release lanes. Native wraps a
     // Capacitor plugin behind its entitlement/lifecycle gate; browser Apple
@@ -108,13 +109,19 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
         }
     }, [authedUser, isOpen, onClose]);
 
+    // Each new visit begins with the three-method chooser, not a previous
+    // unfinished email/code step that happened to be open when dismissed.
+    useEffect(() => {
+        if (isOpen === false) setEmailMode(false);
+    }, [isOpen]);
+
     // A nested portal can cause some WebViews to report <body> as the
     // previously focused element once the parent becomes aria-hidden.
     // Explicitly return to the action that opened email mode as a reliable
     // fallback to the nested dialog's normal focus restoration.
     useEffect(() => {
         if (emailModeWasOpenRef.current && !emailMode && isOpen !== false) {
-            primaryActionRef.current?.focus();
+            (emailActionRef.current || primaryActionRef.current)?.focus();
         }
         emailModeWasOpenRef.current = emailMode;
     }, [emailMode, isOpen]);
@@ -288,6 +295,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 type="button"
                                 onClick={() => setEmailMode(true)}
                                 aria-label="Sign in with email"
+                                disabled={busy !== null}
                                 className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-black/40"
                             >
                                 Sign in with email
@@ -365,6 +373,20 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 )}
                             </button>
                         )}
+                        {/* Email is an equal, full-width option on native too,
+                            not a low-contrast recovery link below the choices. */}
+                        {appleNativeEnabled && (
+                            <button
+                                ref={emailActionRef}
+                                type="button"
+                                onClick={() => setEmailMode(true)}
+                                disabled={busy !== null}
+                                aria-label="Sign in with email"
+                                className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                            >
+                                Sign in with email
+                            </button>
+                        )}
                         {!appleEnabled && (
                             <p className="px-2 text-center text-xs leading-relaxed text-slate-400">
                                 Apple sign-in is not enabled in this beta build; use email.
@@ -376,21 +398,6 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     {error && (
                         <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 leading-relaxed">
                             {error}
-                        </div>
-                    )}
-
-                    {/* Email fallback link — native only; on web email is
-                    already the primary button above. */}
-                    {appleNativeEnabled && (
-                        <div className="pt-5 text-center">
-                            <button
-                                type="button"
-                                onClick={() => setEmailMode(true)}
-                                disabled={busy !== null}
-                                className="min-h-[44px] inline-flex items-center px-2 text-sm text-slate-400 hover:text-slate-200 active:text-white transition-colors disabled:opacity-50 underline-offset-4 hover:underline"
-                            >
-                                Use email instead
-                            </button>
                         </div>
                     )}
                 </div>

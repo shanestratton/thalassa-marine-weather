@@ -137,4 +137,77 @@ describe('SlideToAction', () => {
         fireEvent.keyDown(track, { key: 'Enter' });
         expect(onConfirm).not.toHaveBeenCalled();
     });
+
+    it.each([16, 704])('uses the track at pane offset %s and clamps a drag past its edge', (left) => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+        vi.mocked(track.getBoundingClientRect).mockReturnValue({ ...TRACK_RECT, left, right: left + 300 } as DOMRect);
+        pointer(track, 'pointerdown', left + 28);
+        pointer(track, 'pointermove', left + 1400);
+        expect(thumbOf(track).style.transform).toBe('translateX(244px)');
+        pointer(track, 'pointerup');
+        expect(onConfirm).toHaveBeenCalledOnce();
+    });
+
+    it('cancels a drag when rotation or multitasking changes the viewport', () => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+        pointer(track, 'pointerdown', 28);
+        pointer(track, 'pointermove', 290);
+        fireEvent(window, new Event('resize'));
+        pointer(track, 'pointerup');
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(thumbOf(track).style.transform).toBe('translateX(0px)');
+    });
+
+    it('does not allow another pointer to complete or cancel the active drag', () => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+        const identifiedPointer = (type: string, id: number, clientX: number) => {
+            const event = new MouseEvent(type, { bubbles: true, clientX });
+            Object.defineProperty(event, 'pointerId', { value: id });
+            fireEvent(track, event);
+        };
+        identifiedPointer('pointerdown', 1, 28);
+        identifiedPointer('pointermove', 1, 290);
+        identifiedPointer('pointerup', 2, 290);
+        expect(onConfirm).not.toHaveBeenCalled();
+        identifiedPointer('pointerup', 1, 290);
+        expect(onConfirm).toHaveBeenCalledOnce();
+    });
+
+    it('rejects a resized track even when pointerup arrives before the resize notification', () => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+        pointer(track, 'pointerdown', 28);
+        pointer(track, 'pointermove', 290);
+        vi.mocked(track.getBoundingClientRect).mockReturnValue({ ...TRACK_RECT, width: 240, right: 240 } as DOMRect);
+        pointer(track, 'pointerup');
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(thumbOf(track).style.transform).toBe('translateX(0px)');
+    });
+
+    it('losing pointer capture cancels without confirming', () => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+        pointer(track, 'pointerdown', 28);
+        pointer(track, 'pointermove', 290);
+        pointer(track, 'lostpointercapture');
+        pointer(track, 'pointerup');
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(thumbOf(track).style.transform).toBe('translateX(0px)');
+    });
+
+    it('cannot confirm by beginning at the far end or on a zero-travel track', () => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+        pointer(track, 'pointerdown', 290);
+        pointer(track, 'pointermove', 295);
+        pointer(track, 'pointerup');
+        vi.mocked(track.getBoundingClientRect).mockReturnValue({ ...TRACK_RECT, width: 48 } as DOMRect);
+        pointer(track, 'pointerdown', 28);
+        pointer(track, 'pointermove', 290);
+        pointer(track, 'pointerup');
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
 });

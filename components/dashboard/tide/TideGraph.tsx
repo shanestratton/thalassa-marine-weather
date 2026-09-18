@@ -283,7 +283,7 @@ export const TideGraphOriginal = ({
     const nextHigh = allMarkers.find((m) => m.time > currentHour && m.type === 'High');
     const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
 
-    const heroLabelClass = 'text-[11px] text-sky-300/80 font-bold uppercase tracking-widest';
+    const heroLabelClass = 'glass-tide-caption text-[11px] text-sky-300/80 font-bold uppercase tracking-widest';
 
     return (
         <div
@@ -331,7 +331,7 @@ export const TideGraphOriginal = ({
                                                 return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                             })()}
                                         </span>
-                                        <span className="text-sm font-medium text-sky-200/80 leading-none mt-1 font-mono">
+                                        <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none mt-1 font-mono">
                                             {event!.height.toFixed(1)} {unit}
                                         </span>
                                     </div>

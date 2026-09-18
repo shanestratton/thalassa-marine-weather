@@ -274,8 +274,8 @@ const onshoreColors: ThemeColors = {
 
 export const typography = {
     /* ── 8-Tier type scale (standardised) ──────────────────────────
-     * caption  = 11px  — timestamps, badges, fine print
-     * label    = 12px  — section labels, chip text, small metadata
+     * caption  = 12px  — timestamps, badges, fine print
+     * label    = 13px  — section labels, chip text, small metadata
      * body     = 14px  — primary body text, descriptions
      * bodyLg   = 16px  — large body, small titles
      * title    = 18px  — card/section titles
@@ -283,19 +283,16 @@ export const typography = {
      * hero     = 24px  — big data values
      * heroLg   = 30px  — hero numbers, primary readings
      * ─────────────────────────────────────────────────────────── */
-    pageTitle: 'text-xl font-extrabold text-white uppercase tracking-wider',
-    sectionTitle: 'text-sm font-bold text-white',
+    pageTitle: 'ui-page-title text-xl font-extrabold text-white uppercase tracking-wider',
+    sectionTitle: 'ui-section-heading text-label font-bold text-white',
     dataLg: 'text-lg font-black text-white font-mono',
     dataMd: 'text-base font-black text-white font-mono',
     dataSm: 'text-sm font-black text-white font-mono',
-    // label = 12px per the scale above — it sat at 11px, collapsing onto
-    // caption so the two tiers rendered identically (audit 2026-08-03,
-    // twice: the CSS var was fixed first, this token path missed).
-    label: 'text-[12px] text-slate-400 font-bold uppercase tracking-widest',
-    labelSm: 'text-[11px] text-slate-500 font-bold uppercase tracking-widest',
+    label: 'ui-field-label text-label text-slate-400 font-bold uppercase tracking-widest',
+    labelSm: 'ui-caption text-micro text-slate-500 uppercase tracking-widest',
     body: 'text-sm text-slate-300',
     bodyMuted: 'text-sm text-slate-400',
-    caption: 'text-[11px] text-slate-500',
+    caption: 'ui-caption text-micro text-slate-500',
     unit: 'text-xs text-slate-400',
 } as const;
 
@@ -395,8 +392,8 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
         button: {
             primary:
                 env === 'offshore'
-                    ? 'px-5 py-3.5 bg-linear-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
-                    : 'px-5 py-3.5 bg-linear-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
+                    ? 'px-5 py-3.5 bg-linear-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 ui-primary-action ui-primary-action--amber'
+                    : 'px-5 py-3.5 bg-linear-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 ui-primary-action ui-primary-action--emerald',
             /* The house secondary button, measured rather than invented:
              * bg-white/5 + border-white/10 + rounded-xl is the single most
              * common combination across the app's ~1,100 buttons. The token

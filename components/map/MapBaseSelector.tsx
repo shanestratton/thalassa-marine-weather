@@ -85,7 +85,9 @@ export function MapBaseSelector({
     return (
         <div
             ref={rootRef}
-            className="absolute left-1/2 z-710 flex -translate-x-1/2 flex-col items-center"
+            // An open picker must sit above passive coverage/tide notices.
+            // The closed trigger keeps its ordinary map-toolbar layer.
+            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-710'}`}
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {

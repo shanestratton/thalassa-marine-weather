@@ -1,9 +1,9 @@
 /**
  * ModelPickerSheet — bottom sheet for choosing the Glass forecast model.
  *
- * Opens from the model pill in the StatusBadges row. Lists the six
- * selectable global models plus Auto (the legacy WeatherKit-primary blend).
- * Picking one writes settings.forecastModel; WeatherContext notices the
+ * Opens from the model pill in the StatusBadges row. Inshore lists atmospheric
+ * models plus Auto; offshore lists supported offshore sources.
+ * Picking one writes the matching preference; WeatherContext notices the
  * change and force-refetches, so the Glass repaints with that model's
  * numbers within a few seconds — no manual refresh step.
  *
@@ -12,12 +12,14 @@
  */
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import type { WeatherModel } from '../../types';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
+import type { OffshoreModel, WeatherModel } from '../../types';
 import {
     AUTO_MODEL,
     SELECTABLE_MODELS,
     MODEL_ATTRIBUTION_LINE,
     SPITFIRE_MODEL,
+    OFFSHORE_MODELS,
 } from '../../services/weather/forecastModels';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
@@ -30,6 +32,9 @@ interface ModelPickerSheetProps {
     /** Manual refresh escape hatch — refresh is automatic, but after an
      *  error the user needs a way to retry on their own schedule. */
     onRefresh: () => void;
+    /** Offshore uses the supported StormGlass source keys and a separate
+     * preference, not the atmospheric Open-Meteo/publisher catalogue. */
+    offshore?: { currentModel: OffshoreModel; onPick: (id: OffshoreModel) => void };
     /** SPITFIRE is only computed for a fixed list of locations, so it is
      *  offered only when the boat is near one — it is a blend, not a grid,
      *  and has nothing to say anywhere else. */
@@ -53,10 +58,12 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     onPick,
     onClose,
     onRefresh,
+    offshore,
     spitfireAvailable = false,
     spitfireLocationName,
     publishedModels,
 }) => {
+    const portalTarget = usePanePortalTarget();
     // Intersect, but never present an EMPTY picker: a publisher outage must
     // degrade to the built-in list, not to a sheet with nothing to choose.
     const grids =
@@ -70,22 +77,28 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
 
     // Lock body scroll while open
     useEffect(() => {
-        if (!visible) return;
+        if (!visible || portalTarget !== document.body) return;
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
             document.body.style.overflow = prev;
         };
-    }, [visible]);
+    }, [visible, portalTarget]);
 
     if (!visible) return null;
 
-    const row = (id: WeatherModel, label: string, helper: string, swatch?: string): React.ReactNode => {
-        const isActive = currentModel === id;
+    const row = (
+        id: string,
+        label: string,
+        helper: string,
+        swatch: string | undefined,
+        isActive: boolean,
+        onSelect: () => void,
+    ): React.ReactNode => {
         return (
             <button
                 key={id}
-                onClick={() => onPick(id)}
+                onClick={onSelect}
                 aria-label={`Use the ${label} forecast model`}
                 aria-current={isActive ? 'true' : undefined}
                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
@@ -119,13 +132,15 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             </button>
         );
     };
+    const atmosphericRow = (id: WeatherModel, label: string, helper: string, swatch?: string) =>
+        row(id, label, helper, swatch, currentModel === id, () => onPick(id));
 
     return createPortal(
         <div
             className="fixed inset-0 z-9998 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
-            aria-modal="true"
+            aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
             aria-label="Choose a forecast model"
             ref={dialogRef}
         >
@@ -139,10 +154,13 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             >
                 {/* Header */}
                 <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
-                    <h2 className="text-base font-bold text-white tracking-tight">Forecast model</h2>
+                    <h2 className="text-base font-bold text-white tracking-tight">
+                        {offshore ? 'Offshore forecast model' : 'Forecast model'}
+                    </h2>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
-                        The Glass repaints with the chosen model&apos;s numbers. Long-press any metric to see how the
-                        models compare.
+                        {offshore
+                            ? 'Choose the offshore source used here. Your inshore model stays saved separately. Unavailable fields and fallback sources remain labelled.'
+                            : "The Glass repaints with the chosen model's numbers. Long-press any metric to see how the models compare."}
                     </p>
                 </div>
 
@@ -150,24 +168,39 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 <div className="overflow-y-auto max-h-[60dvh] px-3 py-3 space-y-1.5">
                     {/* SPITFIRE first when it applies here — it is the only
                         entry scored against real observations. */}
-                    {spitfireAvailable && (
+                    {offshore ? (
+                        OFFSHORE_MODELS.map((m) =>
+                            row(
+                                m.id,
+                                m.label,
+                                `${m.provider} — ${m.blurb}`,
+                                m.hex,
+                                offshore.currentModel === m.id,
+                                () => offshore.onPick(m.id),
+                            ),
+                        )
+                    ) : (
                         <>
-                            {row(
-                                SPITFIRE_MODEL,
-                                'Spitfire',
-                                `Weighted blend of 5 models${spitfireLocationName ? ` · ${spitfireLocationName}` : ''}`,
-                                '#facc15',
+                            {spitfireAvailable && (
+                                <>
+                                    {atmosphericRow(
+                                        SPITFIRE_MODEL,
+                                        'Spitfire',
+                                        `Weighted blend of 5 models${spitfireLocationName ? ` · ${spitfireLocationName}` : ''}`,
+                                        '#facc15',
+                                    )}
+                                    <div className="h-px bg-white/6 my-2" />
+                                </>
                             )}
+
+                            {grids.map((m) => atmosphericRow(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
+
+                            {/* Divider */}
                             <div className="h-px bg-white/6 my-2" />
+
+                            {atmosphericRow(AUTO_MODEL, 'Auto', 'Blended sources — no pinned model')}
                         </>
                     )}
-
-                    {grids.map((m) => row(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
-
-                    {/* Divider */}
-                    <div className="h-px bg-white/6 my-2" />
-
-                    {row(AUTO_MODEL, 'Auto', 'Blended sources — no pinned model')}
                 </div>
 
                 {/* Footer */}
@@ -189,11 +222,15 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                     >
                         Close
                     </Button>
-                    <p className="text-[9px] text-gray-400 text-center">{MODEL_ATTRIBUTION_LINE}</p>
+                    <p className="text-[9px] text-gray-400 text-center">
+                        {offshore
+                            ? 'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC-BY-4.0).'
+                            : MODEL_ATTRIBUTION_LINE}
+                    </p>
                 </div>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 };
 

@@ -201,7 +201,7 @@ export const SolarArc = ({
                         y1="50"
                         x2="100"
                         y2="50"
-                        stroke="rgba(255,255,255,0.1)"
+                        stroke="var(--day-ui-grid, rgba(255,255,255,0.1))"
                         strokeWidth="1"
                         strokeDasharray="3 3"
                     />
@@ -210,7 +210,7 @@ export const SolarArc = ({
                     <path
                         d="M 10 50 A 40 40 0 0 1 90 50"
                         fill="none"
-                        stroke="rgba(255,255,255,0.1)"
+                        stroke="var(--day-ui-grid, rgba(255,255,255,0.1))"
                         strokeWidth="2"
                         strokeLinecap="round"
                     />
@@ -221,7 +221,7 @@ export const SolarArc = ({
                         cy={y}
                         r={isDay ? '6' : '5'}
                         fill={isDay ? '#fbbf24' : '#94a3b8'}
-                        stroke="rgba(255,255,255,0.5)"
+                        stroke="var(--day-ui-guide, rgba(255,255,255,0.5))"
                         strokeWidth="2"
                         className="transition-all duration-1000"
                     />

@@ -49,13 +49,13 @@ export const AisGuardAlert: React.FC = () => {
                     key={`${alert.mmsi}-${alert.timestamp}`}
                     role="alert"
                     style={{
-                        background: 'rgba(127, 29, 29, 0.92)',
+                        background: 'var(--day-ui-danger-surface, rgba(127, 29, 29, 0.92))',
                         backdropFilter: 'blur(16px)',
                         WebkitBackdropFilter: 'blur(16px)',
                         border: '1px solid rgba(239, 68, 68, 0.4)',
                         borderRadius: 14,
                         padding: '12px 16px',
-                        color: '#fecaca',
+                        color: 'var(--day-ui-danger, #fecaca)',
                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
                         boxShadow: '0 8px 32px rgba(239, 68, 68, 0.3)',
                         animation: 'guardAlertIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both',
@@ -64,15 +64,36 @@ export const AisGuardAlert: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 18 }}>🛡️</span>
                         <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: '#fca5a5', letterSpacing: 0.5 }}>
+                            <div
+                                style={{
+                                    fontSize: 12,
+                                    fontWeight: 800,
+                                    color: 'var(--day-ui-danger, #fca5a5)',
+                                    letterSpacing: 0.5,
+                                }}
+                            >
                                 GUARD ZONE ALERT
                             </div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#fee2e2', marginTop: 2 }}>
+                            <div
+                                style={{
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: 'var(--day-ui-danger, #fee2e2)',
+                                    marginTop: 2,
+                                }}
+                            >
                                 {alert.name}
                             </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: '#fca5a5', fontFamily: 'monospace' }}>
+                            <div
+                                style={{
+                                    fontSize: 16,
+                                    fontWeight: 800,
+                                    color: 'var(--day-ui-danger, #fca5a5)',
+                                    fontFamily: 'monospace',
+                                }}
+                            >
                                 {alert.distanceNm.toFixed(1)} NM
                             </div>
                             {/* Bearing and speed of a target inside the guard
@@ -80,7 +101,7 @@ export const AisGuardAlert: React.FC = () => {
                                 they read at the size of the vessel name, not
                                 below it. Inline fontSize is out of reach of the
                                 CSS legibility floor. */}
-                            <div style={{ fontSize: 13, color: '#fca5a5', opacity: 0.9 }}>
+                            <div style={{ fontSize: 13, color: 'var(--day-ui-danger, #fca5a5)', opacity: 0.9 }}>
                                 {alert.bearing}° • {alert.sog.toFixed(1)} kts
                             </div>
                         </div>
@@ -100,7 +121,7 @@ export const AisGuardAlert: React.FC = () => {
                                 justifyContent: 'center',
                                 background: 'transparent',
                                 border: 'none',
-                                color: '#fecaca',
+                                color: 'var(--day-ui-danger, #fecaca)',
                                 fontSize: 18,
                                 lineHeight: 1,
                                 cursor: 'pointer',

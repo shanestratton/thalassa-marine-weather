@@ -15,18 +15,12 @@ import {
     VoyageLogService,
     voyageLogApiUrl,
     voyageLogPublicUrl,
-    type PlanLinkRow,
     type VoyageLogConfig,
 } from '../../services/VoyageLogService';
-import { getDeviceId } from '../../services/skipperDevice';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { supabase } from '../../services/supabase';
 import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
-import { ShipLogService } from '../../services/ShipLogService';
-import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
-import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -34,7 +28,6 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
-import { setPlanLinkWithRetry } from '../../services/shiplog/planLinkIntent';
 
 // Crew-on-someone-else's-boat surface: each entry represents a boat the
 // current user is crew on (NOT the owner), plus their personal voyage-log
@@ -72,24 +65,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
     const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
     const [setupError, setSetupError] = useState<string | null>(null);
-    // Public-tracks management: every uploaded voyage + which are hidden
-    // from the public page (voyage_log_hidden_voyages exclusion list).
-    const [publicTracks, setPublicTracks] = useState<VoyageSummary[]>([]);
-    const [hiddenVoyageIds, setHiddenVoyageIds] = useState<Set<string>>(new Set());
-    const [trackBusyId, setTrackBusyId] = useState<string | null>(null);
-    // Voyage ↔ passage-plan links (drives the page's dynamic destination).
-    const [planRoutes, setPlanRoutes] = useState<RouteOrTrack[]>([]);
-    // voyage_id → link row, WITH its author stamp (2026-09-08): the picker
-    // says who set a link and asks before replacing another device's.
-    const [planLinks, setPlanLinks] = useState<Map<string, PlanLinkRow>>(new Map());
-    const [pendingLinkChange, setPendingLinkChange] = useState<{
-        voyageId: string;
-        planId: string | null;
-        holder: string;
-        holderPlanLabel: string | null;
-    } | null>(null);
-    const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null);
-
     // Ref for the hero URL element — used by the auto-fit effect below
     // to grow/shrink the font so the whole link fits on one line. Must
     // live above the early-returns so hooks order is stable.
@@ -198,12 +173,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         setCrewBoats([]);
         setCrewBusyBoatId(null);
         setSetupError(null);
-        setPublicTracks([]);
-        setHiddenVoyageIds(new Set());
-        setTrackBusyId(null);
-        setPlanRoutes([]);
-        setPlanLinks(new Map());
-        setLinkPickerFor(null);
 
         void Promise.all([VoyageLogService.getConfig(), loadCrewBoats(scope)])
             .then(([nextConfig, nextCrewBoats]) => {
@@ -225,162 +194,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
             cancelled = true;
         };
     }, [clearCopyTimers, identityScope, loadCrewBoats, operationIsCurrent]);
-
-    // Load the public-tracks list once the log is confirmed enabled. Server
-    // summaries only — those are exactly the voyages the public page can draw.
-    useEffect(() => {
-        const scope = identityScope;
-        if (dataGeneration !== scope.generation) return;
-        if (!config?.enabled) {
-            setPublicTracks([]);
-            setHiddenVoyageIds(new Set());
-            setPlanLinks(new Map());
-            setPlanRoutes([]);
-            setLinkPickerFor(null);
-            return;
-        }
-
-        let cancelled = false;
-        void Promise.all([
-            ShipLogService.getVoyageSummaries(),
-            VoyageLogService.getHiddenVoyageIds(),
-            VoyageLogService.getPlanLinkRows(),
-            fetchRoutesAndTracks(true).catch(() => ({
-                routes: [] as RouteOrTrack[],
-                tracks: [] as RouteOrTrack[],
-            })),
-        ])
-            .then(([summaries, hidden, links, routesAndTracks]) => {
-                if (cancelled || !operationIsCurrent(scope)) return;
-                const sorted = [...summaries].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, 50);
-                const ownedVoyageIds = new Set(summaries.map((summary) => summary.voyageId));
-                setPublicTracks(sorted);
-                setHiddenVoyageIds(hidden);
-                setPlanLinks(links);
-                // RoutesAndTracks has a process cache. Filter against this
-                // identity's server summaries so an A cache cannot enter B.
-                setPlanRoutes(
-                    routesAndTracks.routes
-                        .filter((route) => !route.isLocal && ownedVoyageIds.has(route.id))
-                        .sort((a, b) => b.timestamp - a.timestamp)
-                        .slice(0, 10),
-                );
-            })
-            .catch(() => {
-                if (!cancelled && operationIsCurrent(scope)) {
-                    setPublicTracks([]);
-                    setHiddenVoyageIds(new Set());
-                    setPlanLinks(new Map());
-                    setPlanRoutes([]);
-                }
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [config?.enabled, config?.id, dataGeneration, identityScope, operationIsCurrent]);
-
-    const handleTrackVisibility = useCallback(
-        async (voyageId: string, hidden: boolean) => {
-            const scope = identityScope;
-            const epoch = operationEpochRef.current;
-            const immutableVoyageId = String(voyageId);
-            if (!operationIsCurrent(scope)) return;
-
-            setTrackBusyId(immutableVoyageId);
-            triggerHaptic('light');
-            // Optimistic — revert only while the same identity still owns it.
-            setHiddenVoyageIds((prev) => {
-                const next = new Set(prev);
-                if (hidden) next.add(immutableVoyageId);
-                else next.delete(immutableVoyageId);
-                return next;
-            });
-            const ok = await VoyageLogService.setVoyageHidden(immutableVoyageId, hidden);
-            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
-            if (!ok) {
-                setHiddenVoyageIds((prev) => {
-                    const next = new Set(prev);
-                    if (hidden) next.delete(immutableVoyageId);
-                    else next.add(immutableVoyageId);
-                    return next;
-                });
-                toast.error(VoyageLogService.lastError ?? 'Could not update — check signal');
-            }
-            setTrackBusyId(null);
-        },
-        [identityScope, operationIsCurrent],
-    );
-
-    const commitPlanLink = useCallback(
-        async (voyageId: string, planId: string | null) => {
-            const scope = identityScope;
-            const epoch = operationEpochRef.current;
-            const immutableVoyageId = String(voyageId);
-            const immutablePlanId = planId === null ? null : String(planId);
-            if (!operationIsCurrent(scope)) return;
-
-            setLinkPickerFor(null);
-            triggerHaptic('light');
-            setPlanLinks((current) => {
-                const next = new Map(current);
-                if (immutablePlanId) {
-                    next.set(immutableVoyageId, {
-                        voyageId: immutableVoyageId,
-                        planVoyageId: immutablePlanId,
-                        deviceId: getDeviceId(),
-                        deviceName: null,
-                        updatedAt: null,
-                    });
-                } else next.delete(immutableVoyageId);
-                return next;
-            });
-            // Through the durable intent ledger, not a bare write (audit
-            // 2026-08-02): a direct write here bypassed last-intent-wins, so
-            // a stale intent queued by an earlier sheet pick could later
-            // flush OVER this deliberate choice. `false` now means "queued,
-            // will keep trying" — keep the optimistic UI rather than revert.
-            const ok = await setPlanLinkWithRetry(immutableVoyageId, immutablePlanId);
-            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
-            if (ok) {
-                // Tell every other door this question has been answered —
-                // most importantly the Log page's cast-off sheet, whose
-                // "Just recording" dismissal used to durably CLEAR a link it
-                // never knew about, erasing the choice made here.
-                try {
-                    window.dispatchEvent(
-                        new CustomEvent('thalassa:voyage-plan-link-changed', {
-                            detail: { voyageId: immutableVoyageId },
-                        }),
-                    );
-                } catch {
-                    /* non-DOM host */
-                }
-            } else {
-                toast.error(VoyageLogService.lastError ?? 'Link queued — will keep trying when signal returns');
-            }
-        },
-        [identityScope, operationIsCurrent],
-    );
-
-    /** Another device set the standing link → confirm, naming it; else commit. */
-    const handlePlanLink = useCallback(
-        (voyageId: string, planId: string | null) => {
-            const existing = planLinks.get(voyageId);
-            const foreign = !!existing?.deviceId && existing.deviceId !== getDeviceId();
-            if (existing && foreign && existing.planVoyageId !== planId) {
-                setLinkPickerFor(null);
-                setPendingLinkChange({
-                    voyageId,
-                    planId,
-                    holder: existing.deviceName?.trim() || 'another device',
-                    holderPlanLabel: planRoutes.find((r) => r.id === existing.planVoyageId)?.label ?? null,
-                });
-                return;
-            }
-            void commitPlanLink(voyageId, planId);
-        },
-        [commitPlanLink, planLinks, planRoutes],
-    );
 
     // Auto-fit the public URL hero text to its container — start at
     // 22px and shrink one px at a time until the whole link fits on
@@ -650,15 +463,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         [identityScope, operationIsCurrent],
     );
 
-    const toggleLinkPicker = useCallback(
-        (voyageId: string) => {
-            if (!operationIsCurrent(identityScope)) return;
-            const immutableVoyageId = String(voyageId);
-            setLinkPickerFor((current) => (current === immutableVoyageId ? null : immutableVoyageId));
-        },
-        [identityScope, operationIsCurrent],
-    );
-
     if (loading || dataGeneration !== identityScope.generation) {
         return (
             <div className="px-4 pb-8">
@@ -878,7 +682,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             <div className="text-sm text-white font-bold">Public Voyage Log</div>
                             <div className="text-xs text-gray-400 mt-1">
                                 {config.enabled
-                                    ? 'Your log is public. Published entries and visible tracks can be read by anyone with the link; instrument sharing is controlled separately below.'
+                                    ? 'Your log is public. Anyone with the link can follow your shared voyages and published diary entries. Switch off to make the page private; instrument sharing stays separate below.'
                                     : 'Your log is switched off. The public page and API return nothing until you turn it back on.'}
                             </div>
                         </div>
@@ -954,131 +758,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 </Row>
             </Section>
 
-            {config.enabled && publicTracks.length > 0 && (
-                <Section title="Public tracks">
-                    <Row>
-                        <div className="flex-1">
-                            <div className="text-xs text-gray-400">
-                                Choose which voyages draw on your public page. Hiding a track only affects the page —
-                                your own log keeps it. Use the Log page&apos;s bin to actually delete a voyage.
-                            </div>
-                        </div>
-                    </Row>
-                    {publicTracks.map((v) => {
-                        const hidden = hiddenVoyageIds.has(v.voyageId);
-                        const started = new Date(v.startedAt);
-                        const label = started.toLocaleDateString('en-AU', {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                        });
-                        const kind = v.isPlannedRoute ? ' · planned route' : v.isImported ? ' · imported' : '';
-                        const linkRow = planLinks.get(v.voyageId) ?? null;
-                        const linkedPlanId = linkRow?.planVoyageId ?? null;
-                        const linkedPlan = linkedPlanId ? planRoutes.find((r) => r.id === linkedPlanId) : null;
-                        const linkSetElsewhere = !!linkRow?.deviceId && linkRow.deviceId !== getDeviceId();
-                        const canLink = !v.isPlannedRoute && !v.isImported && planRoutes.length > 0;
-                        return (
-                            <React.Fragment key={v.voyageId}>
-                                <Row>
-                                    <div className="flex-1 min-w-0">
-                                        <div className={`text-sm font-bold ${hidden ? 'text-gray-500' : 'text-white'}`}>
-                                            {label}
-                                        </div>
-                                        <div className="text-xs text-gray-400 mt-0.5">
-                                            {v.totalDistanceNM.toFixed(1)} NM · {v.entryCount.toLocaleString()} points
-                                            {kind}
-                                            {hidden ? ' · hidden from page' : ''}
-                                        </div>
-                                        {canLink && (
-                                            <button
-                                                onClick={() => toggleLinkPicker(v.voyageId)}
-                                                className="hit-target-44 text-xs text-sky-400 mt-1 text-left"
-                                            >
-                                                Passage: {linkedPlan?.label ?? (linkedPlanId ? 'linked plan' : 'none')}{' '}
-                                                ▸
-                                            </button>
-                                        )}
-                                        {canLink && linkRow && linkSetElsewhere && (
-                                            <div
-                                                className="text-[11px] text-gray-500 mt-0.5"
-                                                data-testid={`plan-link-set-by-${v.voyageId}`}
-                                            >
-                                                Set by {linkRow.deviceName?.trim() || 'another device'}
-                                                {linkRow.updatedAt && Number.isFinite(Date.parse(linkRow.updatedAt))
-                                                    ? ` · ${new Date(linkRow.updatedAt).toLocaleTimeString('en-AU', {
-                                                          hour: '2-digit',
-                                                          minute: '2-digit',
-                                                          hour12: false,
-                                                      })}`
-                                                    : ''}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <Toggle
-                                        checked={!hidden}
-                                        onChange={(show) => {
-                                            if (trackBusyId) return;
-                                            void handleTrackVisibility(v.voyageId, !show);
-                                        }}
-                                        label={`Show voyage ${label} on public page`}
-                                    />
-                                </Row>
-                                {linkPickerFor === v.voyageId && (
-                                    <Row>
-                                        <div className="flex-1 flex flex-col gap-1">
-                                            {planRoutes.map((r) => (
-                                                <button
-                                                    key={r.id}
-                                                    onClick={() => void handlePlanLink(v.voyageId, r.id)}
-                                                    className={`min-h-[44px] text-left text-xs py-1.5 px-2 rounded-lg ${
-                                                        linkedPlanId === r.id
-                                                            ? 'bg-sky-500/20 text-sky-300'
-                                                            : 'bg-white/5 text-gray-300'
-                                                    }`}
-                                                >
-                                                    {r.label}
-                                                    <span className="text-gray-500"> · {r.sublabel}</span>
-                                                </button>
-                                            ))}
-                                            <button
-                                                onClick={() => void handlePlanLink(v.voyageId, null)}
-                                                className="min-h-[44px] text-left text-xs py-1.5 px-2 rounded-lg bg-white/5 text-gray-400"
-                                            >
-                                                No linked passage
-                                            </button>
-                                        </div>
-                                    </Row>
-                                )}
-                            </React.Fragment>
-                        );
-                    })}
-                </Section>
-            )}
-
-            <ConfirmDialog
-                isOpen={!!pendingLinkChange}
-                title={pendingLinkChange?.planId ? 'Replace the published route?' : 'Unlink the published route?'}
-                message={
-                    pendingLinkChange
-                        ? `${pendingLinkChange.holder} set ${pendingLinkChange.holderPlanLabel ?? 'the current route'} on this voyage. ${
-                              pendingLinkChange.planId
-                                  ? 'Your public page will switch to the route you picked.'
-                                  : 'Your public page will show no route.'
-                          }`
-                        : ''
-                }
-                confirmLabel={pendingLinkChange?.planId ? 'Replace' : 'Unlink'}
-                cancelLabel="Keep theirs"
-                onConfirm={() => {
-                    const change = pendingLinkChange;
-                    setPendingLinkChange(null);
-                    if (change) void commitPlanLink(change.voyageId, change.planId);
-                }}
-                onCancel={() => setPendingLinkChange(null)}
-            />
-
             <CloudStorageSection />
 
             <Section title="API access">
@@ -1144,25 +823,51 @@ const USAGE_LABELS: Record<string, string> = {
     'diary-video': 'Video',
 };
 
-const CloudStorageSection: React.FC = () => {
-    const [usage, setUsage] = useState<{ bucket: string; bytes: number; objects: number }[] | null | 'loading'>(
-        'loading',
-    );
+export const CloudStorageSection: React.FC = () => {
+    const scope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
+    type Usage = { bucket: string; bytes: number; objects: number }[] | null | 'loading';
+    const [result, setResult] = useState<{ generation: number; usage: Usage }>({
+        generation: scope.generation,
+        usage: 'loading',
+    });
+    const [refresh, setRefresh] = useState(0);
+    const usage = result.generation === scope.generation ? result.usage : 'loading';
     useEffect(() => {
         let cancelled = false;
+        setResult({ generation: scope.generation, usage: 'loading' });
         void (async () => {
             const { DiaryService } = await import('../../services/DiaryService');
+            if (cancelled || !isAuthIdentityScopeCurrent(scope)) return;
             const rows = await DiaryService.getMediaUsage();
-            if (!cancelled) setUsage(rows);
+            if (!cancelled && isAuthIdentityScopeCurrent(scope)) {
+                setResult({ generation: scope.generation, usage: rows });
+            }
         })();
         return () => {
             cancelled = true;
         };
+    }, [scope, refresh]);
+    useEffect(() => {
+        const reload = () => setRefresh((value) => value + 1);
+        window.addEventListener('thalassa:diary-deleted', reload);
+        return () => window.removeEventListener('thalassa:diary-deleted', reload);
     }, []);
 
     const total = Array.isArray(usage) ? usage.reduce((sum, r) => sum + r.bytes, 0) : 0;
     return (
         <Section title="Cloud storage">
+            <Row>
+                <span className="text-sm text-gray-400">Files currently stored in Supabase</span>
+                <button
+                    type="button"
+                    onClick={() => setRefresh((value) => value + 1)}
+                    disabled={usage === 'loading'}
+                    className="min-h-[44px] min-w-[44px] px-3 text-sm font-semibold text-sky-300 disabled:opacity-50"
+                    aria-label="Refresh cloud storage usage"
+                >
+                    Refresh
+                </button>
+            </Row>
             {usage === 'loading' ? (
                 <Row>
                     <span className="text-sm text-gray-400">Measuring…</span>

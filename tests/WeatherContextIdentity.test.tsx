@@ -159,9 +159,14 @@ describe('WeatherProvider identity transition', () => {
             </React.StrictMode>,
         );
 
-        await waitFor(() => {
-            expect(screen.getByTestId('weather-state')).toHaveTextContent('none|no-voyage|ready');
-        });
+        // StrictMode initialization can cross the default 1s wait during a
+        // full suite running alongside a native archive; keep the same state assertion bounded.
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('weather-state')).toHaveTextContent('none|no-voyage|ready');
+            },
+            { timeout: 5000 },
+        );
     });
 
     it('replaces visible A state and the Zustand bridge with blank B state', async () => {

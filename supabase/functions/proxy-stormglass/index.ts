@@ -5,6 +5,7 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { normalizeStormGlassSources } from '../_shared/stormglass-source.ts';
 import {
     fetchWithTimeout,
     parseCoordinate,
@@ -89,8 +90,6 @@ const BIO_PARAMETERS: ReadonlySet<string> = new Set([
     'phosphate',
     'phytoplankton',
 ]);
-
-const STORMGLASS_SOURCES: ReadonlySet<string> = new Set(['sg', 'ecmwf', 'gfs', 'icon']);
 
 const PATH_RULES = {
     'weather/point': {
@@ -219,8 +218,9 @@ function normalizeStormGlassRequest(
     }
 
     if (Object.prototype.hasOwnProperty.call(params, 'source')) {
-        if (typeof params.source !== 'string' || !STORMGLASS_SOURCES.has(params.source)) return null;
-        query.set('source', params.source);
+        const sources = normalizeStormGlassSources(params.source);
+        if (sources === null) return null;
+        query.set('source', sources);
     }
 
     return { query, requestedMetrics };

@@ -6,6 +6,9 @@ const music = vi.hoisted(() => ({
     getUserPlaylists: vi.fn(),
     playPlaylist: vi.fn(),
     pauseMusic: vi.fn(),
+    stopMusic: vi.fn(),
+    getMusicPlaybackRevision: vi.fn(() => 0),
+    subscribeMusicStopped: vi.fn((_listener: () => void) => () => undefined),
     resumeMusic: vi.fn(),
     skipNext: vi.fn(),
     skipPrevious: vi.fn(),
@@ -91,10 +94,224 @@ describe('MusicPage modal accessibility', () => {
         music.getNowPlaying.mockResolvedValue(null);
         music.playPlaylist.mockResolvedValue({ success: true });
         music.playTrackInPlaylist.mockResolvedValue({ success: true });
+        music.pauseMusic.mockResolvedValue({ content: '{"status":"paused"}', isError: false });
+        music.stopMusic.mockResolvedValue({ content: '{"status":"stopped"}', isError: false });
         music.createPlaylistByName.mockResolvedValue({ success: true });
         music.searchCatalogSongs.mockResolvedValue({ available: true, songs: [] });
         music.addSongToPlaylist.mockResolvedValue({ success: true });
         music.deletePlaylistById.mockResolvedValue({ success: false, notSupported: true });
+    });
+
+    it.each(['playlist', 'track'] as const)(
+        'does not show cancellation as a %s playback error and clears a previous error on retry',
+        async (kind) => {
+            const { dialog } = await openPlaylistDetails();
+            const play = screen.getByRole('button', {
+                name: kind === 'playlist' ? 'Play all tracks in Harbour Mix' : 'Play track 1: Sea Song by The Crew',
+            });
+            const start = kind === 'playlist' ? music.playPlaylist : music.playTrackInPlaylist;
+            start.mockResolvedValueOnce({ success: false, error: 'No audio route' });
+            fireEvent.click(play);
+            expect(await screen.findByText("Couldn't play: No audio route")).toBeVisible();
+            start.mockResolvedValueOnce({ success: false, superseded: true });
+            await act(async () => {
+                fireEvent.click(play);
+            });
+            expect(dialog).toBeInTheDocument();
+            expect(screen.queryByText(/Couldn't play:/)).not.toBeInTheDocument();
+            expect(screen.queryByText(/superseded/)).not.toBeInTheDocument();
+            start.mockResolvedValueOnce({ success: true });
+            fireEvent.click(play);
+            await waitFor(() => expect(dialog).not.toBeInTheDocument());
+        },
+    );
+
+    it('keeps the song and on-deck queue on Pause, then fully resets to the compact idle layout on Stop', async () => {
+        const playing = {
+            title: 'Sea Song',
+            artist: 'The Crew',
+            album: 'Harbour',
+            artworkUrl: '',
+            isPlaying: true,
+            state: 'playing',
+            playbackTime: 45,
+            duration: 184,
+        };
+        music.getNowPlaying.mockResolvedValue(playing);
+        const tile = await renderMusicPage();
+        fireEvent.click(tile);
+        await screen.findByRole('button', { name: /Sea Song The Crew/ });
+        expect(tile).toHaveAttribute('aria-pressed', 'true');
+        music.pauseMusic.mockImplementationOnce(async () => {
+            music.getNowPlaying.mockResolvedValue({ ...playing, isPlaying: false, state: 'paused' });
+            return { content: '{"status":"paused"}', isError: false };
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+        await screen.findByRole('button', { name: 'Play' });
+        expect(screen.getByTestId('music-player-active')).toHaveTextContent('Sea Song');
+        expect(screen.getByRole('button', { name: /Sea Song The Crew/ })).toBeInTheDocument();
+        expect(tile).toHaveTextContent('Paused');
+        music.stopMusic.mockImplementationOnce(async () => {
+            music.getNowPlaying.mockResolvedValue(null);
+            return { content: '{"status":"stopped"}', isError: false };
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Stop the music and clear the queue' }));
+        expect(await screen.findByTestId('music-player-idle')).toHaveTextContent('All quiet on deck');
+        expect(screen.getByTestId('music-player-idle')).toHaveTextContent('Pick a playlist to cast off');
+        expect(screen.getByTestId('music-on-deck-empty')).toHaveTextContent('Songs line up here');
+        expect(screen.queryByTestId('music-player-active')).not.toBeInTheDocument();
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+        expect(tile).toHaveAttribute('aria-pressed', 'false');
+        expect(tile).not.toHaveTextContent('Paused');
+        expect(music.stopMusic).toHaveBeenCalledOnce();
+        music.getNowPlaying.mockResolvedValue(playing);
+        fireEvent.click(tile);
+        expect(await screen.findByTestId('music-player-active')).toHaveTextContent('Sea Song');
+        await waitFor(() => expect(tile).toHaveTextContent('Playing'));
+    });
+
+    it('does not let an older playlist start response restore selection after Stop', async () => {
+        let finishPlay!: (result: { success: boolean }) => void;
+        music.playPlaylist.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishPlay = resolve;
+                }),
+        );
+        music.getNowPlaying.mockResolvedValue({
+            title: 'Old Song',
+            artist: 'Old Crew',
+            artworkUrl: '',
+            isPlaying: true,
+            state: 'playing',
+            playbackTime: 10,
+            duration: 200,
+        });
+        const tile = await renderMusicPage();
+        fireEvent.click(tile);
+        music.getNowPlaying.mockResolvedValue(null);
+        fireEvent.click(screen.getByRole('button', { name: 'Stop the music and clear the queue' }));
+        await screen.findByTestId('music-player-idle');
+        await act(async () => {
+            finishPlay({ success: true });
+        });
+        expect(screen.getByTestId('music-on-deck-empty')).toBeInTheDocument();
+        expect(tile).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.queryByTestId('music-player-active')).not.toBeInTheDocument();
+    });
+
+    it('resets the page and only its scroller when another music surface confirms Stop', async () => {
+        music.getNowPlaying.mockResolvedValue({
+            title: 'Sea Song',
+            artist: 'The Crew',
+            artworkUrl: '',
+            isPlaying: true,
+            state: 'playing',
+            playbackTime: 43,
+            duration: 184,
+        });
+        const tile = await renderMusicPage();
+        fireEvent.click(tile);
+        const stage = await screen.findByTestId('music-player-active');
+        const scroll = stage.closest('.overflow-y-auto') as HTMLElement;
+        scroll.scrollTop = 150;
+        document.documentElement.scrollTop = 24;
+        await act(async () => {
+            music.subscribeMusicStopped.mock.calls[0][0]();
+        });
+        expect(scroll.scrollTop).toBe(0);
+        expect(document.documentElement.scrollTop).toBe(24);
+        document.documentElement.scrollTop = 0;
+        expect(screen.getByTestId('music-player-idle')).toBeInTheDocument();
+        expect(screen.getByTestId('music-on-deck-empty')).toBeInTheDocument();
+        expect(tile).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('discards pre-Stop song polls and on-deck hydration, and cancels the delayed artwork refresh', async () => {
+        let finishPoll!: (value: unknown) => void;
+        let finishTracks!: (value: unknown) => void;
+        const playing = {
+            title: 'Sea Song',
+            artist: 'The Crew',
+            artworkUrl: '',
+            isPlaying: true,
+            state: 'playing',
+            playbackTime: 20,
+            duration: 184,
+        };
+        music.getNowPlaying.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishPoll = resolve;
+                }),
+        );
+        music.getNowPlaying.mockResolvedValue(playing);
+        music.getPlaylistTracks.mockResolvedValueOnce({ available: true, tracks: TRACKS });
+        music.getPlaylistTracks.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishTracks = resolve;
+                }),
+        );
+        const tile = await renderMusicPage();
+        fireEvent.click(tile);
+        await screen.findByTestId('music-player-active');
+        await waitFor(() => expect(music.getPlaylistTracks).toHaveBeenCalledTimes(2));
+        music.getNowPlaying.mockResolvedValue(null);
+        fireEvent.click(screen.getByRole('button', { name: 'Stop the music and clear the queue' }));
+        await screen.findByTestId('music-player-idle');
+        const readsAfterStop = music.getNowPlaying.mock.calls.length;
+        await act(async () => {
+            finishPoll(playing);
+            finishTracks({ available: true, tracks: TRACKS });
+            await new Promise((resolve) => setTimeout(resolve, 450));
+        });
+        expect(music.getNowPlaying).toHaveBeenCalledTimes(readsAfterStop);
+        expect(screen.getByTestId('music-on-deck-empty')).toBeInTheDocument();
+        expect(screen.getByTestId('music-player-idle')).toBeInTheDocument();
+        expect(tile).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('does not claim all quiet when the native Stop fails', async () => {
+        music.getNowPlaying.mockResolvedValue({
+            title: 'Sea Song',
+            artist: 'The Crew',
+            artworkUrl: '',
+            isPlaying: true,
+            state: 'playing',
+            playbackTime: 20,
+            duration: 184,
+        });
+        music.stopMusic.mockResolvedValueOnce({ content: 'Stop was not confirmed.', isError: true });
+        const tile = await renderMusicPage();
+        fireEvent.click(tile);
+        await screen.findByTestId('music-player-active');
+        fireEvent.click(screen.getByRole('button', { name: 'Stop the music and clear the queue' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Stop was not confirmed.');
+        expect(screen.queryByTestId('music-player-idle')).not.toBeInTheDocument();
+        expect(screen.getByTestId('music-player-active')).toHaveTextContent('Sea Song');
+        expect(tile).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('shows the native resume failure without replacing it with a JSON parsing error', async () => {
+        music.getNowPlaying.mockResolvedValue({
+            title: 'Sea Song',
+            artist: 'The Crew',
+            artworkUrl: '',
+            isPlaying: false,
+            state: 'paused',
+            playbackTime: 43,
+            duration: 184,
+        });
+        music.resumeMusic.mockResolvedValueOnce({
+            content: 'ERROR: resume failed — audio route unavailable',
+            isError: true,
+        });
+        await renderMusicPage();
+        fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+        expect(await screen.findByText('ERROR: resume failed — audio route unavailable')).toBeInTheDocument();
+        expect(screen.getByTestId('music-player-active')).toHaveTextContent('Sea Song');
+        expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
     });
 
     it('contains focus across nested playlist overlays and restores each launcher', async () => {

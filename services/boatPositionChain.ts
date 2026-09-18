@@ -23,6 +23,7 @@
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 
 const log = createLogger('BoatPosition');
 
@@ -64,14 +65,25 @@ export async function piFix(timeoutMs = 4_000): Promise<BoatFix | null> {
         if (res.status < 200 || res.status >= 300) return null;
         const body = typeof res.data === 'string' ? (JSON.parse(res.data) as Record<string, unknown>) : null;
         if (!body || body.available !== true) return null;
-        const latitude = Number(body.latitude);
-        const longitude = Number(body.longitude);
-        const timestamp = Number(body.timestamp);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        const latitude = body.latitude;
+        const longitude = body.longitude;
+        const timestamp = body.timestamp;
+        if (
+            typeof latitude !== 'number' ||
+            !Number.isFinite(latitude) ||
+            Math.abs(latitude) > 90 ||
+            typeof longitude !== 'number' ||
+            !Number.isFinite(longitude) ||
+            Math.abs(longitude) > 180 ||
+            typeof timestamp !== 'number' ||
+            !Number.isFinite(timestamp) ||
+            timestamp <= 0
+        )
+            return null;
         return {
             latitude,
             longitude,
-            timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+            timestamp,
             rung: 'pi',
             source: typeof body.source === 'string' ? body.source : null,
         };
@@ -85,26 +97,40 @@ export async function piFix(timeoutMs = 4_000): Promise<BoatFix | null> {
 export const CLOUD_FIX_MAX_AGE_MS = 60_000;
 
 /**
- * Rung c — FOR THE WEATHER ONLY: the row the Pi keeps in the cloud, the boat
+ * Rung c — the row the Pi keeps in the cloud, the boat
  * seen from a distance. It is up to a minute old and the phone reading it may
  * be a hundred miles from her, so it is deliberately NOT part of boatFix():
- * Anchor Watch and the Ship's Log must never take it. The weather may — a
+ * Anchor Watch must never take it. Weather and explicit remote-boat log paths may — a
  * forecast for where the boat is, read from the kitchen table, is exactly
  * what Shane asked for (2026-09-07: the Glass read PHONE at Newport while the
  * Pi was publishing from the hardstand).
  */
 export async function cloudFix(now = Date.now()): Promise<BoatFix | null> {
+    const scope = getAuthIdentityScope();
+    const startedAt = Date.now();
     try {
         const { CloudTelemetryService } = await import('./CloudTelemetryService');
         const t = await CloudTelemetryService.readOnce();
-        if (!t || t.snapshot.lat === null || t.snapshot.lon === null) return null;
-        if (now - t.reportedAt > CLOUD_FIX_MAX_AGE_MS) return null;
+        if (!isAuthIdentityScopeCurrent(scope) || !t || t.source !== 'pi') return null;
+        if (
+            t.snapshot.lat === null ||
+            !Number.isFinite(t.snapshot.lat) ||
+            Math.abs(t.snapshot.lat) > 90 ||
+            t.snapshot.lon === null ||
+            !Number.isFinite(t.snapshot.lon) ||
+            Math.abs(t.snapshot.lon) > 180 ||
+            !Number.isFinite(t.reportedAt) ||
+            t.reportedAt <= 0
+        )
+            return null;
+        const age = now + Math.max(0, Date.now() - startedAt) - t.reportedAt;
+        if (age < -5_000 || age > CLOUD_FIX_MAX_AGE_MS) return null;
         return {
             latitude: t.snapshot.lat,
             longitude: t.snapshot.lon,
             timestamp: t.reportedAt,
             rung: 'cloud',
-            source: t.source === 'device' ? 'skipper-phone' : 'pi-cloud',
+            source: 'pi-cloud',
             sogKts: t.snapshot.sogKts,
             cogDeg: t.snapshot.cogDeg,
         };

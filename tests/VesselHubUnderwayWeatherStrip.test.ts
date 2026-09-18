@@ -17,6 +17,11 @@ import { describe, expect, it } from 'vitest';
 const source = readFileSync(resolve(process.cwd(), 'components/VesselHub.tsx'), 'utf8');
 
 describe('VesselHub at rest and underway', () => {
+    it('does not inject its phone GPS into the shared weather selection', () => {
+        expect(source).not.toContain("fetchWeather('Current Position'");
+        expect(source).not.toContain('weatherLatitudeBucket');
+        expect(source).toContain('refreshData(true);');
+    });
     it('renders no hero at all — the weather band is gone, not merely shrunk', () => {
         expect(source).toMatch(
             /const weatherOnlySlim = \(state\.label === 'At Rest' \|\| state\.label === 'Underway'\) && !showSwing && vesselNameSet;/,

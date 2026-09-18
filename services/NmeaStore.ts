@@ -15,6 +15,16 @@ import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
+import { subscribeAuthIdentityScope } from './authIdentityScope';
+import {
+    freshWindHistorySummary,
+    isWindSpeed,
+    validateWindHistorySummary,
+    WindHistoryBuffer,
+    WIND_HISTORY_WINDOW_MS,
+    type WindHistoryPeak,
+    type WindHistorySummary,
+} from '../utils/windHistory';
 export { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 
 // ── Freshness tiers ──
@@ -147,6 +157,14 @@ export interface RemoteInstrumentSnapshot {
     rudderDeg: number | null;
     rpm: number | null;
     voltageV: number | null;
+    /** Original wind-leaf sample time, never a row/GPS/receipt timestamp. */
+    windSampleAt?: number;
+    /** Physical source of that exact wind leaf, independent of the summary's sampling cycle. */
+    windSampleSource?: string;
+    /** Stable Pi/boat identity shared by its LAN and cloud lanes. */
+    windHistoryIdentity?: string;
+    /** Authoritative rolling history collected aboard, including while this app was closed. */
+    windHistory?: WindHistorySummary;
 }
 
 export type NmeaStoreListener = (state: NmeaStoreState) => void;
@@ -159,6 +177,20 @@ class NmeaStoreClass {
     private unsubSample: (() => void) | null = null;
     private unsubStatus: (() => void) | null = null;
     private running = false;
+    private windHistory = new WindHistoryBuffer();
+    private windHistoryIdentity: string | null = null;
+    private windHistorySource = 'Gateway wind samples';
+    private remoteWindHistory: WindHistorySummary | null = null;
+    private remoteWindSensor: string | null = null;
+    private remoteWindSensorAt = 0;
+
+    constructor() {
+        // A singleton survives account changes. Previous crews' history must not.
+        subscribeAuthIdentityScope(() => {
+            this.clearWindHistory();
+            this.notify();
+        });
+    }
 
     // ── Public API ──
 
@@ -200,6 +232,7 @@ class NmeaStoreClass {
     /** Stop the store */
     stop(): void {
         this.running = false;
+        this.clearWindHistory();
         // Reset connection status and notify UI before unsubscribing
         this.state.connectionStatus = 'disconnected';
         this.retireAllMetrics();
@@ -224,6 +257,43 @@ class NmeaStoreClass {
     /** Get current snapshot */
     getState(): NmeaStoreState {
         return this.state;
+    }
+
+    /** Page-independent, source-timestamped rolling peaks; null means no observed history. */
+    getWindHistory(now: number = Date.now()): WindHistorySummary | null {
+        const authoritative = freshWindHistorySummary(this.remoteWindHistory, now);
+        const known = this.windHistory.summary(this.windHistorySource, now);
+        if (authoritative) {
+            const newer = this.windHistory.summary(this.windHistorySource, now, authoritative.latestAt);
+            const strongest = (pi: WindHistoryPeak | null, observed: WindHistoryPeak | null): WindHistoryPeak | null =>
+                observed && (!pi || observed.kts > pi.kts || (observed.kts === pi.kts && observed.at > pi.at))
+                    ? observed
+                    : pi;
+            const max1h = strongest(authoritative.max1h, known?.max1h ?? null);
+            const gust10m = strongest(authoritative.gust10m, known?.gust10m ?? null);
+            if (!newer && max1h === authoritative.max1h && gust10m === authoritative.gust10m) return authoritative;
+            const asOf = Math.max(authoritative.asOf, newer?.latestAt ?? 0);
+            return {
+                ...authoritative,
+                asOf,
+                latestAt: Math.max(authoritative.latestAt, newer?.latestAt ?? 0),
+                since: Math.max(
+                    Math.min(authoritative.since, known?.since ?? authoritative.since),
+                    asOf - WIND_HISTORY_WINDOW_MS,
+                ),
+                // Between Pi summaries we know these observations, but cannot
+                // recalculate the Pi's full count without its complete ring.
+                sampleCount: known?.sampleCount ?? authoritative.sampleCount,
+                // An app sample can catch a peak between Pi sampling ticks.
+                // Later Pi summaries must not erase that observed same-sensor
+                // peak just because their latest sample is newer than it.
+                max1h,
+                gust10m,
+            };
+        }
+        if (!known) return null;
+        // Partial evidence after a dropout is not a newly received Pi summary.
+        return { ...known, asOf: Math.max(this.remoteWindHistory?.asOf ?? 0, known.latestAt) };
     }
 
     /** Subscribe to state changes. Returns unsubscribe function. */
@@ -251,6 +321,7 @@ class NmeaStoreClass {
             now - this.state.remote.receivedAt <= LAN_REMOTE_HOLD_MS
         )
             return false;
+        this.ingestRemoteWind(snapshot, now);
         const put = (metric: TimestampedMetric, value: number | null) => {
             if (value !== null && Number.isFinite(value)) this.updateMetric(metric, value, now);
         };
@@ -336,6 +407,12 @@ class NmeaStoreClass {
     /** Ingest an NmeaSample from the listener */
     private ingestSample(sample: NmeaSample): void {
         const now = sample.timestamp;
+        const config = NmeaListenerService.getSavedConfig?.();
+        this.selectWindHistorySource(
+            `gateway:${config?.host ?? 'default'}:${config?.port ?? ''}`,
+            'Gateway wind samples',
+        );
+        this.windHistory.add(sample.tws, sample.timestamp);
         this.state.lastAnyUpdate = now;
 
         if (sample.tws !== null) this.updateMetric(this.state.tws, sample.tws, now);
@@ -379,6 +456,83 @@ class NmeaStoreClass {
         if (sample.gpsFixQuality !== null) this.state.gpsFixQuality = sample.gpsFixQuality;
 
         this.notify();
+    }
+
+    private clearWindHistory(): void {
+        this.windHistory.clear();
+        this.windHistoryIdentity = null;
+        this.remoteWindHistory = null;
+        this.remoteWindSensor = null;
+        this.remoteWindSensorAt = 0;
+    }
+
+    private selectWindHistorySource(identity: string, source: string): void {
+        if (identity !== this.windHistoryIdentity) {
+            this.clearWindHistory();
+            this.windHistoryIdentity = identity;
+        }
+        this.windHistorySource = source;
+    }
+
+    private ingestRemoteWind(snapshot: RemoteInstrumentSnapshot, now: number): void {
+        const identity = snapshot.windHistoryIdentity?.trim() || snapshot.deviceLabel?.trim() || 'unidentified';
+        this.selectWindHistorySource(
+            `${snapshot.source}:${identity}`,
+            snapshot.source === 'pi' ? 'Pi wind samples' : 'Device wind samples',
+        );
+        let summary =
+            snapshot.source === 'pi' && snapshot.windHistory
+                ? validateWindHistorySummary(snapshot.windHistory, now)
+                : null;
+        const sampleSource =
+            typeof snapshot.windSampleSource === 'string' &&
+            snapshot.windSampleSource.length <= 120 &&
+            !/\p{Cc}/u.test(snapshot.windSampleSource)
+                ? snapshot.windSampleSource.trim() || undefined
+                : undefined;
+        // The leaf may already be from a new sensor while the five-second
+        // summary still describes the old one. Never merge their histories.
+        if (sampleSource && summary && sampleSource !== summary.source) summary = null;
+        const sensor = sampleSource || summary?.source;
+        const at = snapshot.windSampleAt;
+        const sourceMaxAge = snapshot.via === 'lan' ? 20_000 : 60_000;
+        const validSampleAt =
+            sampleSource &&
+            typeof at === 'number' &&
+            Number.isFinite(at) &&
+            at > 0 &&
+            at <= now + 1_000 &&
+            now - at <= sourceMaxAge &&
+            isWindSpeed(snapshot.twsKts)
+                ? at
+                : 0;
+        const sensorAt = Math.max(validSampleAt, summary?.latestAt ?? 0);
+        if (sensor && this.remoteWindSensor && this.remoteWindSensor !== sensor) {
+            // LAN can see a replacement sensor before the cloud publisher's
+            // next cycle. A delayed old-sensor row must not revive its peaks,
+            // even when its HTTP/report/summary timestamp is freshly stamped.
+            if (sensorAt <= this.remoteWindSensorAt) return;
+            this.windHistory.clear();
+            this.remoteWindHistory = null;
+            this.remoteWindSensorAt = 0;
+        }
+        if (sensor && sensorAt > 0) {
+            this.remoteWindSensor = sensor;
+            this.remoteWindSensorAt = Math.max(this.remoteWindSensorAt, sensorAt);
+        }
+        if (summary) {
+            // An older/repeated cloud answer must not replace newer source-time history.
+            if (!this.remoteWindHistory || summary.asOf > this.remoteWindHistory.asOf) {
+                this.remoteWindHistory = summary;
+                // Preserve only actual known peaks, never the unobserved count
+                // from the Pi. Their individual windows keep aging on dropout.
+                this.windHistory.addKnownPeak(summary.max1h, now);
+                this.windHistory.addKnownPeak(summary.gust10m, now);
+            }
+        }
+        // reportedAt describes the whole row: fresh GPS can coexist with stale
+        // wind. Only an explicit original wind-leaf timestamp proves a sample.
+        if (validSampleAt) this.windHistory.add(snapshot.twsKts, validSampleAt, now);
     }
 
     /**

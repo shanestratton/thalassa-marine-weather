@@ -6,8 +6,9 @@
  * restored to the control that opened the dialog when it closes.
  */
 
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { isAvailableForFocus, isTextEntry } from '../utils/focusableFields';
+import { usePaneModalLock, usePaneScope } from '../context/PanePortalContext';
 
 const FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -24,6 +25,23 @@ const FOCUSABLE_SELECTOR = [
 // only the most recently activated trap may handle keyboard input. Without
 // this stack, an underlying dialog can pull Tab focus out of the child dialog.
 const activeTrapStack: HTMLElement[] = [];
+
+const paneOf = (element: Element | null): Element | null =>
+    element?.closest('[data-pane-portal], [data-split-pane]') ?? null;
+
+function activeTrapForFocus(): HTMLElement | undefined {
+    // An application alarm still owns the whole keyboard. Pane dialogs only
+    // trap keys within their pane, so opening a left sheet cannot hijack Tab
+    // after the skipper taps a field in the right pane.
+    const globalTrap = [...activeTrapStack].reverse().find((trap) => !paneOf(trap));
+    if (globalTrap) return globalTrap;
+    const focusedPane = paneOf(document.activeElement);
+    const paneId = focusedPane?.getAttribute('data-pane-portal') ?? focusedPane?.getAttribute('data-split-pane');
+    return [...activeTrapStack].reverse().find((trap) => {
+        const pane = paneOf(trap);
+        return paneId && (pane?.getAttribute('data-pane-portal') ?? pane?.getAttribute('data-split-pane')) === paneId;
+    });
+}
 
 export interface FocusTrapOptions {
     /** Preferred control. Otherwise start at the first editable field, then the first control. */
@@ -43,17 +61,40 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
     options: FocusTrapOptions = {},
 ): RefObject<T> {
     const containerRef = useRef<T>(null);
+    const pane = usePaneScope();
+    usePaneModalLock(isActive, containerRef);
     const previousFocusRef = useRef<HTMLElement | null>(null);
     const optionsRef = useRef(options);
     optionsRef.current = options;
+
+    useLayoutEffect(() => {
+        if (!isActive || typeof document === 'undefined') return;
+        const container = containerRef.current;
+        if (!pane?.host || !container || !pane.host.contains(container)) return;
+        // A child portal acquires its inert lock before parent passive effects.
+        // WebKit immediately blurs the opener when its pane becomes inert, so
+        // capture the restore target before those locks run. Initial autofocus
+        // stays below, after the pane's portal host has attached to the body.
+        previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }, [isActive, pane?.host]);
 
     useEffect(() => {
         if (!isActive || typeof document === 'undefined') return;
 
         const container = containerRef.current;
         if (!container) return;
-
-        previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        // Capture this activation's restore target in the cleanup closure:
+        // a later layout pass can prepare the next pane before this passive
+        // effect has cleaned up the previous one.
+        // App-wide dialogs keep the original passive capture timing: a
+        // closing tutorial may restore its launcher during cleanup just
+        // before the next tutorial mounts. Critical portals also take this
+        // path even when their calling component inherited a pane context.
+        const previousFocus = pane?.host.contains(container)
+            ? previousFocusRef.current
+            : document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
 
         const descendants = focusableElements(container);
         const preferred = optionsRef.current.initialFocusRef?.current;
@@ -73,6 +114,9 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
                 ? preferred
                 : (descendants.find(isTextEntry) ?? descendants[0]));
         const previousScope = container.getAttribute('data-keyboard-focus-scope');
+        const previousModal = container.getAttribute('aria-modal');
+        const owningPane = paneOf(container);
+        if (owningPane) container.removeAttribute('aria-modal');
         container.setAttribute('data-keyboard-focus-scope', '');
         const addedTabIndex = !initialTarget && !container.hasAttribute('tabindex');
         if (addedTabIndex) container.setAttribute('tabindex', '-1');
@@ -80,7 +124,7 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
         activeTrapStack.push(container);
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (activeTrapStack[activeTrapStack.length - 1] !== container) return;
+            if (activeTrapForFocus() !== container) return;
 
             if (event.key === 'Escape' && container.contains(document.activeElement)) {
                 const onEscape = optionsRef.current.onEscape;
@@ -119,16 +163,42 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
         document.addEventListener('keydown', handleKeyDown);
 
         return () => {
+            const focusedElsewhere =
+                owningPane &&
+                document.activeElement instanceof HTMLElement &&
+                document.activeElement !== document.body &&
+                !container.contains(document.activeElement);
             document.removeEventListener('keydown', handleKeyDown);
             const stackIndex = activeTrapStack.lastIndexOf(container);
             if (stackIndex !== -1) activeTrapStack.splice(stackIndex, 1);
             if (addedTabIndex) container.removeAttribute('tabindex');
             if (previousScope === null) container.removeAttribute('data-keyboard-focus-scope');
             else container.setAttribute('data-keyboard-focus-scope', previousScope);
-            if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus({ preventScroll: true });
-            previousFocusRef.current = null;
+            if (previousModal !== null) container.setAttribute('aria-modal', previousModal);
+            if (!focusedElsewhere && previousFocus?.isConnected) {
+                const restoreTarget = previousFocus;
+                if (restoreTarget.closest('[inert]')) {
+                    // During conditional unmount React cleans the parent trap
+                    // before the child portal releases its final pane lock.
+                    // Focusing an inert opener is ignored by the browser. Wait
+                    // until all synchronous cleanups finish, without stealing
+                    // focus if another pane/dialog acquired it in the meantime.
+                    const focusAtClose = document.activeElement;
+                    queueMicrotask(() => {
+                        const active = document.activeElement;
+                        if (
+                            restoreTarget.isConnected &&
+                            isAvailableForFocus(restoreTarget) &&
+                            (active === focusAtClose || active === document.body || container.contains(active))
+                        )
+                            restoreTarget.focus({ preventScroll: true });
+                    });
+                } else {
+                    restoreTarget.focus({ preventScroll: true });
+                }
+            }
         };
-    }, [isActive]);
+    }, [isActive, pane?.host]);
 
     return containerRef;
 }

@@ -330,7 +330,10 @@ export default function DiarySidebar({
         <div
             id="voyage-panel-content"
             ref={scrollRef}
-            className="flex min-h-0 flex-1 flex-col bg-slate-900 md:overflow-y-auto"
+            role="region"
+            aria-label={view === 'instruments' ? 'Instruments content' : 'Diary content'}
+            tabIndex={0}
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-slate-900 pb-4 [overflow-wrap:anywhere]"
         >
             {/* Current readings require explicit consent in latest mode.
                 They can be live at the berth without an active voyage; a

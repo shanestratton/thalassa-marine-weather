@@ -1,4 +1,10 @@
 @import 'tailwindcss';
+@import './styles/daylight.css';
+@import './styles/daylight-surfaces.css';
+@import './styles/legibility.css';
+@import './styles/action-legibility.css';
+@import './styles/glass-legibility.css';
+@import './styles/split-pane.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
@@ -3571,6 +3577,105 @@ body,
     bottom: calc(4rem + 73px + env(safe-area-inset-bottom));
 }
 
+/* Keep the coverage notice below the top/MOB/layer controls, not bottom-anchored
+   to a full-bleed map that extends behind navigation. This also leaves the
+   Locate/scale/attribution stack intact on narrow phones. */
+.thalassa-enc-coverage-notice {
+    top: calc(260px + env(safe-area-inset-top));
+    left: 50%;
+    width: min(390px, calc(100% - 24px));
+    transform: translateX(-50%);
+}
+
+/* Preserve both words and the 44px finger target without letting the CTA's
+   max-content width squeeze the safety text into seven narrow lines. System
+   font metrics differ across platforms; wrapping is part of this layout. */
+.thalassa-enc-coverage-notice > button {
+    inline-size: min-content;
+    white-space: normal;
+}
+
+/* Use one positioning property throughout. Tailwind's production optimizer
+   folds translate:none into transform:none, which cannot cancel a separate
+   utility-class translate. This badge therefore owns transform in both modes. */
+.thalassa-enc-tide-badge,
+.thalassa-enc-tide-scrubber {
+    transform: translateX(-50%);
+}
+
+@media (min-height: 601px) {
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice {
+        left: 72px;
+        width: min(390px, calc(100% - 152px));
+        transform: none;
+    }
+}
+
+/* In short landscape (including a short iPad split pane), reserve both the
+   middle-left Back control and the right-hand map rail. Tide status stays
+   above the notice and beside, rather than over, the emergency control. */
+@media (orientation: landscape) and (max-height: 600px) {
+    .thalassa-enc-coverage-notice {
+        top: calc(148px + env(safe-area-inset-top));
+        left: calc(72px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 224px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        padding-block: 4px;
+        transform: none;
+    }
+    .thalassa-enc-tide-badge {
+        left: max(12px, env(safe-area-inset-left));
+        max-width: calc(100% - 152px);
+        white-space: normal;
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice--with-tide {
+        /* Below the slider and expanded credits, above the actual 4rem nav;
+           the left inset preserves the logo and the right inset Locate. */
+        top: auto;
+        bottom: calc(4rem + 2px + env(safe-area-inset-bottom));
+        left: calc(104px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 176px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        padding-block: 4px;
+    }
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice--with-tide {
+        width: min(390px, calc(100% - 256px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    }
+}
+
+/* Narrow portrait needs a wrapped station label. Keep both tide controls
+   left of MOB, and reserve the Back rail beside the longer warning. */
+@media (orientation: portrait) and (max-width: 360px) {
+    .thalassa-enc-tide-badge {
+        left: 12px;
+        max-width: calc(100% - 100px);
+        min-height: 44px;
+        white-space: normal;
+        transform: none;
+    }
+    .thalassa-enc-tide-scrubber {
+        top: calc(4rem + 64px);
+        left: 12px;
+        width: min(15rem, calc(100% - 100px));
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice {
+        top: calc(4rem + 200px);
+        left: 64px;
+        width: calc(100% - 76px);
+        /* Give the sentence the whole row. Beside a nonshrinking button it
+           can outgrow the space above scale/credits even at the same font
+           size. Both rows stay in normal flow; no clipped or hidden text. */
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        padding-block: 4px;
+        transform: none;
+    }
+    .thalassa-enc-coverage-notice > button {
+        align-self: flex-end;
+    }
+}
+
 /* ── Bottom sheets and the on-screen keyboard ──────────────────────
    USE THIS on any bottom-anchored panel that contains a text field and
    scrolls internally. Add the class, delete the hard-coded max-h.
@@ -3727,6 +3832,180 @@ body.animation-diet [class*='slide-in'] {
    a negative content height. In short landscape, use the wide axis: layers
    open on the left while the helm stays on the right, and Tracer becomes a
    full-height scrollable rail clear of the navigation escape button. */
+/* ── Passage strip on the Obs chart (Shane 2026-09-17) ────────────────────
+   A 4.75rem instrument strip down the left edge, like a chartplotter's data
+   bar (about 75px on a 393px phone — the root font is fluid below 768px, so
+   the strip scales with its own text). The width is the design: every CENTRED
+   piece of chart furniture (the RainViewer and Copernicus licence credits, the
+   tide scrubber) starts to the right of it, so nothing carrying a licence
+   condition is ever moved or covered.
+
+   Clearances that must line up with px-anchored neighbours are in px: 60px
+   clears the 56px top control row; 232px clears the bottom-left weather
+   controls (the wind-model row tops out at inset + 210px). The split frame
+   needs no override — its furniture still pays the insets, so the strip does. */
+.thalassa-passage-hud {
+    top: calc(env(safe-area-inset-top) + 60px);
+    max-height: calc(100% - env(safe-area-inset-top) - 60px - 232px - env(safe-area-inset-bottom));
+}
+/* The closed tab sits below the Back chevron. */
+.thalassa-passage-hud-tab {
+    top: calc(50% + 40px);
+}
+/* LOOK AHEAD (phase 2). The scrubber takes the bottom row while the chart's own
+   time controls stand down (MapWeatherControls), so there is never a second
+   slider. MEASURED on the real chart page in WebKit (2026-09-18) at 320, 375,
+   393 and 430px wide, because the first cut simply reused the weather
+   scrubber's slot and that slot turned out to be no model of good behaviour —
+   its right end sat on the Locate button and clipped Mapbox's (i), and its
+   Play button lay over the Mapbox wordmark.
+
+   BOTTOM is in the wordmark's own units. Mapbox's bottom-left container is
+   anchored at 4rem + 1px (above), its control carries a 10px margin and the
+   wordmark is 23px tall, so its top is 4rem + 34px up — and the root font is
+   FLUID below 768px, so that is 96.9px on a 393px phone and 102px on a 430px
+   one. A first cut in plain px (97) cleared the one and clipped the other by
+   a pixel. 4rem + 38px clears both by 4px, at any width.
+
+   RIGHT clears the whole right-hand column whatever its height: the Locate
+   button (16px + 3rem), Mapbox's (i) and the scale bar, which is up to 100px
+   wide on a 10px margin — so 116px, not the 96px that only cleared the scale
+   at the zoom it happened to be measured at. Neither credit is moved,
+   restyled or covered. Capped so a tablet does not get a metre of slider. */
+.thalassa-route-scrubber {
+    left: 12px;
+    right: 116px;
+    max-width: 30rem;
+    bottom: calc(4rem + 38px + env(safe-area-inset-bottom));
+}
+/* The "This is a passage" nudge is anchored 9rem up and is wider than the
+   scrubber: measured, it lay across the scrubber's clock and its change-model
+   button. It is the one that moves — up, clear of the scrubber's tallest state —
+   because it is a card with a Not now button and the scrubber is a control in
+   use. Phase 3 made that tallest state taller: the credit now names every
+   provider in the model band and wraps to two lines on a phone, so it is
+   ~77px + a wrapped credit line + both note rows = ~125px. !important: its
+   bottom is inline. */
+body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt {
+    bottom: calc(4rem + 186px + env(safe-area-inset-bottom)) !important;
+}
+/* Looking ahead, the weather-model row that the 232px stood clear of is not on
+   screen; the scrubber tops out at 4rem + 163px in its tallest state (see
+   above), so the strip may run lower than in LIVE — and never into it. */
+.thalassa-passage-hud[data-mode='forecast'] {
+    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 190px - env(safe-area-inset-bottom));
+}
+/* Phase 4 put the sea's providers in the scrubber's credit, which can run to a
+   third line on a phone: +15px on both clearances above (171 -> 186, 175 -> 190).
+
+   …and gave the strip an eighth forecast cell. WORKED OUT, not hoped: at 393x852
+   paying both insets the cells overflow by 77-90px, so RAIN and AW EST — the two
+   LAST cells, by design — sit below the fold; each standing warning (they stand
+   outside the scroller) lifts the fold another 20-40px. TWS, GUST, TWD and SEA
+   stay above it. A cell that is exactly hidden gives no cue that it is there, so
+   the scroller says so itself: the classic scroll-shadow — a sky glow along the
+   bottom edge that a cover the colour of the strip slides over once the skipper
+   has scrolled to the end. No JS, no layout cost. */
+.thalassa-passage-hud-cells {
+    background:
+        linear-gradient(rgb(2 6 23 / 0), rgb(2 6 23)) bottom / 100% 18px no-repeat local,
+        linear-gradient(rgb(56 189 248 / 0), rgb(56 189 248 / 0.55)) bottom / 100% 9px no-repeat scroll;
+}
+/* Surfaces that own the chart: no strip and no tab. Only MapHub knows when the
+   passage planner, the consensus matrix or a storm card is up, so CSS asks the
+   DOM. The storm card keeps Shane's standing rule — it stays on top of every
+   other layer — and there is no room beside it on a phone (strip + card + MOB
+   rail is wider than the screen). */
+main:has(.thalassa-passage-banner) .thalassa-passage-hud,
+main:has(.thalassa-passage-banner) .thalassa-passage-hud-tab,
+main:has(button[aria-label='Close consensus matrix']) .thalassa-passage-hud,
+main:has(button[aria-label='Close consensus matrix']) .thalassa-passage-hud-tab,
+main:has(.storm-hud-badges) .thalassa-passage-hud,
+main:has(.storm-hud-badges) .thalassa-passage-hud-tab,
+main:has(.thalassa-passage-banner) .thalassa-route-scrubber,
+main:has(button[aria-label='Close consensus matrix']) .thalassa-route-scrubber,
+main:has(.storm-hud-badges) .thalassa-route-scrubber {
+    display: none;
+}
+/* A landscape phone has ~390px of height and a full bottom-left rail: there is
+   no honest place for seven numbers. Phase 1 stands down there. */
+@media (orientation: landscape) and (max-height: 600px) {
+    .thalassa-passage-hud,
+    .thalassa-passage-hud-tab,
+    .thalassa-route-scrubber {
+        display: none;
+    }
+}
+/* What shares the strip's column yields ONLY while the strip is really on
+   screen — never for a strip the rules above have hidden. */
+@media not ((orientation: landscape) and (max-height: 600px)) {
+    /* The strip carries its own Back button; App's chevron sits in its column. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-map-back {
+        display: none;
+    }
+    /* The wind legend (folded to its chip by ThalassaHelixControl while the
+       strip is open) steps right AND down into the slot the hidden Back
+       chevron has just vacated: beside the strip at its usual height it sat
+       under the tall all-layers Copernicus credit (measured 35 x 15px).
+       Its position is inline, hence !important. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-helix-legend {
+        left: calc(4.75rem + 12px) !important;
+        bottom: calc(50% - 24px) !important;
+    }
+    /* The squall / lightning legend stack is viewport-fixed at left-2, in the
+       band of both the strip and the closed tab. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .fixed.left-2.z-140 {
+        left: calc(4.75rem + 8px);
+    }
+    main:has(.thalassa-passage-hud-tab):not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .fixed.left-2.z-140 {
+        left: calc(1.75rem + 8px);
+    }
+    /* The ENC coverage notice is re-centred in the width that is left. Each
+       context states its own transform: the split and narrow-portrait rules
+       set transform:none, and a rule that only moved `left` inherited it and
+       ran the notice off the right-hand edge. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-enc-coverage-notice {
+        left: calc(4.75rem + (100% - 4.75rem) / 2);
+        width: min(390px, calc(100% - 4.75rem - 24px));
+        transform: translateX(-50%);
+    }
+}
+@media (min-height: 601px) {
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))[data-split-pane='chart']
+        .thalassa-enc-coverage-notice {
+        left: calc(4.75rem + 72px);
+        width: min(390px, calc(100% - 4.75rem - 152px));
+        transform: none;
+    }
+}
+@media (orientation: portrait) and (max-width: 360px) {
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-enc-coverage-notice {
+        left: calc(4.75rem + 8px);
+        width: calc(100% - 4.75rem - 20px);
+        transform: none;
+    }
+}
+
 @media (orientation: landscape) and (max-height: 500px) {
     .anchor-setup-scroll {
         padding-bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;
@@ -3975,25 +4254,25 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    fixing contrast by deleting the palette. Onshore now gets its own warm
    AA-compliant value.
 
-   Values are chosen to clear 4.5:1 while staying visibly darker than the
-   -400 step above them (5.3-5.7:1 against ~8:1), so the three-tier muted
-   ramp survives. Lifting straight to -400 would have met AA by
-   collapsing two tiers into one.
+   Build 107's uniform-caption follow-up uses the shared secondary ink
+   from styles/legibility.css. The old values only cleared the page base,
+   not raised slate-800 cards or the night scrim. Weight and sizing now
+   distinguish captions from titles; onshore retains its warm ink.
 
    Sunlight mode is excluded — it remaps these to dark-on-light itself.
    ──────────────────────────────────────────────────────────────── */
 :root:not(.display-light):not(.theme-onshore) .text-gray-500 {
-    color: rgb(124 134 148); /* 5.47:1 on slate-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 :root:not(.display-light):not(.theme-onshore) .text-slate-500 {
-    color: rgb(122 138 158); /* 5.72:1 on slate-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 :root:not(.display-light).theme-onshore .text-gray-500,
 :root:not(.display-light).theme-onshore .text-slate-500 {
-    color: rgb(139 131 125); /* warm stone, 5.31:1 on stone-950 */
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary)); /* warm onshore caption ink */
 }
 :root:not(.display-light) .text-white\/40 {
-    color: rgb(255 255 255 / 0.62);
+    color: var(--ui-caption-hover-ink, var(--ui-ink-secondary));
 }
 
 /* ────────────────────────────────────────────────────────────────

@@ -115,11 +115,57 @@ beforeEach(() => {
 });
 afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
 });
 
-const choose = (name: 'Instruments' | 'Diary') =>
-    fireEvent.click(within(screen.getByRole('group', { name: 'Side panel view' })).getByRole('button', { name }));
+const desktopViews = () => within(screen.getByRole('group', { name: 'Side panel view' }));
+const choose = (name: 'Instruments' | 'Diary') => fireEvent.click(desktopViews().getByRole('button', { name }));
+const mobileViews = () => within(screen.getByRole('navigation', { name: 'Voyage views' }));
+const chooseMobile = (name: 'Map' | 'Instruments' | 'Diary') =>
+    fireEvent.click(mobileViews().getByRole('button', { name }));
+
+function mockViewport(initialWidth = 390, initialHeight = 844) {
+    let width = initialWidth;
+    let height = initialHeight;
+    const queries = new Map<string, MediaQueryList>();
+    const matches = (query: string) =>
+        query === '(max-width: 1023px)'
+            ? width <= 1023
+            : query === '(max-width: 1023px) and (max-height: 500px)' && width <= 1023 && height <= 500;
+    vi.stubGlobal(
+        'matchMedia',
+        vi.fn((query: string) => {
+            if (!queries.has(query)) {
+                const target = new EventTarget();
+                queries.set(query, {
+                    get matches() {
+                        return matches(query);
+                    },
+                    media: query,
+                    onchange: null,
+                    addListener: vi.fn(),
+                    removeListener: vi.fn(),
+                    addEventListener: target.addEventListener.bind(target),
+                    removeEventListener: target.removeEventListener.bind(target),
+                    dispatchEvent: target.dispatchEvent.bind(target),
+                } as MediaQueryList);
+            }
+            return queries.get(query)!;
+        }),
+    );
+    return (nextWidth: number, nextHeight: number) => {
+        const previous = new Map([...queries].map(([query, media]) => [query, media.matches]));
+        width = nextWidth;
+        height = nextHeight;
+        for (const [query, media] of queries) {
+            if (previous.get(query) !== media.matches) {
+                media.dispatchEvent(Object.assign(new Event('change'), { matches: media.matches, media: query }));
+            }
+        }
+    };
+}
+
 async function openPage() {
     await act(async () => {
         render(<ThalassaDashboard />);
@@ -129,7 +175,7 @@ const expectDiaryOnly = () => {
     expect(screen.getByRole('heading', { name: ENTRY.title })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Onboard instruments' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Instrument sharing status' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
+    expect(desktopViews().getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
 };
 
 describe('public voyage Instruments / Diary switch', () => {
@@ -145,7 +191,7 @@ describe('public voyage Instruments / Diary switch', () => {
         );
         await act(async () => vi.advanceTimersByTimeAsync(70_000));
         await act(async () => complete({ ...DATA, instruments_shared: false }));
-        expect(screen.getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
+        expect(desktopViews().getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
         expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
         mocks.fetchPublicInstruments.mockResolvedValue({ ...DATA, instruments_shared: false });
         await act(async () => vi.advanceTimersByTimeAsync(10_000));
@@ -200,7 +246,7 @@ describe('public voyage Instruments / Diary switch', () => {
         await openPage();
         expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: ENTRY.title })).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
+        expect(desktopViews().getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
         const toggle = screen.getByRole('group', { name: 'Side panel view' });
         expect(toggle.parentElement?.nextElementSibling?.id).toBe('voyage-panel-content');
 
@@ -271,7 +317,7 @@ describe('public voyage Instruments / Diary switch', () => {
                 }),
             );
             expectDiaryOnly();
-            expect(screen.getByRole('button', { name: 'Instruments' })).toBeDisabled();
+            expect(desktopViews().getByRole('button', { name: 'Instruments' })).toBeDisabled();
             mocks.fetchVoyageLog.mockResolvedValue(DATA);
             await act(async () =>
                 fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
@@ -286,7 +332,7 @@ describe('public voyage Instruments / Diary switch', () => {
         mocks.fetchVoyageLog.mockResolvedValue({ ...DATA, selected_trip: 'all-diary', trips: [DATA.trips[1]] });
         await openPage();
         expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Instruments' })).toBeEnabled();
+        expect(desktopViews().getByRole('button', { name: 'Instruments' })).toBeEnabled();
         expect(screen.queryByRole('heading', { name: ENTRY.title })).not.toBeInTheDocument();
     });
 
@@ -317,5 +363,142 @@ describe('public voyage Instruments / Diary switch', () => {
         choose('Diary');
         expect(content.scrollTop).toBe(0);
         expect(within(content).queryByRole('group', { name: 'Side panel view' })).not.toBeInTheDocument();
+    });
+});
+
+describe('public voyage mobile views', () => {
+    beforeEach(() => {
+        mockViewport();
+        mocks.fetchPublicInstruments.mockResolvedValue(DATA);
+    });
+
+    it('opens on Map and keeps the fast instrument feed asleep through the full voyage refresh', async () => {
+        await openPage();
+        expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+        expect(document.getElementById('voyage-map')).not.toHaveClass('hidden');
+        expect(screen.getByRole('complementary')).toHaveClass('hidden');
+        expect(mocks.fetchPublicInstruments).not.toHaveBeenCalled();
+
+        await act(async () => vi.advanceTimersByTimeAsync(60_000));
+        expect(mocks.fetchVoyageLog).toHaveBeenCalledTimes(2);
+        expect(mocks.fetchPublicInstruments).not.toHaveBeenCalled();
+        expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+    });
+
+    it('polls only while Instruments is selected and preserves the map through every view', async () => {
+        await openPage();
+        const map = document.getElementById('voyage-map');
+        const marker = screen.getByRole('button', { name: 'Open diary marker' });
+
+        await act(async () => chooseMobile('Instruments'));
+        expect(mobileViews().getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
+        expect(map).toHaveClass('hidden', 'lg:block');
+        expect(screen.getByRole('complementary')).not.toHaveClass('hidden');
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(1);
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(2);
+
+        chooseMobile('Map');
+        expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+        expect(map).not.toHaveClass('hidden');
+        await act(async () => vi.advanceTimersByTimeAsync(30_000));
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(2);
+
+        chooseMobile('Diary');
+        expect(mobileViews().getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: ENTRY.title })).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Onboard instruments' })).not.toBeInTheDocument();
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(2);
+        expect(document.getElementById('voyage-map')).toBe(map);
+        expect(screen.getByRole('button', { name: 'Open diary marker' })).toBe(marker);
+        expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts an in-flight instrument request when returning to Map', async () => {
+        mocks.fetchPublicInstruments.mockImplementation(() => new Promise(() => {}));
+        await openPage();
+        chooseMobile('Instruments');
+        const signal = mocks.fetchPublicInstruments.mock.calls[0][1] as AbortSignal;
+        expect(signal.aborted).toBe(false);
+        chooseMobile('Map');
+        expect(signal.aborted).toBe(true);
+        await act(async () => vi.advanceTimersByTimeAsync(30_000));
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens a map marker in Diary detail and leaves the instrument feed asleep', async () => {
+        await openPage();
+        const marker = screen.getByRole('button', { name: 'Open diary marker' });
+        marker.focus();
+        fireEvent.click(marker);
+        expect(mobileViews().getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Diary content' })).toHaveFocus();
+        expect(screen.getByRole('button', { name: 'Back to all entries' })).toBeInTheDocument();
+        expect(screen.getByText(ENTRY.body)).toBeInTheDocument();
+        expect(screen.getByRole('complementary')).not.toHaveClass('hidden');
+        expect(document.getElementById('voyage-map')).toHaveClass('hidden');
+        expect(mocks.fetchPublicInstruments).not.toHaveBeenCalled();
+        expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['trip-1', 'all-diary'])(
+        'disables current instruments for explicit %s selection even while its request fails',
+        async (trip) => {
+            await openPage();
+            await act(async () => chooseMobile('Instruments'));
+            mocks.fetchVoyageLog.mockRejectedValue(new VoyageLogError(429, 'Try again later'));
+            await act(async () =>
+                fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
+                    target: { value: trip },
+                }),
+            );
+            expect(mobileViews().getByRole('button', { name: 'Instruments' })).toBeDisabled();
+            expect(mobileViews().getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
+            expect(screen.queryByRole('region', { name: 'Onboard instruments' })).not.toBeInTheDocument();
+            await act(async () => vi.advanceTimersByTimeAsync(30_000));
+            expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(1);
+            chooseMobile('Map');
+            expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+            chooseMobile('Diary');
+            expect(screen.getByRole('heading', { name: ENTRY.title })).toBeInTheDocument();
+        },
+    );
+
+    it('can open Instruments on a phone after the desktop panel was folded', async () => {
+        const resize = mockViewport(1024, 768);
+        await openPage();
+        fireEvent.click(screen.getByRole('button', { name: 'Hide instruments' }));
+        expect(document.getElementById('voyage-side-panel')).not.toBeInTheDocument();
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(1);
+
+        act(() => resize(390, 844));
+        expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(1);
+        await act(async () => chooseMobile('Instruments'));
+        expect(mobileViews().getByRole('button', { name: 'Instruments', pressed: true })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
+        expect(screen.getByRole('complementary')).not.toHaveClass('hidden');
+        expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(2);
+        expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a wide landscape phone on Map with its header restored by the map control', async () => {
+        mockViewport(844, 390);
+        await openPage();
+        const selectionHeader = screen.getByRole('region', { name: 'Voyage selection' }).parentElement;
+        expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+        expect(selectionHeader).toHaveClass('hidden');
+        expect(mocks.fetchPublicInstruments).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Restore page header', pressed: true }));
+        expect(selectionHeader).not.toHaveClass('hidden');
+        expect(screen.getByRole('button', { name: 'Expand map', pressed: false })).toBeInTheDocument();
+        chooseMobile('Diary');
+        expect(mobileViews().getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: ENTRY.title })).toBeInTheDocument();
+        expect(mocks.mapMount).toHaveBeenCalledTimes(1);
     });
 });

@@ -1,0 +1,40 @@
+/* Glass captions sit on translucent cards over slate-200, not white.
+   Keep the existing card geometry and dark/night metric palette; only the
+   daylight heading ink and the genuinely faint forecast captions change. */
+:root.display-light .glass-metric-heading-row {
+    opacity: 1;
+}
+
+:root.display-light .glass-metric-heading {
+    color: #064e3b;
+}
+:root.display-light .glass-metric-heading.text-amber-300 {
+    color: #78350f;
+}
+:root.display-light .glass-metric-heading.text-sky-300,
+:root.display-light .glass-tide-caption {
+    color: #0c4a6e;
+}
+:root.display-light .glass-metric-heading.text-cyan-300 {
+    color: #164e63;
+}
+:root.display-light .glass-metric-heading.text-purple-300 {
+    color: #581c87;
+}
+:root.display-light .glass-clear-status {
+    color: #064e3b;
+}
+
+/* A warning is a filled red control, not dark copy on a daylight card. */
+:root .glass-warning-label {
+    color: #ffffff;
+}
+
+/* Local to forecast captions: do not brighten the whole night display or
+   globally change the opacity tiers used by disabled controls. */
+:root:not(.display-light) .glass-forecast-caption {
+    color: rgba(255, 255, 255, 0.85);
+}
+:root.display-light .glass-forecast-caption {
+    color: #334155;
+}

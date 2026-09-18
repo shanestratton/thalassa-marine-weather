@@ -30,6 +30,20 @@ export interface LatLon {
     lon: number;
 }
 
+/** A locality label has a much smaller reuse radius than a weather forecast. */
+export function sameLocationNamePoint(a: LatLon | null | undefined, b: LatLon): boolean {
+    return !!a && haversineNM(a.lat, a.lon, b.lat, b.lon) <= 50 / 1852;
+}
+
+/** An honest fallback when a locality cannot be looked up (including offshore/offline). */
+export function coordinateLocationName(point: LatLon): string {
+    return `${Math.abs(point.lat).toFixed(4)}°${point.lat >= 0 ? 'N' : 'S'}, ${Math.abs(point.lon).toFixed(4)}°${point.lon >= 0 ? 'E' : 'W'}`;
+}
+
+export function isPlaceholderLocationName(name: string | null | undefined): boolean {
+    return !name || name === 'Current Location' || /^WP |^-?\d|^(Phone|Boat) GPS unavailable/.test(name);
+}
+
 /** Great-circle distance in nautical miles. Delegates to the canonical haversine. */
 export function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     return calculateDistance(lat1, lon1, lat2, lon2);

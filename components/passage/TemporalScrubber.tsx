@@ -249,9 +249,9 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
             >
                 <div
                     style={{
-                        background: 'rgba(15, 23, 42, 0.9)',
+                        background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.9))',
 
-                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08))',
                         borderRadius: 16,
                         padding: '10px 16px',
                         display: 'flex',
@@ -272,7 +272,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                             borderRadius: 10,
                             background: 'rgba(56, 189, 248, 0.2)',
                             border: '1px solid rgba(56, 189, 248, 0.3)',
-                            color: '#38bdf8',
+                            color: 'var(--day-ui-accent, #38bdf8)',
                             cursor: computing ? 'not-allowed' : 'pointer',
                             flexShrink: 0,
                             opacity: computing ? 0.3 : 1,
@@ -321,7 +321,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                             style={{
                                 width: '100%',
                                 height: 6,
-                                background: 'rgba(255, 255, 255, 0.1)',
+                                background: 'var(--day-ui-surface-soft, rgba(255, 255, 255, 0.1))',
                                 borderRadius: 3,
                                 position: 'relative',
                                 overflow: 'hidden',
@@ -354,7 +354,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                                 height: 20,
                                 background: '#38bdf8',
                                 borderRadius: '50%',
-                                border: '2px solid rgba(255, 255, 255, 0.4)',
+                                border: '2px solid var(--day-ui-border, rgba(255, 255, 255, 0.4))',
                                 boxShadow: '0 2px 8px rgba(56, 189, 248, 0.3)',
                                 transform: 'translate(-50%, -50%) scale(1)',
                                 transition: isDraggingRef.current ? 'none' : 'transform 0.15s ease-out',
@@ -372,7 +372,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                                 margin: 0,
                                 fontSize: SIZE.body,
                                 fontWeight: 900,
-                                color: '#fff',
+                                color: 'var(--day-ui-text, #fff)',
                                 lineHeight: 1.2,
                                 fontFamily: FONT.data,
                             }}
@@ -383,7 +383,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                             style={{
                                 margin: 0,
                                 fontSize: SIZE.xs,
-                                color: '#64748b',
+                                color: 'var(--day-ui-muted, #64748b)',
                                 fontFamily: FONT.ui,
                                 fontWeight: 700,
                                 textTransform: 'uppercase',

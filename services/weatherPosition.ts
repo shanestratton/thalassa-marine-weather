@@ -6,15 +6,14 @@
  * special saved location." So 'Current Location' FOLLOWS one of two things:
  *
  *   • the PHONE — the default. The punter's weather is where the punter is.
- *     The boat's receivers are only a fallback for a phone that cannot answer
- *     (no permission, no fix yet).
+ *     No permission or no fix means PHONE unavailable, never the boat.
  *   • the BOAT — when the skipper picks her row (named after the vessel) in
  *     the saved-locations menu. Then the order is the boat's own: the bus (a
  *     gateway socket, or the Pi over the boat LAN), the Pi direct (its Signal K
  *     already ranks the bus above its u-blox stick), the Pi's cloud row (the
  *     boat seen from a distance — good for a forecast, nothing that steers),
  *     and failing all of those her LAST fix this device saw, held with its age
- *     on screen. The phone only when no boat has ever answered here.
+ *     on screen. No boat fix means BOAT unavailable, never the phone.
  *
  * History: 2026-09-06 made the boat the default after the forecast drove to
  * Shane's daughter's with his phone ("hold her last fix. with a message of
@@ -28,8 +27,9 @@
  * function for it — which also keeps this module clear of every location
  * permission surface.
  */
-import { busFix, cloudFix, piFix, type BoatFix, type BoatFixRung } from './boatPositionChain';
-import { authScopedStorageKey } from './authIdentityScope';
+import { busFix, cloudFix, piFix, CLOUD_FIX_MAX_AGE_MS, type BoatFix, type BoatFixRung } from './boatPositionChain';
+import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
+import { NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 import { haversineNM } from '../utils/gpsFollow';
 import { createLogger } from '../utils/createLogger';
 
@@ -78,6 +78,11 @@ export interface WeatherPositionResolution {
 export const ASK_DISTANCE_NM = 2;
 /** The follower ticks every 5 s; the Pi over the tailnet is asked at most this often. */
 export const PI_POLL_MS = 30_000;
+/** A cached phone fix is useful for weather, but must not be called current after this. */
+export const PHONE_FIX_MAX_AGE_MS = 60_000;
+/** Matches the Pi GPS endpoint's receiver freshness contract. */
+const PI_FIX_MAX_AGE_MS = 60_000;
+const FUTURE_FIX_TOLERANCE_MS = 5_000;
 /** The remembered fix is rewritten no more often than this unless the boat has moved. */
 export const REMEMBER_MIN_INTERVAL_MS = 60_000;
 export const REMEMBER_MIN_MOVE_NM = 0.02;
@@ -107,11 +112,34 @@ let piLastAskedAt = Number.NEGATIVE_INFINITY;
 export const CLOUD_POLL_MS = 30_000;
 let cloudInFlight: Promise<BoatFix | null> | null = null;
 let cloudLastAnswer: BoatFix | null = null;
-let cloudLastAskedAt = 0;
+let cloudLastAskedAt = Number.NEGATIVE_INFINITY;
 let piLastAnswer: BoatFix | null = null;
 let piInFlight: Promise<BoatFix | null> | null = null;
 let lastRememberedAt = Number.NEGATIVE_INFINITY;
 let lastRemembered: { lat: number; lon: number } | null = null;
+let cacheScope = getAuthIdentityScope();
+let sessionFollowTarget: WeatherFollowTarget | null = null;
+let sessionTargetNeedsPersistence = false;
+
+function resetCaches(): void {
+    cloudInFlight = null;
+    cloudLastAnswer = null;
+    cloudLastAskedAt = Number.NEGATIVE_INFINITY;
+    piLastAskedAt = Number.NEGATIVE_INFINITY;
+    piLastAnswer = null;
+    piInFlight = null;
+    lastRememberedAt = Number.NEGATIVE_INFINITY;
+    lastRemembered = null;
+    sessionFollowTarget = null;
+    sessionTargetNeedsPersistence = false;
+}
+
+/** Persisted keys alone cannot isolate the in-flight and throttled answers. */
+function ensureCacheScope(): void {
+    if (isAuthIdentityScopeCurrent(cacheScope)) return;
+    resetCaches();
+    cacheScope = getAuthIdentityScope();
+}
 
 function storage(): Storage | null {
     try {
@@ -149,6 +177,25 @@ function validCoordinates(lat: unknown, lon: unknown): lat is number {
     );
 }
 
+function validTimestamp(timestamp: number, now: number): boolean {
+    return Number.isFinite(timestamp) && timestamp > 0 && timestamp <= now + FUTURE_FIX_TOLERANCE_MS;
+}
+
+/** Old versions stored phone-uploaded cloud rows under the boat key. Refuse those on read too. */
+function isBoatReceiver(fix: Pick<BoatFix, 'rung' | 'source'>): boolean {
+    if (fix.rung !== 'bus' && fix.rung !== 'pi' && fix.rung !== 'cloud') return false;
+    if (fix.rung === 'cloud') return fix.source === 'pi-cloud';
+    return !/(?:^|[\s.:_/-])(?:phone|device|mobile|geolocation|browser)(?:$|[\s.:_/-])/i.test(fix.source ?? '');
+}
+
+function usableBoatFix(fix: BoatFix | null, now: number): fix is BoatFix {
+    if (!fix || !isBoatReceiver(fix) || !validCoordinates(fix.latitude, fix.longitude)) return false;
+    if (!validTimestamp(fix.timestamp, now)) return false;
+    const maxAge =
+        fix.rung === 'bus' ? NMEA_USABLE_MAX_AGE_MS : fix.rung === 'cloud' ? CLOUD_FIX_MAX_AGE_MS : PI_FIX_MAX_AGE_MS;
+    return now - fix.timestamp <= maxAge;
+}
+
 function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
     return {
         lat: fix.latitude,
@@ -162,7 +209,11 @@ function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
 
 /** Keep the boat's latest fix for the day she goes quiet. Throttled: a moving boat rewrites, a still one does not. */
 export function rememberBoatFix(fix: BoatFix, now = Date.now()): void {
-    if (!validCoordinates(fix.latitude, fix.longitude)) return;
+    ensureCacheScope();
+    if (!isBoatReceiver(fix) || !validCoordinates(fix.latitude, fix.longitude) || !validTimestamp(fix.timestamp, now))
+        return;
+    const previous = heldBoatFix(now);
+    if (previous && fix.timestamp < previous.timestamp) return;
     const moved =
         !lastRemembered ||
         haversineNM(lastRemembered.lat, lastRemembered.lon, fix.latitude, fix.longitude) >= REMEMBER_MIN_MOVE_NM;
@@ -170,7 +221,7 @@ export function rememberBoatFix(fix: BoatFix, now = Date.now()): void {
     const stored: StoredBoatFix = {
         lat: fix.latitude,
         lon: fix.longitude,
-        timestamp: Number.isFinite(fix.timestamp) ? fix.timestamp : now,
+        timestamp: fix.timestamp,
         rung: fix.rung,
         source: fix.source ?? null,
     };
@@ -180,9 +231,15 @@ export function rememberBoatFix(fix: BoatFix, now = Date.now()): void {
 }
 
 /** The boat's last remembered fix for this account on this device, or null. */
-export function heldBoatFix(): WeatherFix | null {
+export function heldBoatFix(now = Date.now()): WeatherFix | null {
     const stored = readJson<StoredBoatFix>(authScopedStorageKey(LAST_BOAT_FIX_KEY));
-    if (!stored || !validCoordinates(stored.lat, stored.lon) || !Number.isFinite(stored.timestamp)) return null;
+    if (
+        !stored ||
+        !isBoatReceiver(stored) ||
+        !validCoordinates(stored.lat, stored.lon) ||
+        !validTimestamp(stored.timestamp, now)
+    )
+        return null;
     return {
         lat: stored.lat,
         lon: stored.lon,
@@ -213,36 +270,50 @@ export function clearHeldChoice(): void {
 }
 
 async function throttledPiFix(now: number): Promise<BoatFix | null> {
-    if (piInFlight) return piLastAnswer;
+    ensureCacheScope();
+    const scope = getAuthIdentityScope();
+    if (piInFlight) return piInFlight;
     if (now - piLastAskedAt < PI_POLL_MS) return piLastAnswer;
     piLastAskedAt = now;
-    piInFlight = piFix()
+    const request = piFix()
         .then((fix) => {
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
             piLastAnswer = fix;
             return fix;
         })
-        .catch(() => null)
+        .catch(() => {
+            if (isAuthIdentityScopeCurrent(scope)) piLastAnswer = null;
+            return null;
+        })
         .finally(() => {
-            piInFlight = null;
+            if (piInFlight === request) piInFlight = null;
         });
-    return piInFlight;
+    piInFlight = request;
+    return request;
 }
 
 async function throttledCloudFix(now: number): Promise<BoatFix | null> {
-    if (cloudInFlight) return cloudLastAnswer;
+    ensureCacheScope();
+    const scope = getAuthIdentityScope();
+    if (cloudInFlight) return cloudInFlight;
     if (now - cloudLastAskedAt < CLOUD_POLL_MS) return cloudLastAnswer;
     cloudLastAskedAt = now;
-    cloudInFlight = Promise.resolve()
+    const request = Promise.resolve()
         .then(() => cloudFix(now))
         .then((fix) => {
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
             cloudLastAnswer = fix;
             return fix;
         })
-        .catch(() => null)
+        .catch(() => {
+            if (isAuthIdentityScopeCurrent(scope)) cloudLastAnswer = null;
+            return null;
+        })
         .finally(() => {
-            cloudInFlight = null;
+            if (cloudInFlight === request) cloudInFlight = null;
         });
-    return cloudInFlight;
+    cloudInFlight = request;
+    return request;
 }
 
 /**
@@ -252,35 +323,50 @@ async function throttledCloudFix(now: number): Promise<BoatFix | null> {
  * reporting again, so the weather goes back to her.
  */
 export async function boatOrHeldFix(now = Date.now()): Promise<WeatherFix | null> {
+    ensureCacheScope();
+    const scope = getAuthIdentityScope();
+    const startedAt = Date.now();
+    // A request can spend seconds on the network: re-age its answer on arrival.
+    const currentTime = () => now + Math.max(0, Date.now() - startedAt);
     const bus = busFix();
-    if (bus) {
+    if (usableBoatFix(bus, currentTime())) {
         rememberBoatFix(bus, now);
         clearHeldChoice();
         return toWeatherFix(bus, 'bus');
     }
     const pi = await throttledPiFix(now);
-    if (pi) {
-        rememberBoatFix(pi, now);
+    if (!isAuthIdentityScopeCurrent(scope)) return null;
+    if (usableBoatFix(pi, currentTime())) {
+        rememberBoatFix(pi, currentTime());
         clearHeldChoice();
         return toWeatherFix(pi, 'pi');
     }
-    const cloud = await throttledCloudFix(now);
-    if (cloud) {
-        rememberBoatFix(cloud, now);
+    const cloud = await throttledCloudFix(currentTime());
+    if (!isAuthIdentityScopeCurrent(scope)) return null;
+    if (usableBoatFix(cloud, currentTime())) {
+        rememberBoatFix(cloud, currentTime());
         clearHeldChoice();
         return toWeatherFix(cloud, 'cloud');
     }
-    return heldBoatFix();
+    // A genuine older receiver fix can still be useful, explicitly as history.
+    // Never replace a newer held fix with a late response from an older lane.
+    for (const fix of [bus, pi, cloud]) {
+        if (fix) rememberBoatFix(fix, currentTime());
+    }
+    return heldBoatFix(currentTime());
 }
 
-async function phoneFix(provider: PhoneFixProvider): Promise<WeatherFix | null> {
+async function phoneFix(provider: PhoneFixProvider, now: number): Promise<WeatherFix | null> {
+    const scope = getAuthIdentityScope();
+    const startedAt = Date.now();
     try {
         const fix = await provider();
-        if (!fix || !validCoordinates(fix.lat, fix.lon)) return null;
+        if (!isAuthIdentityScopeCurrent(scope) || !fix || !validCoordinates(fix.lat, fix.lon)) return null;
+        if (!validTimestamp(fix.timestamp, now + Math.max(0, Date.now() - startedAt))) return null;
         return {
             lat: fix.lat,
             lon: fix.lon,
-            timestamp: Number.isFinite(fix.timestamp) ? fix.timestamp : Date.now(),
+            timestamp: fix.timestamp,
             kind: 'phone',
         };
     } catch {
@@ -290,18 +376,33 @@ async function phoneFix(provider: PhoneFixProvider): Promise<WeatherFix | null> 
 
 /** The follow target for this account on this device. The phone until the skipper picks the boat. */
 export function getWeatherFollowTarget(): WeatherFollowTarget {
+    ensureCacheScope();
     try {
-        return storage()?.getItem(authScopedStorageKey(FOLLOW_TARGET_KEY)) === 'boat' ? 'boat' : 'phone';
+        const store = storage();
+        // An explicit choice still stands when storage cannot persist or read it.
+        if (!store || sessionTargetNeedsPersistence) return sessionFollowTarget ?? 'phone';
+        const saved = store.getItem(authScopedStorageKey(FOLLOW_TARGET_KEY));
+        sessionFollowTarget = saved === 'boat' ? 'boat' : 'phone';
+        return sessionFollowTarget;
     } catch {
-        return 'phone';
+        return sessionFollowTarget ?? 'phone';
     }
 }
 
 export function setWeatherFollowTarget(target: WeatherFollowTarget): void {
+    ensureCacheScope();
+    sessionFollowTarget = target;
+    sessionTargetNeedsPersistence = true;
     try {
-        storage()?.setItem(authScopedStorageKey(FOLLOW_TARGET_KEY), target);
+        const store = storage();
+        if (store) {
+            store.setItem(authScopedStorageKey(FOLLOW_TARGET_KEY), target);
+            // Ordinary reads can reflect changes made by another tab. Keep the
+            // session copy as well, in case reading storage fails later.
+            sessionTargetNeedsPersistence = false;
+        }
     } catch {
-        /* storage unavailable — the in-session follower still honours the next tick's read */
+        /* The explicit in-session choice is already captured above. */
     }
     log.info(`Weather follows the ${target}`);
     try {
@@ -327,20 +428,32 @@ export async function resolveWeatherPosition(
     const target = options.target ?? getWeatherFollowTarget();
 
     if (target === 'phone') {
-        // The punter's weather is where the punter is. Her receivers are only
-        // a fallback for a phone that cannot answer.
-        const fix = await phoneFix(phone);
-        if (fix) return { fix, held: null, phone: fix, ask: false };
-        const boat = await boatOrHeldFix(now);
-        return { fix: boat, held: boat?.kind === 'held' ? boat : null, phone: null, ask: false };
+        const fix = await phoneFix(phone, now);
+        return { fix, held: null, phone: fix, ask: false };
     }
 
     // The skipper picked the boat: her receivers, her cloud row, then her held
-    // last fix with its age. The phone only when no boat has ever answered here.
+    // last fix with its age. A phone fix is never a substitute for the vessel.
     const boat = await boatOrHeldFix(now);
-    if (boat) return { fix: boat, held: boat.kind === 'held' ? boat : null, phone: null, ask: false };
-    const fix = await phoneFix(phone);
-    return { fix, held: null, phone: fix, ask: false };
+    return { fix: boat, held: boat?.kind === 'held' ? boat : null, phone: null, ask: false };
+}
+
+/** Recompute labels as a fix ages; a stored kind alone cannot establish liveness. */
+export function weatherFixStatus(
+    fix: Pick<WeatherFix, 'kind' | 'timestamp'> | null,
+    now = Date.now(),
+): 'live' | 'last-known' | 'unavailable' {
+    if (!fix || !validTimestamp(fix.timestamp, now)) return 'unavailable';
+    if (fix.kind === 'held') return 'last-known';
+    const maxAge =
+        fix.kind === 'phone'
+            ? PHONE_FIX_MAX_AGE_MS
+            : fix.kind === 'bus'
+              ? NMEA_USABLE_MAX_AGE_MS
+              : fix.kind === 'cloud'
+                ? CLOUD_FIX_MAX_AGE_MS
+                : PI_FIX_MAX_AGE_MS;
+    return now - fix.timestamp <= maxAge ? 'live' : 'last-known';
 }
 
 /** 'just now', '5m ago', '3h ago', '2d ago' — the same words the forecast-age pill uses. */
@@ -358,8 +471,14 @@ export function formatFixAge(ageMs: number): string {
 export function describeWeatherFix(
     fix: Pick<WeatherFix, 'kind' | 'timestamp' | 'rung' | 'source'> | null,
     now = Date.now(),
+    target?: WeatherFollowTarget,
 ): string {
-    if (!fix) return 'No position';
+    const status = weatherFixStatus(fix, now);
+    if (!fix || status === 'unavailable')
+        return target ? `${target === 'phone' ? 'Phone' : 'Boat'} GPS unavailable` : 'No position';
+    if (status === 'last-known') {
+        return `${fix.kind === 'phone' ? "Phone's" : "Boat's"} last fix · ${formatFixAge(now - fix.timestamp)}`;
+    }
     switch (fix.kind) {
         case 'bus':
             return 'Boat GPS · live';
@@ -376,12 +495,6 @@ export function describeWeatherFix(
 
 /** Test seam: forget the Pi throttle and the remember throttle. */
 export function __resetWeatherPositionForTests(): void {
-    cloudInFlight = null;
-    cloudLastAnswer = null;
-    cloudLastAskedAt = 0;
-    piLastAskedAt = Number.NEGATIVE_INFINITY;
-    piLastAnswer = null;
-    piInFlight = null;
-    lastRememberedAt = Number.NEGATIVE_INFINITY;
-    lastRemembered = null;
+    resetCaches();
+    cacheScope = getAuthIdentityScope();
 }

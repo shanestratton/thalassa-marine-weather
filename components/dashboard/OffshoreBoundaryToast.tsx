@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePanePortalTarget } from '../../context/PanePortalContext';
 
 // ── Submarine sonar ping via Web Audio API ──
 // Short ~300ms sine sweep with exponential decay — unmistakable sonar "ping"
@@ -54,6 +55,7 @@ interface Props {
 }
 
 export const OffshoreBoundaryToast: React.FC<Props> = React.memo(({ visible, modelName }) => {
+    const portalTarget = usePanePortalTarget();
     // Mount / animate lifecycle: mount → slide in → hold → slide out → unmount
     const [mounted, setMounted] = useState(false);
     const [show, setShow] = useState(false);
@@ -133,7 +135,7 @@ export const OffshoreBoundaryToast: React.FC<Props> = React.memo(({ visible, mod
                 </div>
             </div>
         </div>,
-        document.body,
+        portalTarget!,
     );
 });
 
