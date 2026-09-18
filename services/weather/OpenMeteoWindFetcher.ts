@@ -123,6 +123,24 @@ export async function fetchModelWindGrid(
             | undefined;
         const totalHours = firstValid?.hourly?.wind_speed_10m?.length ?? forecastHours;
 
+        // THE GRID'S CLOCK. `forecast_hours` starts at the floored current hour,
+        // and this grid is then kept for up to three hours (WIND_GRID_MAX_AGE_MS)
+        // and re-used across viewports — so "frame 0 is now" is wrong by up to
+        // four hours, and was what the chart assumed for every Open-Meteo model,
+        // because only the GFS GRIB path published a reference time. Found by
+        // review of the passage look-ahead (2026-09-18), which asks for "now +
+        // 6 h" and was being shown "when this grid was fetched + 6 h" under a
+        // clock that said otherwise. 'Z' matters: the request is timezone=UTC and
+        // a zone-less ISO date-time parses as LOCAL time.
+        const firstTime = (firstValid?.hourly as unknown as { time?: unknown[] } | undefined)?.time?.[0];
+        const refMs =
+            typeof firstTime === 'string'
+                ? Date.parse(`${firstTime}:00Z`)
+                : typeof firstTime === 'number'
+                  ? firstTime * 1000
+                  : Number.NaN;
+        const refTime = Number.isFinite(refMs) ? new Date(refMs).toISOString() : undefined;
+
         // Convert Open-Meteo JSON → WindGrid (U/V Float32Arrays)
         const uGrids: Float32Array[] = [];
         const vGrids: Float32Array[] = [];
@@ -183,6 +201,7 @@ export async function fetchModelWindGrid(
             west: uniqueLons[0],
             east: uniqueLons[cols - 1],
             totalHours,
+            ...(refTime ? { refTime } : {}),
         };
     } catch (err) {
         log.warn(`${model.name} failed:`, err);

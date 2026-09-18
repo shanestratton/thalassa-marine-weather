@@ -13,6 +13,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, type MutableRefObjec
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WeatherLayers');
+
 import mapboxgl from 'mapbox-gl';
 import { generateIsobars, generateIsobarsFromGrid, FORECAST_HOURS } from '../../services/weather/isobars';
 import { WindStore, useWindStore } from '../../stores/WindStore';
@@ -46,7 +47,14 @@ import {
     RAINVIEWER_MAP_TILE_SIZE,
     RAINVIEWER_NATIVE_MAX_ZOOM,
 } from '../../services/weather/api/rainviewerTiles';
-import { windForecastHoursForGrid } from './windTimeAxis';
+import { windForecastHoursForGrid, windFrameForForecastHour } from './windTimeAxis';
+import {
+    getPassageLookAhead,
+    reportPassageUnsyncedLayers,
+    reportPassageWindCoverage,
+    subscribePassageLookAhead,
+    usePassageLookAheadOn,
+} from '../../stores/passageHudStore';
 import {
     RAIN_FRAME_CONTRAST,
     RAIN_FRAME_OPACITY,
@@ -205,6 +213,18 @@ export function enforceCmemsMarineExclusivity(
     }
     return next;
 }
+
+/** Chart layers the passage look-ahead cannot move, in the words the scrubber uses. */
+const PASSAGE_UNSYNCED_LAYER_NAMES: readonly (readonly [WeatherLayer, string])[] = [
+    ['currents', 'currents'],
+    ['waves', 'waves'],
+    ['sst', 'sea temp'],
+    ['chl', 'chlorophyll'],
+    ['seaice', 'sea ice'],
+    ['mld', 'mixed layer'],
+    ['temperature', 'temperature'],
+    ['clouds', 'cloud'],
+];
 
 const SESSION_LAYERS_KEY = 'thalassa_active_layers';
 
@@ -1237,6 +1257,125 @@ export function useWeatherLayers(
         }, 60 * 1000); // Every 1 minute
         return () => clearInterval(interval);
     }, [windReady, computeNowIndex]);
+
+    // ── Passage look-ahead drives the wind timeline (Shane 2026-09-17) ──
+    // "all of the wind and rain etc should alter as the yacht progresses along
+    // the route." While the skipper is looking ahead, the strip's scrubber owns
+    // this timeline: the field on the chart is the field at the ghost's moment.
+    //   - time comes from the grid's own reference time, not the nearest-frame
+    //     Now index, so +6 h means six hours and not five and a half;
+    //   - it goes through setWindHour, the manual-scrub path, and is re-applied
+    //     every minute, so the Now auto-tracker above never pulls it back;
+    //   - the grid is 48 hourly frames and the scrubber reaches seven days, so
+    //     the hours of field actually held are REPORTED and the scrubber says
+    //     where the chart's wind stops. Parking on the last frame in silence
+    //     would show Tuesday's wind under Friday's ghost;
+    //   - leaving look-ahead hands the timeline straight back to Now.
+    const windLayerOn = activeLayers.has('wind') || activeLayers.has('velocity');
+    // A ref, not a local: a new grid re-runs this effect mid-glance, and the
+    // hand-back to Now must still happen when the glance ends.
+    const lookAheadDrivingRef = useRef(false);
+    useEffect(() => {
+        if (!windReady || !windLayerOn) {
+            reportPassageWindCoverage(null);
+            return;
+        }
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let lastRun = 0;
+
+        const apply = () => {
+            timer = null;
+            lastRun = Date.now();
+            const fhrs = windForecastHoursRef.current;
+            const refTime = windRefTimeRef.current;
+            if (fhrs.length === 0) {
+                reportPassageWindCoverage(null);
+                return;
+            }
+            const refMs = refTime ? new Date(refTime).getTime() : Number.NaN;
+            const nowHour = Number.isFinite(refMs)
+                ? (Date.now() - refMs) / 3_600_000
+                : (fhrs[Math.min(windNowIdxRef.current, fhrs.length - 1)] ?? 0);
+            reportPassageWindCoverage(Math.max(0, fhrs[fhrs.length - 1] - nowHour));
+
+            const look = getPassageLookAhead();
+            if (!look.on) {
+                if (lookAheadDrivingRef.current) {
+                    lookAheadDrivingRef.current = false;
+                    windUserScrubbedRef.current = false;
+                    const nowIdx = windNowIdxRef.current;
+                    setWindHourInternal(nowIdx);
+                    if (WindStore.getState().hour !== nowIdx) WindStore.setState({ hour: nowIdx });
+                }
+                return;
+            }
+            if (!lookAheadDrivingRef.current) {
+                lookAheadDrivingRef.current = true;
+                setWindPlaying(false);
+            }
+            const target = windFrameForForecastHour(fhrs, nowHour + look.aheadMs / 3_600_000);
+            if (!target) return;
+            // A tenth of a frame, the same grain the autoplay uses.
+            setWindHour(Math.round(target.frame * 10) / 10);
+        };
+        // Every re-upload of the field costs a frame or two; a drag fires far
+        // faster than that. Leading + trailing, ~8 a second.
+        const schedule = () => {
+            if (timer) return;
+            timer = setTimeout(apply, Math.max(0, 120 - (Date.now() - lastRun)));
+        };
+
+        apply();
+        const unsubscribe = subscribePassageLookAhead(schedule);
+        const keepAlive = setInterval(schedule, 60_000);
+        return () => {
+            unsubscribe();
+            clearInterval(keepAlive);
+            if (timer) clearTimeout(timer);
+            reportPassageWindCoverage(null);
+        };
+        // windForecastHours: a new grid (model switch, viewport refresh) has a
+        // new axis, and the look-ahead must be re-applied onto it.
+        // activeKey: the wind-load effect above resets the timeline to frame 0 on
+        // EVERY layer-set change (adding rain to wind included), and usually no
+        // new grid follows to re-run this — so the particles sat at "now" under
+        // a +6 h ghost for up to a minute. That effect is declared first, so in
+        // the same commit it resets and this re-applies.
+    }, [windReady, windLayerOn, windForecastHours, setWindHour, activeKey]);
+
+    // ── …and the layers that do NOT follow it say so ──
+    // Separate from the effect above, which stands down when the wind layer is
+    // off: a skipper looking ahead with ONLY rain up has exactly this problem.
+    // While the glance lasts the time pills are stood down, and the pills are
+    // the only pause buttons — so nothing is left animating with no way to
+    // stop it, and the scrubber is told, by name, which layers are not at its
+    // moment. Isobars are not on that list when they ride the wind timeline.
+    const passageLookAheadOn = usePassageLookAheadOn();
+    useEffect(() => {
+        if (!passageLookAheadOn) {
+            reportPassageUnsyncedLayers([]);
+            return;
+        }
+        setRainPlaying(false);
+        setIsPlaying(false);
+        setCurrentsPlaying(false);
+        setWavesPlaying(false);
+        setSstPlaying(false);
+        setChlPlaying(false);
+        setSeaicePlaying(false);
+        setMldPlaying(false);
+        const windOn = activeLayers.has('wind') || activeLayers.has('velocity');
+        const names: string[] = [];
+        if (activeLayers.has('rain')) names.push('rain');
+        if (activeLayers.has('pressure') && !windOn) names.push('pressure');
+        for (const [layer, name] of PASSAGE_UNSYNCED_LAYER_NAMES) {
+            if (activeLayers.has(layer)) names.push(name);
+        }
+        reportPassageUnsyncedLayers(names);
+        return () => reportPassageUnsyncedLayers([]);
+        // activeKey is the layer set, as a string: a Set is a new object each time.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [passageLookAheadOn, activeKey]);
 
     // ── CMEMS Now-alignment helpers ───────────────────────────────────
     // Shared by the six CMEMS layers (currents, waves, sst, chl, seaice,

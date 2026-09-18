@@ -77,4 +77,40 @@ describe('fetchModelWindGrid', () => {
 
         expect(grid).toMatchObject({ lons: [179, 180, 181], west: 179, east: 181 });
     });
+
+    it('publishes the grid’s own clock: frame 0 is the provider’s first valid hour, in UTC', async () => {
+        // The chart keeps a grid for up to three hours and re-uses it across
+        // viewports. Without a reference time "frame 0" was taken for NOW, and the
+        // passage look-ahead's "+6 h" showed the wind for six hours after the
+        // FETCH under a clock that said otherwise (review, 2026-09-18).
+        mocks.fetchOpenMeteoPoints.mockResolvedValueOnce(
+            Array.from({ length: 9 }, () => ({
+                hourly: {
+                    time: ['2026-09-18T09:00', '2026-09-18T10:00'],
+                    wind_speed_10m: [12, 14],
+                    wind_direction_10m: [90, 95],
+                    wind_gusts_10m: [18, 20],
+                },
+            })),
+        );
+        const grid = await fetchModelWindGrid('ecmwf', { south: -1, north: 1, west: 150, east: 152 }, 2, 1);
+        // The 'Z' is the point: a zone-less ISO date-time parses as LOCAL time,
+        // which in Queensland would put the whole field ten hours out.
+        expect(grid?.refTime).toBe('2026-09-18T09:00:00.000Z');
+    });
+
+    it('reads a unixtime axis too, and publishes no clock at all rather than a wrong one', async () => {
+        mocks.fetchOpenMeteoPoints.mockResolvedValueOnce(
+            Array.from({ length: 9 }, () => ({
+                hourly: { time: [1789722000], wind_speed_10m: [12], wind_direction_10m: [90], wind_gusts_10m: [18] },
+            })),
+        );
+        const unix = await fetchModelWindGrid('ecmwf', { south: -1, north: 1, west: 150, east: 152 }, 1, 1);
+        expect(unix?.refTime).toBe(new Date(1789722000 * 1000).toISOString());
+
+        mocks.fetchOpenMeteoPoints.mockResolvedValueOnce(Array.from({ length: 9 }, () => hourly(12, 90)));
+        const bare = await fetchModelWindGrid('ecmwf', { south: -1, north: 1, west: 150, east: 152 }, 1, 1);
+        expect(bare).not.toBeNull();
+        expect(bare && 'refTime' in bare).toBe(false);
+    });
 });

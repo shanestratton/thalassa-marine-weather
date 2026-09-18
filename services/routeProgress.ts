@@ -142,6 +142,74 @@ function closestOnLeg(p: RoutePoint, a: RoutePoint, b: RoutePoint): { t: number;
     return { t, point: { lat: a.lat + (b.lat - a.lat) * t, lon } };
 }
 
+/** A place on the route and the way the route runs there. */
+export interface RouteStation extends RoutePoint {
+    /** Bearing of the leg she would be sailing there, degrees true. */
+    bearingDeg: number;
+    legIndex: number;
+    /** `alongNm` after clamping to the route, NM. */
+    alongNm: number;
+    /** True when the asked-for distance ran past the end of the route. */
+    arrived: boolean;
+}
+
+/**
+ * The point `alongNm` down the route — the inverse of `progressAlongRoute`.
+ * Phase 2's ghost: where she will be after sailing that far. Distances past
+ * the end hold at the last point and say so (`arrived`); negative ones hold at
+ * the start. Zero-length legs are walked over, never divided by.
+ */
+export function pointAlongRoute(coords: readonly RoutePoint[], alongNm: number): RouteStation | null {
+    const route = coords.filter(valid);
+    if (route.length < 2 || !Number.isFinite(alongNm)) return null;
+    const legs = legLengthsNm(route);
+    const totalNm = legs.reduce((sum, nm) => sum + nm, 0);
+    const want = Math.max(0, Math.min(alongNm, totalNm));
+
+    const bearingAt = (i: number): number =>
+        calculateBearing(route[i].lat, route[i].lon, route[i + 1].lat, route[i + 1].lon);
+    // The last leg that has any length: what "the way the route runs" means
+    // when she is standing on its final point.
+    let lastReal = -1;
+    for (let i = legs.length - 1; i >= 0; i--) {
+        if (legs[i] > 0) {
+            lastReal = i;
+            break;
+        }
+    }
+    if (lastReal < 0) return null; // every point is the same point: not a route
+
+    let before = 0;
+    for (let i = 0; i < legs.length; i++) {
+        if (legs[i] > 0 && want <= before + legs[i] && (want < before + legs[i] || i === lastReal)) {
+            const t = (want - before) / legs[i];
+            const a = route[i];
+            const b = route[i + 1];
+            let lon = a.lon + dLon(a.lon, b.lon) * t;
+            if (lon > 180) lon -= 360;
+            if (lon < -180) lon += 360;
+            return {
+                lat: a.lat + (b.lat - a.lat) * t,
+                lon,
+                bearingDeg: bearingAt(i),
+                legIndex: i,
+                alongNm: want,
+                arrived: alongNm >= totalNm,
+            };
+        }
+        before += legs[i];
+    }
+    const end = route[lastReal + 1];
+    return {
+        lat: end.lat,
+        lon: end.lon,
+        bearingDeg: bearingAt(lastReal),
+        legIndex: lastReal,
+        alongNm: totalNm,
+        arrived: true,
+    };
+}
+
 interface Candidate {
     legIndex: number;
     point: RoutePoint;
