@@ -69,6 +69,15 @@ describe('mapboxWater — decode the real Newport canal tile', () => {
 });
 
 describe('mapboxWater — fetchMapboxWater (injected fetcher, fully offline)', () => {
+    it('strict connector mode rejects even one missing tile', async () => {
+        let calls = 0;
+        await expect(
+            fetchMapboxWater([153.085, -27.216, 153.097, -27.198], 'tok', {
+                requireComplete: true,
+                fetchTile: async () => (++calls === 1 ? null : BUF),
+            }),
+        ).rejects.toThrow(/incomplete/);
+    });
     it('fetches + decodes via the injected tile fetcher', async () => {
         const fc = await fetchMapboxWater([153.088, -27.212, 153.0945, -27.206], 'tok', {
             fetchTile: async () => BUF, // every covered tile returns the canned Newport tile

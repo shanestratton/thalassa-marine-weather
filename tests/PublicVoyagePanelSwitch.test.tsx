@@ -13,6 +13,11 @@ vi.mock('../src/voyageLogApi', async (importOriginal) => ({
 vi.mock('../src/components/TopNav', () => ({ default: () => null }));
 vi.mock('../src/components/VoyageProgressBar', () => ({ VoyageProgressBar: () => null }));
 vi.mock('../src/components/PhotoLightbox', () => ({ PhotoLightbox: () => null }));
+vi.mock('../src/components/PublicDiaryComments', () => ({
+    PublicDiaryComments: ({ handle, entryId }: { handle: string; entryId: string }) => (
+        <div data-testid="guest-comments" data-handle={handle} data-entry-id={entryId} />
+    ),
+}));
 vi.mock('../src/components/MapContainer', () => ({
     default: function MockMap({
         entries,
@@ -82,7 +87,7 @@ const DATA: VoyageLogData = {
             active: true,
             point_count: 1,
             distance_nm: 0,
-            has_route: false,
+            has_route: true,
         },
         {
             id: 'all-diary',
@@ -103,6 +108,13 @@ const DATA: VoyageLogData = {
     instruments_shared: true,
     instruments: INSTRUMENTS,
     nearby_vessels: [],
+    passage: {
+        voyage_id: 'trip-1',
+        plan_line: [
+            [153, -27],
+            [152.4, -23.9],
+        ],
+    },
     generated_at: new Date(NOW).toISOString(),
 };
 
@@ -179,6 +191,85 @@ const expectDiaryOnly = () => {
 };
 
 describe('public voyage Instruments / Diary switch', () => {
+    it.each([false, true])(
+        'opens the phone diary with no route, including latest already resolving all-diary: %s',
+        async (latestAlreadyAllDiary) => {
+            mockViewport(390, 844);
+            mocks.fetchVoyageLog.mockImplementation(async (_handle: string, trip: string) => ({
+                ...DATA,
+                passage: null,
+                selected_trip: latestAlreadyAllDiary || trip === 'all-diary' ? 'all-diary' : 'trip-1',
+            }));
+            await openPage();
+            expect(mobileViews().getByRole('button', { name: 'Diary', pressed: true })).toBeInTheDocument();
+            expect(screen.getByRole('heading', { name: ENTRY.title })).toBeInTheDocument();
+            expect(screen.getByRole('complementary')).not.toHaveClass('hidden');
+            expect(document.getElementById('voyage-map')).toHaveClass('hidden');
+            expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+
+            chooseMobile('Map');
+            await act(async () => vi.advanceTimersByTimeAsync(120_000));
+            expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
+            expect(document.getElementById('voyage-map')).not.toHaveClass('hidden');
+            expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('defaults a route-less latest trip to all public entries in newest-first order', async () => {
+        const oldest = { ...ENTRY, id: 'oldest', title: 'Oldest entry', created_at: '2026-09-01T00:00:00Z' };
+        const middle = { ...ENTRY, id: 'middle', title: 'Middle entry', created_at: '2026-09-05T00:00:00Z' };
+        const allEntries = Object.freeze([oldest, ENTRY, middle]);
+        mocks.fetchVoyageLog.mockImplementation(async (_handle: string, trip: string) =>
+            trip === 'all-diary'
+                ? { ...DATA, passage: null, selected_trip: 'all-diary', entries: allEntries }
+                : { ...DATA, passage: null },
+        );
+        await openPage();
+        expect(mocks.fetchVoyageLog.mock.calls.map((call) => call[1])).toEqual(['latest', 'all-diary']);
+        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('all-diary');
+        expect(screen.getByRole('heading', { name: 'All diary entries' })).toBeInTheDocument();
+        expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+            ENTRY.title,
+            middle.title,
+            oldest.title,
+        ]);
+        expect(allEntries.map((item) => item.id)).toEqual(['oldest', ENTRY.id, 'middle']);
+    });
+
+    it('does not override a subsequent explicit Latest choice or its no-route refreshes', async () => {
+        mocks.fetchVoyageLog.mockImplementation(async (_handle: string, trip: string) => ({
+            ...DATA,
+            passage: null,
+            selected_trip: trip === 'all-diary' ? 'all-diary' : 'trip-1',
+        }));
+        await openPage();
+        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('all-diary');
+        await act(async () =>
+            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
+                target: { value: 'latest' },
+            }),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(60_000));
+        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expect(mocks.fetchVoyageLog.mock.calls.map((call) => call[1])).toEqual([
+            'latest',
+            'all-diary',
+            'latest',
+            'latest',
+        ]);
+    });
+
+    it('retains the routed-trip starting view and never changes it when a later poll loses the route', async () => {
+        await openPage();
+        expect(mocks.fetchVoyageLog).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
+        mocks.fetchVoyageLog.mockResolvedValue({ ...DATA, passage: null });
+        await act(async () => vi.advanceTimersByTimeAsync(60_000));
+        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expect(mocks.fetchVoyageLog.mock.calls.every((call) => call[1] === 'latest')).toBe(true);
+    });
+
     it('a delayed full response cannot change a newer instrument consent answer or stop its panel', async () => {
         mocks.fetchPublicInstruments.mockResolvedValue(DATA);
         await openPage();
@@ -328,9 +419,19 @@ describe('public voyage Instruments / Diary switch', () => {
         },
     );
 
-    it('offers shared instruments at the berth when latest resolves to all-diary with no started trip', async () => {
-        mocks.fetchVoyageLog.mockResolvedValue({ ...DATA, selected_trip: 'all-diary', trips: [DATA.trips[1]] });
+    it('starts on all entries at the berth while still offering shared instruments', async () => {
+        mocks.fetchVoyageLog.mockResolvedValue({
+            ...DATA,
+            passage: null,
+            selected_trip: 'all-diary',
+            trips: [DATA.trips[1]],
+        });
         await openPage();
+        expectDiaryOnly();
+        expect(screen.getByRole('heading', { name: 'All diary entries' })).toBeInTheDocument();
+        expect(mocks.fetchVoyageLog).toHaveBeenCalledTimes(1);
+        expect(desktopViews().getByRole('button', { name: 'Instruments' })).toBeEnabled();
+        choose('Instruments');
         expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
         expect(desktopViews().getByRole('button', { name: 'Instruments' })).toBeEnabled();
         expect(screen.queryByRole('heading', { name: ENTRY.title })).not.toBeInTheDocument();
@@ -385,6 +486,27 @@ describe('public voyage mobile views', () => {
         expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
     });
 
+    it('floats compact voyage context over Map and keeps Diary and Instruments one tap away', async () => {
+        await openPage();
+        const header = screen.getByTestId('public-voyage-header');
+        expect(header).toHaveAttribute('data-overlay', 'true');
+        expect(header).toHaveClass('absolute');
+        expect(
+            mobileViews()
+                .getAllByRole('button')
+                .map((button) => button.textContent?.trim()),
+        ).toEqual(['Map', 'Diary', 'Instruments']);
+        chooseMobile('Diary');
+        expect(header).toHaveAttribute('data-overlay', 'false');
+        expect(header).not.toHaveClass('absolute');
+        chooseMobile('Map');
+        fireEvent.click(screen.getByRole('button', { name: 'Expand map' }));
+        expect(header).toHaveClass('hidden');
+        fireEvent.click(screen.getByRole('button', { name: 'Restore page header' }));
+        expect(header).not.toHaveClass('hidden');
+        expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+    });
+
     it('polls only while Instruments is selected and preserves the map through every view', async () => {
         await openPage();
         const map = document.getElementById('voyage-map');
@@ -437,6 +559,8 @@ describe('public voyage mobile views', () => {
         expect(screen.getByRole('region', { name: 'Diary content' })).toHaveFocus();
         expect(screen.getByRole('button', { name: 'Back to all entries' })).toBeInTheDocument();
         expect(screen.getByText(ENTRY.body)).toBeInTheDocument();
+        expect(screen.getByTestId('guest-comments')).toHaveAttribute('data-handle', 'serene-summer');
+        expect(screen.getByTestId('guest-comments')).toHaveAttribute('data-entry-id', ENTRY.id);
         expect(screen.getByRole('complementary')).not.toHaveClass('hidden');
         expect(document.getElementById('voyage-map')).toHaveClass('hidden');
         expect(mocks.fetchPublicInstruments).not.toHaveBeenCalled();

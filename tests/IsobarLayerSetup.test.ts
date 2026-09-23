@@ -39,7 +39,7 @@ describe('isobar layer setup', () => {
         const labels = layers.find((layer) => layer.id === 'isobar-labels');
         const centers = layers.find((layer) => layer.id === 'isobar-center-labels');
 
-        expect(minor?.filter).toEqual(['==', ['get', 'isMajor'], false]);
+        expect(minor?.filter).toEqual(['all', ['==', ['get', 'isMajor'], false], ['!=', ['get', 'isDetail'], true]]);
         expect(major?.filter).toEqual(['==', ['get', 'isMajor'], true]);
         expect(widthAtZoom5(major?.paint as Record<string, unknown>)).toBeGreaterThan(
             widthAtZoom5(minor?.paint as Record<string, unknown>),
@@ -49,7 +49,12 @@ describe('isobar layer setup', () => {
         // multiples of 8 made the chart read as an 8 hPa chart (2026-08-21,
         // checked against BOM's live MSLP analysis). The major/minor WEIGHT
         // distinction above stays: heavier line every 8 hPa, value on all.
-        expect(labels?.filter).toEqual(['has', 'label']);
+        expect(labels?.filter).toEqual(['all', ['has', 'label'], ['!=', ['get', 'isDetail'], true]]);
+        expect(layers.find((layer) => layer.id === 'isobar-detail-lines')).toMatchObject({
+            minzoom: 3,
+            filter: ['==', ['get', 'isDetail'], true],
+        });
+        expect(layers.find((layer) => layer.id === 'isobar-detail-labels')).toMatchObject({ minzoom: 3 });
         expect((centers?.layout as Record<string, boolean>)['text-allow-overlap']).toBe(true);
     });
 
@@ -97,6 +102,8 @@ describe('isobar layer setup', () => {
         // Contours and centres visible; heatmap/barbs/arrows/vignette stay hidden.
         expect(visibility.get('isobar-shadow')).toBe('visible');
         expect(visibility.get('isobar-lines')).toBe('visible');
+        expect(visibility.get('isobar-detail-lines')).toBe('visible');
+        expect(visibility.get('isobar-detail-labels')).toBe('visible');
         expect(visibility.get('isobar-major-lines')).toBe('visible');
         expect(visibility.get('isobar-center-labels')).toBe('visible');
         for (const id of SYNOPTIC_ONLY_LAYER_IDS) {

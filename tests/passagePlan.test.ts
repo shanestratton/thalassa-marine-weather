@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
     MOTOR_BELOW_FRACTION,
     PLAN_STEP_MS,
+    passageGhostAt,
     passageSpeed,
     pointingDeg,
     planAt,
@@ -20,7 +21,7 @@ import {
     type PassageSpeedModel,
 } from '../services/passagePlan';
 import { DEFAULT_CRUISING_POLAR } from '../services/defaultPolar';
-import { buildRouteIndex } from '../services/routeProgress';
+import { buildRouteIndex, progressAlongRoute, stationOnIndex, type RoutePoint } from '../services/routeProgress';
 import { parseRouteForecast, type RouteForecast } from '../services/routeForecastSampler';
 
 const HOUR = 3_600_000;
@@ -345,13 +346,63 @@ describe('the walk', () => {
         expect(planAt(p, 168 * HOUR)!.alongNm).toBeCloseTo(84, 6);
     });
 
-    it('off her line she sails BACK to it first: the ghost waits abeam, and the miles to go count down throughout', () => {
+    it('off her line she sails BACK to it first: along-route distance holds while the miles to go count down', () => {
         const p = plan({ backNm: 9, model: sail({ mode: 'cruise' }) });
         expect(planAt(p, 0)!.toGoNm).toBeCloseTo(NORTH.totalNm - 30 + 9, 9);
         expect(planAt(p, 1 * HOUR)!.alongNm).toBe(30); // 6 of the 9 NM back: still abeam
         expect(planAt(p, 1 * HOUR)!.toGoNm).toBeCloseTo(NORTH.totalNm - 30 + 3, 6);
         expect(planAt(p, 2 * HOUR)!.alongNm).toBeCloseTo(33, 6); // 9 back, then 3 along
         expect(p.arrivalMs!).toBeCloseTo(((NORTH.totalNm - 30 + 9) / 6) * HOUR, 3);
+    });
+
+    it('joins exactly inside a plan step, without advancing along the route before the join', () => {
+        const backNm = 0.4;
+        const p = plan({ backNm, forecast: steady(18, 90) });
+        const joinMs = (backNm / 6) * HOUR;
+        expect(p.offsetsMs).toContain(joinMs);
+        expect(planAt(p, joinMs / 2)!.alongNm).toBe(30);
+        expect(planAt(p, joinMs / 2)!.toGoNm).toBeCloseTo(NORTH.totalNm - 30 + backNm / 2, 9);
+        const joined = planAt(p, joinMs)!;
+        expect(joined.alongNm).toBe(30);
+        expect(joined.how).toBe('sail');
+        expect(planAt(p, joinMs + HOUR / 60)!.alongNm).toBeCloseTo(30 + joined.kts / 60, 9);
+    });
+
+    it('prices a short final route leg separately even when join and arrival both fit inside one step', () => {
+        const backNm = 0.4;
+        const remainingNm = 0.4;
+        const startAlongNm = NORTH.totalNm - remainingNm;
+        const model = sail();
+        const routeSpeed = passageSpeed(model, 18, 90, 0);
+        const p = plan({ startAlongNm, backNm, model, forecast: steady(18, 90) });
+        const joinMs = (backNm / model.cruiseKts) * HOUR;
+        const arrivalMs = joinMs + (remainingNm / routeSpeed.kts) * HOUR;
+        expect(routeSpeed.kts).not.toBe(model.cruiseKts);
+        expect(arrivalMs).toBeLessThan(PLAN_STEP_MS);
+        expect(p.offsetsMs).toContain(joinMs);
+        expect(planAt(p, joinMs / 2)!.alongNm).toBe(startAlongNm);
+        expect(planAt(p, joinMs / 2)!.toGoNm).toBeCloseTo(remainingNm + backNm / 2, 9);
+        expect(planAt(p, joinMs)!).toMatchObject({ alongNm: startAlongNm, kts: routeSpeed.kts, how: 'sail' });
+        expect(p.arrivalMs).toBeCloseTo(arrivalMs, 5);
+        expect(planAt(p, arrivalMs + 1)!).toMatchObject({ arrived: true, kts: routeSpeed.kts, how: 'sail' });
+    });
+
+    it('stops at the planning horizon when the join is still ahead, without advancing onto the final leg', () => {
+        const startAlongNm = NORTH.totalNm - 0.4;
+        const maxMs = 2 * 60_000;
+        const p = plan({ startAlongNm, backNm: 0.4, maxMs, forecast: steady(18, 90) });
+        expect(p.offsetsMs).toEqual([0, maxMs]);
+        expect(p.endMs).toBe(maxMs);
+        expect(p.arrivalMs).toBeNull();
+        const end = planAt(p, HOUR)!;
+        expect(end).toMatchObject({ alongNm: startAlongNm, arrived: false, kts: 6, how: 'cruise' });
+        expect(end.toGoNm).toBeCloseTo(0.6, 9);
+    });
+
+    it('keeps the joining speed at arrival when the join itself is the route endpoint', () => {
+        const p = plan({ startAlongNm: NORTH.totalNm, backNm: 0.4, forecast: steady(18, 90) });
+        expect(p.offsetsMs).toEqual([0, 4 * 60_000]);
+        expect(planAt(p, 4 * 60_000)!).toMatchObject({ arrived: true, kts: 6, how: 'cruise' });
     });
 
     it('the wind it sails in is the wind AT THAT HOUR — a shift half way changes the second half only', () => {
@@ -378,5 +429,105 @@ describe('the walk', () => {
     it('steps a quarter of an hour at a time', () => {
         expect(PLAN_STEP_MS).toBe(15 * 60_000);
         expect(plan().offsetsMs[1]).toBe(PLAN_STEP_MS);
+    });
+});
+
+describe('the forecast starts at the actual fix before joining the followed route', () => {
+    const at = (start: RoutePoint, aheadMs: number, route = NORTH, cruiseKts = 6) => {
+        const fix = progressAlongRoute(route.points, start)!;
+        const plan = planPassage({
+            index: route,
+            startAlongNm: fix.alongNm,
+            backNm: fix.offTrackNm,
+            startMs: T0,
+            forecast: null,
+            model: sail({ mode: 'cruise', cruiseKts }),
+            maxMs: 168 * HOUR,
+        });
+        const moment = planAt(plan, aheadMs)!;
+        const ghost = passageGhostAt({
+            index: route,
+            moment,
+            start,
+            startAlongNm: fix.alongNm,
+            backNm: fix.offTrackNm,
+        });
+        return { ghost: ghost!, fix, moment, plan };
+    };
+
+    it('preserves the exact GPS position at NOW, even less than half a mile off the route', () => {
+        const start = { lat: -27.5, lon: 152.999 };
+        const { ghost, fix } = at(start, 0);
+        expect(fix.offTrackNm).toBeGreaterThan(0);
+        expect(fix.offTrackNm).toBeLessThan(0.5);
+        expect(ghost).toMatchObject({ ...start, joining: true, arrived: false });
+        expect(ghost.bearingDeg).toBeCloseTo(90, 2);
+        expect(ghost.lon).not.toBe(fix.abeam.lon);
+    });
+
+    it('sails continuously to abeam, then turns and advances along the original route', () => {
+        const start = { lat: -27.5, lon: 152.9 };
+        const { fix } = at(start, 0);
+        const joinMs = (fix.offTrackNm / 6) * HOUR;
+        const half = at(start, joinMs / 2).ghost;
+        expect(half.lat).toBe(start.lat);
+        expect(half.lon).toBeCloseTo((start.lon + fix.abeam.lon) / 2, 9);
+        expect(half.alongNm).toBe(fix.alongNm);
+        expect(half.joining).toBe(true);
+        const joined = at(start, joinMs).ghost;
+        expect(joined.lat).toBeCloseTo(fix.abeam.lat, 9);
+        expect(joined.lon).toBeCloseTo(fix.abeam.lon, 9);
+        expect(joined.bearingDeg).toBe(0);
+        expect(joined.joining).toBe(false);
+        const ahead = at(start, joinMs + HOUR / 2).ghost;
+        const expected = stationOnIndex(NORTH, fix.alongNm + 3)!;
+        expect(ahead).toEqual({ ...expected, joining: false });
+    });
+
+    it('starts on the exact fix when already on route and clamps to arrival past the end', () => {
+        const start = { lat: -27.5, lon: 153 };
+        expect(at(start, -HOUR).ghost).toMatchObject({ ...start, joining: false });
+        expect(at(start, 200 * HOUR).ghost).toMatchObject({ lat: -26, lon: 153, joining: false, arrived: true });
+    });
+
+    it('does not claim arrival while still approaching the route endpoint', () => {
+        const start = { lat: -26, lon: 152.9 };
+        const { fix, ghost } = at(start, 0);
+        expect(ghost).toMatchObject({ ...start, joining: true, arrived: false });
+        const joinMs = (fix.offTrackNm / 6) * HOUR;
+        expect(at(start, joinMs / 2).ghost.arrived).toBe(false);
+        expect(at(start, joinMs).ghost).toMatchObject({ lat: -26, lon: 153, joining: false, arrived: true });
+    });
+
+    it('takes the short joining segment across the dateline and leaves the followed geometry unchanged', () => {
+        const points = Object.freeze([
+            Object.freeze({ lat: -18, lon: -179.9 }),
+            Object.freeze({ lat: -17, lon: -179.9 }),
+        ]);
+        const route = buildRouteIndex(points)!;
+        const before = JSON.stringify(route);
+        const start = Object.freeze({ lat: -17.5, lon: 179.9 });
+        const { fix } = at(start, 0, route);
+        const half = at(start, (fix.offTrackNm / 12) * HOUR, route).ghost;
+        expect(Math.abs(half.lon)).toBeCloseTo(180, 9);
+        expect(half.lat).toBe(start.lat);
+        expect(half.bearingDeg).toBeCloseTo(90, 1);
+        expect(JSON.stringify(route)).toBe(before);
+    });
+
+    it('stays at the actual fix when the boat has no planned speed', () => {
+        const start = { lat: -27.5, lon: 152.9 };
+        expect(at(start, 3 * HOUR, NORTH, 0).ghost).toMatchObject({ ...start, joining: true, arrived: false });
+    });
+
+    it('rejects non-finite or invalid position inputs', () => {
+        const start = { lat: -27.5, lon: 152.9 };
+        const { moment, fix } = at(start, 0);
+        const input = { index: NORTH, moment, start, startAlongNm: fix.alongNm, backNm: fix.offTrackNm };
+        expect(passageGhostAt({ ...input, start: { lat: Number.NaN, lon: 153 } })).toBeNull();
+        expect(passageGhostAt({ ...input, start: { lat: -27, lon: 181 } })).toBeNull();
+        expect(passageGhostAt({ ...input, startAlongNm: Number.NaN })).toBeNull();
+        expect(passageGhostAt({ ...input, backNm: Number.NaN })).toBeNull();
+        expect(passageGhostAt({ ...input, moment: { ...moment, toGoNm: Number.NaN } })).toBeNull();
     });
 });

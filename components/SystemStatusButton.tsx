@@ -10,7 +10,7 @@
  * When 0 active: hidden
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
@@ -23,13 +23,21 @@ import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../services/GpsReceiverStatusService';
 import { NmeaRateSparkline } from './NmeaRateSparkline';
 import { useFollowRoute } from '../context/FollowRouteContext';
-import { GpsService } from '../services/GpsService';
+import { GpsService, type GpsPosition } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
 import { GpsSourceRow } from './GpsSourceGlyph';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { appBuildLabel } from '../services/externalLinks';
+import { PassageHudInfoCard } from './passage/PassageHudInfoCard';
+import { GpsDiagnosticsCards } from './GpsDiagnosticsCards';
+import {
+    boatGpsDiagnosticSource,
+    gpsReceiverConnectionDetail,
+    presentGpsDiagnostics,
+    type GpsDiagnosticsPresentation,
+} from './gpsDiagnosticsPresentation';
 
 // ── Types ──
 
@@ -91,6 +99,43 @@ function formatIntervalLabel(ms: number): string {
     return `${Math.round(ms / 3_600_000)}h`;
 }
 
+const GpsQualityPanel: React.FC<{ phoneFixRef: React.MutableRefObject<GpsPosition | null> }> = ({ phoneFixRef }) => {
+    const read = useCallback((): GpsDiagnosticsPresentation[] => {
+        const now = Date.now();
+        const boat = boatGpsDiagnosticSource(NmeaStore.getState());
+        const phone = phoneFixRef.current;
+        return [
+            ...(boat ? [presentGpsDiagnostics(boat, now)] : []),
+            presentGpsDiagnostics(
+                {
+                    label: 'Phone location',
+                    phone: true,
+                    maxAgeMs: 30_000,
+                    positionAt: phone?.timestamp ?? null,
+                    accuracyM: phone ? { value: phone.accuracy, timestamp: phone.timestamp } : null,
+                },
+                now,
+            ),
+        ];
+    }, [phoneFixRef]);
+    const [sources, setSources] = useState(read);
+    useEffect(() => {
+        const refresh = () => {
+            if (!document.hidden) setSources(read());
+        };
+        const unsubscribe = NmeaStore.subscribe(refresh);
+        const timer = setInterval(refresh, 1000);
+        document.addEventListener('visibilitychange', refresh);
+        refresh();
+        return () => {
+            unsubscribe();
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', refresh);
+        };
+    }, [read]);
+    return <GpsDiagnosticsCards sources={sources} />;
+};
+
 // ── SystemStatusModal ──
 
 const SystemStatusModal: React.FC<{
@@ -99,7 +144,8 @@ const SystemStatusModal: React.FC<{
     onNavigateAnchor: () => void;
     onStopFollowing: () => void;
     onAcceptChange: () => void;
-}> = ({ state, onClose, onNavigateAnchor, onStopFollowing, onAcceptChange }) => {
+    phoneFixRef: React.MutableRefObject<GpsPosition | null>;
+}> = ({ state, onClose, onNavigateAnchor, onStopFollowing, onAcceptChange, phoneFixRef }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
@@ -184,6 +230,8 @@ const SystemStatusModal: React.FC<{
                         section, rather than sticking yet another fab on the
                         already jam packed screen." */}
                     <GpsSourceRow />
+                    <GpsQualityPanel phoneFixRef={phoneFixRef} />
+                    <PassageHudInfoCard />
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
                         icon={
@@ -293,7 +341,7 @@ const SystemStatusModal: React.FC<{
                         }
                         label={state.extGps.label}
                         active={state.extGps.active}
-                        detail={state.extGps.detail}
+                        detail={gpsReceiverConnectionDetail(state.extGps)}
                         dotColor={
                             state.extGps.active
                                 ? state.extGps.kind === 'vessel-nmea'
@@ -532,6 +580,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     alwaysShow = false,
 }) => {
     const [showModal, setShowModal] = useState(false);
+    const phoneFixRef = useRef<GpsPosition | null>(null);
     // Stop-follow confirmation modal removed 2026-05-19 — the action
     // is reversible (just re-tap Follow on the voyage card) so a
     // confirmation step was pure friction.
@@ -630,6 +679,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // ── Passive GPS accuracy feed ──
     useEffect(() => {
         const unsub = GpsService.watchPosition((pos) => {
+            phoneFixRef.current = pos;
             if (pos.accuracy > 0) {
                 GpsPrecision.feed(pos.accuracy);
             }
@@ -891,6 +941,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             {/* Modal */}
             {showModal && (
                 <SystemStatusModal
+                    phoneFixRef={phoneFixRef}
                     state={systemState}
                     onClose={() => setShowModal(false)}
                     onNavigateAnchor={() => {

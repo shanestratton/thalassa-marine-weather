@@ -9,6 +9,7 @@ import { lazyRetry } from '../../utils/lazyRetry';
 import { LocationStore } from '../../stores/LocationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { vesselDraftMetres } from '../../services/units';
+import { snapshotAutoroutingVesselProfile } from '../../services/autoroutingVesselProfile';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { usePaneScope } from '../../context/PanePortalContext';
 import { OverlayPortal } from '../ui/OverlayPortal';
@@ -70,9 +71,12 @@ export function RoutingModeDialog({
     const [status, setStatus] = useState<AutoroutingTrialStatus | null>(null);
     const scope = useRef(getAuthIdentityScope());
     const finished = useRef(false);
-    const initial = useRef<Pick<AutoroutingTrialWorkspaceProps, 'initialCenter' | 'initialDraftM' | 'initialSpeedKts'>>(
-        {},
-    );
+    const initial = useRef<
+        Pick<
+            AutoroutingTrialWorkspaceProps,
+            'initialCenter' | 'initialDraftM' | 'initialSpeedKts' | 'initialVesselProfile'
+        >
+    >({});
     const closeRef = useRef<HTMLButtonElement>(null);
     const close = useCallback(() => {
         // The choice and its child workspace both fence account changes.
@@ -132,6 +136,7 @@ export function RoutingModeDialog({
             initialCenter: center ? { lat: center.lat, lon: center.lon } : undefined,
             initialDraftM: settings.vessel ? vesselDraftMetres(settings.vessel, 0) : undefined,
             initialSpeedKts: settings.vessel?.cruisingSpeed,
+            initialVesselProfile: snapshotAutoroutingVesselProfile(settings.vessel),
         };
         setPhase('auto');
     };

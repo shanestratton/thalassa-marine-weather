@@ -26,27 +26,21 @@
  * are relabelled (there is no forecast SOG), apparent wind is marked "EST"
  * because it is arithmetic on a forecast and a planned speed, and a moment the
  * model does not reach is a dash and the words PAST FORECAST — never the last
- * hour held. Look-ahead is not remembered: leave the chart, hide the strip or
- * stop following and the next thing on screen is live.
+ * hour held. Look-ahead is not remembered: leave the chart, disable the layer
+ * or stop following and the next thing on screen is live. Hiding just the
+ * readings leaves the scrubber and forecast boat running.
  *
- * WHY A 76 px STRIP AND NOT A CARD. Two review rounds measured a 176–200 px
- * card against the chart's real furniture: it covered the Copernicus licence
- * credit (121 px tall, not a 30 px slot), the wind legend, the ENC notice and
- * the tide scrubber, and on the flagship phone left 207 px of height — all six
- * instruments below the fold. The centred furniture all starts at x >= 76 on
- * a 393 px phone, so a strip no wider than that, down the left edge like a
- * chartplotter's data bar, clears every one of them and shows every number at
- * once. What DOES share its column is dealt with one piece at a time, each
- * measured: the Back chevron moves INTO the strip (App hides its own while the
- * strip is shown), the wind legend folds to its chip and steps right, the
- * squall/lightning legend stack and the ENC coverage notice step right, and
- * the strip stands down entirely for a storm card, the planning surfaces and a
- * landscape phone. It sits at z-549, one under the offline card (z-550), so that
- * notice reads whole until it is dismissed. Not a dialog: the chart stays live.
+ * READABLE UNDER WAY. The original 76 px strip was too narrow on the water.
+ * It is now twice as wide, with larger numbers beside their labels so the
+ * live instruments still fit in a compact column. Chart furniture yields to
+ * its width in index.css. The bottom chevron hides the instruments; Obs is a
+ * top-level tab and needs no second Back control. The strip stands down for a
+ * storm card, the planning surfaces and a landscape phone. It sits at z-549,
+ * one under the offline card (z-550). Not a dialog: the chart stays live.
  *
- * OFF BY DEFAULT. Settings → Preferences → "Passage strip on the chart".
- * Three review rounds each found new furniture in this column; until it has
- * been seen on the water it reaches nobody who did not ask for it.
+ * OFF BY DEFAULT. OBS Layers → Passage HUD, offered only while following a
+ * route from Log. Activation opens the readings, turns off Inspect and shows
+ * wind plus available rain/squalls without taking over the chart camera.
  *
  * HONESTY:
  *   - dead instruments are dashes, not the last number, and NOT the phone's
@@ -60,18 +54,18 @@
  *     position only (never its speed or heading), aged honestly — a fix is as
  *     old as its own timestamp says, however recently it was handed over.
  *
- * THE PASSAGE OVERLAY IS THE SKIPPER'S SWITCH. The first cut flipped the
- * chart's Passage overlay with the pane and review found five ways that went
- * wrong (the overlay persists but "I did that" did not; MapHub only clears its
- * route and track from the layer button's own OFF path; every return to the
- * chart re-listed the ship's log). So there is one explicit button — the same
- * ON the layer button performs — and OFF stays where it works.
+ * OFF-ROUTE START. The ghost starts at the receiver's position and travels an
+ * unchecked, dashed-amber joining estimate to the route. The followed route
+ * stays solid purple and untouched. Route-only forecast samples are withheld
+ * until the ghost joins; actual map weather retains its own spatial coverage.
  */
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
     LOOK_AHEAD_MAX_MS,
     publishPassageGhost,
     publishPassageGhostPath,
+    publishPassageGhostJoinPath,
+    setPassageHudEnabled,
     setPassageAheadMs,
     setPassageLookAheadPlaying,
     startPassageLookAhead,
@@ -86,15 +80,10 @@ import {
     usePassageWindCoverageHours,
 } from '../../stores/passageHudStore';
 import { usePassageHudInstruments, type HudMetric } from '../../hooks/usePassageHudInstruments';
+import { usePassageEta } from '../../hooks/usePassageEta';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
-import {
-    MOTION_MIN_NM,
-    buildRouteIndex,
-    progressAlongRoute,
-    stationOnIndex,
-    type RouteProgress,
-} from '../../services/routeProgress';
+import { MOTION_MIN_NM, buildRouteIndex, progressAlongRoute, type RouteProgress } from '../../services/routeProgress';
 import {
     SPREAD_SOME_DEG,
     SPREAD_SOME_KTS,
@@ -106,7 +95,14 @@ import {
     type RouteSpread,
     type SpreadLevel,
 } from '../../services/routeForecastSpread';
-import { planAt, planPassage, pointingDeg, type PassageSpeedModel, type SpeedHow } from '../../services/passagePlan';
+import {
+    passageGhostAt,
+    planAt,
+    planPassage,
+    pointingDeg,
+    type PassageSpeedModel,
+    type SpeedHow,
+} from '../../services/passagePlan';
 import {
     SEA_CURRENT_PROVIDER,
     SEA_WAVE_PROVIDER,
@@ -131,9 +127,14 @@ import {
 import { vesselCruisingSpeedKts } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { WindStore } from '../../stores/WindStore';
-import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { PASSAGE_MODEL_CHOICES, PassageModelModal, passageModelChoice } from './PassageModelModal';
 import { RouteTimeScrubber, fmtAhead, fmtMoment, type SpreadBandPoint } from './RouteTimeScrubber';
+import { PassageDepartureModal } from './PassageDepartureModal';
+import { passageDepartureTime } from '../../services/passageDeparture';
+import {
+    suggestPassageDeparture,
+    type PassageDepartureSuggestionState,
+} from '../../services/passageDepartureSuggestion';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { NmeaStore } from '../../services/NmeaStore';
 import { LocationStore } from '../../stores/LocationStore';
@@ -205,24 +206,28 @@ const SUB_TONE = { quiet: 'text-gray-400', amber: 'text-amber-300', red: 'text-r
 
 const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentence, forecast = false, sub = null }) => (
     <div
-        className="border-b border-white/10 px-1 py-0.5 text-center"
+        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 border-b border-white/10 px-2 py-1"
         data-testid={testId}
         data-freshness={metric.value === null ? 'none' : forecast ? 'forecast' : metric.freshness}
         title={sentence}
         aria-label={sentence}
     >
         <p
-            className={`text-[10px] font-black uppercase leading-none ${forecast ? 'text-amber-300/80' : 'text-gray-400'}`}
+            className={`text-[13px] font-black uppercase leading-tight ${forecast ? 'text-amber-300/90' : 'text-gray-300'}`}
         >
             {label}
         </p>
-        <p className={`font-mono text-[17px] font-black leading-tight tabular-nums ${tone(metric, forecast)}`}>
+        <p
+            className={`whitespace-nowrap text-right font-mono text-[28px] font-black leading-tight tabular-nums ${tone(metric, forecast)}`}
+        >
             {value}
-            {unit && metric.value !== null && <span className="text-[10px] font-bold text-gray-500">{unit}</span>}
+            {unit && metric.value !== null && (
+                <span className="ml-0.5 text-[13px] font-bold text-gray-400">{unit}</span>
+            )}
         </p>
         {sub && (
             <p
-                className={`font-mono text-[10px] font-black leading-none tabular-nums ${SUB_TONE[sub.tone]}`}
+                className={`col-span-2 text-right font-mono text-[13px] font-black leading-none tabular-nums ${SUB_TONE[sub.tone]}`}
                 data-testid={sub.testId}
             >
                 {sub.text}
@@ -232,6 +237,7 @@ const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentenc
 );
 
 interface RouteFix {
+    position: { lat: number; lon: number };
     progress: RouteProgress;
     source: FixSource;
     ageMin: number;
@@ -263,7 +269,7 @@ const SPREAD_MODEL_IDS = PASSAGE_MODEL_CHOICES.map((c) => c.openMeteoModel);
 /** Points across the scrubber's axis at which the five models are compared for its band. */
 const SPREAD_BAND_POINTS = 40;
 
-/** How she is making her way, for the 76 px tag and for a screen reader. */
+/** How she is making her way, for the compact tag and for a screen reader. */
 const HOW_TAG: Record<SpeedHow, string> = {
     sail: 'SAIL',
     tack: 'TACK',
@@ -282,7 +288,7 @@ const HOW_WORDS: Record<SpeedHow, string> = {
 /** Narrow read: WindStore changes at scrub rate (its hour); the model does not. */
 const currentWindModel = () => WindStore.getState().model;
 
-const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onToggle, onBack }) => {
+const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onToggle }) => {
     const inst = usePassageHudInstruments();
     const overlayOn = usePassageOverlay();
     const isFollowing = useFollowRouteStore((s) => s.isFollowing);
@@ -369,9 +375,11 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                 reckoning.set(routeCoords, { alongNm: progress.alongNm, at: Date.now() });
             }
             setFix((prev) => {
-                if (!progress) return prev === null ? prev : null;
-                const next: RouteFix = { progress, source, ageMin };
+                if (!progress || !at) return prev === null ? prev : null;
+                const next: RouteFix = { position: at, progress, source, ageMin };
                 return prev &&
+                    prev.position.lat === next.position.lat &&
+                    prev.position.lon === next.position.lon &&
                     prev.source === next.source &&
                     prev.ageMin === next.ageMin &&
                     fmtNm(prev.progress.toGoNm) === fmtNm(next.progress.toGoNm) &&
@@ -419,20 +427,33 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     const unsyncedLayers = usePassageUnsyncedLayers();
     const vessel = useSettingsStore((st) => st.settings.vessel);
     const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
+    const profileCruiseKts =
+        vessel?.cruisingSpeed && Number.isFinite(vessel.cruisingSpeed) && vessel.cruisingSpeed > 0
+            ? vessel.cruisingSpeed
+            : null;
     // ONE model on the chart: the wind layer's. See PassageModelModal.
     const windModel = useSyncExternalStore(WindStore.subscribe, currentWindModel, currentWindModel);
     const model = passageModelChoice(windModel);
     const [modelOpen, setModelOpen] = useState(false);
+    const [departureOpen, setDepartureOpen] = useState(false);
+    const mobActiveRef = useRef(false);
+
+    useEffect(() => setDepartureOpen(false), [routeCoords, following]);
 
     // Leaving the chart, or no longer following, ends the glance.
-    useEffect(() => () => stopPassageLookAhead(), []);
+    useEffect(() => () => stopPassageLookAhead(), [routeCoords]);
     // So does a man overboard, from anywhere it can be raised (this page, the
     // MOB page, the watch). The recovery chart is no place for a ghost hull, a
     // dashed line and a strip of forecasts where the instruments were.
     useEffect(
         () =>
             MobService.subscribe((state) => {
-                if (state.active) stopPassageLookAhead();
+                mobActiveRef.current = !!state.active;
+                if (state.active) {
+                    setDepartureOpen(false);
+                    setModelOpen(false);
+                    stopPassageLookAhead();
+                }
             }),
         [],
     );
@@ -446,24 +467,138 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     // nothing on screen to give them back.
     const asideRef = useRef<HTMLElement | null>(null);
     useEffect(() => {
+        const pane = asideRef.current;
+        const chart = pane?.closest('main');
+        if (!open || !pane || !chart) return;
+
+        // The wider pane reaches into the top-centre credit strip on phones.
+        // Measure the credits as they wrap or appear, then start below them.
+        // Credit wording, placement and links remain intact.
+        let clearance = 0;
+        let frame = 0;
+        const observed = new Set<Element>();
+        const creditSelector =
+            '[aria-label^="Copernicus Marine data attribution"], ' +
+            'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]';
+        const measure = () => {
+            frame = 0;
+            const bounds = pane.getBoundingClientRect();
+            const normalTop = bounds.top - clearance;
+            let nextClearance = 0;
+            const credits: Element[] = [
+                ...chart.querySelectorAll('[aria-label^="Copernicus Marine data attribution"]'),
+                ...[
+                    ...chart.querySelectorAll(
+                        'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]',
+                    ),
+                ]
+                    .map((link) => link.parentElement)
+                    .filter((element): element is HTMLElement => element !== null),
+            ];
+            for (const credit of credits) {
+                if (!observed.has(credit)) {
+                    observed.add(credit);
+                    resize?.observe(credit);
+                }
+                const box = credit.getBoundingClientRect();
+                if (box.width > 0 && box.height > 0 && box.left < bounds.right && box.right > bounds.left) {
+                    nextClearance = Math.max(nextClearance, box.bottom + 8 - normalTop);
+                }
+            }
+            for (const credit of observed) {
+                if (!credits.includes(credit)) {
+                    resize?.unobserve(credit);
+                    observed.delete(credit);
+                }
+            }
+            nextClearance = Math.max(0, Math.ceil(nextClearance));
+            if (nextClearance !== clearance) {
+                clearance = nextClearance;
+                pane.style.setProperty('--passage-hud-credit-clearance', `${clearance}px`);
+            }
+        };
+        const schedule = () => {
+            if (!frame) frame = requestAnimationFrame(measure);
+        };
+        const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+        resize?.observe(chart);
+        const mutations = new MutationObserver((records) => {
+            // Ghost/AIS labels also change in this main. Do not measure layout
+            // at scrub/instrument rate: only attribution insertions, removals
+            // or text changes need a new clearance (resize handles wrapping).
+            const touchesCredit = (node: Node) =>
+                node instanceof Element &&
+                (node.matches(creditSelector) || node.querySelector(creditSelector) !== null);
+            if (
+                records.some(
+                    (record) =>
+                        !pane.contains(record.target) &&
+                        ((record.target instanceof Element && record.target.closest(creditSelector) !== null) ||
+                            [...record.addedNodes, ...record.removedNodes].some(touchesCredit)),
+                )
+            ) {
+                schedule();
+            }
+        });
+        mutations.observe(chart, { childList: true, subtree: true });
+        window.addEventListener('resize', schedule);
+        measure();
+        return () => {
+            if (frame) cancelAnimationFrame(frame);
+            resize?.disconnect();
+            mutations.disconnect();
+            window.removeEventListener('resize', schedule);
+            pane.style.removeProperty('--passage-hud-credit-clearance');
+        };
+    }, [open]);
+    useEffect(() => {
+        const pane = asideRef.current;
+        const scrubber = pane?.parentElement?.querySelector('.thalassa-route-scrubber');
+        if (!open || !look.on || !pane || !scrubber || typeof ResizeObserver === 'undefined') return;
+        // Credits and own-time/join notes wrap on a phone. Reserve their real
+        // height rather than allowing a taller scrubber to cover the readings.
+        const measure = () => {
+            const height = Math.max(
+                0,
+                Math.floor(scrubber.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8),
+            );
+            pane.style.setProperty('--passage-scrubber-available-height', `${height}px`);
+        };
+        const observer = new ResizeObserver(measure);
+        observer.observe(scrubber);
+        observer.observe(pane);
+        window.addEventListener('resize', measure);
+        measure();
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', measure);
+            pane.style.removeProperty('--passage-scrubber-available-height');
+        };
+    }, [open, look.on]);
+    useEffect(() => {
         if (!look.on) return;
         const id = setInterval(() => {
-            const el = asideRef.current;
+            // Collapsing only hides the readings. Stop only if another chart
+            // surface suppresses the forecast controls themselves.
+            const el = asideRef.current?.parentElement?.querySelector('.thalassa-route-scrubber');
             if (el && typeof getComputedStyle === 'function' && getComputedStyle(el).display === 'none') {
                 stopPassageLookAhead();
             }
         }, 1000);
         return () => clearInterval(id);
     }, [look.on]);
-
     // Labels are clock times; keep the clock moving while they are on screen.
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const forecastWanted = look.on || departureOpen;
     useEffect(() => {
-        if (!look.on) return;
+        if (!forecastWanted) return;
         setNowMs(Date.now());
         const id = setInterval(() => setNowMs(Date.now()), 30_000);
         return () => clearInterval(id);
-    }, [look.on]);
+    }, [forecastWanted]);
+    // A selected departure is an absolute instant, not travel already made.
+    // Keep the real clock separate for forecast cache age and GPS freshness.
+    const departureTimeMs = passageDepartureTime(look, nowMs);
 
     // The series for THIS route and THIS model. Held with its key, and only
     // ever read back through the key, so a reply for the model or route the
@@ -476,7 +611,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
         failed: boolean;
     } | null>(null);
     useEffect(() => {
-        if (!look.on || !following) return;
+        if (!forecastWanted || !following) return;
         let cancelled = false;
         const key = routeForecastKey(routeCoords, model.openMeteoModel);
         const run = () => {
@@ -525,14 +660,14 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
             cancelled = true;
             clearInterval(id);
         };
-    }, [look.on, following, routeCoords, model.openMeteoModel]);
+    }, [forecastWanted, following, routeCoords, model.openMeteoModel]);
     // THE SEA (phase 4): sea state and current along the route. Keyed by the
     // ROUTE alone — the sea does not change when the skipper picks another wind
     // model — and entirely optional: the wind cells never wait on it.
     const seaKey = following ? routeForecastKey(routeCoords, 'sea') : '';
     const [seaLoaded, setSeaLoaded] = useState<{ key: string; sea: RouteSea | null } | null>(null);
     useEffect(() => {
-        if (!look.on || !following) return;
+        if (!forecastWanted || !following) return;
         let cancelled = false;
         const key = routeForecastKey(routeCoords, 'sea');
         const run = () => {
@@ -551,9 +686,9 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
             cancelled = true;
             clearInterval(id);
         };
-    }, [look.on, following, routeCoords]);
+    }, [forecastWanted, following, routeCoords]);
     const seaMine = seaLoaded && seaLoaded.key === seaKey ? seaLoaded : null;
-    const sea = seaMine ? seaMine.sea : look.on && following ? peekRouteSea(routeCoords) : null;
+    const sea = seaMine ? seaMine.sea : forecastWanted && following ? peekRouteSea(routeCoords) : null;
 
     const mine = loaded && loaded.key === forecastKey ? loaded : null;
     // While this key's series is still arriving, a CACHED member (the spread
@@ -563,10 +698,14 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     // offset back to the flat-speed arrival for good (review, 2026-09-19).
     const forecast = mine
         ? mine.forecast
-        : look.on && following
+        : forecastWanted && following
           ? peekRouteForecast(routeCoords, model.openMeteoModel)
           : null;
-    const spread = mine ? mine.spread : look.on && following ? peekRouteSpread(routeCoords, SPREAD_MODEL_IDS) : null;
+    const spread = mine
+        ? mine.spread
+        : forecastWanted && following
+          ? peekRouteSpread(routeCoords, SPREAD_MODEL_IDS)
+          : null;
     /** False only while this route+model's series is still LOADING (offline settles as failed). */
     const forecastSettled = mine !== null;
 
@@ -599,8 +738,45 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     );
     const routeIndex = useMemo(() => (following ? buildRouteIndex(routeCoords) : null), [following, routeCoords]);
     const canLookAhead = following && !!fix && cruiseKts > 0;
+    useEffect(() => {
+        if (!canLookAhead) setDepartureOpen(false);
+    }, [canLookAhead]);
     const startAlongNm = fix?.progress.alongNm ?? null;
-    const backNm = fix ? Math.max(0, fix.progress.toGoNm - fix.progress.remainingNm) : 0;
+    const backNm = fix?.progress.offTrackNm ?? 0;
+    const comfort = useSettingsStore((st) => st.settings.comfortParams);
+    const departureSuggestion = useMemo<PassageDepartureSuggestionState | undefined>(() => {
+        if (!departureOpen) return undefined;
+        if (!forecastSettled || !seaMine) return { status: 'loading' };
+        return suggestPassageDeparture({
+            index: routeIndex,
+            startAlongNm: fix?.source === 'phone-old' ? null : startAlongNm,
+            backNm,
+            cruiseKts: profileCruiseKts,
+            forecast,
+            sea,
+            spread,
+            comfort,
+            nowMs: Date.now(),
+            modelLabel: model.label,
+        });
+        // The thirty-second clock expires stale suggestions even if caches stay unchanged.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        departureOpen,
+        forecastSettled,
+        seaMine,
+        routeIndex,
+        startAlongNm,
+        backNm,
+        profileCruiseKts,
+        forecast,
+        sea,
+        spread,
+        comfort,
+        nowMs,
+        model.label,
+        fix?.source,
+    ]);
     // Re-walked when she has moved a twentieth of a mile, the forecast or the
     // speed model changed, or the clock ticked (30 s) — never per scrub tick.
     const plan = useMemo(
@@ -610,15 +786,91 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                       index: routeIndex,
                       startAlongNm,
                       backNm,
-                      startMs: nowMs,
+                      startMs: departureTimeMs,
                       forecast,
                       model: speedModel,
                       maxMs: LOOK_AHEAD_MAX_MS,
                   })
                 : null,
-        [look.on, routeIndex, startAlongNm, backNm, nowMs, forecast, speedModel, cruiseKts],
+        [look.on, routeIndex, startAlongNm, backNm, departureTimeMs, forecast, speedModel, cruiseKts],
     );
     const arrivalMs = plan?.arrivalMs ?? null;
+    const liveEta = usePassageEta({
+        routeKey: following ? routeCoords : null,
+        remainingNm: fix && fix.source !== 'phone-old' ? fix.progress.remainingNm + backNm : null,
+        cruiseKts,
+        departureMs: look.departureMs,
+        forecastOn: look.on,
+    });
+    // Forecast ETA comes from the same walked plan as the ghost. In LIVE,
+    // the timestamped boat-motion history provides a damped recent average.
+    const etaAt = look.on ? (arrivalMs === null ? null : departureTimeMs + arrivalMs) : liveEta.arrivalMs;
+    const etaSpeed = look.on
+        ? arrivalMs && fix
+            ? (fix.progress.remainingNm + backNm) / (arrivalMs / 3_600_000)
+            : cruiseKts
+        : liveEta.speedKts;
+    const etaBasis = look.on
+        ? speedPref !== 'polar' || !isSail
+            ? profileCruiseKts
+                ? 'CRUISE'
+                : 'HULL EST.'
+            : plan?.assumedFromMs != null
+              ? 'ASSUMED CRUISE*'
+              : 'BY WIND EST.'
+        : liveEta.basis === 'average'
+          ? `${liveEta.sampleMinutes} MIN AVG`
+          : liveEta.basis === 'stopped'
+            ? 'STOPPED'
+            : liveEta.basis === 'cruise'
+              ? profileCruiseKts
+                  ? 'CRUISE'
+                  : 'HULL EST.'
+              : 'NO ESTIMATE';
+    const etaSentence =
+        etaAt === null
+            ? liveEta.basis === 'stopped' && !look.on
+                ? 'ETA paused: vessel not making way.'
+                : 'ETA unavailable.'
+            : `Estimated arrival ${new Date(etaAt).toLocaleString()}; ${etaBasis.toLowerCase()} at ${etaSpeed?.toFixed(1)} knots.${look.on && speedPref === 'polar' && isSail && plan?.assumedFromMs != null ? ' Part or all of this passage assumes cruising speed where wind forecast is unavailable.' : ''}${!look.on && liveEta.basis === 'average' ? ' Recent GPS average, updated once a minute.' : ''}${backNm > 0.05 ? ' Includes an unchecked joining leg.' : ''} Device local time; estimate only.`;
+    const etaCell = (
+        <div
+            data-testid="hud-eta"
+            aria-label={etaSentence}
+            title={etaSentence}
+            className="border-b border-white/10 px-2 py-1.5 text-center"
+        >
+            <p
+                className={`text-[10px] font-black uppercase tracking-wide ${look.on ? 'text-amber-300' : 'text-cyan-300'}`}
+            >
+                ETA · estimated
+            </p>
+            <p
+                className={`font-mono text-[24px] font-black leading-tight tabular-nums ${look.on ? 'text-amber-200' : 'text-white'}`}
+            >
+                {etaAt === null
+                    ? DASH
+                    : new Date(etaAt).toLocaleTimeString(undefined, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                      })}
+            </p>
+            {etaAt !== null && (
+                <p className="text-[11px] font-bold text-gray-300">
+                    {new Date(etaAt).toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                    })}
+                </p>
+            )}
+            <p className="text-[10px] font-bold leading-tight text-gray-400">
+                {etaBasis}
+                {etaSpeed != null && etaSpeed > 0 ? ` · ${etaSpeed.toFixed(1)} KN` : ''}
+            </p>
+        </div>
+    );
     const liveMaxMs = plan ? plan.endMs : 0;
     // A lost fix makes the END of the axis unknown — not the skipper's offset.
     // The chart's wind is still standing at look.aheadMs; collapsing the axis to
@@ -651,7 +903,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     const parkedAtEndRef = useRef(false);
     useEffect(() => {
         parkedAtEndRef.current = look.on && maxMsRef.current > 0 && look.aheadMs >= maxMsRef.current - 1000;
-    }, [look.on, look.aheadMs]);
+    }, [look.on, look.aheadMs, look.departureMs]);
     useEffect(() => {
         if (!look.on || !plan || !axisKnown) return;
         if (look.aheadMs > maxMs || (parkedAtEndRef.current && look.aheadMs !== maxMs)) {
@@ -659,10 +911,13 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
         }
     }, [look.on, look.aheadMs, maxMs, plan, axisKnown]);
 
-    // THE GHOST LEAVES FROM WHERE SHE IS (Shane 2026-09-18), not the route's
-    // first point — and holds abeam on the line while the way back is sailed.
-    const station = look.on && routeIndex && moment ? stationOnIndex(routeIndex, moment.alongNm) : null;
-    const ghostLabel = fmtAhead(aheadMs);
+    // An off-route start is a forecast-only straight joining estimate, never
+    // a cleared navigation leg or a change to the route followed from Log.
+    const station =
+        look.on && routeIndex && moment && fix && startAlongNm !== null
+            ? passageGhostAt({ index: routeIndex, moment, start: fix.position, startAlongNm, backNm })
+            : null;
+    const ghostLabel = `${fmtAhead(aheadMs, look.departureMs != null)}${station?.joining ? ' · JOIN EST.' : ''}`;
     const ghostLat = station?.lat ?? null;
     const ghostLon = station?.lon ?? null;
     const ghostBearing = station?.bearingDeg ?? null;
@@ -688,7 +943,23 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
         );
     }, [look.on, abeamLat, abeamLon, abeamLeg, routeCoords]);
 
-    const sample = station ? sampleRouteForecast(forecast, station.alongNm, nowMs + aheadMs) : null;
+    const startLat = fix?.position.lat ?? null;
+    const startLon = fix?.position.lon ?? null;
+    useEffect(() => {
+        publishPassageGhostJoinPath(
+            look.on && backNm > 0 && startLat !== null && startLon !== null && abeamLat !== null && abeamLon !== null
+                ? [
+                      { lat: startLat, lon: startLon },
+                      { lat: abeamLat, lon: abeamLon },
+                  ]
+                : null,
+        );
+    }, [look.on, backNm, startLat, startLon, abeamLat, abeamLon]);
+
+    // These samples describe the route, not the water between the GPS fix and
+    // its projection. Do not relabel abeam weather as weather at the joining boat.
+    const sample =
+        station && !station.joining ? sampleRouteForecast(forecast, station.alongNm, departureTimeMs + aheadMs) : null;
     // Tacking, she is close-hauled either side of the wind — not steering the
     // route's bearing — and sailing faster than she is getting anywhere. The
     // estimate is worked on THAT heading at her speed through the water, and no
@@ -706,7 +977,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     // Shown at ARRIVAL too: a berth reads INSHORE by the snap guard, an open
     // anchorage shows its forecast. (Withheld, it was a bare dash under a sentence
     // that said there was no forecast — after every Play run.)
-    const seaNow = station ? sampleRouteSea(sea, station.alongNm, nowMs + aheadMs) : null;
+    const seaNow = station && !station.joining ? sampleRouteSea(sea, station.alongNm, departureTimeMs + aheadMs) : null;
     const waveShown = seaNow && seaNow.waveM !== null ? convertMetersTo(seaNow.waveM, waveUnit) : null;
     // Fair or foul, for the skipper's eye. It is NOT applied to the plan: this is
     // a five-mile model that reads 0.8 kn in a passage that runs two to four.
@@ -746,7 +1017,8 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
 
     // The five models at the ghost's place and moment — the range AROUND the
     // pinned model's number, never instead of it (one model on the chart).
-    const spreadNow = station ? sampleRouteSpread(spread, station.alongNm, nowMs + aheadMs) : null;
+    const spreadNow =
+        station && !station.joining ? sampleRouteSpread(spread, station.alongNm, departureTimeMs + aheadMs) : null;
     const spreadWords =
         !spreadNow || spreadNow.level === 'none'
             ? null
@@ -767,8 +1039,12 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
             const offset = step * i;
             const at = planAt(plan, offset);
             if (!at) continue;
-            const s = sampleRouteSpread(spread, at.alongNm, nowMs + offset);
-            const pinned = sampleRouteForecast(forecast, at.alongNm, nowMs + offset).twsKts;
+            if (at.toGoNm - (routeIndex.totalNm - at.alongNm) > 1e-6) {
+                out.push({ f: i / SPREAD_BAND_POINTS, minKts: null, maxKts: null, pinnedKts: null, level: 'none' });
+                continue;
+            }
+            const s = sampleRouteSpread(spread, at.alongNm, departureTimeMs + offset);
+            const pinned = sampleRouteForecast(forecast, at.alongNm, departureTimeMs + offset).twsKts;
             // One band point stands for up to 4.2 h of a seven-day axis, and the
             // data is hourly: a split that lasts two hours between two points
             // must not vanish from the overview. Shape is the point's own value;
@@ -779,13 +1055,14 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
             for (let t = from; t <= to && step > 3_600_000; t += 3_600_000) {
                 const there = planAt(plan, t);
                 if (!there) continue;
-                const l = sampleRouteSpread(spread, there.alongNm, nowMs + t).level;
+                if (there.toGoNm - (routeIndex.totalNm - there.alongNm) > 1e-6) continue;
+                const l = sampleRouteSpread(spread, there.alongNm, departureTimeMs + t).level;
                 if (rank.indexOf(l) > rank.indexOf(level)) level = l;
             }
             out.push({ f: i / SPREAD_BAND_POINTS, minKts: s.minKts, maxKts: s.maxKts, pinnedKts: pinned, level });
         }
         return out.some((p) => p.minKts !== null) ? out : null;
-    }, [plan, spread, routeIndex, forecast, nowMs]);
+    }, [plan, spread, routeIndex, forecast, departureTimeMs]);
     // Whoever's numbers are on screen is credited — every one of them.
     const spreadProviders = useMemo(() => {
         if (!spread) return null;
@@ -817,15 +1094,17 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
         ? null
         : !fix
           ? 'NO FIX'
-          : !mine
-            ? 'LOADING'
-            : mine.failed || !forecast
-              ? 'NO FORECAST'
-              : sample?.beyond
-                ? 'PAST FORECAST'
-                : forecastOld
-                  ? forecastAgeTag
-                  : null;
+          : station?.joining
+            ? 'JOIN ESTIMATE'
+            : !mine
+              ? 'LOADING'
+              : mine.failed || !forecast
+                ? 'NO FORECAST'
+                : sample?.beyond
+                  ? 'PAST FORECAST'
+                  : forecastOld
+                    ? forecastAgeTag
+                    : null;
     // "Where models disagree, say so." Its own line, so it never hides the age
     // of a stale run or is hidden by it.
     const modelsSplit = look.on && !!sample && !sample.beyond && spreadNow?.level === 'split';
@@ -850,31 +1129,10 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                 fix.progress.offTrackNm >= 0.5 ? `, including ${fmtNm(fix.progress.offTrackNm)} back to the line` : ''
             }. ${fixSourceSentence(fix.source, fix.ageMin)}.`;
 
-    // ONCE, on the way in: put the rest of the passage on screen. Measured on
-    // the real chart — at harbour zoom the ghost was off the glass within the
-    // first hour of scrubbing, which is a scrubber moving nothing anyone can
-    // see. Never again after that: the skipper's own pan and zoom win.
-    const frameRemainingRoute = () => {
-        if (!fix) return;
-        const ahead = [fix.progress.abeam, ...routeCoords.slice(fix.progress.legIndex + 1)];
-        const lats = ahead.map((p) => p.lat);
-        const lons = ahead.map((p) => p.lon);
-        const bbox: [number, number, number, number] = [
-            Math.min(...lons),
-            Math.min(...lats),
-            Math.max(...lons),
-            Math.max(...lats),
-        ];
-        // A span past 180° is a route over the antimeridian, where a min/max
-        // box means "the whole planet". Leave the camera alone.
-        if (!bbox.every(Number.isFinite) || bbox[2] - bbox[0] > 180) return;
-        requestMapFit({ bbox, paddingPx: 96, maxZoom: 11 });
-    };
-
     const forecastRouteSentence =
         !station || !fix
             ? 'Looking ahead: no position to start from'
-            : `At ${fmtMoment(nowMs + aheadMs)}, ${fmtAhead(aheadMs)}, making ${planKts.toFixed(
+            : `At ${fmtMoment(departureTimeMs + aheadMs)}, ${fmtAhead(aheadMs, look.departureMs != null)}${look.departureMs != null ? ` from departure ${fmtMoment(departureTimeMs)}` : ''}, making ${planKts.toFixed(
                   1,
               )} knots along ${routeName}: ${fmtNm(planToGoNm)} nautical miles to go, ${planArrived ? 'arrived' : HOW_WORDS[planHow]}${''}. A plan, not a measurement.`;
 
@@ -890,30 +1148,10 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                 aria-label={look.on ? 'Passage forecast, looking ahead along the route' : 'Passage instruments'}
                 data-testid="passage-hud"
                 data-mode={look.on ? 'forecast' : 'live'}
-                className="thalassa-passage-hud absolute left-0 z-549 flex w-[4.75rem] flex-col overflow-hidden rounded-r-2xl border border-l-0 border-white/15 bg-slate-950/92 shadow-2xl backdrop-blur-xl"
+                style={open ? undefined : { display: 'none' }}
+                aria-hidden={!open}
+                className="thalassa-passage-hud absolute left-0 z-549 flex w-[9.5rem] flex-col overflow-hidden rounded-r-2xl border border-l-0 border-white/15 bg-slate-950/92 shadow-2xl backdrop-blur-xl"
             >
-                {/* Back lives HERE while the strip is shown: App's own chevron sits in
-                this column, and index.css hides it for exactly as long as this
-                one is on screen. */}
-                {onBack && (
-                    <button
-                        type="button"
-                        onClick={onBack}
-                        aria-label="Back"
-                        data-testid="hud-back"
-                        className="flex h-10 shrink-0 items-center justify-center border-b border-white/10 active:scale-95"
-                    >
-                        <svg
-                            className="h-5 w-5 text-white"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                    </button>
-                )}
                 {look.on ? (
                     <p
                         className="shrink-0 border-b border-amber-300/30 bg-amber-300/10 py-1 text-center text-[10px] font-black uppercase leading-tight tracking-widest text-amber-300"
@@ -944,17 +1182,18 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                             >
                                 <p className="text-[10px] font-black uppercase leading-none text-amber-300/80">To go</p>
                                 <p
-                                    className={`font-mono text-[19px] font-black leading-tight tabular-nums ${
+                                    className={`font-mono text-[32px] font-black leading-tight tabular-nums ${
                                         station ? 'text-amber-200' : 'text-white/40'
                                     }`}
                                 >
                                     {station && fix ? fmtNm(planToGoNm) : DASH}
-                                    {station && <span className="text-[10px] font-bold text-gray-500">NM</span>}
+                                    {station && <span className="ml-1 text-[13px] font-bold text-gray-400">NM</span>}
                                 </p>
                                 <p className="text-[10px] font-black uppercase leading-none text-gray-400">
                                     {planArrived ? 'ARRIVED' : `${planKts.toFixed(1)}KN ${HOW_TAG[planHow]}`}
                                 </p>
                             </div>
+                            {etaCell}
                             <Cell
                                 forecast
                                 label="TWS"
@@ -1180,7 +1419,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                             >
                                 <p className="text-[10px] font-black uppercase leading-none text-gray-400">To go</p>
                                 <p
-                                    className={`font-mono text-[19px] font-black leading-tight tabular-nums ${
+                                    className={`font-mono text-[32px] font-black leading-tight tabular-nums ${
                                         !fix
                                             ? 'text-white/40'
                                             : fix.source === 'phone-old'
@@ -1189,7 +1428,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                                     }`}
                                 >
                                     {fix ? fmtNm(fix.progress.toGoNm) : DASH}
-                                    {fix && <span className="text-[10px] font-bold text-gray-500">NM</span>}
+                                    {fix && <span className="ml-1 text-[13px] font-bold text-gray-400">NM</span>}
                                 </p>
                                 <p
                                     className={`text-[10px] font-black uppercase leading-none ${
@@ -1209,6 +1448,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                                 )}
                             </div>
 
+                            {etaCell}
                             <Cell
                                 label="SOG"
                                 value={fmtKnots(inst.sog)}
@@ -1338,9 +1578,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                             stopPassageLookAhead();
                             return;
                         }
-                        setPassageOverlay(true);
-                        startPassageLookAhead();
-                        frameRemainingRoute();
+                        setDepartureOpen(true);
                     }}
                     className={`flex h-10 shrink-0 items-center justify-center gap-1 border-t border-white/10 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:active:scale-100 ${
                         look.on ? 'text-emerald-300' : canLookAhead ? 'text-amber-300' : 'text-white/40'
@@ -1416,6 +1654,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                     </button>
                 </div>
             </aside>
+            {!open && <ClosedTab onToggle={onToggle} />}
             {look.on && (
                 <RouteTimeScrubber
                     aheadMs={aheadMs}
@@ -1429,6 +1668,7 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                     rainCoverageHours={rainCoverageHours}
                     playing={look.playing}
                     nowMs={nowMs}
+                    departureMs={look.departureMs}
                     windCoverageHours={windCoverageHours}
                     unsyncedLayers={unsyncedLayers}
                     modelLabel={model.label}
@@ -1436,9 +1676,35 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
                     cruiseKts={cruiseKts}
                     onAhead={(ms) => setPassageAheadMs(ms, maxMs)}
                     onPlaying={setPassageLookAheadPlaying}
+                    onLive={stopPassageLookAhead}
+                    joining={station?.joining ?? false}
                     onOpenModel={() => setModelOpen(true)}
+                    onOpenDeparture={() => {
+                        setPassageLookAheadPlaying(false);
+                        setDepartureOpen(true);
+                    }}
                 />
             )}
+            <PassageDepartureModal
+                visible={departureOpen}
+                departureMs={look.departureMs}
+                routeName={routeName}
+                cruiseKts={cruiseKts}
+                suggestion={departureSuggestion}
+                onClose={() => setDepartureOpen(false)}
+                onConfirm={(departureMs) => {
+                    if (!canLookAhead || mobActiveRef.current) {
+                        setDepartureOpen(false);
+                        return;
+                    }
+                    lastMaxRef.current = 0;
+                    parkedAtEndRef.current = false;
+                    setNowMs(Date.now());
+                    setPassageOverlay(true);
+                    startPassageLookAhead(departureMs);
+                    setDepartureOpen(false);
+                }}
+            />
             <PassageModelModal
                 visible={modelOpen}
                 onClose={() => setModelOpen(false)}
@@ -1450,14 +1716,18 @@ const OpenPane: React.FC<{ onToggle: () => void; onBack?: () => void }> = ({ onT
     );
 };
 
-export const PassageHudPane: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
+export const PassageHudPane: React.FC = () => {
     const enabled = usePassageHudEnabled();
     const open = usePassageHudOpen();
+    const following = useFollowRouteStore((s) => s.isFollowing && s.routeCoords.length >= 2);
+    useEffect(() => {
+        if (enabled && !following) setPassageHudEnabled(false);
+    }, [enabled, following]);
     const toggle = () => {
         void triggerHaptic('light');
         togglePassageHud();
     };
-    if (!enabled) return null;
-    // Two components on purpose: the closed tab subscribes to nothing.
-    return open ? <OpenPane onToggle={toggle} onBack={onBack} /> : <ClosedTab onToggle={toggle} />;
+    if (!enabled || !following) return null;
+    // Keep the forecast controller and scrubber alive when only readings hide.
+    return <OpenPane open={open} onToggle={toggle} />;
 };

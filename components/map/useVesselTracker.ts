@@ -75,12 +75,14 @@ const MAX_SWING_POINTS = 600;
  * Build the vessel marker DOM element.
  * Directional arrow + accuracy ring + SOG badge.
  */
-function createVesselElement(): HTMLDivElement {
+export function createVesselElement(): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'vessel-tracker-marker';
+    // Mapbox owns position/transform on this root. Relative positioning puts
+    // it in normal flow behind other markers: a fixed pixel displacement then
+    // looks like hundreds of metres of GPS drift when zooming out.
     el.style.cssText = `
         width: 48px; height: 48px;
-        position: relative;
         display: flex; align-items: center; justify-content: center;
         pointer-events: none;
     `;

@@ -14,6 +14,27 @@ vi.mock('../components/map/cmemsFeatureAvailability', () => ({
 }));
 
 describe('RadialHelmMenu accessibility', () => {
+    it('offers tide stations under Sea, not the Tactical category', async () => {
+        const onToggleTideStations = vi.fn();
+        render(
+            <RadialHelmMenu
+                activeLayers={new Set<WeatherLayer>(['wind', 'rain'])}
+                toggleLayer={vi.fn()}
+                selectInGroup={vi.fn()}
+                tacticalState={{ tideStationsVisible: true, onToggleTideStations, onToggleAis: vi.fn() }}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Sea layers' }));
+        const tide = await screen.findByRole('menuitemcheckbox', { name: 'Tides, on' });
+        expect(tide).toHaveAttribute('aria-checked', 'true');
+        fireEvent.click(tide);
+        expect(onToggleTideStations).toHaveBeenCalledOnce();
+        fireEvent.keyDown(tide, { key: 'Escape' });
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Tactical layers' }));
+        expect(within(await screen.findByRole('menu', { name: 'Tactical layers' })).queryByText('Tides')).toBeNull();
+    });
+
     it('keeps a one-tap MOB emergency entry visible without opening the layer menu', () => {
         const onOpenMob = vi.fn();
         render(

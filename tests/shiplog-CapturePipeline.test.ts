@@ -150,6 +150,20 @@ afterEach(() => {
 });
 
 describe('captureImmediate', () => {
+    it('reuses the departure identity without backdating a current fix to persisted voyage metadata', async () => {
+        const ctx = makeCtx({ getAcceptedFix: () => makeFix() });
+        ctx.trackingState.voyageStartTime = '2026-05-01T00:00:00.000Z';
+        await captureImmediate(ctx, undefined, 'Voyage Start');
+        const firstOperation = saveEntry.mock.calls[0][3];
+        await vi.advanceTimersByTimeAsync(3_000);
+        await captureImmediate(ctx, undefined, 'Voyage Start');
+        expect(saveEntry.mock.calls[1][3]).toBe(firstOperation);
+        expect(saveEntry.mock.calls[1][0].timestamp).toBe(new Date(Date.now()).toISOString());
+        expect(saveEntry.mock.calls[1][0].timestamp).not.toBe(ctx.trackingState.voyageStartTime);
+        await captureImmediate(ctx, undefined, 'Voyage End');
+        expect(saveEntry.mock.calls[2][3]).toBeUndefined();
+    });
+
     it('anchors Voyage Start on a buffer-accepted fix and saves the entry', async () => {
         // Voyage Start trusts ONLY fixes that cleared the acceptance
         // gate into the track buffer — the cached fix can be a

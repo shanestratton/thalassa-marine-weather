@@ -40,6 +40,8 @@ export interface CastOffHandoff {
     gps: CastOffGpsState;
     /** Human-readable failure detail when gps === 'failed'. */
     gpsError: string | null;
+    /** Survives failed GPS startup so a retry still records the real departure. */
+    freshDeparture?: boolean;
     /** Automatic retry attempts made so far (max 2 before going manual). */
     retryCount: number;
     /** Why the route line is NOT armed (null = armed or not yet known). */
@@ -112,6 +114,7 @@ export function stashCastOffHandoff(handoff: {
     caution: string | null;
     publishRoute?: boolean;
     savedRouteId?: string | null;
+    freshDeparture?: boolean;
 }): void {
     current = {
         ...handoff,
@@ -119,6 +122,7 @@ export function stashCastOffHandoff(handoff: {
         savedRouteId: handoff.savedRouteId ?? null,
         gps: 'starting',
         gpsError: null,
+        freshDeparture: handoff.freshDeparture ?? true,
         retryCount: 0,
         followNote: null,
         publishState: handoff.publishRoute === false ? 'private' : 'pending',
@@ -175,15 +179,15 @@ export async function startHandoffGps(retry = false): Promise<void> {
             await ShipLogService.stopTracking(before.currentVoyageId);
             if (!isAuthIdentityScopeCurrent(scope)) return;
         }
-        // freshDeparture=true on the first start only — a retry may already
-        // hold a partial fix and must not look like a brand-new cold start.
-        await ShipLogService.startTracking(retry, handoff.voyageId, scope, !retry);
+        // Departure intent survives GPS failure/process death. Reattaching an
+        // existing active voyage explicitly stashes false instead.
+        await ShipLogService.startTracking(retry, handoff.voyageId, scope, handoff.freshDeparture ?? !retry);
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const tracking = ShipLogService.getTrackingStatus();
         if (!tracking.isTracking || tracking.currentVoyageId !== handoff.voyageId) {
             throw new Error('Background GPS did not confirm the newly active passage.');
         }
-        updateCastOffHandoff({ gps: 'confirmed', gpsError: null });
+        updateCastOffHandoff({ gps: 'confirmed', gpsError: null, freshDeparture: false });
         // Tracking is live NOW — this is the moment the public page can
         // actually link the passage. Publishing any earlier returns
         // 'not-tracking' and records nothing durable, which is why a
@@ -353,6 +357,7 @@ export async function ensureActiveVoyageLogging(voyage: {
                 caution: null,
                 savedRouteId,
                 publishRoute,
+                freshDeparture: false,
             });
         }
 

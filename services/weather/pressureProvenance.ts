@@ -21,6 +21,52 @@
  *  the isobars are current. Deliberately generous: NOMADS publishes a cycle
  *  over ~4 h, so a fresh-but-still-uploading run must not read as stale. */
 export const PRESSURE_RUN_STALE_HOURS = 8;
+export const PRESSURE_REFRESH_MS = 30 * 60_000;
+
+export interface PressureTimeGrid {
+    refTime: string | null;
+    subFrameStepHours: number;
+    totalHours: number;
+    keyframeFhrs?: readonly number[];
+}
+
+/** Frame zero may be a non-zero lead time; include it in every UTC conversion. */
+export function pressureFrameValidAt(grid: PressureTimeGrid | null, frameIndex: number): number | null {
+    if (!grid || !Number.isFinite(frameIndex)) return null;
+    const base = Date.parse(grid.refTime ?? '');
+    const first = grid.keyframeFhrs?.[0] ?? 0;
+    if (
+        !Number.isFinite(base) ||
+        !Number.isFinite(first) ||
+        !Number.isFinite(grid.subFrameStepHours) ||
+        grid.subFrameStepHours <= 0
+    )
+        return null;
+    return base + (first + Math.max(0, Math.round(frameIndex)) * grid.subFrameStepHours) * 3_600_000;
+}
+
+export function pressureFrameForValidAt(grid: PressureTimeGrid | null, validAt: number | null): number | null {
+    const first = pressureFrameValidAt(grid, 0);
+    if (
+        !grid ||
+        first === null ||
+        validAt === null ||
+        !Number.isFinite(validAt) ||
+        !Number.isFinite(grid.totalHours) ||
+        grid.totalHours < 1
+    )
+        return null;
+    return Math.max(
+        0,
+        Math.min(Math.round((validAt - first) / (grid.subFrameStepHours * 3_600_000)), grid.totalHours - 1),
+    );
+}
+
+export function pressureValidTimeText(validAt: number | null | undefined): string {
+    if (validAt == null || !Number.isFinite(validAt)) return 'Valid time unknown';
+    const date = new Date(validAt);
+    return `Valid ${date.toISOString().slice(5, 10)} ${date.toISOString().slice(11, 16)} UTC`;
+}
 
 export interface PressureProvenance {
     /** Source + model run, e.g. "GFS 18Z" or "Open-Meteo". */
@@ -40,7 +86,7 @@ export function pressureProvenance(
     // the honest answer: a different provider is a different forecast, not a
     // degraded version of the same one.
     if (source === 'open-meteo') {
-        return { label: 'Open-Meteo', runAgeHours: null, stale: false };
+        return { label: 'GFS · Open-Meteo coarse fallback', runAgeHours: null, stale: false };
     }
     if (source !== 'gfs') return { label: '—', runAgeHours: null, stale: false };
 

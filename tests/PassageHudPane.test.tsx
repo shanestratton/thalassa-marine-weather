@@ -12,7 +12,7 @@
  * quietly stops working the moment the Pi lane drops.
  */
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -69,6 +69,7 @@ import { NmeaStore, type RemoteInstrumentSnapshot } from '../services/NmeaStore'
 import { useFollowRouteStore } from '../stores/followRouteStore';
 import {
     __resetPassageHudForTests,
+    isPassageHudEnabled,
     isPassageHudOpen,
     setPassageHudEnabled,
     setPassageHudOpen,
@@ -118,7 +119,7 @@ beforeEach(() => {
     setPassageHudEnabled(true);
     voyage.active = null;
     NmeaStore.clearRemote();
-    useFollowRouteStore.getState().stopFollowing();
+    useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
     gps.last = null;
     gps.callbacks.clear();
     gps.watchOpts.length = 0;
@@ -131,7 +132,7 @@ afterEach(() => {
     useFollowRouteStore.getState().stopFollowing();
 });
 
-describe('off until the skipper turns it on in Preferences', () => {
+describe('off until the skipper enables the followed route HUD', () => {
     it('renders nothing at all by default — no tab, no strip', () => {
         setPassageHudEnabled(false);
         setPassageHudOpen(true);
@@ -150,14 +151,14 @@ describe('off until the skipper turns it on in Preferences', () => {
 describe('hidden to one side until asked for', () => {
     it('is a small tab on the left by default, and opens and closes from it', () => {
         render(<PassageHudPane />);
-        expect(screen.queryByTestId('passage-hud')).toBeNull();
-        const tab = screen.getByTestId('passage-hud-toggle');
+        expect(screen.getByTestId('passage-hud')).not.toBeVisible();
+        const tab = screen.getByRole('button', { name: 'Show passage instruments' });
         expect(tab.getAttribute('aria-label')).toBe('Show passage instruments');
         fireEvent.click(tab);
         expect(isPassageHudOpen()).toBe(true);
-        expect(screen.getByTestId('passage-hud')).toBeTruthy();
-        fireEvent.click(screen.getByTestId('passage-hud-toggle'));
-        expect(screen.queryByTestId('passage-hud')).toBeNull();
+        expect(screen.getByTestId('passage-hud')).toBeVisible();
+        fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
+        expect(screen.getByTestId('passage-hud')).not.toBeVisible();
     });
 
     it('remembers being open on this device', () => {
@@ -174,19 +175,58 @@ describe('hidden to one side until asked for', () => {
         expect(screen.getByLabelText('Passage instruments').tagName).toBe('ASIDE');
     });
 
-    it('carries the chart’s Back button while it is open, because it sits in the chevron’s column', () => {
-        const onBack = vi.fn();
+    it('has no page Back control and keeps the instrument collapse control', () => {
         setPassageHudOpen(true);
-        render(<PassageHudPane onBack={onBack} />);
-        fireEvent.click(screen.getByTestId('hud-back'));
-        expect(onBack).toHaveBeenCalledTimes(1);
-        expect(screen.getByTestId('hud-back').getAttribute('aria-label')).toBe('Back');
+        render(<PassageHudPane />);
+        expect(screen.queryByRole('button', { name: /^Back$/ })).toBeNull();
+        expect(screen.queryByTestId('hud-back')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
+        expect(isPassageHudOpen()).toBe(false);
+        expect(screen.getByRole('button', { name: 'Show passage instruments' })).toBeTruthy();
     });
 
-    it('watches nothing while it is only a tab', () => {
-        act(() => useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE));
+    it('keeps the same position watch alive while minimized instead of remounting the session', () => {
         render(<PassageHudPane />);
-        expect(gps.callbacks.size).toBe(0);
+        expect(gps.callbacks.size).toBe(1);
+        const watch = [...gps.callbacks][0];
+        fireEvent.click(screen.getByRole('button', { name: 'Show passage instruments' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
+        expect([...gps.callbacks]).toEqual([watch]);
+    });
+
+    it('clears overlapping chart credits and regains the space when they disappear', async () => {
+        setPassageHudOpen(true);
+        const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+            this: HTMLElement,
+        ) {
+            if (this.getAttribute('aria-label')?.startsWith('Copernicus Marine data attribution')) {
+                return { left: 90, right: 300, top: 62, bottom: 180, width: 210, height: 118 } as DOMRect;
+            }
+            const clearance = Number.parseFloat(this.style.getPropertyValue('--passage-hud-credit-clearance')) || 0;
+            return { left: 0, right: 152, top: 60 + clearance, bottom: 600, width: 152, height: 540 } as DOMRect;
+        });
+        try {
+            const chart = (creditVisible: boolean) => (
+                <main>
+                    {creditVisible && (
+                        <aside aria-label="Copernicus Marine data attribution for waves">Marine data credit</aside>
+                    )}
+                    <PassageHudPane />
+                </main>
+            );
+            const { rerender } = render(chart(true));
+            expect(screen.getByTestId('passage-hud').style.getPropertyValue('--passage-hud-credit-clearance')).toBe(
+                '128px',
+            );
+            rerender(chart(false));
+            await waitFor(() =>
+                expect(screen.getByTestId('passage-hud').style.getPropertyValue('--passage-hud-credit-clearance')).toBe(
+                    '0px',
+                ),
+            );
+        } finally {
+            rect.mockRestore();
+        }
     });
 });
 
@@ -269,11 +309,12 @@ describe('the six numbers, live from the boat', () => {
 describe('the route she is following', () => {
     beforeEach(() => setPassageHudOpen(true));
 
-    it('says so plainly when no route is followed', () => {
-        render(<PassageHudPane />);
-        expect(text('hud-route')).toContain('—');
-        expect(text('hud-fix-source')).toBe('NO ROUTE');
-        expect(label('hud-route')).toContain('No route being followed');
+    it('hides the HUD and disables its layer when no route is followed', () => {
+        useFollowRouteStore.getState().stopFollowing();
+        const { container } = render(<PassageHudPane />);
+        expect(container).toBeEmptyDOMElement();
+        expect(isPassageHudEnabled()).toBe(false);
+        expect(gps.callbacks.size).toBe(0);
     });
 
     it('shows what is left ALONG the route, by the boat’s own GPS when she has one', () => {
@@ -417,17 +458,18 @@ describe('the chart’s Passage overlay stays the skipper’s switch', () => {
         expect(button.getAttribute('aria-label')).toContain('Turn them off with Passage in the layer button');
     });
 
-    it('answers to the same two things the layer button does: a followed route OR an active voyage', () => {
+    it('keeps the HUD unavailable without a followed route, even during an active voyage', () => {
         act(() => useFollowRouteStore.getState().stopFollowing());
         setPassageHudOpen(true);
         const view = render(<PassageHudPane />);
-        const dead = screen.getByTestId('hud-show-passage') as HTMLButtonElement;
-        expect(dead.disabled).toBe(true);
-        expect(dead.getAttribute('aria-label')).toContain('cast off or follow a route first');
+        expect(view.container).toBeEmptyDOMElement();
         view.unmount();
-        // Cast off, no route followed: the track she is laying down can be shown.
+        // The recording can still have its separate Passage overlay; it does
+        // not supply the route geometry required by this HUD.
         voyage.active = { id: 'v1' };
-        render(<PassageHudPane />);
-        expect((screen.getByTestId('hud-show-passage') as HTMLButtonElement).disabled).toBe(false);
+        setPassageHudEnabled(true);
+        const recording = render(<PassageHudPane />);
+        expect(recording.container).toBeEmptyDOMElement();
+        expect(isPassageHudEnabled()).toBe(false);
     });
 });

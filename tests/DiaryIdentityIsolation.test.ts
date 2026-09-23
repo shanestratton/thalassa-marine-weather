@@ -184,6 +184,108 @@ beforeEach(() => {
 });
 
 describe('DiaryService auth identity isolation', () => {
+    it('shows one entry when cloud polling sees a pending save before its write acknowledgement', async () => {
+        const account = `duplicate-race-${testNumber}`;
+        setAuthIdentityScope(account);
+        const local = {
+            ...makeServerEntry('offline-racing-save', account),
+            client_operation_id: 'diary_racing_save',
+            client_revision: 1,
+        };
+        const remote = { ...local, id: 'server-racing-save' };
+        localStorage.setItem(keyFor('thalassa_diary_pending_v2', account), JSON.stringify([local]));
+        localStorage.setItem(keyFor('thalassa_diary_entries_v2', account), JSON.stringify([remote]));
+        expect(DiaryService.resolveServerId(local.id)).toBeNull();
+
+        const entries = await DiaryService.getEntries();
+        expect(entries).toHaveLength(1);
+        expect(entries[0].id).toBe(local.id);
+        // Display de-duplication must not drain or delete an unacknowledged save.
+        expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]')).toHaveLength(1);
+    });
+
+    it('keeps an unacknowledged cloud twin deleted in offline reads and a stale server refresh', async () => {
+        const account = `delete-race-${testNumber}`;
+        setAuthIdentityScope(account);
+        const local = {
+            ...makeServerEntry('offline-delete-race', account),
+            client_operation_id: 'diary_delete_race',
+            client_revision: 1,
+        };
+        const remote = { ...local, id: 'server-delete-race' };
+        const other = { ...remote, id: 'server-other-save', client_operation_id: 'diary_other_save' };
+        localStorage.setItem(keyFor('thalassa_diary_pending_v2', account), JSON.stringify([local]));
+        localStorage.setItem(keyFor('thalassa_diary_entries_v2', account), JSON.stringify([remote, other]));
+        expect(DiaryService.resolveServerId(local.id)).toBeNull();
+        expect((await DiaryService.getEntries()).map((entry) => entry.id)).toEqual([local.id, other.id]);
+
+        expect(await DiaryService.deleteEntry(local.id)).toBe(true);
+        expect(await DiaryService.getEntry(local.id)).toBeNull();
+        expect(await DiaryService.getEntry(remote.id)).toBeNull();
+        expect((await DiaryService.getEntries()).map((entry) => entry.id)).toEqual([other.id]);
+        expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]')).toEqual([]);
+
+        // A response already in flight can still contain the cloud row while
+        // the offline tombstone is waiting for delivery. Do not cache it again.
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        mockSupabase.current = createSupabaseMock(controls);
+        const query = {
+            eq: vi.fn(() => query),
+            order: vi.fn(() => query),
+            limit: vi.fn(async () => ({ data: [remote, other], error: null })),
+        };
+        mockSupabase.current.from.mockReturnValue({ select: () => query } as never);
+        const internals = DiaryService as unknown as {
+            _doRefreshFromServer(limit: number, scope: AuthIdentityScope): Promise<void>;
+        };
+        await internals._doRefreshFromServer(50, getAuthIdentityScope());
+        expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_entries_v2', account)) ?? '[]')).toMatchObject([
+            { id: other.id },
+        ]);
+        expect((await DiaryService.getEntries()).map((entry) => entry.id)).toEqual([other.id]);
+        expect(relay.cancelDiaryDirect).not.toHaveBeenCalled();
+        expect(controls.deletes).toEqual([]);
+
+        // The same operation string in a different owner's cache is unrelated.
+        mockSupabase.current = null;
+        const otherAccount = `delete-race-other-${testNumber}`;
+        setAuthIdentityScope(otherAccount);
+        const otherOwnersEntry = {
+            ...makeServerEntry(remote.id, otherAccount),
+            client_operation_id: local.client_operation_id,
+        };
+        localStorage.setItem(keyFor('thalassa_diary_entries_v2', otherAccount), JSON.stringify([otherOwnersEntry]));
+        expect((await DiaryService.getEntries()).map((entry) => entry.id)).toEqual([remote.id]);
+        expect(await DiaryService.getEntry(remote.id)).toMatchObject({ owner_user_id: otherAccount });
+    });
+
+    it('rechecks operation tombstones when a single cloud read completes after an offline delete', async () => {
+        const account = `delete-read-race-${testNumber}`;
+        setAuthIdentityScope(account);
+        const local = {
+            ...makeServerEntry('offline-delete-read-race', account),
+            client_operation_id: 'diary_delete_read_race',
+            client_revision: 1,
+        };
+        const remote = { ...local, id: 'server-delete-read-race' };
+        localStorage.setItem(keyFor('thalassa_diary_pending_v2', account), JSON.stringify([local]));
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        mockSupabase.current = createSupabaseMock(controls);
+        const response = deferred<{ data: DiaryEntry; error: null }>();
+        const query = {
+            eq: vi.fn(() => query),
+            single: vi.fn(() => response.promise),
+        };
+        mockSupabase.current.from.mockReturnValue({ select: () => query } as never);
+
+        const read = DiaryService.getEntry(remote.id);
+        await vi.waitFor(() => expect(query.single).toHaveBeenCalledOnce());
+        expect(await DiaryService.deleteEntry(local.id)).toBe(true);
+        response.resolve({ data: remote, error: null });
+        expect(await read).toBeNull();
+        expect(relay.cancelDiaryDirect).not.toHaveBeenCalled();
+    });
+
     it('binds a new diary entry to the cast-off vessel and preserves it through the direct relay envelope', async () => {
         const account = `vessel-bound-${testNumber}`;
         const boatId = '2e39983f-5d86-4dcb-b6f9-34df05c08d90';

@@ -506,6 +506,10 @@ export interface MarinaRouteParams {
     canalHalfWidthCells: number;
     /** Dijkstra centring strength (spike: 5.0). */
     bias: number;
+    /** Default true preserves the legacy line-of-sight waypoints. Set false
+     * when a caller validates/simplifies the raw centreline itself: waypoints
+     * then contains the raw adjacent cells and the unused string-pull is skipped. */
+    simplifyWaypoints?: boolean;
     /**
      * Corridor-proximity reward weight (default 0 = off). When a `corridorCells`
      * path is supplied to routeMarina, each cell earns `corridorWeight ×
@@ -540,7 +544,8 @@ export const DEFAULT_MARINA_PARAMS: MarinaRouteParams = {
 };
 
 export interface MarinaRouteResult {
-    /** Straight-leg waypoints in grid cells (string-pulled). */
+    /** Straight-leg waypoints by default; the raw adjacent cells when
+     * simplifyWaypoints is false, for a caller-owned checked simplifier. */
     waypoints: Cell[];
     /** Raw per-cell Dijkstra path (pre-string-pull), for diagnostics. */
     cells: Cell[];
@@ -654,7 +659,7 @@ export function routeMarina(
     const cells = solveCenterline(graph, shape, gStart, gEnd, cost, safeClearance, params.bias);
     if (!cells) return null;
 
-    const waypoints = stringPull(cells, graph, shape);
+    const waypoints = params.simplifyWaypoints === false ? cells : stringPull(cells, graph, shape);
 
     let minC = Infinity;
     let sumC = 0;

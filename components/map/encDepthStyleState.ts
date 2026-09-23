@@ -214,7 +214,14 @@ export const SATELLITE_HIDE_LAYERS: readonly string[] = [
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
 ];
-export function satelliteBaseOn(): boolean {
+// Isolated chart workspaces must not inherit or overwrite another map's base.
+const mapBaseOverrides = new WeakMap<mapboxgl.Map, boolean>();
+export function setEncMapBase(map: mapboxgl.Map, imagery: boolean): void {
+    mapBaseOverrides.set(map, imagery);
+}
+
+export function satelliteBaseOn(map?: mapboxgl.Map): boolean {
+    if (map && mapBaseOverrides.has(map)) return mapBaseOverrides.get(map)!;
     try {
         return localStorage.getItem(SATELLITE_KEY) === 'true';
     } catch {
@@ -263,7 +270,7 @@ export const DEPARE_FINE_RANK_FILTER = mapFilter([
  */
 export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) return;
-    const satOn = satelliteBaseOn();
+    const satOn = satelliteBaseOn(map);
     // Over imagery the GLAZE layer (overlap-clipped collection) is the
     // ONLY band painter — the plain fills go opacity-0. Translucent
     // twins stack: DEPARE + DEPARE_FINE double-painted every fine

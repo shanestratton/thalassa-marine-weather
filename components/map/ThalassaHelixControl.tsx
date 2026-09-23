@@ -673,22 +673,34 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                 {/* Time label */}
                                 <div className="shrink-0 text-right min-w-[44px]">
                                     <p className="text-[11px] font-black text-white leading-tight">{frameLabel}</p>
-                                    <p
-                                        className="text-[11px] font-bold uppercase tracking-widest leading-tight"
-                                        style={{
-                                            // Keyed on TENSE (only forecast frames carry 'Forecast' in
-                                            // their sublabel), not on the label text — 'Today · Daily
-                                            // mean' and every 'Past' frame painted in the forecast
-                                            // accent (audit 2026-09-02).
-                                            color: daylightUiColor(
-                                                /\bForecast\b/.test(sublabel) ? forecastAccent : `${accent}90`,
-                                            ),
-                                        }}
-                                    >
-                                        {sublabel}
-                                    </p>
+                                    {activeLayer !== 'pressure' && (
+                                        <p
+                                            className="text-[11px] font-bold uppercase tracking-widest leading-tight"
+                                            style={{
+                                                // Keyed on TENSE (only forecast frames carry 'Forecast' in
+                                                // their sublabel), not on the label text — 'Today · Daily
+                                                // mean' and every 'Past' frame painted in the forecast
+                                                // accent (audit 2026-09-02).
+                                                color: daylightUiColor(
+                                                    /\bForecast\b/.test(sublabel) ? forecastAccent : `${accent}90`,
+                                                ),
+                                            }}
+                                        >
+                                            {sublabel}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
+                        )}
+
+                        {hasScrubber && !isLoading && activeLayer === 'pressure' && (
+                            <p
+                                data-testid="pressure-time-provenance"
+                                className="mt-1.5 text-[11px] leading-snug break-words"
+                                style={{ color: 'var(--day-ui-muted, #c3d0df)', maxWidth: '100%' }}
+                            >
+                                {sublabel}
+                            </p>
                         )}
 
                         {/* No-scrubber mode: just show layer + live status */}

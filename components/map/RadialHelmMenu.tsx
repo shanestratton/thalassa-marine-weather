@@ -203,8 +203,8 @@ const glowPulse: Variants = {
 
 // Operational-reference tactical items PARKED (Shane 2026-07-17: "remove
 // marks, tides, protected areas and window from the tactical area — they're on
-// the wrong page"). Marks/Tides/MPA/Window drop off the fan; AIS, Anchor and
-// Inspect stay. Flip to restore. Handlers stay wired at the MapHub call site.
+// the wrong page"). Marks/MPA/Window remain parked; tide stations have their
+// own Sea entry now. AIS, Anchor and Inspect stay. Handlers remain wired.
 const TACTICAL_REFERENCE_ITEMS_VISIBLE = false;
 
 // ── Default categories ──────────────────────────────────────────
@@ -273,21 +273,14 @@ function buildCategories(
     }
 
     // ── Operational reference (lower in the fan) ──
-    // Marks / Tides / Window / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
+    // Marks / Window / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
+    // Tide stations now live under Sea, beside the other water layers.
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
         tactical.push({
             id: 'seamark',
             label: 'Marks',
             icon: <SeamarkIcon />,
             action: tacticalState.onToggleSeamark,
-        });
-    }
-    if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleTideStations) {
-        tactical.push({
-            id: 'tides',
-            label: 'Tides',
-            icon: <TideIcon />,
-            action: tacticalState.onToggleTideStations,
         });
     }
     if (tacticalState?.onToggleAnchorage) {
@@ -345,6 +338,16 @@ function buildCategories(
             // shared with the overlay drawer's picker).
             items: (
                 [
+                    ...(tacticalState?.onToggleTideStations
+                        ? [
+                              {
+                                  id: 'tides',
+                                  label: 'Tides',
+                                  icon: <TideIcon />,
+                                  action: tacticalState.onToggleTideStations,
+                              },
+                          ]
+                        : []),
                     {
                         id: 'waves',
                         label: 'Waves',

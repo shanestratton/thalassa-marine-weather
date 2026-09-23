@@ -72,6 +72,8 @@ function planAtHand(): { points: { lat: number; lon: number }[]; speedKts?: numb
 
 export const PassageKitPrompt: React.FC = () => {
     const setPage = useUIStore((s) => s.setPage);
+    const currentView = useUIStore((s) => s.currentView);
+    const onPlanningScreen = currentView === 'log' || currentView === 'voyage';
 
     const [isTracking, setIsTracking] = useState<boolean>(() => ShipLogService.getTrackingStatus().isTracking === true);
     const [voyageId, setVoyageId] = useState<string | undefined>(() => ShipLogService.getCurrentVoyageId());
@@ -106,21 +108,36 @@ export const PassageKitPrompt: React.FC = () => {
     // it is picked. Fires on the Log page before any tracking exists.
     const followStartedAt = useFollowRouteStore((st) => st.startedAt);
     const followIsFollowing = useFollowRouteStore((st) => st.isFollowing);
+    const previousFollow = useRef({ following: followIsFollowing, startedAt: followStartedAt });
     useEffect(() => {
-        if (!followIsFollowing) return;
+        const previous = previousFollow.current;
+        previousFollow.current = { following: followIsFollowing, startedAt: followStartedAt };
+        // Restoring a followed route on launch is not a new planning decision.
+        if (!onPlanningScreen || !followIsFollowing) return;
+        if (previous.following && previous.startedAt === followStartedAt) return;
         const fr = useFollowRouteStore.getState();
         if (!fr.routeCoords || fr.routeCoords.length < 2) return;
         offer(fr.routeCoords);
-    }, [followIsFollowing, followStartedAt, offer]);
+    }, [followIsFollowing, followStartedAt, offer, onPlanningScreen]);
 
     // Trigger 2 — DEPARTURE: tracking starts with a plan at hand that was
     // not already warned about when it was committed.
+    const previousTracking = useRef({ isTracking, voyageId });
     useEffect(() => {
-        if (!isTracking || !voyageId) return;
+        const previous = previousTracking.current;
+        previousTracking.current = { isTracking, voyageId };
+        if (!onPlanningScreen || !isTracking || !voyageId) return;
+        if (previous.isTracking && previous.voyageId === voyageId) return;
         const plan = planAtHand();
         if (!plan) return; // casual start — nothing to classify, no card
         offer(plan.points, plan.speedKts);
-    }, [isTracking, voyageId, offer]);
+    }, [isTracking, voyageId, offer, onPlanningScreen]);
+
+    // A dismissed planning context must not leave a card covering Glass or OBS,
+    // nor queue it up to reappear when the skipper returns to the Log.
+    useEffect(() => {
+        if (!onPlanningScreen) setPrompt(null);
+    }, [onPlanningScreen]);
 
     const openKit = useCallback(() => {
         triggerHaptic('medium');
@@ -128,7 +145,7 @@ export const PassageKitPrompt: React.FC = () => {
         setPage('crew');
     }, [setPage]);
 
-    if (!prompt) return null;
+    if (!prompt || !onPlanningScreen) return null;
 
     return (
         <div

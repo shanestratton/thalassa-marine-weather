@@ -4,6 +4,7 @@
  */
 
 import { ShipLogEntry } from '../types';
+import { voyageDepartureTime, voyageElapsedMs } from './voyageTiming';
 import { estimatePropulsion } from '../services/shiplog/propulsion';
 
 // ── Distance made good, from the gated running total ────────────────
@@ -358,9 +359,21 @@ export function calculateVoyageStats(entries: ShipLogEntry[]): VoyageStats | nul
     const airTemps = entries.filter((e) => e.airTemp).map((e) => e.airTemp!);
 
     // Calculate total time
-    const startTime = new Date(entries[entries.length - 1].timestamp);
-    const endTime = new Date(entries[0].timestamp);
-    const durationMs = endTime.getTime() - startTime.getTime();
+    let firstMs = Infinity;
+    let lastMs = -Infinity;
+    for (const entry of entries) {
+        const ms = Date.parse(entry.timestamp);
+        if (!Number.isFinite(ms)) continue;
+        firstMs = Math.min(firstMs, ms);
+        lastMs = Math.max(lastMs, ms);
+    }
+    const durationMs = Number.isFinite(firstMs)
+        ? voyageElapsedMs({
+              startedAt: new Date(firstMs).toISOString(),
+              endedAt: new Date(lastMs).toISOString(),
+              departedAt: voyageDepartureTime(entries),
+          })
+        : 0;
     const durationMinutes = durationMs / (1000 * 60);
     const days = Math.floor(durationMs / (1000 * 60 * 60 * 24));
     const hours = Math.floor((durationMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));

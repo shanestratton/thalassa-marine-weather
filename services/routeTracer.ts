@@ -34,7 +34,14 @@ import { assembleTracerLayers } from './InshoreRouter';
 import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { parseLateralMarks, distM, type LatLon, type LateralMark } from './fairlead';
 import { parseCardinalDiscs, type CardinalDisc } from './tier3/cardinalClamp';
-import { parseLeadingLines, projectToLine, type LeadingLine } from './leadingLine';
+import {
+    parseLeadingLines,
+    parseChartTrackLines,
+    chartTrackOffsetForLeg,
+    projectToLine,
+    type LeadingLine,
+    type ChartTrackLine,
+} from './leadingLine';
 import { computeTidalWindows, DEFAULT_TIDE_SAFETY_M } from './routing/tidalWindow';
 import { tideFieldFromCurve } from './routing/env/EnvFields';
 import { fetchTideCurve } from './TideHeightService';
@@ -51,6 +58,10 @@ import {
     type AuthIdentityScope,
 } from './authIdentityScope';
 import { normaliseTraceVerification, traceVerificationSummary, type TraceVerification } from './traceVerification';
+import {
+    normaliseAutoroutingProposalEvidence,
+    type SavedAutoroutingProposalEvidence,
+} from './autoroutingProposalEvidence';
 
 const log = createLogger('routeTracer');
 
@@ -75,6 +86,14 @@ export interface TraceIssue {
      *  panel flies here and pulses a halo so the skipper can SEE which mark
      *  (Shane 2026-07-11: "I cannot see which marker I am too close to"). */
     mark?: TracePoint;
+    /** Review-only track advisory identity; never a clearance/steering order.
+     * Allows the UI to group repeated advisories without hiding hazards. */
+    chartTrack?: {
+        id: string;
+        label: string;
+        kind: 'leading-line' | 'recommended-track';
+        offsetM: number;
+    };
 }
 
 export interface TraceLegVerdict {
@@ -118,6 +137,9 @@ export interface TracerContext {
     cardinals: CardinalDisc[];
     gatePairs: GatePair[];
     leads: LeadingLine[];
+    /** Typed review lines. Kept separate so revised warning relevance cannot
+     * alter the legacy cardinal suppression, depth grid or manual pin snap. */
+    chartTracks?: ChartTrackLine[];
     /** CANAL centrelines (curated fairways + OSM canal/fairway lines). A
      *  land-reading sample within the LANE half-width of one is lane water,
      *  not land: the carve means "navigable lane", and it is one cell wide —
@@ -133,6 +155,8 @@ export interface TracerContext {
      *  is empty for a network reason rather than a charted one. Verdicts graded
      *  under it are NOT gate-checked and must never be durably cached. */
     gateChecksUnavailable: boolean;
+    /** Additional marina/obstacle geometry failed to load; never a clean pass. */
+    supplementalChecksUnavailable?: boolean;
     /** Grid coverage bbox [W,S,E,N] — pins outside need a context rebuild. */
     bbox: [number, number, number, number];
     resM: number;
@@ -156,8 +180,6 @@ const CARDINAL_CLEAR_M = 90;
 const GATE_BAND_M = 300;
 /** Solo-lateral "verify the side" advisory distance (m). */
 const SOLO_LATERAL_BAND_M = 60;
-/** Lead corridor: within this of a lead and roughly parallel → watch it. */
-const LEAD_BAND_M = 150;
 const LEAD_MAX_ANGLE_DEG = 30;
 const LEAD_OFF_CAUTION_M = 40;
 /** Context bbox padding (deg ≈ 2.2 km) and rebuild margin near the edge. */
@@ -370,6 +392,13 @@ export function tracerResolutionM(bbox: [number, number, number, number]): numbe
     return Math.max(6, Math.ceil(Math.sqrt((spanLonM * spanLatM) / MAX_GRID_CELLS)));
 }
 
+/** The routing grid normally rescues canals, fairways and transits to an
+ * assumed navigable depth. A trial CHECK must not use those routing hints as
+ * soundings. Keep the original layers separately for mark/lead parsing. */
+export function chartOnlyTracerGridLayers(layers: import('./inshoreRouterEngine').InshoreLayers) {
+    return { ...layers, CANAL: undefined, NAVLINE: undefined, FAIRWY: undefined, DRGARE: undefined };
+}
+
 /**
  * Pure context assembly from an already-merged layer blob — the testable
  * core of buildTracerContext, also used by the router-consistency golden
@@ -417,6 +446,10 @@ export function tracerContextFromLayers(
         ...((merged.RECTRC?.features ?? []) as never[]),
         ...((merged.NAVLINE?.features ?? []) as never[]),
     ]);
+    const chartTracks = [
+        ...parseChartTrackLines((merged.RECTRC?.features ?? []) as never[], 'RECTRC'),
+        ...parseChartTrackLines((merged.NAVLINE?.features ?? []) as never[], 'NAVLNE'),
+    ];
     const canalLanes = parseLeadingLines((merged.CANAL?.features ?? []) as never[]);
 
     return {
@@ -426,6 +459,7 @@ export function tracerContextFromLayers(
         cardinals,
         gatePairs,
         leads,
+        chartTracks,
         canalLanes,
         draftM,
         draftAssumed: opts.draftAssumed ?? false,
@@ -604,13 +638,13 @@ export function snapTracerBbox(
 export async function buildTracerContext(
     bbox: [number, number, number, number],
     draftM: number,
-    opts: { draftAssumed?: boolean } = {},
+    opts: { draftAssumed?: boolean; chartedDepthOnly?: boolean } = {},
 ): Promise<TracerBuildResult> {
     // Snap BEFORE keying and BEFORE building: identical snapped windows
     // coalesce in flight, and the held context CONTAINS the next wobbled
     // request, so the LRU reuse check hits too.
     const snapped = snapTracerBbox(bbox);
-    const key = `${snapped.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}`;
+    const key = `${snapped.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}|${opts.chartedDepthOnly ? 'charted' : 'legacy'}`;
     const existing = inflightBuilds.get(key);
     if (existing) return existing;
     const p = contextBuildQueue(() => buildTracerContextInner(snapped, draftM, opts)).finally(() => {
@@ -623,7 +657,7 @@ export async function buildTracerContext(
 async function buildTracerContextInner(
     bbox: [number, number, number, number],
     draftM: number,
-    opts: { draftAssumed?: boolean } = {},
+    opts: { draftAssumed?: boolean; chartedDepthOnly?: boolean } = {},
 ): Promise<TracerBuildResult> {
     const { spanLonM, spanLatM } = bboxSpansM(bbox);
     const spanM = Math.max(spanLonM, spanLatM);
@@ -648,7 +682,9 @@ async function buildTracerContextInner(
     // cache reading was healthy at death; only the process total can say
     // whether these builds ride a climbing heap).
     crumb('tracer:ctx-start', `${Math.round(spanM / 1000)}km${heapTag()}`);
-    const bundle = await assembleTracerLayers(bbox);
+    const bundle = opts.chartedDepthOnly
+        ? await assembleTracerLayers(bbox, { chartedDepthOnly: true })
+        : await assembleTracerLayers(bbox);
     if (!bundle) {
         crumb('tracer:ctx-nochart', `${Math.round(spanM / 1000)}km`);
         return { status: 'nochart' };
@@ -661,13 +697,22 @@ async function buildTracerContextInner(
     // to the sync build (navGridWorkerHost) so grading never stalls.
     const grid = skipGrid
         ? null
-        : await buildNavGridAsync(bundle.merged, bbox, tracerResolutionM(bbox), draftM, DEFAULT_TIDE_SAFETY_M, 60);
+        : await buildNavGridAsync(
+              opts.chartedDepthOnly ? chartOnlyTracerGridLayers(bundle.merged) : bundle.merged,
+              bbox,
+              tracerResolutionM(bbox),
+              draftM,
+              DEFAULT_TIDE_SAFETY_M,
+              60,
+          );
     const ctx = tracerContextFromLayers(bundle.merged, bundle.gatePairs, bbox, draftM, {
         draftAssumed: opts.draftAssumed,
         gateChecksUnavailable: bundle.gateChecksUnavailable,
         skipGrid,
         prebuiltGrid: grid,
     });
+    ctx.supplementalChecksUnavailable = bundle.supplementalChecksUnavailable;
+    if (opts.chartedDepthOnly) ctx.canalLanes = [];
     log.warn(
         `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,
     );
@@ -738,9 +783,9 @@ const DIR_WORD: Record<CardinalDisc['dir'], string> = { n: 'north', e: 'east', s
  * cardinal side rule (Shane 2026-08-25, Mackay southern approach: the leads
  * pass the "wrong" side of the east cardinal off Slade Island — the buoy
  * guards the island's dangers, not the lead line, and the side rule was a
- * false red on surveyed water). Beyond 40 m the #5 lead check is already
- * saying "steer to the transit", so the buoy rule reasserts — one threshold,
- * one story.
+ * false red on surveyed water). Preserve this legacy 40 m cardinal rule
+ * separately from the typed track-review advisories below; changing warning
+ * relevance must not silently change cardinal/depth/hazard treatment.
  */
 function ridingLeadAt(p: TracePoint, legBrgRad: number, leads: LeadingLine[]): boolean {
     for (const lead of leads) {
@@ -895,6 +940,8 @@ export function validateTraceLeg(
     opts: { lastLeg?: boolean } = {},
 ): TraceLegVerdict {
     const issues: TraceIssue[] = [];
+    if (ctx.supplementalChecksUnavailable)
+        issues.push({ severity: 'caution', message: 'marina/obstacle detail unavailable — inspect independently' });
     const legM = distM(a, b);
     const { grid, draftM } = ctx;
     const keelM = draftM + DEFAULT_TIDE_SAFETY_M;
@@ -1209,37 +1256,24 @@ export function validateTraceLeg(
         }
     }
 
-    // 5 — leads: riding a transit? report drift off the line.
-    const mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
-    for (const lead of ctx.leads) {
-        if (lead.pts.length < 2) continue;
-        const proj = projectToLine(mid, lead.pts);
-        if (proj.dist > LEAD_BAND_M) continue;
-        // Local lead bearing at the nearest segment end-pair.
-        let bestSeg = 0;
-        let bestD = Infinity;
-        for (let i = 1; i < lead.pts.length; i++) {
-            const d = closestOnLeg(mid, lead.pts[i - 1], lead.pts[i]).distM;
-            if (d < bestD) {
-                bestD = d;
-                bestSeg = i;
-            }
-        }
-        const p0 = lead.pts[bestSeg - 1];
-        const p1 = lead.pts[bestSeg];
-        const leadBrgRad = Math.atan2((p1.lon - p0.lon) * mPerLon(p0.lat), (p1.lat - p0.lat) * M_PER_DEG_LAT);
-        let dDeg = Math.abs(((legBrgRad - leadBrgRad) * 180) / Math.PI) % 180;
-        if (dDeg > 90) dDeg = 180 - dDeg;
-        if (dDeg > LEAD_MAX_ANGLE_DEG) continue;
-        if (proj.dist > LEAD_OFF_CAUTION_M) {
-            issues.push({
-                severity: 'caution',
-                message: `${Math.round(proj.dist)} m off the lead — steer to the transit`,
-                at: proj.point,
-            });
-        }
-        break; // one lead verdict per leg is enough
-    }
+    // 5 — Review sustained alignment with relevant chart tracks. Crossing,
+    // joining/leaving and finite line ends are not off-track errors. Untyped
+    // bearings/clearing lines cannot become a sailing instruction.
+    const alignment = chartTrackOffsetForLeg(a, b, ctx.chartTracks ?? [], () => {
+        issues.push({ severity: 'caution', message: 'Chart-track alignment check incomplete — inspect the chart.' });
+    });
+    if (alignment)
+        issues.push({
+            severity: 'caution',
+            message: `${Math.round(alignment.offsetM)} m from charted track — review alignment`,
+            at: alignment.at,
+            chartTrack: {
+                id: alignment.track.id,
+                label: alignment.track.label,
+                kind: alignment.track.kind,
+                offsetM: alignment.offsetM,
+            },
+        });
 
     // 6 — deeper-water nudge for thin/sub-keel legs (advisory only).
     let nudge: string | null = null;
@@ -1546,6 +1580,8 @@ export interface SavedTrace {
     /** Safety verdict for this exact geometry. Missing/invalid means the
      * route must be checked again before export, follow or Cast Off. */
     verification?: TraceVerification;
+    /** Historical planned-only origin/check evidence, never navigation release. */
+    proposalEvidence?: SavedAutoroutingProposalEvidence;
 }
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
@@ -1726,8 +1762,10 @@ export function notifySavedRoutesChanged(scope: AuthIdentityScope = getAuthIdent
  *
  * v2 (2026-08-01): long-leg subdivision, the gate-checks-unavailable caution,
  * and the reworded too-long copy.
+ * v3 (2026-09-13): typed finite track-alignment review; clearing bearings,
+ * crossings and joins must not replay old "steer to the transit" verdicts.
  */
-export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v2';
+export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v3';
 /** A working route is tens of legs; 500 covers several routes' churn
  *  without letting localStorage bloat. Insertion order ≈ age — the tail
  *  (newest) survives the cap. */
@@ -2254,10 +2292,15 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
             )
             .map((trace) => {
                 const verification = normaliseTraceVerification(trace.verification, trace.points);
-                if (verification) return { ...trace, verification };
+                const proposalEvidence = normaliseAutoroutingProposalEvidence(trace.proposalEvidence, trace.points);
+                // Never present a corrupted/mismatched provider proposal as an
+                // ordinary route by silently dropping its warning provenance.
+                if (trace.proposalEvidence !== undefined && !proposalEvidence) return null;
+                if (verification) return { ...trace, verification, ...(proposalEvidence ? { proposalEvidence } : {}) };
                 const { verification: _invalid, ...safe } = trace;
-                return safe;
-            });
+                return { ...safe, ...(proposalEvidence ? { proposalEvidence } : {}) };
+            })
+            .filter((trace): trace is SavedTrace => trace !== null);
         return repairOrphanedSavedTraceChains(visible).traces;
     } catch {
         return [];
@@ -2349,6 +2392,7 @@ export function saveTrace(
         plannedRouteId?: string;
         passageVoyageId?: string;
         verification?: TraceVerification;
+        proposalEvidence?: SavedAutoroutingProposalEvidence;
     } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
     const identity = getAuthIdentityScope();
@@ -2367,6 +2411,12 @@ export function saveTrace(
     // A moved waypoint silently drops it; MapHub supplies the freshly-earned
     // envelope after the replacement line has finished grading.
     const verification = normaliseTraceVerification(opts.verification ?? existing?.verification, points);
+    const proposalEvidence = normaliseAutoroutingProposalEvidence(
+        opts.proposalEvidence ?? existing?.proposalEvidence,
+        points,
+    );
+    if (opts.proposalEvidence !== undefined && !proposalEvidence)
+        throw new Error('Proposal evidence is incomplete or does not match these waypoints. Nothing was saved.');
     const trace: SavedTrace = {
         // Random suffix: two saves in the same millisecond used to mint the
         // SAME id, and the by-id dedupe silently swallowed the first route
@@ -2382,6 +2432,7 @@ export function saveTrace(
         ...(plannedRouteId ? { plannedRouteId } : {}),
         ...(passageVoyageId ? { passageVoyageId } : {}),
         ...(verification ? { verification } : {}),
+        ...(proposalEvidence ? { proposalEvidence } : {}),
     };
     const all = capSavedTracesPreservingTrips([trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)]);
     let persisted = false;
@@ -2404,9 +2455,10 @@ export function saveTrace(
     // ONLY when the local write stuck: repair paths mint a fresh random id
     // per attempt, so a quota-refused local write that still uploaded minted
     // a duplicate cloud row per retry (2026-08-04 audit).
+    const cloudSnapshot: SavedTrace = JSON.parse(JSON.stringify(trace));
     const cloud = persisted
         ? import('./savedRoutesSync')
-              .then(({ pushSavedRoute }) => pushSavedRoute(trace, identity))
+              .then(({ pushSavedRoute }) => pushSavedRoute(cloudSnapshot, identity))
               .catch(() => 'error' as const)
         : Promise.resolve('error' as const);
     if (persisted) notifySavedRoutesChanged(identity);

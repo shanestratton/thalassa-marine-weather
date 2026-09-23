@@ -8,10 +8,15 @@ describe('map location picker guidance', () => {
     it('renders the host label and explains the immediate tap action', () => {
         expect(mapHub).toContain('pickerLabel,');
         expect(mapHub).toContain("pickerLabel || 'Tap the chart to choose a location'");
-        expect(mapHub).toContain('Your tap is marked and saved immediately. Use Back to cancel.');
+        expect(mapHub).toContain('Your tap is marked and saved immediately. Use Cancel to leave without choosing.');
     });
 
     it('labels the first-use weather-location picker explicitly', () => {
         expect(app).toContain('pickerLabel="Tap the chart to choose your weather location"');
+    });
+
+    it('retains Cancel only for the location picker, without a top-level OBS Back button', () => {
+        expect(app).toMatch(/\{mapPickerActive && \(\s*<button[\s\S]*?aria-label="Cancel location selection"/);
+        expect(app).not.toContain('thalassa-map-back');
     });
 });

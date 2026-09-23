@@ -16,25 +16,25 @@
  * up (MapWeatherControls), so there is never more than one slider moving the
  * wind.
  *
- * NO "LIVE" BUTTON HERE. The strip is always on screen beside this and carries
- * the way back; the width is better spent on a track a thumb can hit. For the
- * same reason the pill shows the CLOCK time only — the offset is in the
- * strip's header and on the ghost itself.
+ * The scrubber stays on screen when the instrument pane is minimized, so it
+ * carries its own LIVE button. The clock and model share its existing header
+ * row; the whole width below remains available to the slider.
  *
- * The axis is "hours from now", zero to whichever comes first: she arrives at
+ * The axis is hours from departure (now or a selected time), zero to whichever comes first: she arrives at
  * her cruising speed, or seven days. It does not pretend past either.
  *
  * PHASE 3 — THE BAND. Behind the track, the five models' wind along HER PLAN:
  * a band from the lowest to the highest of them, the pinned model's own line
  * through it, red where they are split. It costs no height — the bottom rail
  * has none to give — and it answers at a glance the two things a skipper scrubs
- * for: where does it blow, and where do the models stop agreeing. The credit
- * then names every provider whose numbers are in the band.
+ * for: where does it blow, and where do the models stop agreeing. The existing
+ * blue ℹ panel names every provider and explains chart-time coverage limits.
  *
  * Presentational. The strip owns the numbers; this only moves the offset.
  */
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { publishPassageHudInfo } from '../../stores/passageHudInfoStore';
 
 const HOUR_MS = 3_600_000;
 /** A drag lands on five-minute marks: finer than the forecast, steady under a thumb. */
@@ -43,8 +43,8 @@ const SNAP_MS = 5 * 60_000;
 const PLAY_SWEEP_MS = 24_000;
 const PLAY_TICK_MS = 100;
 
-export function fmtAhead(aheadMs: number): string {
-    if (aheadMs < 60_000) return 'NOW';
+export function fmtAhead(aheadMs: number, scheduled = false): string {
+    if (aheadMs < 60_000) return scheduled ? 'DEPART' : 'NOW';
     const hours = aheadMs / HOUR_MS;
     if (hours < 1) return `+${Math.round(aheadMs / 60_000)} min`;
     if (hours < 48) return `+${Math.round(hours * 10) / 10} h`.replace('.0 h', ' h');
@@ -115,7 +115,18 @@ export function spreadBandPaths(points: readonly SpreadBandPoint[]): {
             .reverse()
             .map((p) => `${x(p)},${y(p.minKts as number)}`)
             .join(' L')} Z`;
-    const pinned = points.filter((p) => p.pinnedKts !== null);
+    // The pinned model has its OWN coverage. Restart the stroke after every
+    // missing value, even if the other models still supply an envelope there.
+    const pinned: string[] = [];
+    let drawingPinned = false;
+    for (const point of points) {
+        if (point.pinnedKts === null) {
+            drawingPinned = false;
+        } else {
+            pinned.push(`${drawingPinned ? 'L' : 'M'}${x(point)},${y(point.pinnedKts)}`);
+            drawingPinned = true;
+        }
+    }
     // THE RULE. The red envelope alone under-reported twice over (review,
     // 2026-09-19): a split that is all about DIRECTION has a range of nothing —
     // five models at 18 kn from 80° apart drew no red at all — and a split one
@@ -147,7 +158,7 @@ export function spreadBandPaths(points: readonly SpreadBandPoint[]): {
         band: runs(() => true).map(area),
         split: runs((p) => p.level === 'split').map(area),
         splitRule,
-        line: pinned.length > 1 ? `M${pinned.map((p) => `${x(p)},${y(p.pinnedKts as number)}`).join(' L')}` : '',
+        line: pinned.join(' '),
         topKts,
     };
 }
@@ -160,13 +171,15 @@ export interface RouteTimeScrubberProps {
     endsAtArrival: boolean;
     playing: boolean;
     nowMs: number;
-    /** Hours of wind FIELD the chart holds ahead of now; null when that layer is off. */
+    /** Fixed leave time; null uses rolling now. The offset is sailing time, not waiting time. */
+    departureMs?: number | null;
+    /** Hours of wind FIELD the chart holds after departure; null when that layer is off. */
     windCoverageHours: number | null;
     /**
      * Chart layers that are up but do NOT follow this scrubber (rain, currents,
      * sea temp …), by the name a skipper calls them. Their own time pills are
-     * stood down while this is on screen, so this is the only place that can say
-     * the radar under the ghost is this minute's and not Saturday's.
+     * stood down while this is on screen, so its info descriptor must still say
+     * when the radar under the ghost is this minute's and not Saturday's.
      */
     unsyncedLayers?: readonly string[];
     /** True when the arrival is worked from the wind (a polar) and not a flat speed. */
@@ -186,7 +199,12 @@ export interface RouteTimeScrubberProps {
     cruiseKts: number;
     onAhead: (ms: number) => void;
     onPlaying: (playing: boolean) => void;
+    /** End the forecast glance and return the chart to live conditions. */
+    onLive: () => void;
+    /** Route samples are unavailable along this unchecked GPS-to-route estimate. */
+    joining?: boolean;
     onOpenModel: () => void;
+    onOpenDeparture?: () => void;
 }
 
 export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
@@ -195,6 +213,7 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     endsAtArrival,
     playing,
     nowMs,
+    departureMs = null,
     windCoverageHours,
     unsyncedLayers = [],
     arrivalEstimated = false,
@@ -208,7 +227,10 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     cruiseKts,
     onAhead,
     onPlaying,
+    onLive,
+    joining = false,
     onOpenModel,
+    onOpenDeparture,
 }) => {
     const trackRef = useRef<HTMLDivElement | null>(null);
     const dragging = useRef(false);
@@ -272,8 +294,10 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     // moments; the strip snaps a parked offset to the new end, and until it has,
     // she is still AT the end — Play must offer to start again, not do nothing.
     const atEnd = usable && aheadMs >= maxMs - 1000;
-    const clock = fmtMoment(nowMs + aheadMs);
-    const moment = `${clock} · ${fmtAhead(aheadMs)}`;
+    const startMs = departureMs ?? nowMs;
+    const scheduled = departureMs !== null;
+    const clock = fmtMoment(startMs + aheadMs);
+    const moment = `${clock} · ${fmtAhead(aheadMs, scheduled)}${scheduled ? ` · departs ${fmtMoment(startMs)}` : ''}`;
 
     // Day marks, so seven days of track is not a featureless bar.
     const ticks: number[] = [];
@@ -282,25 +306,31 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
         for (let h = every; h * HOUR_MS < maxMs; h += every) ticks.push((h * HOUR_MS * 100) / maxMs);
     }
 
-    // Only when there is something to say: the row costs height the chart's
-    // bottom rail does not have to spare.
+    // Explanations are available from the existing blue ℹ, without adding
+    // variable-height sentences to the chart's bottom rail.
     const pastRain = rainCoverageHours !== null && aheadHours > rainCoverageHours;
     // Her speed is assumed from here on: the wind forecast has run out, and a
     // polar fed nothing is an invention. Said once she scrubs into that stretch.
     const assuming = assumedFromMs !== null && aheadMs >= assumedFromMs && arrivalEstimated;
-    const note = pastField
-        ? `Chart wind ends +${Math.round(windCoverageHours ?? 0)} h — numbers continue`
+    const coverageNote = pastField
+        ? `Chart wind ends +${Math.round(windCoverageHours ?? 0)} h`
         : pastRain
           ? `Chart rain ends +${rainCoverageHours < 10 ? rainCoverageHours.toFixed(1) : Math.round(rainCoverageHours)} h`
-          : assuming
-            ? `No wind forecast here — ${cruiseKts.toFixed(1)} kn assumed`
-            : atEnd
-              ? endsAtArrival
-                  ? arrivalEstimated
-                      ? 'Arrives — by the wind, an estimate'
-                      : `Arrives, at ${cruiseKts.toFixed(1)} kn cruising`
-                  : 'Seven days — the forecast stops here'
-              : null;
+          : null;
+    // Ending chart imagery cannot promise route numbers continue: a departure
+    // five days out may run past BOTH forecasts. Keep the speed assumption too.
+    const forecastNotes = [assuming ? `No wind forecast here — ${cruiseKts.toFixed(1)} kn assumed` : null, coverageNote]
+        .filter(Boolean)
+        .join(' · ');
+    const note =
+        forecastNotes ||
+        (atEnd
+            ? endsAtArrival
+                ? arrivalEstimated
+                    ? 'Arrives — by the wind, an estimate'
+                    : `Arrives, at ${cruiseKts.toFixed(1)} kn cruising`
+                : 'Seven days — the forecast stops here'
+            : null);
     // ONE note slot, and the wind's sentence wins it. Past BOTH reaches the rain
     // is back on its observed frame with nothing saying so — the swallowed note
     // was the only label it had (review, 2026-09-19). So there it goes back on
@@ -310,7 +340,7 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
     const band = spreadBand && spreadBand.length > 1 ? spreadBandPaths(spreadBand) : null;
     // Everyone whose numbers are on screen, once each: the wind models in the
     // band (the pinned model's provider among them, first if it was missing from
-    // the band), then the sea's. Never truncated; it wraps.
+    // the band), then the sea's. The info panel displays these without truncation.
     const windProviders =
         spreadProviders && spreadProviders.length > 0
             ? spreadProviders.includes(modelProvider)
@@ -318,6 +348,34 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
                 : [modelProvider, ...spreadProviders]
             : [modelProvider];
     const credited = [...new Set([...windProviders, ...(seaProviders ?? [])])];
+    // The existing top-right blue ℹ opens System Status as a portal, leaving
+    // this view mounted. Keep every caveat and credit there without consuming
+    // the map's bottom rail. Strings avoid republishing on every Play tick
+    // when only a fraction of a minute has changed.
+    const ownTimeKey = scheduled || aheadMs >= 60_000 ? ownTime.join('\n') : '';
+    const creditedKey = credited.join('\n');
+    const info = useMemo(
+        () => ({
+            moment,
+            modelLabel,
+            note,
+            ownTime: ownTimeKey ? ownTimeKey.split('\n') : [],
+            joining,
+            credited: creditedKey.split('\n'),
+            windCoverageHours,
+            rainCoverageHours,
+        }),
+        [moment, modelLabel, note, ownTimeKey, joining, creditedKey, windCoverageHours, rainCoverageHours],
+    );
+    useEffect(() => {
+        publishPassageHudInfo(info);
+    }, [info]);
+    useEffect(
+        () => () => {
+            publishPassageHudInfo(null);
+        },
+        [],
+    );
 
     return (
         <div
@@ -326,42 +384,98 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
             role="group"
             className="thalassa-route-scrubber absolute z-510 flex items-stretch gap-2"
         >
-            <button
-                type="button"
-                data-testid="route-scrub-play"
-                disabled={!usable}
-                aria-label={playing ? 'Pause' : atEnd ? 'Play again from now' : 'Play the passage forward'}
-                onClick={() => {
-                    void triggerHaptic('light');
-                    if (playing) {
-                        onPlaying(false);
-                        return;
+            <div className="flex w-12 shrink-0 flex-col gap-1.5">
+                <button
+                    type="button"
+                    data-testid="route-scrub-play"
+                    disabled={!usable}
+                    aria-label={
+                        playing
+                            ? 'Pause'
+                            : atEnd
+                              ? scheduled
+                                  ? 'Play again from departure'
+                                  : 'Play again from now'
+                              : 'Play the passage forward'
                     }
-                    if (atEnd) onAhead(0);
-                    onPlaying(true);
-                }}
-                className="flex w-12 shrink-0 items-center justify-center self-stretch rounded-2xl border border-white/10 bg-slate-950/90 text-amber-300 shadow-lg backdrop-blur-xl active:scale-95 disabled:text-white/30"
-            >
-                {playing ? (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <rect x="6" y="5" width="4" height="14" rx="1" />
-                        <rect x="14" y="5" width="4" height="14" rx="1" />
-                    </svg>
-                ) : (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M8 5.5v13a1 1 0 001.5.86l10.5-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z" />
-                    </svg>
-                )}
-            </button>
+                    onClick={() => {
+                        void triggerHaptic('light');
+                        if (playing) {
+                            onPlaying(false);
+                            return;
+                        }
+                        if (atEnd) onAhead(0);
+                        onPlaying(true);
+                    }}
+                    className="flex min-h-11 flex-1 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/90 text-amber-300 shadow-lg backdrop-blur-xl active:scale-95 disabled:text-white/30"
+                >
+                    {playing ? (
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <rect x="6" y="5" width="4" height="14" rx="1" />
+                            <rect x="14" y="5" width="4" height="14" rx="1" />
+                        </svg>
+                    ) : (
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M8 5.5v13a1 1 0 001.5.86l10.5-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z" />
+                        </svg>
+                    )}
+                </button>
+                <button
+                    type="button"
+                    data-testid="route-scrub-exit"
+                    aria-label="Back to live conditions"
+                    onClick={() => {
+                        void triggerHaptic('light');
+                        onPlaying(false);
+                        onLive();
+                    }}
+                    className="min-h-[44px] shrink-0 rounded-xl border border-emerald-300/40 bg-slate-950/95 text-[12px] font-black text-emerald-200 active:scale-95"
+                >
+                    LIVE
+                </button>
+            </div>
 
             <div className="flex min-w-0 flex-1 flex-col justify-center rounded-2xl border border-amber-300/25 bg-slate-950/90 px-3 py-1.5 shadow-lg backdrop-blur-xl">
                 <div className="flex items-center justify-between gap-2">
-                    <p
-                        className="min-w-0 truncate font-mono text-[13px] font-black leading-tight text-amber-200 tabular-nums"
-                        data-testid="route-scrub-moment"
-                    >
-                        {clock}
-                    </p>
+                    {onOpenDeparture ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void triggerHaptic('light');
+                                onPlaying(false);
+                                onOpenDeparture();
+                            }}
+                            aria-label={`Change departure time. ${scheduled ? `Leaves ${fmtMoment(startMs)}` : 'Leaving now'}. Forecast ${clock}`}
+                            className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg text-left text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200"
+                            data-testid="route-scrub-departure"
+                        >
+                            <svg
+                                className="h-4 w-4 shrink-0"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                aria-hidden="true"
+                            >
+                                <rect x="3" y="5" width="18" height="16" rx="3" />
+                                <path d="M7 3v4M17 3v4M3 11h18" />
+                            </svg>
+                            <span
+                                className="min-w-0 truncate font-mono text-[13px] font-black leading-tight tabular-nums"
+                                data-testid="route-scrub-moment"
+                            >
+                                {clock}
+                            </span>
+                            <span aria-hidden="true">▾</span>
+                        </button>
+                    ) : (
+                        <p
+                            className="min-w-0 truncate font-mono text-[13px] font-black leading-tight text-amber-200 tabular-nums"
+                            data-testid="route-scrub-moment"
+                        >
+                            {clock}
+                        </p>
+                    )}
                     <button
                         type="button"
                         data-testid="route-scrub-model"
@@ -468,34 +582,6 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
                         aria-hidden="true"
                     />
                 </div>
-
-                {ownTime.length > 0 && aheadMs >= 60_000 && (
-                    <p
-                        className="text-[12px] font-semibold leading-tight text-amber-300"
-                        data-testid="route-scrub-unsynced"
-                        role="status"
-                    >
-                        Chart {ownTime.join(', ')}: still at {ownTime.length > 1 ? 'their' : 'its'} own time
-                    </p>
-                )}
-                {note && (
-                    <p
-                        className={`truncate text-[12px] font-semibold leading-tight ${
-                            pastField ? 'text-amber-300' : 'text-gray-300'
-                        }`}
-                        data-testid="route-scrub-note"
-                        role="status"
-                    >
-                        {note}
-                    </p>
-                )}
-                {/* Crediting the source is a licence condition (CC-BY-4.0), not
-                    a courtesy: whoever made the numbers is named beside them.
-                    NEVER truncated — it wraps on a narrow phone instead. The
-                    full attribution line is in the change-model dialog. */}
-                <p className="text-[12px] font-semibold leading-tight text-gray-400" data-testid="route-scrub-credit">
-                    Forecast data: {credited.join(', ')}
-                </p>
             </div>
         </div>
     );

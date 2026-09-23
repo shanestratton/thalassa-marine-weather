@@ -18,7 +18,11 @@ const { getState, subscribe, subscribers } = vi.hoisted(() => {
 vi.mock('../services/NmeaStore', () => ({
     NMEA_LIVE_MAX_AGE_MS: 6_500,
     NMEA_USABLE_MAX_AGE_MS: 13_000,
-    NmeaStore: { getState, subscribe, isBoatFeed: () => getState()?.connectionStatus === 'connected' },
+    NmeaStore: {
+        getState,
+        subscribe,
+        isBoatFeed: () => getState()?.connectionStatus === 'connected' || getState()?.remote?.via === 'lan',
+    },
 }));
 
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
@@ -49,7 +53,12 @@ function snapshot(latAgeMs: number, lonAgeMs = latAgeMs) {
 }
 
 /** Push a state through the real onStoreUpdate via the captured subscriber. */
-function push(s: ReturnType<typeof snapshot>) {
+function push(
+    s: Omit<ReturnType<typeof snapshot>, 'connectionStatus'> & {
+        connectionStatus: string;
+        remote?: { via: 'lan' | 'cloud' };
+    },
+) {
     getState.mockReturnValue(s);
     for (const cb of subscribers) cb(s);
 }
@@ -71,6 +80,19 @@ describe('NmeaGpsProvider write gate', () => {
     it('caches a fix inside the live window', () => {
         push(snapshot(5_000));
         expect(NmeaGpsProvider.getPosition()?.latitude).toBeCloseTo(-27.195, 3);
+    });
+
+    it('does not reinterpret Pi diagnostic HDOP as measured sub-metre navigation accuracy', () => {
+        const s = { ...snapshot(1_000), hdop: { value: 0.47 }, gpsFixQuality: 2 };
+        push({ ...s, connectionStatus: 'remote', remote: { via: 'lan' } });
+        expect(NmeaGpsProvider.getPosition()?.accuracy).toBe(5);
+        expect(NmeaGpsProvider.getPosition()?.satellites).toBe(11);
+        push(s);
+        expect(NmeaGpsProvider.getPosition()?.accuracy).toBeCloseTo(0.705);
+        push({ ...s, gpsFixQuality: 0, hdop: { value: 99.9 } });
+        expect(NmeaGpsProvider.getPosition()?.accuracy).toBe(5);
+        push({ ...s, connectionStatus: 'remote', remote: { via: 'cloud' } });
+        expect(NmeaGpsProvider.getPosition()).toBeNull();
     });
 
     it('CACHES a usable-but-stale fix instead of falling through to the phone', () => {

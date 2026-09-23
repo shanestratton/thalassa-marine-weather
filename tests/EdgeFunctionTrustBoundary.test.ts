@@ -101,7 +101,13 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
         for (const name of publicPaid) {
             const edge = functionSource(name);
             expect(edge, name).toContain('requireAuthenticatedOrPublicQuota(');
-            expect(edge, name).toContain('fetchWithTimeout(');
+            if (name === 'osm-overlay') {
+                expect(edge).toContain('fetchOverpassDocument(');
+                const transport = source('supabase/functions/_shared/overpass-fetch.ts');
+                expect(transport).toContain('Promise.race(');
+                expect(transport).toContain('OVERPASS_ATTEMPT_MS');
+                expect(transport).toContain('controller.abort()');
+            } else expect(edge, name).toContain('fetchWithTimeout(');
         }
         for (const name of authenticatedPaid) {
             const edge = functionSource(name);

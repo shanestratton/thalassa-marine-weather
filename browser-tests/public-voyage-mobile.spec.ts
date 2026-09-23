@@ -140,6 +140,13 @@ async function openVoyage(page: Page, baseURL: string) {
                         : data,
                 ),
             });
+        } else if (url.pathname.endsWith('/functions/v1/diary-comments')) {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                headers: { 'access-control-allow-origin': '*' },
+                body: JSON.stringify({ comments: [] }),
+            });
         } else if (url.origin === origin) {
             await route.continue();
         } else if (url.hostname.endsWith('mapbox.com') && url.pathname.includes('/styles/v1/')) {
@@ -209,7 +216,7 @@ for (const viewport of [
         await expect(mapButton).toHaveAttribute('aria-pressed', 'true');
         await expectInViewport(map, page);
         const mapBox = (await map.boundingBox())!;
-        expect(mapBox.y).toBeLessThanOrEqual(180);
+        expect(mapBox.y).toBeLessThanOrEqual(1);
         expect(mapBox.height).toBeGreaterThanOrEqual(
             viewport.height < 400 ? 130 : viewport.height * (viewport.width === 320 ? 0.55 : 0.6),
         );
@@ -226,12 +233,16 @@ for (const viewport of [
         const canvas = map.locator('.mapboxgl-canvas');
         const canvasElement = (await canvas.count()) ? await canvas.elementHandle() : null;
         const selector = page.getByRole('combobox', { name: 'Choose a voyage to view' });
+        const floatingHeader = page.getByTestId('public-voyage-header');
         const expand = page.getByRole('button', { name: 'Expand map', exact: true });
         const restore = page.getByRole('button', { name: 'Restore page header', exact: true });
         // Short landscape starts with the header folded. Its restore door
         // must still expose the voyage picker without changing map identity.
         if (viewport.height < 400) await restore.click();
         await expect(selector).toBeVisible();
+        await expect(floatingHeader).toHaveAttribute('data-overlay', 'true');
+        await expect(floatingHeader).toHaveCSS('position', 'absolute');
+        await expectInViewport(floatingHeader, page);
         expect((await selector.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         for (const control of [expand, restore]) {
             if (control === restore) await expand.click();
@@ -277,6 +288,7 @@ for (const viewport of [
         await instrumentsButton.click();
         await expect(instrumentsButton).toHaveAttribute('aria-pressed', 'true');
         await expect(map).toBeHidden();
+        await expect(floatingHeader).toHaveAttribute('data-overlay', 'false');
         await expect(page.getByRole('region', { name: 'Onboard instruments' })).toBeVisible();
         await expect(page.getByRole('heading', { name: 'Lagoon journal 1', exact: true })).toHaveCount(0);
         await expectNoPageOverflow(page);
@@ -297,7 +309,11 @@ for (const viewport of [
         await content.evaluate((element) => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }));
         await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
         const weather = content.getByText('Gentle trade winds and clear skies.', { exact: true });
+        await weather.scrollIntoViewIfNeeded();
         await expectInViewport(weather, page);
+        const comments = content.getByRole('region', { name: 'Guest comments' });
+        await comments.getByRole('button', { name: 'Send for approval' }).scrollIntoViewIfNeeded();
+        await expectInViewport(comments.getByRole('button', { name: 'Send for approval' }), page);
         expect(await nav.boundingBox()).toEqual(navBox);
         await expectNoPageOverflow(page);
         await page.screenshot({ path: testInfo.outputPath('public-voyage-diary-bottom.png') });
@@ -342,6 +358,8 @@ test('desktop retains the simultaneous map and exclusive side panel', async ({ p
     const panel = page.locator('#voyage-side-panel');
     const switcher = page.getByRole('group', { name: 'Side panel view' });
     await expect(map).toBeVisible();
+    expect((await map.boundingBox())!.y).toBeLessThanOrEqual(1);
+    await expect(page.getByTestId('public-voyage-header')).toHaveAttribute('data-overlay', 'true');
     await expect(panel).toBeVisible();
     await expect(switcher).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Voyage views' })).toBeHidden();

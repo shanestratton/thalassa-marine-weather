@@ -67,6 +67,7 @@ import {
 } from './distanceAccrual';
 import { checkIsOnWater } from './waterDetection';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
+import { voyageLifecycleOperationId } from './voyageLifecycle';
 
 const log = createLogger('ShipLog.Capture');
 
@@ -166,8 +167,10 @@ export async function captureImmediate(
 ): Promise<ShipLogEntry | null> {
     if (!contextIsCurrent(ctx)) return null;
     const startedAtMs = Date.now();
-    const timestamp = new Date(startedAtMs).toISOString();
     const effectiveVoyageId = voyageId || ctx.trackingState.currentVoyageId || `voyage_${Date.now()}`;
+    // A freshly accepted fix belongs to this capture time. Persisted voyage
+    // metadata must never backdate a later location to the original departure.
+    const timestamp = new Date(startedAtMs).toISOString();
 
     const weatherSnapshot = getWeatherSnapshot();
 
@@ -324,8 +327,11 @@ export async function captureImmediate(
     }
 
     if (!contextIsCurrent(ctx)) return null;
-    const { saved, entryId, wasOffline } = await saveEntryOnlineOrOffline(entry, ctx.identityScope, () =>
-        contextIsCurrent(ctx),
+    const { saved, entryId, wasOffline } = await saveEntryOnlineOrOffline(
+        entry,
+        ctx.identityScope,
+        () => contextIsCurrent(ctx),
+        voyageLifecycleOperationId(effectiveVoyageId, waypointLabel),
     );
     if (!contextIsCurrent(ctx)) return null;
 

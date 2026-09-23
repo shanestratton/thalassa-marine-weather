@@ -113,20 +113,11 @@ vi.mock('../services/ShipLogService', () => ({
         deleteVoyage: (...args: unknown[]) => mocks.deleteVoyage(...args),
         importGPXVoyage: vi.fn().mockResolvedValue({ savedCount: 0 }),
     },
-    // useLogPageState imports this as a NAMED export alongside the service, and
-    // omitting it made every prune sweep throw. The sweep is scheduled, so the
-    // throw landed as an Unhandled Rejection AFTER the test had finished — 22
-    // of them in a full run, each firing into a worker that had already moved
-    // on to another file. That is what intermittently corrupted an unrelated
-    // suite's environment ("setTimeout is not a function" in
-    // WeatherContextIdentity, which passes 5/5 in isolation). The tests here
-    // all passed throughout; only the exit code and the collateral gave it
-    // away (2026-08-22).
-    getRecentDeviceStops: () => new Set<string>(),
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { useLogPageState, resetLogViewMemoForTest } from '../hooks/useLogPageState';
+import { clearCachedVoyageTrack } from '../services/shiplog/VoyageTrackCache';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -408,10 +399,7 @@ describe('useLogPageState identity boundary', () => {
         );
     });
 
-    it('archive-on-stop runs BEFORE the empty prune, and never blocks it', async () => {
-        // The two tails are independent tables (voyages row vs ship-log
-        // entries) — an unconfirmed archive must not abort the prune or the
-        // trailing reload (mutation-tested gap, 2026-08-27).
+    it('ending a voyage completes its passage row and retains a locally empty track', async () => {
         mocks.getVoyageEntries.mockResolvedValue([{ ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 }]);
         const { result } = renderHook(() => useLogPageState());
         await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -420,13 +408,12 @@ describe('useLogPageState identity boundary', () => {
         await act(async () => result.current.confirmStopVoyage());
 
         expect(mocks.endVoyage).toHaveBeenCalledWith('voyage-a', 'completed');
-        expect(mocks.deleteVoyage).toHaveBeenCalledWith('voyage-a');
-        expect(mocks.endVoyage.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.deleteVoyage.mock.invocationCallOrder[0],
-        );
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+        expect(result.current.state.entries).toEqual([{ ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 }]);
+        expect(result.current.state.summaries).toEqual([summaryA]);
     });
 
-    it('an unconfirmed archive still lets the empty prune run', async () => {
+    it('an unconfirmed passage completion still retains the locally empty track', async () => {
         mocks.endVoyage.mockResolvedValue(false);
         mocks.getVoyageEntries.mockResolvedValue([{ ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 }]);
         const { result } = renderHook(() => useLogPageState());
@@ -435,7 +422,8 @@ describe('useLogPageState identity boundary', () => {
 
         await act(async () => result.current.confirmStopVoyage());
 
-        expect(mocks.deleteVoyage).toHaveBeenCalledWith('voyage-a');
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+        expect(result.current.state.entries).toEqual([{ ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 }]);
     });
 
     it('surfaces a pause teardown failure and reflects the service paused state', async () => {
@@ -656,6 +644,100 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
  * outcome decided in the first milliseconds (Shane, 2026-08-20: "it takes
  * quite a while to delete the track, can we make that instant as well?").
  */
+describe('useLogPageState keeps history until an explicit delete', () => {
+    it('opening and refreshing the Log retains cloud and offline-only zero-distance tracks', async () => {
+        const emptyCloud = { ...summaryA, totalDistanceNM: 0, spanM: 0 };
+        const emptyOffline = {
+            ...entryA,
+            id: 'offline-empty',
+            voyageId: 'offline-empty',
+            cumulativeDistanceNM: 0,
+            distanceNM: 0,
+        };
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getCachedSummaries.mockResolvedValue([emptyCloud]);
+        mocks.getSummaries.mockResolvedValue([emptyCloud]);
+        mocks.getOfflineEntries.mockResolvedValue([emptyOffline]);
+
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await act(async () => result.current.loadData());
+
+        expect(result.current.listVoyages.map((voyage) => voyage.voyageId)).toEqual(['voyage-a', 'offline-empty']);
+        expect(result.current.state.entries).toEqual([emptyOffline]);
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+        expect(clearCachedVoyageTrack).not.toHaveBeenCalled();
+    });
+
+    it('retains a 230 NM cloud passage and its cache with only one local arrival fix', async () => {
+        const cloud = {
+            ...summaryA,
+            entryCount: 18_286,
+            totalDistanceNM: 230.1,
+            spanM: 300_000,
+            startedAt: '2026-09-15T04:00:00.000Z',
+            endedAt: '2026-09-17T10:00:00.000Z',
+        };
+        const tail = { ...entryA, timestamp: cloud.endedAt, cumulativeDistanceNM: 230.1 };
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getCachedSummaries.mockResolvedValue([cloud]);
+        mocks.getSummaries.mockResolvedValue([cloud]);
+        mocks.getOfflineEntries.mockResolvedValue([tail]);
+
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await act(async () => result.current.loadData());
+
+        expect(result.current.listVoyages).toEqual([cloud]);
+        expect(result.current.state.entries).toEqual([tail]);
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+        expect(clearCachedVoyageTrack).not.toHaveBeenCalled();
+    });
+
+    it('End Voyage retains an empty track and preserves explicit delete and undo', async () => {
+        const cloud = { ...summaryA, totalDistanceNM: 0, spanM: 0 };
+        const point = { ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 };
+        mocks.getCachedSummaries.mockResolvedValue([cloud]);
+        mocks.getSummaries.mockResolvedValue([cloud]);
+        mocks.getVoyageEntries.mockResolvedValue([point]);
+        mocks.stopTracking.mockImplementation(async () => {
+            mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        });
+        mocks.deleteVoyage.mockImplementation(async (_id: string, onAccepted?: () => void) => {
+            onAccepted?.();
+            return true;
+        });
+
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await act(async () => result.current.confirmStopVoyage());
+
+        expect(mocks.stopTracking).toHaveBeenCalledWith('voyage-a');
+        expect(result.current.state.entries).toEqual([point]);
+        expect(result.current.state.summaries).toEqual([cloud]);
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+        expect(clearCachedVoyageTrack).not.toHaveBeenCalled();
+
+        await act(async () => result.current.handleDeleteVoyageRequest('voyage-a'));
+        expect(result.current.state.summaries).toEqual([]);
+        expect(result.current.deletedVoyage?.voyageId).toBe('voyage-a');
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+
+        act(() => result.current.handleUndoDeleteVoyage());
+        expect(result.current.state.entries).toEqual([point]);
+        expect(result.current.state.summaries).toEqual([cloud]);
+        expect(result.current.deletedVoyage).toBeNull();
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+
+        act(() => result.current.dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: 'voyage-a' }));
+        await act(async () => result.current.handleConfirmDeleteVoyage());
+
+        expect(mocks.deleteVoyage).toHaveBeenCalledWith('voyage-a', expect.any(Function));
+        expect(result.current.state.entries).toEqual([]);
+        expect(result.current.state.summaries).toEqual([]);
+    });
+});
+
 describe('useLogPageState delete — instant on the acceptance boundary', () => {
     it('removes the row the moment the tombstone lands, while the cloud is still hanging', async () => {
         // deleteVoyage fires onAccepted (the tombstone) and then NEVER resolves

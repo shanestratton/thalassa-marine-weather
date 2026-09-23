@@ -8,6 +8,7 @@
  */
 import type { RemoteInstrumentSnapshot, RemoteVia } from './NmeaStore';
 import { parseWindHistorySummary } from '../utils/windHistory';
+import { readGnssDiagnostics } from './nmea/gnssDiagnostics';
 
 export type TelemetryWire = Record<string, unknown>;
 
@@ -41,6 +42,19 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             : undefined;
     const windIdentity = boundedText(extra.wind_history_identity);
     const windSampleSource = boundedText(extra.wind_tws_source);
+    const gnss = source === 'pi' ? readGnssDiagnostics(extra) : undefined;
+    const positionSampleAt = wireNumber(extra.position_at);
+    const lat = wireNumber(wire.lat);
+    const lon = wireNumber(wire.lon);
+    const hasPositionTime =
+        positionSampleAt !== null &&
+        positionSampleAt > 0 &&
+        positionSampleAt <= Date.now() + 1_000 &&
+        lat !== null &&
+        lon !== null &&
+        Math.abs(lat) <= 90 &&
+        Math.abs(lon) <= 180 &&
+        !(lat === 0 && lon === 0);
     return {
         source,
         deviceLabel,
@@ -50,8 +64,11 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             via,
             deviceLabel,
             reportedAt,
-            lat: wireNumber(wire.lat),
-            lon: wireNumber(wire.lon),
+            // Diagnostic age only: the GPS/row clock is not the position's
+            // own measurement time. Missing metadata stays unavailable.
+            ...(hasPositionTime ? { positionSampleAt } : {}),
+            lat,
+            lon,
             sogKts: wireNumber(wire.sog_kts),
             cogDeg: wireNumber(wire.cog_deg),
             headingDeg: wireNumber(wire.heading_deg),
@@ -68,6 +85,7 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             rudderDeg: wireNumber(wire.rudder_deg),
             rpm: wireNumber(wire.rpm),
             voltageV: wireNumber(wire.voltage_v),
+            ...(gnss ? { gnss } : {}),
             ...(windHistory ? { windHistory } : {}),
             // Never substitute reported_at (often the GPS clock) for the wind
             // sensor's own timestamp: cached wind would become new history.

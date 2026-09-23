@@ -14,6 +14,7 @@
  * Self-contained pure functions over lat/lon (no engine import) so they can be
  * parity-tested in isolation — same pattern as fairlead.ts.
  */
+import { readS57 } from './enc/types';
 
 export interface LatLon {
     lat: number;
@@ -24,6 +25,24 @@ export interface LatLon {
  *  are straight, but a multi-vertex transit is tolerated. */
 export interface LeadingLine {
     pts: LatLon[];
+}
+
+/** Warning/review identity, deliberately separate from the legacy geometry-
+ * only snapper. A navigation bearing is not automatically a sailing track. */
+export interface ChartTrackLine extends LeadingLine {
+    chartTrack: {
+        id: string;
+        label: string;
+        kind: 'leading-line' | 'recommended-track';
+        objectClass: 'RECTRC' | 'NAVLNE' | 'OSM_NAVLINE';
+        category: number | 'leading';
+        source?: string;
+        sourceCell?: string;
+        featureId?: string;
+        name?: string;
+        orientationDeg?: number;
+        traffic?: number;
+    };
 }
 
 /** Minimal GeoJSON-ish shape so this module needn't depend on @types/geojson. */
@@ -162,6 +181,281 @@ export function parseLeadingLines(features: LineFeatureLike[]): LeadingLine[] {
         }
     }
     return out;
+}
+
+const singleCode = (value: unknown): number | undefined => {
+    if (typeof value === 'number' && Number.isInteger(value)) return value;
+    if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value);
+    return undefined;
+};
+
+const shortText = (value: unknown): string | undefined =>
+    typeof value === 'string' && value.trim() ? value.trim().slice(0, 160) : undefined;
+
+/** The tracer merge adds provenance to copies, never to cached chart blobs. */
+export function withChartTrackSource<T extends { properties?: Record<string, unknown> | null }>(
+    feature: T,
+    cellId: string,
+): T {
+    return { ...feature, properties: { ...feature.properties, _cellId: cellId } };
+}
+
+/** A deterministic, direction-independent geometry identity. This is a UI
+ * grouping key, never evidence that the feature is current or navigable. */
+function trackGeometryKey(pts: LatLon[]): string {
+    const points = pts.map((p) => `${p.lon.toFixed(7)},${p.lat.toFixed(7)}`);
+    const forward = points.join(';');
+    const reverse = [...points].reverse().join(';');
+    const canonical = forward < reverse ? forward : reverse;
+    let h1 = 0x811c9dc5;
+    let h2 = 0x9e3779b9;
+    for (let i = 0; i < canonical.length; i++) {
+        h1 = Math.imul(h1 ^ canonical.charCodeAt(i), 16777619);
+        h2 = Math.imul(h2 ^ canonical.charCodeAt(i), 2246822519);
+    }
+    return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+/** IHO S-57 UOC §10.1/table 10.1: RECTRC is the recommended track;
+ * NAVLNE CATNAV=1 is a clearing line, 2 is a transit/bearing, and only 3
+ * bears a recommended track. Keep those identities distinct and reject
+ * unknown categories. A NAVLNE=3 may still extend between marks on land:
+ * this parser supplies review context, NOT permission to route along it.
+ * Unlike parseLeadingLines, malformed vertices are never joined across. */
+export function parseChartTrackLines(features: LineFeatureLike[], layerClass?: 'RECTRC' | 'NAVLNE'): ChartTrackLine[] {
+    const out: ChartTrackLine[] = [];
+    for (const feature of features) {
+        const p = feature.properties ?? {};
+        const declared = shortText(readS57(p, 'ACRONYM'))?.toUpperCase();
+        const objectClass = declared ?? layerClass;
+        const osmLeading =
+            !declared &&
+            layerClass !== 'RECTRC' &&
+            readS57(p, 'CATNAV') === undefined &&
+            readS57(p, 'CATTRK') === undefined &&
+            p['seamark:type'] === 'navigation_line' &&
+            p['seamark:navigation_line:category'] === 'leading';
+        const category = singleCode(readS57(p, objectClass === 'RECTRC' ? 'CATTRK' : 'CATNAV'));
+        const kind =
+            objectClass === 'RECTRC' && (category === 1 || category === 2)
+                ? 'recommended-track'
+                : (objectClass === 'NAVLNE' && category === 3) || osmLeading
+                  ? 'leading-line'
+                  : null;
+        if (!kind) continue;
+        const g = feature.geometry;
+        if (!g || !Array.isArray(g.coordinates)) continue;
+        const rings: unknown[] =
+            g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+        for (const ring of rings) {
+            if (
+                !Array.isArray(ring) ||
+                ring.length < 2 ||
+                ring.length > 4096 ||
+                !ring.every(
+                    (c) =>
+                        Array.isArray(c) &&
+                        c.length >= 2 &&
+                        Number.isFinite(c[0]) &&
+                        Number.isFinite(c[1]) &&
+                        Math.abs(c[0]) <= 180 &&
+                        Math.abs(c[1]) <= 80,
+                )
+            )
+                continue;
+            const pts = ring.map((c: number[]) => ({ lon: c[0], lat: c[1] }));
+            if (pts.some((q, i) => i > 0 && Math.abs(q.lon - pts[i - 1].lon) > 180)) continue;
+            const sourceCell = shortText(p._cellId) ?? shortText(p.cellId) ?? shortText(p.sourceCell);
+            const source = shortText(p._source) ?? shortText(p.source) ?? (osmLeading ? 'osm' : 'enc');
+            const featureId =
+                typeof p.rcid === 'number' && Number.isSafeInteger(p.rcid) && p.rcid >= 0
+                    ? String(p.rcid)
+                    : (shortText(p.rcid) ?? shortText(p['@id']));
+            const name = shortText(readS57(p, 'OBJNAM')) ?? shortText(p.name);
+            const identity = [sourceCell, featureId].filter(Boolean).join(' / ');
+            const label =
+                name ??
+                `${kind === 'recommended-track' ? 'Charted recommended track' : 'Charted leading line'}${identity ? ` · ${identity}` : ''}`;
+            const orientation = readS57(p, 'ORIENT');
+            const typedClass = osmLeading ? 'OSM_NAVLINE' : (objectClass as 'RECTRC' | 'NAVLNE');
+            out.push({
+                pts,
+                chartTrack: {
+                    id: `${typedClass}:${sourceCell ?? source}:${featureId ?? ''}:${trackGeometryKey(pts)}`,
+                    label,
+                    kind,
+                    objectClass: typedClass,
+                    category: osmLeading ? 'leading' : category!,
+                    source,
+                    sourceCell,
+                    featureId,
+                    name,
+                    orientationDeg:
+                        typeof orientation === 'number' && Number.isFinite(orientation) ? orientation : undefined,
+                    traffic: singleCode(readS57(p, 'TRAFIC')),
+                },
+            });
+        }
+    }
+    return out;
+}
+
+export interface ChartTrackOffset {
+    track: ChartTrackLine['chartTrack'];
+    offsetM: number;
+    at: LatLon;
+}
+
+/** Identify a genuinely parallel, finite overlap, not a nearby bearing or
+ * a crossing/join/departure manoeuvre. No route points are changed. The
+ * closest sustained overlap wins independently of chart/feature order;
+ * being on one track does not produce an offset warning for a parallel one.
+ * Thresholds are review relevance only, never channel-width/clearance proof. */
+export function chartTrackOffsetForLeg(
+    a: LatLon,
+    b: LatLon,
+    tracks: readonly ChartTrackLine[],
+    onIncomplete?: () => void,
+): ChartTrackOffset | null {
+    const legLength = distM(a, b);
+    if (!Number.isFinite(legLength) || legLength < 1) return null;
+    const legBearing = bearingDeg(a, b);
+    const point = (t: number) => ({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t });
+    const EPS_M = 1e-5;
+    // Synchronous UI-thread validator: complex charts must become an explicit
+    // incomplete advisory, not unbounded intersection/envelope work.
+    let work = 0;
+    const exceeded = (amount = 1) => (work += amount) > 200_000;
+    const incomplete = () => {
+        onIncomplete?.();
+        return null;
+    };
+    const candidates: Array<ChartTrackOffset & { nearestM: number; overlapM: number; manoeuvre: boolean }> = [];
+    for (const track of tracks) {
+        // Within a segment's finite projection, signed distance is linear in
+        // route parameter t. Partition at every nearest-segment switch, so a
+        // U/bending track is measured against its nearest branch, not the
+        // most distant parallel branch. No sampling-dependent midpoint test.
+        const segments: Array<{
+            c: LatLon;
+            d: LatLon;
+            lo: number;
+            hi: number;
+            o: number;
+            slope: number;
+            parallel: boolean;
+        }> = [];
+        let crosses = false;
+        for (let i = 1; i < track.pts.length; i++) {
+            if (exceeded()) return incomplete();
+            const c = track.pts[i - 1],
+                d = track.pts[i];
+            const segmentLength = distM(c, d);
+            if (segmentLength < 1) continue;
+            const mLon = 111_320 * Math.cos((c.lat * Math.PI) / 180);
+            const dx = (d.lon - c.lon) * mLon,
+                dy = (d.lat - c.lat) * 110_540;
+            const len2 = dx * dx + dy * dy;
+            const ax = (a.lon - c.lon) * mLon,
+                ay = (a.lat - c.lat) * 110_540;
+            const lx = (b.lon - a.lon) * mLon,
+                ly = (b.lat - a.lat) * 110_540;
+            const denominator = lx * dy - ly * dx;
+            if (Math.abs(denominator) > 1e-6) {
+                const routeT = (-ax * dy + ay * dx) / denominator;
+                const lineT = (-ax * ly + ay * lx) / denominator;
+                if (routeT >= 0 && routeT <= 1 && lineT >= 0 && lineT <= 1) crosses = true;
+            }
+            const projection = (q: LatLon) => ((q.lon - c.lon) * mLon * dx + (q.lat - c.lat) * 110_540 * dy) / len2;
+            const sa = projection(a),
+                sb = projection(b),
+                ds = sb - sa;
+            if (Math.abs(ds) < 1e-10) continue;
+            let lo = Math.max(0, Math.min(-sa / ds, (1 - sa) / ds));
+            let hi = Math.min(1, Math.max(-sa / ds, (1 - sa) / ds));
+            if (hi <= lo) continue; // Outside the finite charted extent.
+            const o = (dx * ay - dy * ax) / Math.sqrt(len2);
+            const slope = (dx * ly - dy * lx) / Math.sqrt(len2);
+            if (Math.abs(slope) > 1e-8) {
+                const r0 = (-150 - o) / slope,
+                    r1 = (150 - o) / slope;
+                lo = Math.max(lo, Math.min(r0, r1));
+                hi = Math.min(hi, Math.max(r0, r1));
+            } else if (Math.abs(o) > 150 + EPS_M) continue;
+            if (hi <= lo) continue;
+            segments.push({ c, d, lo, hi, o, slope, parallel: lineAngleDiffDeg(legBearing, bearingDeg(c, d)) <= 15 });
+            if (segments.length > 256) return incomplete();
+        }
+        const breaks = segments.flatMap((s) => [s.lo, s.hi]);
+        for (const s of segments)
+            for (const target of [-40, 0, 40]) {
+                const t = (target - s.o) / s.slope;
+                if (Number.isFinite(t) && t > s.lo && t < s.hi) breaks.push(t);
+            }
+        for (let i = 0; i < segments.length; i++)
+            for (let j = i + 1; j < segments.length; j++) {
+                if (exceeded() || breaks.length > 4096) return incomplete();
+                const x = segments[i],
+                    y = segments[j];
+                const lo = Math.max(x.lo, y.lo),
+                    hi = Math.min(x.hi, y.hi);
+                if (lo >= hi) continue;
+                for (const sign of [-1, 1]) {
+                    const t = -(x.o + sign * y.o) / (x.slope + sign * y.slope);
+                    if (Number.isFinite(t) && t > lo && t < hi) breaks.push(t);
+                }
+            }
+        breaks.sort((x, y) => x - y);
+        let overlapM = 0,
+            distanceIntegral = 0,
+            maxOffsetM = 0,
+            onM = 0,
+            offM = 0;
+        let at: LatLon | null = null;
+        for (let i = 1; i < breaks.length; i++) {
+            if (exceeded(segments.length)) return incomplete();
+            const lo = breaks[i - 1],
+                hi = breaks[i],
+                mid = (lo + hi) / 2;
+            if (hi - lo < 1e-10) continue;
+            const nearest = segments
+                .filter((s) => mid >= s.lo && mid <= s.hi)
+                .sort((x, y) => Math.abs(x.o + x.slope * mid) - Math.abs(y.o + y.slope * mid))[0];
+            if (!nearest?.parallel) continue;
+            const d0 = Math.abs(nearest.o + nearest.slope * lo),
+                d1 = Math.abs(nearest.o + nearest.slope * hi);
+            const length = (hi - lo) * legLength,
+                high = Math.max(d0, d1);
+            overlapM += length;
+            distanceIntegral += ((d0 + d1) / 2) * length;
+            if (Math.abs(nearest.o + nearest.slope * mid) <= 40 + EPS_M) onM += length;
+            else offM += length;
+            if (!at || high > maxOffsetM + EPS_M) {
+                maxOffsetM = high;
+                at = projectToSegment(point(d0 >= d1 ? lo : hi), nearest.c, nearest.d).point;
+            }
+        }
+        if (!at || overlapM + EPS_M < Math.min(100, legLength * 0.5)) continue;
+        candidates.push({
+            track: track.chartTrack,
+            offsetM: maxOffsetM,
+            at,
+            nearestM: distanceIntegral / overlapM,
+            overlapM,
+            manoeuvre: crosses || (onM > EPS_M && offM > EPS_M),
+        });
+    }
+    candidates.sort(
+        (x, y) =>
+            x.nearestM - y.nearestM ||
+            y.overlapM - x.overlapM ||
+            Number(x.track.kind !== 'recommended-track') - Number(y.track.kind !== 'recommended-track') ||
+            x.track.id.localeCompare(y.track.id),
+    );
+    const best = candidates[0];
+    return best && !best.manoeuvre && best.offsetM > 40 + EPS_M
+        ? { track: best.track, offsetM: best.offsetM, at: best.at }
+        : null;
 }
 
 export interface SnapOptions {

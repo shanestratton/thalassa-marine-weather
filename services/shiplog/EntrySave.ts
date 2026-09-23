@@ -104,13 +104,15 @@ export async function saveEntryOnlineOrOffline(
     entry: Partial<ShipLogEntry>,
     scope: AuthIdentityScope = getAuthIdentityScope(),
     sessionGuard: () => boolean = () => true,
+    /** Lifecycle captures reuse one identity per voyage, including offline replay. */
+    clientOperationId?: string,
 ): Promise<{ saved: ShipLogEntry | null; entryId: string | null; wasOffline: boolean }> {
     const rejected = { saved: null, entryId: null, wasOffline: true } as const;
     if (!operationIsCurrent(scope, sessionGuard)) return rejected;
     // Created before the first network attempt and preserved if that attempt
     // times out but commits late. The database unique key makes every replay
     // of this logical capture converge on one row.
-    const operationId = newClientOperationId();
+    const operationId = clientOperationId ?? newClientOperationId();
 
     const queueForReplay = async () => {
         if (!operationIsCurrent(scope, sessionGuard)) return rejected;

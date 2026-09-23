@@ -58,6 +58,8 @@ const CREDENTIALLESS_ALLOWLIST = {
     'apple-server-notification': 'provider-signed Apple JWS webhook',
     'check-weather-alerts': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work',
     'deepgram-ws-proxy': 'browser WebSocket upgrade cannot carry Authorization; 60-second one-use ticket',
+    'diary-comments':
+        'public guest form with exact-origin CORS, HMAC per-client quota, publication-scoped RPCs and skipper approval',
     'diary-relay':
         'Pi relay authenticates with its own relay token by design; pair/upsert/cancel verify user JWTs internally',
     'feedback-submission':
@@ -175,7 +177,8 @@ describe('Supabase Edge gateway JWT policy', () => {
         // The six credentialless drifts, the eight already allowlisted,
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(16);
+        // Guest diary comments (2026-09-20) are public but always moderated.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(17);
     });
 
     it('every declared function has a comment explaining its policy', () => {

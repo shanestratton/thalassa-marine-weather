@@ -9,6 +9,7 @@ const camera = vi.hoisted(() => ({
     flyTo: vi.fn(),
     resize: vi.fn(),
     getMap: vi.fn(),
+    getContainer: vi.fn(),
     onStyleData: undefined as undefined | ((event: { target: Parameters<typeof installMusgraveImagery>[0] }) => void),
 }));
 vi.mock('../src/voyageLogApi', async (original) => ({
@@ -61,8 +62,41 @@ describe('public destination exploration', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
+        camera.getContainer.mockReturnValue(undefined);
     });
     afterEach(() => vi.useRealTimers());
+
+    it('shows one lifecycle start/end for the selected voyage while retaining route-start ownership', () => {
+        const pin = (name: string, hour: string) => ({
+            name,
+            lat: -23.9,
+            lon: 152.4,
+            timestamp: `2026-09-18T${hour}:00:00Z`,
+        });
+        const waypoints = [
+            pin('Voyage Start', '01'),
+            pin('Voyage Start', '05'),
+            pin('Voyage End', '09'),
+            pin('Voyage End', '12'),
+            pin('Channel entrance', '06'),
+        ];
+        const { rerender } = render(
+            <MapContainer {...props} passageLine={null} waypoints={waypoints} waypointVoyageId="voyage-a" />,
+        );
+        expect(screen.getAllByText('Voyage Start')).toHaveLength(1);
+        expect(screen.getAllByText('Voyage End')).toHaveLength(1);
+        expect(screen.getByText('Channel entrance')).toBeVisible();
+
+        rerender(<MapContainer {...props} waypoints={waypoints} waypointVoyageId="voyage-a" />);
+        // Only the plan origin has the Start label once the linked route appears.
+        expect(screen.getAllByText('Voyage Start')).toHaveLength(1);
+        expect(screen.getAllByText('Voyage End')).toHaveLength(1);
+        expect(screen.getByText('Channel entrance')).toBeVisible();
+
+        rerender(<MapContainer {...props} passageLine={null} waypoints={[]} />);
+        expect(screen.queryByText('Voyage Start')).not.toBeInTheDocument();
+        expect(screen.queryByText('Voyage End')).not.toBeInTheDocument();
+    });
 
     it('fills the Musgrave imagery gap below labels and keeps it off the ordinary Map style', () => {
         const layers = new Set<string>();
@@ -165,6 +199,37 @@ describe('public destination exploration', () => {
             await vi.advanceTimersByTimeAsync(1000);
         });
         expect(camera.fitBounds).not.toHaveBeenCalled();
+    });
+
+    it('frames below the floating voyage header and reclaims room when the header is folded', async () => {
+        const header = document.createElement('div');
+        header.dataset.testid = 'public-voyage-header';
+        header.dataset.overlay = 'true';
+        header.getBoundingClientRect = () => ({ top: 12, bottom: 208, height: 196 }) as DOMRect;
+        document.body.append(header);
+        camera.getContainer.mockReturnValue({
+            getBoundingClientRect: () => ({ top: 0, width: 390, height: 784 }),
+        });
+        try {
+            render(<MapContainer {...props} />);
+            await act(async () => vi.advanceTimersByTimeAsync(150));
+            expect(camera.fitBounds).toHaveBeenLastCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    padding: { top: 224, bottom: 100, left: 23.4, right: 92 },
+                }),
+            );
+            header.getBoundingClientRect = () => ({ top: 0, bottom: 0, height: 0 }) as DOMRect;
+            fireEvent.click(screen.getByRole('button', { name: /Show the whole voyage/ }));
+            expect(camera.fitBounds).toHaveBeenLastCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    padding: { top: 24, bottom: 100, left: 23.4, right: 92 },
+                }),
+            );
+        } finally {
+            header.remove();
+        }
     });
 
     it('opens satellite detail, leaves exploration alone during polling, and can return to the whole voyage', async () => {

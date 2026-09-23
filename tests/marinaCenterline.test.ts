@@ -170,6 +170,23 @@ function assertNoLandCrossing(cells: Cell[], depth: Float32Array, width: number)
 describe('routeMarina', () => {
     const params = { keelCells: 2, depthWeight: 15, canalHalfWidthCells: 6, bias: 5 };
 
+    it('can return the raw centreline without legacy simplification; default and explicit true are unchanged', () => {
+        const shape = { width: 60, height: 21 };
+        const depth = new Float32Array(shape.width * shape.height).fill(NaN);
+        for (let y = 7; y <= 13; y++) for (let x = 2; x < shape.width - 2; x++) depth[y * shape.width + x] = 5;
+        const start = { x: 3, y: 10 },
+            end = { x: 57, y: 10 };
+        const legacy = routeMarina(depth, shape, start, end, params)!;
+        const explicit = routeMarina(depth, shape, start, end, { ...params, simplifyWaypoints: true })!;
+        const raw = routeMarina(depth, shape, start, end, { ...params, simplifyWaypoints: false })!;
+        expect(explicit).toEqual(legacy);
+        expect(raw.cells).toEqual(legacy.cells);
+        expect(raw.waypoints).toBe(raw.cells);
+        expect(raw.waypoints.length).toBeGreaterThan(legacy.waypoints.length);
+        expect(raw.minClearanceCells).toBe(legacy.minClearanceCells);
+        expect(raw.meanClearanceCells).toBe(legacy.meanClearanceCells);
+    });
+
     it('straight channel → few straight legs, 0 land crossings, keel clearance held', () => {
         const w = 60,
             h = 21;

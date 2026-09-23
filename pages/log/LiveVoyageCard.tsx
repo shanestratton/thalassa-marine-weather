@@ -43,12 +43,14 @@ export const LiveVoyageCard: React.FC<{
     liveMapDialogRef,
     liveMapTitleId,
 }) => {
-    const { activeEntries, first, dist, durationHrs, durationMins, liveAvgSpeed } = liveStats;
+    const { activeEntries, first, dist, durationHrs, durationMins, liveAvgSpeed, departedAt } = liveStats;
     return (
         <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-linear-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
             <div className="flex items-center gap-2 mb-3 shrink-0">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Recording</span>
+                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                    {departedAt ? 'Live Recording' : 'Recording · awaiting departure'}
+                </span>
             </div>
             {first?.waypointName &&
                 first.waypointName !== 'Voyage Start' &&
@@ -66,7 +68,12 @@ export const LiveVoyageCard: React.FC<{
                     <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
                         {durationHrs}h {durationMins}m
                     </div>
-                    <div className="text-[11px] text-slate-500 uppercase">Duration</div>
+                    <div
+                        className="text-[11px] text-slate-500 uppercase"
+                        title="From GPS-confirmed movement, not when recording was started"
+                    >
+                        Time since departure
+                    </div>
                 </div>
                 <div>
                     <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
@@ -186,7 +193,7 @@ export const LiveVoyageCard: React.FC<{
                                 id={liveMapTitleId}
                                 className="text-xs font-bold text-red-400 uppercase tracking-wider drop-shadow-lg"
                             >
-                                Live Recording
+                                {departedAt ? 'Live Recording' : 'Recording · awaiting departure'}
                             </span>
                         </div>
                         <div className="text-[13px] text-white/90 flex gap-4 mt-1.5 font-bold drop-shadow-lg tabular-nums">

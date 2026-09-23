@@ -44,6 +44,64 @@ function weather(overrides: Record<string, unknown> = {}): WeatherControlsWeathe
 }
 
 describe('MapWeatherControls', () => {
+    it('labels the actual pressure valid UTC, stale source and failed refresh instead of live current', () => {
+        render(
+            <MapWeatherControls
+                weather={weather({
+                    activeLayers: new Set(['pressure']),
+                    forecastHour: 4,
+                    totalFrames: 22,
+                    framesReady: 22,
+                    pressureNowIdx: 4,
+                    pressureFrameStepHours: 2,
+                    pressureSource: 'gfs',
+                    pressureRefTime: '2026-09-20T00:00:00Z',
+                    pressureValidTimeMs: Date.parse('2026-09-20T08:00:00Z'),
+                    pressureClockMs: Date.parse('2026-09-20T08:40:00Z'),
+                    pressureError: 'failed',
+                    setForecastHour: vi.fn(),
+                    setIsPlaying: vi.fn(),
+                    applyFrame: vi.fn(),
+                })}
+                visible
+                embedded={false}
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+        expect(screen.getByText('Near now')).toBeInTheDocument();
+        expect(
+            screen.getByText('GFS 00Z · 8h old · Valid 09-20 08:00 UTC · Saved data; refresh unavailable'),
+        ).toBeInTheDocument();
+        expect(screen.queryByText('Current')).not.toBeInTheDocument();
+    });
+
+    it('keeps a failed initial pressure load explicitly unavailable', () => {
+        render(
+            <MapWeatherControls
+                weather={weather({
+                    activeLayers: new Set(['pressure']),
+                    forecastHour: 0,
+                    totalFrames: 48,
+                    framesReady: 0,
+                    pressureNowIdx: 0,
+                    pressureFrameStepHours: 2,
+                    pressureSource: null,
+                    pressureLoading: false,
+                    pressureError: 'failed',
+                    setForecastHour: vi.fn(),
+                    setIsPlaying: vi.fn(),
+                    applyFrame: vi.fn(),
+                })}
+                visible
+                embedded={false}
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+        expect(screen.getByText('Unavailable')).toBeInTheDocument();
+        expect(screen.queryByText('Now')).not.toBeInTheDocument();
+    });
     it('is absent outside the chart surface', () => {
         const { container } = render(
             <MapWeatherControls
@@ -172,7 +230,7 @@ describe('MapWeatherControls', () => {
         // "Fallback" until 2026-08-22. It named no provider — and Open-Meteo's
         // CC-BY terms require crediting them, on exactly this screen, which is
         // the one place the substitution is visible.
-        expect(screen.getByText('Open-Meteo · Forecast')).toBeInTheDocument();
+        expect(screen.getByText('GFS · Open-Meteo coarse fallback · Valid time unknown')).toBeInTheDocument();
         expect(screen.queryByRole('switch', { name: 'Particles animation' })).not.toBeInTheDocument();
     });
 

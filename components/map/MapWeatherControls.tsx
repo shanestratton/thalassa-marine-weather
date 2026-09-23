@@ -19,7 +19,11 @@ import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isCmemsRenderedStepReady } from './useCmemsPlayback';
 import { useUIStore } from '../../stores/uiStore';
 import { openExternalUrl } from '../../services/externalLinks';
-import { pressureProvenance, pressureSourceText } from '../../services/weather/pressureProvenance';
+import {
+    pressureProvenance,
+    pressureSourceText,
+    pressureValidTimeText,
+} from '../../services/weather/pressureProvenance';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -293,18 +297,33 @@ export function MapWeatherControls({
                 // skipper nothing about which forecast they were reading and
                 // failed to credit Open-Meteo, whose CC-BY terms require it.
                 const pressureSource = pressureSourceText(
-                    pressureProvenance(weather.pressureSource, weather.pressureRefTime),
+                    pressureProvenance(weather.pressureSource, weather.pressureRefTime, weather.pressureClockMs),
                 );
-                if (frameIndex === pressureNowIndex) {
-                    frameLabel = 'Now';
-                    sublabel = `${pressureSource} · Current`;
+                const validTime = pressureValidTimeText(weather.pressureValidTimeMs);
+                if (!weather.pressureSource || !framesReady) {
+                    frameLabel = weather.pressureLoading ? 'Loading…' : 'Unavailable';
+                    sublabel = 'Mean sea-level pressure';
+                    totalFrames = 1;
+                    isLoading = !!weather.pressureLoading;
+                    showInlineLoading = true;
+                } else if (frameIndex === pressureNowIndex) {
+                    // Nearest 2h GFS frame is a model prediction, not a live
+                    // observation. Always expose its actual comparison clock.
+                    frameLabel =
+                        weather.pressureValidTimeMs != null &&
+                        Math.abs(weather.pressureValidTimeMs - (weather.pressureClockMs ?? Date.now())) >
+                            weather.pressureFrameStepHours * 1_800_000 + 60_000
+                            ? 'Latest'
+                            : 'Near now';
+                    sublabel = `${pressureSource} · ${validTime}`;
                 } else if (forecastHours > 0) {
                     frameLabel = `+${forecastHours % 1 === 0 ? forecastHours : forecastHours.toFixed(1)}h`;
-                    sublabel = `${pressureSource} · Forecast`;
+                    sublabel = `${pressureSource} · ${validTime}`;
                 } else {
                     frameLabel = `${forecastHours % 1 === 0 ? forecastHours : forecastHours.toFixed(1)}h`;
-                    sublabel = `${pressureSource} · Past`;
+                    sublabel = `${pressureSource} · ${validTime}`;
                 }
+                if (weather.pressureError && weather.pressureSource) sublabel += ' · Saved data; refresh unavailable';
                 onScrub = weather.setForecastHour;
                 onPlayToggle = () => weather.setIsPlaying(!weather.isPlaying);
                 onScrubStart = () => weather.setIsPlaying(false);

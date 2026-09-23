@@ -1,0 +1,98 @@
+/* A compact continuation of the manual Tracer list. There is deliberately no
+   nested scroller: the containing Tracer body remains the only scroll surface. */
+.trial-review-panel {
+    min-width: 0;
+}
+.trial-review-panel h3 {
+    line-height: 1.35;
+}
+.trial-provider-report {
+    font-size: 0.75rem;
+    line-height: 1.45;
+}
+.trial-provider-report > p {
+    margin-top: 0.375rem;
+}
+.trial-provider-finding {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.trial-review-disclosure > summary {
+    min-height: 44px;
+    padding: 0.5rem 0;
+    align-content: center;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+.trial-review-disclosure > summary:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+}
+.trial-review-waypoint {
+    background: rgb(15 23 42 / 35%);
+}
+.trial-review-waypoint[data-selected='true'] {
+    background: rgb(14 165 233 / 10%);
+}
+.trial-review-waypoint[data-grade='danger'] {
+    border-left: 3px solid #fb7185;
+}
+.trial-review-waypoint-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.trial-review-waypoint-button .font-mono {
+    font-size: 0.6875rem;
+    line-height: 1.45;
+}
+.trial-review-waypoint-number {
+    font-size: 0.75rem;
+}
+.trial-review-row-arrow {
+    flex-shrink: 0;
+    color: #7dd3fc;
+    font-size: 1.5rem;
+}
+.trial-review-leg {
+    margin-top: 0.125rem;
+    line-height: 1.45;
+}
+.trial-review-urgent {
+    margin-top: 0.375rem;
+}
+.trial-review-waypoint-details {
+    margin-top: 0.25rem;
+    border-top: 1px solid rgb(255 255 255 / 10%);
+}
+.display-light .trial-review-waypoint {
+    background: rgb(255 255 255 / 55%);
+}
+.display-light .trial-review-waypoint[data-selected='true'] {
+    background: rgb(14 165 233 / 10%);
+}
+.display-light .trial-review-waypoint-details {
+    border-top-color: rgb(15 23 42 / 15%);
+}
+.display-light .trial-review-panel [data-severity='danger'],
+.display-light .trial-review-waypoint[data-grade='danger'] .trial-review-waypoint-number {
+    color: #991b1b !important;
+}
+.display-light .trial-review-panel [data-severity='caution'],
+.display-light .trial-review-waypoint[data-grade='caution'] .trial-review-waypoint-number {
+    color: #92400e !important;
+}
+.display-light .trial-review-panel [data-severity='info'],
+.display-light .trial-review-waypoint[data-grade='clear'] .trial-review-waypoint-number {
+    color: #065f46 !important;
+}
+.display-light .trial-review-waypoint[data-grade='unchecked'] .trial-review-waypoint-number {
+    color: #475569 !important;
+}
+.display-light .trial-review-row-arrow {
+    color: #075985;
+}

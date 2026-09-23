@@ -33,15 +33,18 @@ interface SwipeableDiaryCardProps {
     onEdit: () => void;
     selected: boolean;
     onToggleSelect: () => void;
+    pendingCommentCount?: number;
 }
 
 export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
-    ({ entry, onTap, onDelete, onEdit, selected, onToggleSelect }) => {
+    ({ entry, onTap, onDelete, onEdit, selected, onToggleSelect, pendingCommentCount = 0 }) => {
         const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
             onSwipeComplete: () => void triggerHaptic('light'),
         });
         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
         const entryHasCoords = entry.latitude != null && entry.longitude != null;
+        const reviewCount = Number.isFinite(pendingCommentCount) ? Math.max(0, Math.floor(pendingCommentCount)) : 0;
+        const needsReview = reviewCount > 0;
 
         const sharingRef = React.useRef(false);
         const handleShare = async (e: React.MouseEvent) => {
@@ -133,7 +136,9 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
         };
 
         return (
-            <div className="relative overflow-hidden rounded-2xl">
+            <div
+                className={`relative overflow-hidden rounded-2xl ${needsReview ? 'shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_0_22px_rgba(245,158,11,0.13)]' : ''}`}
+            >
                 {/* Delete button (revealed on swipe) */}
                 <button
                     type="button"
@@ -160,7 +165,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
 
                 {/* Main card (slides on swipe) */}
                 <div
-                    className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${selected ? 'border-sky-500/50' : 'border-white/5'} rounded-2xl overflow-hidden bg-white/3`}
+                    className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${selected ? 'border-sky-500/50' : needsReview ? 'border-amber-400/45' : 'border-white/5'} rounded-2xl overflow-hidden ${needsReview ? 'bg-gradient-to-r from-amber-500/[0.08] via-amber-400/[0.03] to-white/[0.03]' : 'bg-white/3'}`}
                     style={{ transform: `translateX(-${swipeOffset}px)` }}
                     ref={ref}
                     onClick={() => {
@@ -316,6 +321,27 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                 </button>
                             </div>
                         </div>
+                        {needsReview && (
+                            <div className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold leading-snug text-amber-200">
+                                <svg
+                                    className="h-3.5 w-3.5 shrink-0 text-amber-300"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.8}
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M8 10h8m-8 4h5m-8 6 1.5-4A8 8 0 1 1 9 19.4L5 20Z"
+                                    />
+                                </svg>
+                                <span className="min-w-0 break-words">
+                                    {reviewCount} {reviewCount === 1 ? 'comment' : 'comments'} to review
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

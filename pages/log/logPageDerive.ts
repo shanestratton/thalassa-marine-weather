@@ -5,6 +5,7 @@
  */
 
 import type { ShipLogEntry } from '../../types';
+import { mergeVoyageDepartureTime, voyageDepartureTime, voyageElapsedMs } from '../../utils/voyageTiming';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import {
     collapseReversedRoutes,
@@ -274,6 +275,7 @@ export function buildFollowPromptRows(
 export function deriveLiveStats(
     entries: readonly ShipLogEntry[],
     currentVoyageId: string | null | undefined,
+    summary?: VoyageSummary,
 ): {
     activeEntries: ShipLogEntry[];
     first: ShipLogEntry | undefined;
@@ -281,6 +283,7 @@ export function deriveLiveStats(
     durationHrs: number;
     durationMins: number;
     liveAvgSpeed: number;
+    departedAt: string | null;
 } {
     const activeEntries = currentVoyageId ? entries.filter((e) => e.voyageId === currentVoyageId) : NO_ENTRIES;
     let dist = 0;
@@ -305,11 +308,23 @@ export function deriveLiveStats(
             speedN++;
         }
     }
-    const durationMs = Number.isFinite(firstMs) && Number.isFinite(lastMs) ? lastMs - firstMs : 0;
+    const local = {
+        entryCount: activeEntries.length,
+        startedAt: first?.timestamp ?? new Date(0).toISOString(),
+        endedAt: Number.isFinite(lastMs) ? new Date(lastMs).toISOString() : new Date(0).toISOString(),
+        departedAt: voyageDepartureTime(activeEntries),
+    };
+    const matchingSummary = summary?.voyageId === currentVoyageId ? summary : undefined;
+    const mergedDeparture = matchingSummary ? mergeVoyageDepartureTime(matchingSummary, local) : local.departedAt;
+    const departedAt = mergedDeparture === undefined ? (matchingSummary?.startedAt ?? null) : mergedDeparture;
+    const endedAt =
+        matchingSummary && Date.parse(matchingSummary.endedAt) > lastMs ? matchingSummary.endedAt : local.endedAt;
+    const durationMs = voyageElapsedMs({ ...local, endedAt, departedAt });
     return {
         activeEntries,
         first,
         dist,
+        departedAt,
         durationHrs: Math.floor(durationMs / 3600000),
         durationMins: Math.floor((durationMs % 3600000) / 60000),
         liveAvgSpeed: speedN > 0 ? speedSum / speedN : 0,

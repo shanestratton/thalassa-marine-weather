@@ -20,47 +20,52 @@
  * DEPTH GATING — it would plot a route across a bar it had no data to
  * refuse. Failing closed is the only safe direction for a depth
  * question. Omitting `onClose` is what removes SignInScreen's close
- * button; auth success still dismisses it through the effect below.
+ * button; a confirmed session lowers it on the next render.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useId, useState } from 'react';
 import { isBuilderDeepLink } from '../services/deepLink';
 import { useAuthStore } from '../stores/authStore';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { SignInScreen } from './SignInScreen';
+import { OverlayPortal } from './ui/OverlayPortal';
+
+/** Keep the standalone front door covered while its actual session is unknown. */
+function CheckingBuilderSession() {
+    const messageId = useId();
+    const dialogRef = useFocusTrap<HTMLDivElement>(true);
+    return (
+        <OverlayPortal
+            ref={dialogRef}
+            scope="app"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={messageId}
+            aria-busy="true"
+            className="flex items-center justify-center bg-slate-950 px-6 text-center text-gray-100"
+        >
+            <p id={messageId} role="status" aria-live="polite" className="text-sm font-semibold">
+                Checking your session…
+            </p>
+        </OverlayPortal>
+    );
+}
 
 export const BuilderDeepLink: React.FC = () => {
     // location.pathname is fixed for the life of the SPA — read once.
     const [active] = useState(isBuilderDeepLink);
-    const [done, setDone] = useState(false);
-    const [showSignIn, setShowSignIn] = useState(false);
     const user = useAuthStore((s) => s.user);
     const authChecked = useAuthStore((s) => s.authChecked);
 
-    useEffect(() => {
-        if (!active || !authChecked) return;
-        if (user) {
-            if (done) return;
-            // Session in hand (boot probe or a just-completed sign-in) —
-            // lower the wall. The planner front door is already on screen;
-            // its slide fires the tracer-open request itself.
-            setDone(true);
-            setShowSignIn(false);
-        } else {
-            // No session. This now covers an explicit sign-out from
-            // PlanSignOutButton AFTER the gate had already passed, so `done`
-            // has to be cleared: latching it would hold the wall down for
-            // the rest of the SPA's life and leave a signed-out planner with
-            // no chart data — exactly the state the wall exists to prevent.
-            setDone(false);
-            setShowSignIn(true);
-        }
-    }, [active, done, authChecked, user]);
-
-    if (!active || done || !showSignIn) return null;
+    if (!active) return null;
+    // Derive the wall in this render, not an effect after first paint. A
+    // provisional user never bypasses the initial session check, and sign-out
+    // immediately covers the planner again instead of leaving a latched gap.
+    if (!authChecked) return <CheckingBuilderSession />;
+    if (user) return null;
 
     // No `onClose`: that prop is what renders SignInScreen's close button,
-    // so leaving it off is the wall. The effect above tears this down the
-    // moment a session exists, which is the only way past it.
+    // so leaving it off is the wall. A confirmed session is the only way past.
     return (
         <SignInScreen
             isOpen

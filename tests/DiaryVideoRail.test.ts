@@ -55,7 +55,12 @@ describe('diary video rail', () => {
         // list before the prepend ran — two copies for a few seconds
         // ("phantom entry", 2026-09-01).
         const page = readFileSync(resolve(process.cwd(), 'components/DiaryPage.tsx'), 'utf8');
-        expect(page).toContain('[entry, ...prev.filter((e) => e.id !== entry.id)]');
+        // Reconciliation now also recognises an offline/cloud pair by its
+        // save operation, not just identical row IDs. Executable cases live
+        // in DiaryEntryIdentity.test.ts.
+        expect(page).toContain(
+            'reconcileDiaryEntries([savedEntry, ...prev], (id) => DiaryService.resolveServerId(id))',
+        );
     });
 
     it('an in-flight entry renders exactly once — pending wins over its synced twin', () => {

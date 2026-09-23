@@ -81,7 +81,7 @@ import {
     saveEntryOnlineOrOffline,
     demotePreviousAutoWaypoint,
 } from '../services/shiplog/EntrySave';
-import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import { getCurrentUser } from '../services/supabase';
 
 const mockGetCurrentUser = vi.mocked(getCurrentUser);
@@ -102,6 +102,20 @@ beforeEach(() => {
 });
 
 describe('local-only capture mode', () => {
+    it('passes the same lifecycle operation identity to local capture and cloud upsert', async () => {
+        const entry = { voyageId: 'v1', waypointName: 'Voyage Start', timestamp: '2026-06-01T00:00:00Z' };
+        const operationId = 'lifecycle_start_id_v1';
+        setCaptureLocalOnly(true);
+        await saveEntryOnlineOrOffline(entry, getAuthIdentityScope(), () => true, operationId);
+        expect(mockQueueOfflineEntry).toHaveBeenLastCalledWith(entry, expect.objectContaining({ operationId }));
+        setCaptureLocalOnly(false);
+        await saveEntryOnlineOrOffline(entry, getAuthIdentityScope(), () => true, operationId);
+        expect(mockUpsert).toHaveBeenLastCalledWith(
+            expect.objectContaining({ client_operation_id: operationId }),
+            expect.objectContaining({ onConflict: 'user_id,client_operation_id' }),
+        );
+    });
+
     it('flag round-trips', () => {
         expect(isCaptureLocalOnly()).toBe(false);
         setCaptureLocalOnly(true);

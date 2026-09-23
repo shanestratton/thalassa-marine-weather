@@ -2,16 +2,11 @@
  * mapboxWater — pull Mapbox's vector `water` layer as GeoJSON polygons, so the
  * router can route through canals, marinas, and creeks the ENC omits.
  *
- * The problem (Newport, 2026-06-18): the ENC charts marina lots as land (LNDARE)
- * and never charts the navigable channels between them — so the router had no
- * water to follow and clipped the lots. But that water is plainly visible in the
- * Mapbox satellite/vector tiles we already render on every frame. Mapbox's
- * `water` source-layer (OSM-derived, in mapbox-streets-v8) carries those channels
- * in full — verified 59% water coverage with the canal network intact over the
- * Newport marina. This is the data Navionics sells; we already load it.
- *
- * Feed these polygons into the router's authoritative-water path (the same
- * DEPARE-injection OSM water already uses) and the boat routes the real channels.
+ * Supplemental planimetric geometry, not ENC coverage or surveyed depth. A
+ * mapped water polygon does not establish that a vessel can navigate it. The
+ * canal adapter uses it only for geometry connectivity, adds mapped obstacles,
+ * and keeps chart depth/hazard review separate. It must not override a charted
+ * hazard or manufacture soundings to make a proposal pass review.
  *
  * The decode (decodeWaterFromTile) is PURE and offline-tested against a canned
  * tile; only fetchMapboxWater touches the network.
@@ -84,6 +79,8 @@ const tileUrl = (t: TileId, token: string): string =>
     `https://api.mapbox.com/v4/${STREETS_V8}/${t.z}/${t.x}/${t.y}.mvt?access_token=${token}`;
 
 export interface FetchMapboxWaterOpts {
+    /** Connector routing must not treat a missing tile as an empty/land tile. */
+    requireComplete?: boolean;
     /** Override the water zoom (default MAPBOX_WATER_ZOOM = 16). */
     zoom?: number;
     /** Per-tile JS deadline in ms (CapacitorHttp ignores AbortSignal on-device,
@@ -97,8 +94,8 @@ export interface FetchMapboxWaterOpts {
  * Fetch + decode the Mapbox `water` polygons covering a bbox. Tiles are fetched
  * concurrently; any failed/slow tile is skipped (a JS deadline bounds each, since
  * CapacitorHttp ignores AbortSignal). Returns an empty FeatureCollection on total
- * failure — the caller treats absence of Mapbox water as "no extra water", never
- * an error, so routing degrades gracefully to the ENC alone.
+ * failure for legacy optional-layer callers. The canal adapter explicitly sets
+ * requireComplete: a missing tile is an error there, never an assumed shortcut.
  */
 export async function fetchMapboxWater(
     bbox: readonly [number, number, number, number],
@@ -110,16 +107,20 @@ export async function fetchMapboxWater(
     const tiles = tilesForBbox(bbox, z);
     const fetchTile = opts.fetchTile ?? defaultFetchTile(opts.timeoutMs ?? 8000);
     const features: Feature<Polygon | MultiPolygon>[] = [];
+    let failed = false;
     await Promise.all(
         tiles.map(async (t) => {
             try {
                 const buf = await fetchTile(tileUrl(t, token));
                 if (buf && buf.length > 0) features.push(...decodeWaterFromTile(buf, t.z, t.x, t.y));
+                else failed = true;
             } catch {
+                failed = true;
                 /* skip this tile — partial water still helps */
             }
         }),
     );
+    if (opts.requireComplete && failed) throw new Error('Canal water-map coverage is incomplete.');
     return { type: 'FeatureCollection', features };
 }
 

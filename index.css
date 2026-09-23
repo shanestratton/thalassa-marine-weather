@@ -3833,22 +3833,22 @@ body.animation-diet [class*='slide-in'] {
    open on the left while the helm stays on the right, and Tracer becomes a
    full-height scrollable rail clear of the navigation escape button. */
 /* ── Passage strip on the Obs chart (Shane 2026-09-17) ────────────────────
-   A 4.75rem instrument strip down the left edge, like a chartplotter's data
-   bar (about 75px on a 393px phone — the root font is fluid below 768px, so
-   the strip scales with its own text). The width is the design: every CENTRED
-   piece of chart furniture (the RainViewer and Copernicus licence credits, the
-   tide scrubber) starts to the right of it, so nothing carrying a licence
-   condition is ever moved or covered.
+   A 9.5rem instrument pane down the left edge, doubled after the first
+   on-water check. Labels and larger values share each row so the wider pane
+   stays compact vertically. Its neighbouring controls use the same width.
 
    Clearances that must line up with px-anchored neighbours are in px: 60px
    clears the 56px top control row; 232px clears the bottom-left weather
    controls (the wind-model row tops out at inset + 210px). The split frame
    needs no override — its furniture still pays the insets, so the strip does. */
 .thalassa-passage-hud {
-    top: calc(env(safe-area-inset-top) + 60px);
-    max-height: calc(100% - env(safe-area-inset-top) - 60px - 232px - env(safe-area-inset-bottom));
+    top: calc(env(safe-area-inset-top) + 60px + var(--passage-hud-credit-clearance, 0px));
+    max-height: calc(
+        100% - env(safe-area-inset-top) - 60px - var(--passage-hud-credit-clearance, 0px) - 232px -
+            env(safe-area-inset-bottom)
+    );
 }
-/* The closed tab sits below the Back chevron. */
+/* The closed tab stays beside the chart's middle row. */
 .thalassa-passage-hud-tab {
     top: calc(50% + 40px);
 }
@@ -3893,7 +3893,13 @@ body:has(.thalassa-route-scrubber) .thalassa-passage-kit-prompt {
    screen; the scrubber tops out at 4rem + 163px in its tallest state (see
    above), so the strip may run lower than in LIVE — and never into it. */
 .thalassa-passage-hud[data-mode='forecast'] {
-    max-height: calc(100% - env(safe-area-inset-top) - 60px - 4rem - 190px - env(safe-area-inset-bottom));
+    max-height: min(
+        calc(
+            100% - env(safe-area-inset-top) - 60px - var(--passage-hud-credit-clearance, 0px) - 4rem - 190px -
+                env(safe-area-inset-bottom)
+        ),
+        var(--passage-scrubber-available-height, 100vh)
+    );
 }
 /* Phase 4 put the sea's providers in the scrubber's credit, which can run to a
    third line on a phone: +15px on both clearances above (171 -> 186, 175 -> 190).
@@ -3939,23 +3945,15 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
 /* What shares the strip's column yields ONLY while the strip is really on
    screen — never for a strip the rules above have hidden. */
 @media not ((orientation: landscape) and (max-height: 600px)) {
-    /* The strip carries its own Back button; App's chevron sits in its column. */
-    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
-            :has(button[aria-label='Close consensus matrix'])
-        ):not(:has(.storm-hud-badges))
-        .thalassa-map-back {
-        display: none;
-    }
     /* The wind legend (folded to its chip by ThalassaHelixControl while the
-       strip is open) steps right AND down into the slot the hidden Back
-       chevron has just vacated: beside the strip at its usual height it sat
+       strip is open) steps right and down: beside the strip at its usual height it sat
        under the tall all-layers Copernicus credit (measured 35 x 15px).
        Its position is inline, hence !important. */
     main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
             :has(button[aria-label='Close consensus matrix'])
         ):not(:has(.storm-hud-badges))
         .thalassa-helix-legend {
-        left: calc(4.75rem + 12px) !important;
+        left: calc(9.5rem + 12px) !important;
         bottom: calc(50% - 24px) !important;
     }
     /* The squall / lightning legend stack is viewport-fixed at left-2, in the
@@ -3964,7 +3962,7 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
             :has(button[aria-label='Close consensus matrix'])
         ):not(:has(.storm-hud-badges))
         .fixed.left-2.z-140 {
-        left: calc(4.75rem + 8px);
+        left: calc(9.5rem + 8px);
     }
     main:has(.thalassa-passage-hud-tab):not(:has(.thalassa-passage-banner)):not(
             :has(button[aria-label='Close consensus matrix'])
@@ -3980,8 +3978,8 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
             :has(button[aria-label='Close consensus matrix'])
         ):not(:has(.storm-hud-badges))
         .thalassa-enc-coverage-notice {
-        left: calc(4.75rem + (100% - 4.75rem) / 2);
-        width: min(390px, calc(100% - 4.75rem - 24px));
+        left: calc(9.5rem + (100% - 9.5rem) / 2);
+        width: min(390px, calc(100% - 9.5rem - 24px));
         transform: translateX(-50%);
     }
 }
@@ -3990,8 +3988,8 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
             :has(button[aria-label='Close consensus matrix'])
         ):not(:has(.storm-hud-badges))[data-split-pane='chart']
         .thalassa-enc-coverage-notice {
-        left: calc(4.75rem + 72px);
-        width: min(390px, calc(100% - 4.75rem - 152px));
+        left: calc(9.5rem + 8px);
+        width: min(390px, calc(100% - 9.5rem - 88px));
         transform: none;
     }
 }
@@ -4000,8 +3998,8 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
             :has(button[aria-label='Close consensus matrix'])
         ):not(:has(.storm-hud-badges))
         .thalassa-enc-coverage-notice {
-        left: calc(4.75rem + 8px);
-        width: calc(100% - 4.75rem - 20px);
+        left: calc(9.5rem + 8px);
+        width: calc(100% - 9.5rem - 20px);
         transform: none;
     }
 }
@@ -4449,7 +4447,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-purple-200 {
     color: rgb(126 34 206);
 }
-.display-light .text-purple-200\/70 {
+.display-light .text-purple-200\/70,
+.display-light .text-purple-200\/75 {
     color: rgb(126 34 206 / 0.9);
 }
 .display-light .text-purple-300 {
@@ -4566,6 +4565,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-sky-50 {
     color: rgb(3 105 161);
 }
+.display-light .text-teal-100,
 .display-light .text-teal-200 {
     color: rgb(15 118 110);
 }

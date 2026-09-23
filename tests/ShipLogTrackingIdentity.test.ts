@@ -53,9 +53,9 @@ const mocks = vi.hoisted(() => {
         nativeTrackingEnabled: vi.fn(async () => false),
         strictNativeTrackingEnabled: vi.fn(async () => false),
         setSamplingMode: vi.fn(async () => undefined),
-        captureImmediate: vi.fn<(ctx: CaptureContext, voyageId?: string, waypointLabel?: string) => Promise<null>>(
-            async () => null,
-        ),
+        captureImmediate: vi.fn<
+            (ctx: CaptureContext, voyageId?: string, waypointLabel?: string) => Promise<ShipLogEntry | null>
+        >(async () => null),
         captureLog: vi.fn(async () => null),
         addManual: vi.fn(async () => null),
         flushBuffered: vi.fn<(ctx: CaptureContext) => Promise<FlushBufferedTrackResult>>(async () => 'complete'),
@@ -66,6 +66,7 @@ const mocks = vi.hoisted(() => {
         disarmTrickle: vi.fn(),
         stopTrickle: vi.fn(async () => undefined),
         retireTrickle: vi.fn(async () => undefined),
+        deleteOfflineVoyage: vi.fn(async () => false),
         setCaptureLocalOnly: vi.fn((enabled: boolean) => {
             state.captureLocalOnly = enabled;
         }),
@@ -259,7 +260,7 @@ vi.mock('../services/shiplog/OfflineQueue', () => ({
     syncOfflineQueue: mocks.syncQueue,
     getOfflineQueueCount: vi.fn(async () => 0),
     getOfflineEntries: mocks.offlineEntries,
-    deleteVoyageFromOfflineQueue: vi.fn(async () => false),
+    deleteVoyageFromOfflineQueue: mocks.deleteOfflineVoyage,
     flushOfflineQueueToDisk: vi.fn(async () => undefined),
 }));
 
@@ -1071,5 +1072,124 @@ describe('ShipLogService tracking owner fence', () => {
             currentVoyageId: 'ordinary-paused-voyage',
         });
         expect(ShipLogService.getTrackingStatus().nativeTeardownPending).toBeUndefined();
+    });
+
+    it('captures a fresh Cast Off with a supplied voyage ID once across pause/resume and repeated starts', async () => {
+        setAuthIdentityScope('ship-owner-one-departure');
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(false);
+        await ShipLogService.initialize();
+        mocks.captureImmediate.mockClear();
+        mocks.captureImmediate.mockResolvedValueOnce({ id: 'start' } as ShipLogEntry);
+
+        await ShipLogService.startTracking(false, 'cast-off-lifecycle', undefined, true);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            voyageStartCapture: 'captured',
+            voyageStartTime: expect.any(String),
+        });
+        await ShipLogService.startTracking(false, 'cast-off-lifecycle', undefined, true);
+        await ShipLogService.pauseTracking();
+        await ShipLogService.startTracking(true, 'cast-off-lifecycle');
+        expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage Start')).toHaveLength(1);
+    });
+
+    it('continues a legacy voyage without claiming another departure', async () => {
+        setAuthIdentityScope('ship-owner-continue-legacy');
+        await ShipLogService.initialize();
+        mocks.captureImmediate.mockClear();
+        await ShipLogService.startTracking(false, 'legacy-continuation');
+        expect(ShipLogService.getTrackingStatus().isTracking).toBe(true);
+        expect(mocks.captureImmediate).not.toHaveBeenCalled();
+    });
+
+    it('retains one departure and records each actual stop when a completed voyage is continued', async () => {
+        setAuthIdentityScope('ship-owner-stop-continue');
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(false);
+        await ShipLogService.initialize();
+        mocks.captureImmediate.mockClear();
+        mocks.captureImmediate.mockResolvedValueOnce({ id: 'start' } as ShipLogEntry);
+        await ShipLogService.startTracking(false, 'stop-continue-voyage', undefined, true);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        await ShipLogService.stopTracking('stop-continue-voyage');
+        await ShipLogService.startTracking(false, 'stop-continue-voyage');
+        await ShipLogService.stopTracking('stop-continue-voyage');
+        expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage Start')).toHaveLength(1);
+        expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage End')).toHaveLength(2);
+    });
+
+    it.each([undefined, 'captured'] as const)(
+        'recovers the native recorder without another start when persisted capture is %s',
+        async (voyageStartCapture) => {
+            const userId = `ship-owner-recover-${voyageStartCapture ?? 'legacy'}`;
+            seedPersistedTrackingState(userId, {
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false,
+                currentVoyageId: 'recover-voyage',
+                voyageStartTime: '2026-09-18T00:00:00.000Z',
+                voyageStartCapture,
+            });
+            setAuthIdentityScope(userId);
+            mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+            mocks.captureImmediate.mockClear();
+            await ShipLogService.initialize();
+            expect(ShipLogService.getTrackingStatus()).toMatchObject({
+                isTracking: true,
+                currentVoyageId: 'recover-voyage',
+                voyageStartTime: '2026-09-18T00:00:00.000Z',
+            });
+            expect(mocks.captureImmediate).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not fabricate a departure from an arrival fix after a crash before the start marker saved', async () => {
+        const userId = 'ship-owner-recover-pending-start';
+        const departedAt = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+        seedPersistedTrackingState(userId, {
+            isTracking: true,
+            isPaused: false,
+            isRapidMode: false,
+            currentVoyageId: 'pending-start',
+            voyageStartTime: departedAt,
+            voyageStartCapture: 'pending',
+        });
+        setAuthIdentityScope(userId);
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+        mocks.captureImmediate.mockClear();
+        await ShipLogService.initialize();
+        const arrivalFix = { latitude: -26.7, longitude: 153.2, timestamp: Date.now(), receivedAt: Date.now() };
+        mocks.state.gpsOptions?.onAcceptedFix?.(arrivalFix);
+        mocks.state.gpsOptions?.onTrackOpened?.();
+        mocks.state.trackBuffer?.push(arrivalFix);
+        const flushesBefore = mocks.flushBuffered.mock.calls.length;
+        await mocks.state.schedulerTick?.();
+        expect(mocks.flushBuffered).toHaveBeenCalledTimes(flushesBefore + 1);
+        expect(mocks.captureImmediate).not.toHaveBeenCalled();
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: true,
+            currentVoyageId: 'pending-start',
+            voyageStartTime: departedAt,
+            voyageStartCapture: 'pending',
+        });
+    });
+
+    it('retains and uploads an apparently empty local tail when recording stops', async () => {
+        setAuthIdentityScope('ship-owner-retain-stop-tail');
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(false);
+        await ShipLogService.initialize();
+        await ShipLogService.startTracking(false, 'stop-tail-voyage');
+        const tail = [{ voyageId: 'stop-tail-voyage', cumulativeDistanceNM: 0, entryType: 'auto' }] as ShipLogEntry[];
+        mocks.offlineEntries.mockResolvedValueOnce(tail);
+        mocks.deleteOfflineVoyage.mockClear();
+        mocks.retireTrickle.mockClear();
+        const syncsBefore = mocks.syncQueue.mock.calls.length;
+        await ShipLogService.stopTracking('stop-tail-voyage');
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        expect(mocks.deleteOfflineVoyage).not.toHaveBeenCalled();
+        expect(mocks.retireTrickle).not.toHaveBeenCalled();
+        expect(mocks.cache).toHaveBeenLastCalledWith('stop-tail-voyage', tail, expect.anything(), {
+            preserveExisting: true,
+        });
+        expect(mocks.syncQueue.mock.calls.length).toBeGreaterThan(syncsBefore);
     });
 });

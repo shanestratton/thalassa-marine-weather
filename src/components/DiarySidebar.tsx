@@ -1,10 +1,14 @@
 import React from 'react';
 import { MOOD, type VoyageLogEntry, type VoyageLogTelemetry, type VoyageLogInstruments } from '../voyageLogApi';
 import { InstrumentsNotShared, TelemetryPanel } from './TelemetryPanel';
+import { PublicDiaryComments } from './PublicDiaryComments';
+import { newestDiaryEntries } from '../publicDiaryDefaults';
 
 export type PublicVoyagePanel = 'instruments' | 'diary';
 
 interface DiarySidebarProps {
+    /** Public vessel handle, scoped by the comment API on every request. */
+    publicHandle?: string;
     entries: VoyageLogEntry[];
     telemetry: VoyageLogTelemetry | null;
     instruments?: VoyageLogInstruments | null;
@@ -102,10 +106,11 @@ const EntryVideo: React.FC<{ url: string }> = ({ url }) => {
 
 // ── Detail: a single entry, full content ───────────────────────
 const EntryDetail: React.FC<{
+    publicHandle?: string;
     entry: VoyageLogEntry;
     onBack: () => void;
     onPhotoClick: (entry: VoyageLogEntry, index: number) => void;
-}> = ({ entry, onBack, onPhotoClick }) => {
+}> = ({ publicHandle, entry, onBack, onPhotoClick }) => {
     const mood = MOOD[entry.mood];
     return (
         <>
@@ -195,6 +200,7 @@ const EntryDetail: React.FC<{
                         <span>{entry.weather_summary}</span>
                     </div>
                 )}
+                {publicHandle && <PublicDiaryComments handle={publicHandle} entryId={entry.id} />}
             </div>
         </>
     );
@@ -214,6 +220,7 @@ const EntryList: React.FC<{
     context,
     emptyMessage = 'No log entries published yet.',
 }) {
+    const sortedEntries = React.useMemo(() => newestDiaryEntries(entries), [entries]);
     return (
         <>
             <div className="shrink-0 px-4 py-3 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
@@ -241,7 +248,7 @@ const EntryList: React.FC<{
                 </div>
             ) : (
                 <div className="shrink-0 p-3 space-y-3">
-                    {entries.map((entry) => {
+                    {sortedEntries.map((entry) => {
                         const mood = MOOD[entry.mood];
                         return (
                             <button
@@ -306,6 +313,7 @@ const EntryList: React.FC<{
 });
 
 export default function DiarySidebar({
+    publicHandle,
     entries,
     instruments,
     nowMs,
@@ -350,7 +358,12 @@ export default function DiarySidebar({
                     <InstrumentsNotShared />
                 ) : null
             ) : selectedEntry ? (
-                <EntryDetail entry={selectedEntry} onBack={onClearSelection} onPhotoClick={onPhotoClick} />
+                <EntryDetail
+                    publicHandle={publicHandle}
+                    entry={selectedEntry}
+                    onBack={onClearSelection}
+                    onPhotoClick={onPhotoClick}
+                />
             ) : (
                 <EntryList
                     entries={entries}

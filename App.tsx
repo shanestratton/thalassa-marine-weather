@@ -1429,16 +1429,23 @@ const App: React.FC = () => {
                             tracer, which own the whole chart while they are up. The
                             passage planner and the consensus matrix hide it from CSS
                             (index.css, main:has(...)), because only MapHub knows them. */}
-                            {chartVisible && !mapPickerActive && !tracerActive && (
-                                <PassageHudPane
-                                    // The strip carries Back while it is shown: App's own
-                                    // chevron below shares its column and is hidden by
-                                    // index.css for exactly that long. Same action.
-                                    onBack={() => {
+                            {chartVisible && !mapPickerActive && !tracerActive && <PassageHudPane />}
+                            {/* OBS is a top-level tab, not a Back destination.
+                            Only the temporary location-picking workflow needs
+                            a cancel action so a tap is never compulsory. */}
+                            {mapPickerActive && (
+                                <button
+                                    type="button"
+                                    aria-label="Cancel location selection"
+                                    className="absolute left-3 top-1/2 z-721 rounded-xl border border-white/20 bg-slate-900/95 px-4 py-3 font-bold text-white shadow-xl"
+                                    onClick={() => {
+                                        setMapPickerActive(false);
                                         delete window.__thalassaPinView;
-                                        setPage(previousView || 'dashboard');
+                                        setPage(previousView && previousView !== 'map' ? previousView : 'dashboard');
                                     }}
-                                />
+                                >
+                                    Cancel
+                                </button>
                             )}
                             {/* Offline chip — matches the wifi-slash chip in the App header
                             and the Glass page's location-pill chip. Sits at top-left, only
@@ -1510,39 +1517,6 @@ const App: React.FC = () => {
                                         alwaysShow
                                     />
                                 </Suspense>
-                            </div>
-                            {/* Back chevron — middle-left of screen */}
-                            <div
-                                // thalassa-map-back: hidden while the passage strip is shown — the strip
-                                // carries its own Back then (index.css).
-                                className="thalassa-map-back absolute z-601 px-3"
-                                style={{ top: '50%', transform: 'translateY(-50%)' }}
-                            >
-                                <button
-                                    onClick={() => {
-                                        // Clear pin-view state when leaving map
-
-                                        delete window.__thalassaPinView;
-                                        // Go back to wherever we came from
-                                        setPage(previousView || 'dashboard');
-                                    }}
-                                    aria-label="Back"
-                                    className="w-12 h-12 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
-                                >
-                                    <svg
-                                        className="w-5 h-5 text-white"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M15.75 19.5L8.25 12l7.5-7.5"
-                                        />
-                                    </svg>
-                                </button>
                             </div>
                         </main>
                     </PanePortalScope>

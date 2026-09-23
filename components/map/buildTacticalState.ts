@@ -190,15 +190,9 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
             });
         },
         tideStationsVisible,
-        onToggleTideStations: () => {
-            setTideStationsVisible((v) => {
-                if (!v) {
-                    setSquallVisible(false);
-                    setCycloneVisible(false);
-                }
-                return !v;
-            });
-        },
+        // Tide gauges are small reference markers, not a full-screen mode.
+        // Keep passage wind/rain/squall selections intact when inspecting one.
+        onToggleTideStations: () => setTideStationsVisible((v) => !v),
         anchorageVisible,
         onToggleAnchorage: () => setAnchorageVisible((v) => !v),
         onOpenWeatherWindow: () => setPage('weatherWindow'),

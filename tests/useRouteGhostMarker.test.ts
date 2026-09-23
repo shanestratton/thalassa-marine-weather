@@ -9,6 +9,7 @@
  * never draw the long way round the planet.
  */
 import { renderHook, act } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
@@ -42,10 +43,13 @@ vi.mock('mapbox-gl', () => {
     return { default: { Marker }, Marker };
 });
 
-import { ghostPathCoordinates, useRouteGhostMarker } from '../components/map/useRouteGhostMarker';
+import { createRouteGhostEl, ghostPathCoordinates, useRouteGhostMarker } from '../components/map/useRouteGhostMarker';
+import { useRouteTrackLayer } from '../components/map/useRouteTrackLayer';
+import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
 import {
     __resetPassageHudForTests,
     publishPassageGhost,
+    publishPassageGhostJoinPath,
     publishPassageGhostPath,
     startPassageLookAhead,
     stopPassageLookAhead,
@@ -69,6 +73,18 @@ function fakeMap() {
         getLayer: (id: string) => layers.get(id),
         addLayer: (spec: { id: string }) => void layers.set(spec.id, spec),
         removeLayer: (id: string) => void layers.delete(id),
+        getStyle: () => ({ layers: [...layers].map(([id, layer]) => ({ ...layer, id })) }),
+        moveLayer: vi.fn((id: string, beforeId?: string) => {
+            const layer = layers.get(id);
+            if (!layer) throw new Error(`Missing layer ${id}`);
+            layers.delete(id);
+            const entries = [...layers];
+            const before = beforeId ? entries.findIndex(([key]) => key === beforeId) : -1;
+            entries.splice(before < 0 ? entries.length : before, 0, [id, layer]);
+            layers.clear();
+            for (const [key, value] of entries) layers.set(key, value);
+        }),
+        fitBounds: vi.fn(),
         on: (ev: string, fn: () => void) => {
             if (!handlers.has(ev)) handlers.set(ev, new Set());
             handlers.get(ev)!.add(fn);
@@ -93,6 +109,7 @@ const PATH = [
     { lat: -21.1, lon: 149.25 },
 ];
 const GHOST = { lat: -23, lon: 151.1, bearingDeg: 330, label: '+6 h' };
+const JOIN = [{ lat: -23.6, lon: 151.2 }, PATH[0]];
 
 let map: ReturnType<typeof fakeMap>;
 const mount = (ready = true) => {
@@ -108,6 +125,28 @@ beforeEach(() => {
 afterEach(() => __resetPassageHudForTests());
 
 describe('the ghost', () => {
+    it('keeps Mapbox’s absolute marker positioning so normal flow cannot push the hull off the route', async () => {
+        const actualMapbox = await vi.importActual<typeof import('mapbox-gl')>('mapbox-gl');
+        const css = document.createElement('style');
+        css.textContent = readFileSync('node_modules/mapbox-gl/dist/mapbox-gl.css', 'utf8');
+        document.head.appendChild(css);
+        const { root, chip } = createRouteGhostEl();
+        const marker = new actualMapbox.default.Marker({ element: root, anchor: 'center' });
+        document.body.appendChild(root);
+        try {
+            expect(root.classList.contains('mapboxgl-marker')).toBe(true);
+            const style = getComputedStyle(root);
+            expect(style.position).toBe('absolute');
+            expect(style.left).toBe('0px');
+            expect(style.top).toBe('0px');
+            expect(getComputedStyle(chip).position).toBe('absolute');
+        } finally {
+            marker.remove();
+            root.remove();
+            css.remove();
+        }
+    });
+
     it('is not on the chart at all while live', () => {
         mount();
         expect(markers.made).toHaveLength(0);
@@ -159,6 +198,7 @@ describe('the ghost', () => {
             startPassageLookAhead();
             publishPassageGhost(GHOST);
             publishPassageGhostPath(PATH);
+            publishPassageGhostJoinPath(JOIN);
         });
         act(() => stopPassageLookAhead());
         expect(markers.made[0].removed).toBe(true);
@@ -168,11 +208,12 @@ describe('the ghost', () => {
 });
 
 describe('the line it rides', () => {
-    it('is drawn dashed, from the boat to the destination, only while asked for', () => {
+    it('is drawn solid purple, from the boat to the destination, only while asked for', () => {
         mount();
         act(() => publishPassageGhostPath(PATH));
         const layer = map.layers.get('passage-ghost-path-line') as { paint: Record<string, unknown> };
-        expect(layer.paint['line-dasharray']).toEqual([2, 2]);
+        expect(layer.paint['line-color']).toBe('#a855f7');
+        expect(layer.paint['line-dasharray']).toBeUndefined();
         const data = map.sources.get('passage-ghost-path')!.data as GeoJSON.Feature<GeoJSON.LineString>;
         expect(data.geometry.coordinates).toEqual([
             [151.4, -23.6],
@@ -198,7 +239,20 @@ describe('the line it rides', () => {
         map.swapStyle();
         expect(map.layers.size).toBe(0);
         act(() => map.fire('styledata'));
-        expect(map.layers.has('passage-ghost-path-line')).toBe(true);
+        const layer = map.layers.get('passage-ghost-path-line') as { paint: Record<string, unknown> };
+        expect(layer.paint['line-color']).toBe('#a855f7');
+        expect(layer.paint['line-dasharray']).toBeUndefined();
+    });
+
+    it('restores the purple line when a style update removes its layer but keeps its source', () => {
+        mount();
+        act(() => publishPassageGhostPath(PATH));
+        map.removeLayer('passage-ghost-path-line');
+        act(() => map.fire('styledata'));
+        expect(map.sources.size).toBe(1);
+        const layer = map.layers.get('passage-ghost-path-line') as { paint: Record<string, unknown> };
+        expect(layer.paint['line-color']).toBe('#a855f7');
+        expect(layer.paint['line-dasharray']).toBeUndefined();
     });
 
     it('waits for a style that is still loading instead of throwing at it', () => {
@@ -216,12 +270,14 @@ describe('the line it rides', () => {
         act(() => {
             publishPassageGhost(GHOST);
             publishPassageGhostPath(PATH);
+            publishPassageGhostJoinPath(JOIN);
         });
         view.rerender({ r: false });
         expect(map.layers.size).toBe(0);
         expect(markers.made[0].removed).toBe(true);
         expect(map.handlers.get('rotate')?.size ?? 0).toBe(0);
         expect(map.handlers.get('styledata')?.size ?? 0).toBe(0);
+        expect(map.handlers.get('idle')?.size ?? 0).toBe(0);
     });
 
     it('never goes the long way round the planet at the antimeridian', () => {
@@ -251,5 +307,157 @@ describe('the line it rides', () => {
         mount();
         act(() => publishPassageGhostPath([{ lat: -23, lon: 151 }]));
         expect(map.layers.size).toBe(0);
+    });
+});
+
+describe('the unchecked forecast approach', () => {
+    it('stays above late rain and squall layers even when its geometry is unchanged', () => {
+        mount();
+        act(() => {
+            publishPassageGhostPath(PATH);
+            publishPassageGhostJoinPath(JOIN);
+        });
+        const route = map.sources.get('passage-ghost-path')!.data;
+        const join = map.sources.get('passage-ghost-join-path')!.data;
+        map.addLayer({ id: 'rain-frame-1' });
+        map.addLayer({ id: 'squall-radar' });
+        act(() => map.fire('styledata'));
+        expect([...map.layers.keys()].slice(-2)).toEqual(['passage-ghost-path-line', 'passage-ghost-join-path-line']);
+        expect(map.sources.get('passage-ghost-path')!.data).toBe(route);
+        expect(map.sources.get('passage-ghost-join-path')!.data).toBe(join);
+        expect(map.moveLayer).toHaveBeenCalledTimes(2);
+        act(() => {
+            map.fire('styledata');
+            map.fire('idle');
+            map.fire('idle');
+        });
+        expect(map.moveLayer).toHaveBeenCalledTimes(2);
+    });
+
+    it('shares foreground priority with the full route and track without a promotion loop', () => {
+        const ref = { current: map as unknown as mapboxgl.Map };
+        const selected = (id: string): RouteOrTrack => ({
+            id,
+            label: id,
+            sublabel: '',
+            points: PATH,
+            bbox: [149.25, -23.6, 151.4, -21.1],
+            timestamp: 0,
+            distanceNm: 100,
+            isLocal: true,
+            kind: 'sea',
+        });
+        renderHook(() => {
+            useRouteGhostMarker(ref, true);
+            useRouteTrackLayer({ mapRef: ref, mapReady: true, variant: 'route', selected: selected('route') });
+            useRouteTrackLayer({ mapRef: ref, mapReady: true, variant: 'track', selected: selected('track') });
+        });
+        act(() => {
+            publishPassageGhostPath(PATH);
+            publishPassageGhostJoinPath(JOIN);
+            map.fire('idle');
+        });
+        map.moveLayer.mockClear();
+        map.addLayer({ id: 'rain-frame-1' });
+        map.addLayer({ id: 'squall-radar' });
+        act(() => {
+            map.fire('idle');
+            map.fire('styledata');
+        });
+        expect([...map.layers.keys()].slice(-6)).toEqual([
+            'passage-ghost-path-line',
+            'passage-ghost-join-path-line',
+            'routetrack-route-glow',
+            'routetrack-route-line',
+            'routetrack-track-glow',
+            'routetrack-track-line',
+        ]);
+        const moves = map.moveLayer.mock.calls.length;
+        act(() => {
+            map.fire('idle');
+            map.fire('styledata');
+            map.fire('idle');
+        });
+        expect(map.moveLayer).toHaveBeenCalledTimes(moves);
+
+        // If the full route has already been raised, preserve its priority
+        // while repairing a forecast path that was left beneath the rain.
+        map.moveLayer('rain-frame-1', 'routetrack-route-glow');
+        act(() => map.fire('styledata'));
+        expect([...map.layers.keys()].slice(-6)).toEqual([
+            'passage-ghost-path-line',
+            'passage-ghost-join-path-line',
+            'routetrack-route-glow',
+            'routetrack-route-line',
+            'routetrack-track-glow',
+            'routetrack-track-line',
+        ]);
+    });
+
+    it('is dashed amber in its own source and leaves the solid purple route geometry untouched', () => {
+        mount();
+        act(() => publishPassageGhostPath(PATH));
+        const route = map.sources.get('passage-ghost-path')!.data;
+        act(() => publishPassageGhostJoinPath(JOIN));
+        const join = map.sources.get('passage-ghost-join-path')!.data as GeoJSON.Feature<GeoJSON.LineString>;
+        const layer = map.layers.get('passage-ghost-join-path-line') as { paint: Record<string, unknown> };
+        expect(layer.paint['line-color']).toBe('#fbbf24');
+        expect(layer.paint['line-dasharray']).toEqual([2, 2]);
+        expect(join.geometry.coordinates).toEqual([
+            [151.2, -23.6],
+            [151.4, -23.6],
+        ]);
+        expect(map.sources.get('passage-ghost-path')!.data).toBe(route);
+        const purple = map.layers.get('passage-ghost-path-line') as { paint: Record<string, unknown> };
+        expect(purple.paint['line-color']).toBe('#a855f7');
+        expect(purple.paint['line-dasharray']).toBeUndefined();
+        act(() => publishPassageGhostJoinPath(null));
+        expect(map.sources.has('passage-ghost-join-path')).toBe(false);
+        expect(map.layers.has('passage-ghost-join-path-line')).toBe(false);
+        expect(map.sources.get('passage-ghost-path')!.data).toBe(route);
+    });
+
+    it('moves only the approach source when the actual fix changes', () => {
+        mount();
+        act(() => {
+            publishPassageGhostPath(PATH);
+            publishPassageGhostJoinPath(JOIN);
+        });
+        const route = map.sources.get('passage-ghost-path')!.data;
+        act(() => publishPassageGhostJoinPath([{ lat: -23.6, lon: 151.3 }, PATH[0]]));
+        expect(map.sources.size).toBe(2);
+        const join = map.sources.get('passage-ghost-join-path')!.data as GeoJSON.Feature<GeoJSON.LineString>;
+        expect(join.geometry.coordinates[0]).toEqual([151.3, -23.6]);
+        expect(map.sources.get('passage-ghost-path')!.data).toBe(route);
+    });
+
+    it('restores the separate approach and route after a basemap switch or missing approach layer', () => {
+        mount();
+        act(() => {
+            publishPassageGhostPath(PATH);
+            publishPassageGhostJoinPath(JOIN);
+        });
+        map.swapStyle();
+        act(() => map.fire('styledata'));
+        expect(map.sources.size).toBe(2);
+        expect(map.layers.size).toBe(2);
+        map.removeLayer('passage-ghost-join-path-line');
+        act(() => map.fire('styledata'));
+        const layer = map.layers.get('passage-ghost-join-path-line') as { paint: Record<string, unknown> };
+        expect(layer.paint['line-dasharray']).toEqual([2, 2]);
+        const purple = map.layers.get('passage-ghost-path-line') as { paint: Record<string, unknown> };
+        expect(purple.paint['line-dasharray']).toBeUndefined();
+    });
+
+    it('keeps a dateline-crossing approach local to the route', () => {
+        mount();
+        act(() =>
+            publishPassageGhostJoinPath([
+                { lat: -17.5, lon: 179.9 },
+                { lat: -17.5, lon: -179.9 },
+            ]),
+        );
+        const join = map.sources.get('passage-ghost-join-path')!.data as GeoJSON.Feature<GeoJSON.LineString>;
+        expect(join.geometry.coordinates[1][0] - join.geometry.coordinates[0][0]).toBeCloseTo(0.2, 9);
     });
 });

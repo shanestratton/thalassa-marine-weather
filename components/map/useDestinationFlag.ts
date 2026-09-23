@@ -35,7 +35,7 @@ function compass(bearing: number): string {
     return dirs[Math.round(bearing / 45) % 8];
 }
 
-function buildFlagElement(destination: string): HTMLDivElement {
+export function buildFlagElement(destination: string): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'destination-flag-marker';
     // Tappable (2026-09-09): a flag for a route you do not remember plugging in
@@ -44,12 +44,12 @@ function buildFlagElement(destination: string): HTMLDivElement {
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
     el.setAttribute('aria-label', `Following ${destination} — tap to stop following`);
+    // The Marker's bottom anchor positions the pole; leave root position and
+    // transform to Mapbox so this flag cannot displace following DOM markers.
     el.style.cssText = `
-        position: relative;
         width: 36px; height: 44px;
         pointer-events: auto;
         cursor: pointer;
-        transform: translateY(-22px); /* anchor the flag pole base at lat/lon */
     `;
 
     // Pulse halo behind the flag

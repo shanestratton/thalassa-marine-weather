@@ -1,4 +1,102 @@
-# Isolated autorouting trial — next build 115
+# Isolated autorouting trial
+
+## Standalone `/plan` entry verification — 2026-09-13
+
+The current web source already uses the shared Planning home: **Slide to Start
+Plotting → Manual routing / Auto routing**. It needs no duplicate Auto card.
+The standalone session wall now renders immediately while authentication is
+being checked, even with a provisional user, and requires a confirmed session
+before revealing the planner. Signed-out users have no dismiss action. Native
+non-builder gate behaviour is unchanged. Auto still requires the server's existing
+account allowlist, trial switch, expiry and quota; exposing the choice does not
+grant an account access or activate a route.
+
+The phone visual check also caught an existing sign-in layout fault: the
+viewport-pinned privacy footer covered the Google button. Privacy copy now
+follows the buttons in normal flow, with a gap and bounded, scrollable content
+on short screens. All three provider actions and their authentication handlers
+are unchanged.
+
+Validation: **242 tests across ten focused suites** passed, including five new
+real-`/plan` entry cases with the actual slider, routing dialog and handoff logic
+(provider/chart workspace mocked). TypeScript, web build, scoped ESLint,
+Prettier and whitespace checks passed. Local web-release/asset checks and bundle
+budgets passed. **Two compiled browser cases**, desktop Chromium and phone
+WebKit, confirmed the sign-in wall blocks the planner, cannot be dismissed,
+makes no trial request, and keeps the privacy text clear of hit-testable email,
+Apple and Google buttons. Both final screenshots were inspected.
+
+Local web entry: `main-ClIJfMFo.js`; SHA-256:
+`dc9996e3c0c07fb0eae7d1b07bb11b627cdeb146c061cb6fad88030833117854`.
+This was a web build only, not a new native sync/archive/TestFlight release.
+
+The live Vercel deployment was inspected read-only: `dpl_EuUUgRNt4o6sVKfcVfCRQ3oVJWJq`,
+created **10 September 2026 at 07:12 AEST**, serves `main-DWyPOmnU.js` and an older
+planner without the routing choice. `/plan` shares the production deployment
+and aliases with the wider public website. No deployment, promotion, commit,
+push, provider request or access-policy change was performed during this entry
+verification. Publishing the current web candidate requires a shared-site
+release, not a `/plan`-only switch.
+
+## Automatic chart-matched Newport exit — 2026-09-13
+
+For **Canal / marina** departures inside the reviewed Newport tidal-canal area,
+the trial now chooses the exit without a third pin. It reads the device's
+registered navigation chart and requires its edition, issue date and all eight
+real lateral-marker identities/categories/positions to match the reviewed
+profile. Missing, reference-only, removed, changed or unreadable charts cannot
+enable the automatic exit. Standard licensed-chart read-through is bounded by
+a 15-second verification deadline; failures leave **Choose Canal exit** available.
+
+The proposal is constrained through the exact centres of all four reviewed
+marker pairs, in explicitly reviewed inner-to-outer order. Each centre remains
+a pinned vertex after local solving/simplification. SevenCs starts at the final
+pair and must initially progress outward; no route or straight-line substitute
+is accepted on a failed local path, marker constraint or provider join. Existing
+wall, pontoon, bridge, grid, tile, worker and chart-review limits remain intact.
+
+The automatic card shows the exit coordinates and allows **Choose manually**;
+manual override can be switched back to automatic. Changing departure discards
+the old exit even during partial coordinate entry, aborts pending work and
+re-resolves the area. Manual overrides survive destination-only edits. A
+resolved automatic exit cannot leave a hidden Canal Exit tap target selected.
+Source evidence and review expiry are rechecked before calculation and before
+displaying its result; delayed work cannot revive an old selection.
+
+This is **Newport-only coverage**, not an inference that any farthest, nearest
+or lowest-numbered buoy is an exit. The reviewed polygon excludes Newport
+Lake/lock, the bridge-separated southern canals, Scarborough and open bay.
+Same-area destinations and unknown regions retain manual/local planning.
+The broader daily obstacle refresh is unchanged and cannot renew this reviewed
+marker profile. Its initial review expires **20 September 2026 at 07:12 AEST**.
+An expired profile returns to manual until reviewed again.
+
+The [source review](NEWPORT_AUTOMATIC_EXIT_REVIEW_2026-09-13.md) records the live
+licensed chart, official MSQ map, notices, exact pairs and conservative polygon
+derivation. “Chart-matched” is not a physical inspection, tidal/depth/traffic
+clearance or permission to navigate an unsaved proposal. No worldwide automatic
+coverage or control of a vessel/lock is implied.
+
+Validation for this revision: **245 focused tests** and **34 Chromium/WebKit
+browser cases** passed. Six automatic-exit visual cases were additionally
+captured and inspected across daylight, dark and night phone/split-pane layouts.
+Scoped lint, formatting and `git diff --check` passed. The earlier interrupted
+browser run was not counted as successful; the complete rerun passed all cases.
+
+Fresh complete z16 water and the controlled overlay plus fixed bridges produced
+local paths for both previous Newport departure pins: **14 and 10 waypoints**,
+with all four exact pair centres retained. Independent polygon/line checks at
+15,304 samples (at most 0.5 m apart) found no outside-water samples, obstacle
+interior samples or mapped wall/pier/bridge/boundary intersections. Desktop
+solve times were 366 and 316 ms; no SevenCs request or route activation was
+performed by these diagnostics. This is mapped geometry, not physical clearance.
+
+`npm run ship` completed TypeScript, production build, Capacitor sync and
+artifact secret checks. All **424** generated web files match their iOS copies
+byte-for-byte. Entry: `main-SRl1dMn0.js`; SHA-256:
+`f5f941da845b4c0b62c490c8baa11f2b2fbff59bd3217afe42ae15b530927cbb`.
+Local preview only: no native archive, TestFlight upload, commit, push or backend
+deployment was performed for this automatic-exit change.
 
 Planning home has no separate autorouting card. Completing **Slide to Start
 Plotting** opens a centered **Manual routing / Auto routing** choice, scoped to
@@ -17,7 +115,220 @@ Close discards the draft. Editing an input invalidates the previous result.
 Account changes and cancellation fence late replies. There is deliberately no
 Save, Follow, Publish or Cast off action in this first evaluation slice.
 The Auto trial currently calculates **leaving now**, not the scheduled departure
-on Planning home; this limitation is stated in the workspace.
+on Planning home. Removing the repeated departure message does not change that API behaviour.
+
+## Local preview after build 117 — 2026-09-12
+
+The trial now displays the existing viewport-bounded ENC renderer over its own
+map, with chart depth fills, land, contours and marks below the proposal. It
+uses the same licensed chart inventory as manual plotting; charts still require
+available coverage and successful loading. Reference-only, missing coverage and
+loading states remain explicit. The isolated map uses full chart treatment
+without changing the OBS/manual imagery preference.
+
+Draft and speed are no longer editable here. The mode chooser snapshots Vessel
+preferences (including the existing feet-to-metres conversion) when Auto opens.
+Invalid or missing preferences disable Calculate and direct the user to Vessel;
+no substitute vessel values are invented. Clear resets endpoints/proposal only.
+The duplicate draft/speed and leaving-now paragraphs are removed. The trial
+warning and provider warnings remain.
+
+This is a local build + Capacitor sync only, not a new TestFlight release.
+
+Initial ENC-preview validation: 150 focused unit tests and 10 Chromium/WebKit phone/split-pane
+checks passed, alongside the 28 legacy marina/canal checks below. Browser
+checks use a synthetic reference ENC cell, not live licensed chart coverage.
+They also caught and now cover cancelling delayed ENC uploads when a map is
+closed; upload generations and geometry deduplication are scoped per map so
+one pane cannot cancel another. Scoped lint and `git diff --check` passed.
+`npm run ship` completed TypeScript, production build, Capacitor sync and
+artifact secret checks. Web and iOS both contain `main-C8pVZjEM.js`, SHA-256
+`2c7165a9b61813d2ef7db51b0be9a40d7b9c3f25198c4e2e991d7569191b7b3f`.
+
+### Waypoint and chart-check preview
+
+Every returned coordinate is a numbered, selectable waypoint. No bends are
+simplified and the original provider payload stays unchanged. Each exact leg
+receives the same `gradeLegs` / `validateTraceLeg` checks used by manual plotting:
+depth against draft plus the existing 0.5 m LAT margin, land, obstructions,
+berths, cardinal marks, lateral gates/solo laterals and nearby leads. Colours
+and a paged waypoint list expose each result; issue buttons focus its mark or
+location. Green means no issue found by these checks, never navigation approval.
+Sub-keel legs remain flagged: no tide credit or departure window is established.
+
+This caller deliberately uses a stricter **charted-depth-only** input policy.
+It excludes the old engine's fabricated OSM water/marina depths and excludes
+canal, NAVLINE, FAIRWY and DRGARE rescue hints from depth-grid generation. The
+original lead/mark layers remain available to the checker. A lead line is not
+itself a sounding. Manual routing's default input policy has not changed.
+Missing chart/marker/obstacle data stays incomplete, not green. The strict
+context has a different in-flight key so it cannot coalesce with a legacy grid.
+
+Review is cold and in-memory, with 64-leg batches and at most one held grid;
+long legs use the existing bounded subdivision. Stop, Clear, Close and identity
+changes discard/cancel work. A changed chart fingerprint invalidates old
+colours and offers Recheck rather than auto-rebuilding continuously during
+hydration. Dateline, polar and degenerate segments decline explicitly.
+No saved-route writes, approval envelope, handoff, publication or Pi commands.
+
+**Lead following:** the supplied evaluation OpenAPI schema has no documented
+follow-leads toggle. Our request already enables its route/restriction checkers.
+It supports ordered must-go areas/points, but these have not been introduced
+by this change. An off-lead warning is not an automatic correction; the manual
+checker only assesses relevant nearby leads, not universal lead adherence.
+No provider settings or deployed functions changed, and the screenshot alone
+does not identify why that particular SevenCs proposal deviated.
+
+Validation for this revision: 275 focused tests plus 40 manual-routing
+regressions passed. All 10 selected Chromium/WebKit phone and split-pane
+visual cases passed, including actual rendered waypoint labels, incomplete
+reference-chart results, keyboard layout and Close cleanup. A fixture font
+failure exposed a dependency on downloaded glyphs; the trial now uses locally
+rendered text so waypoint numbers need no font-server request. Scoped lint,
+formatting, TypeScript, production build, Capacitor sync and artifact secret
+checks passed. All 422 generated web files match their iOS copies byte-for-byte.
+Entry: `main-D5Xo7YKG.js`; SHA-256:
+`28c20f7191791ac9e04b6fc363d902695cc2e3aa3f3ee91fe3831808d60504df`.
+This remains a local preview: no archive, upload, commit or deployment.
+
+### Canal departure connector — local preview, 2026-09-12 evening
+
+The optional **Canal / marina departure** control adds an explicit **Canal exit**
+pin. The skipper selects the handover beyond the canal walls; this revision does
+not guess marina exits, impose a remembered Newport gate, or change ordinary
+SevenCs/manual routing. It handles the departure side only, not a destination
+marina. Any changed pin, toggle, Clear, Close or account change discards the
+combined proposal and cancels outstanding work.
+
+Thalassa builds the local section first using the existing `routeMarina`
+centreline solver. It runs in a disposable module worker over a 3 m grid,
+bounded to 750,000 cells / 48 map tiles, with a 20-second compute deadline.
+No worker means an explicit refusal, not synchronous UI-thread routing.
+Water polygons come from the existing z16 vector-water decoder; missing tiles
+refuse the request. Pontoons, breakwaters, reefs, airport geometry and known
+fixed bridge spans are blocked. Bridge clearance is not established by this
+connector, so known bridge spans are not automatically traversed. The legacy
+OSM edge's HTTP-200/all-empty failure response is rejected too.
+
+Unknown space is blocked. There is no canal carving, satellite colour
+classification, fallback straight line, artificial depth, erosion relaxation,
+or jump to a different basin. Endpoint joins and every generated straight leg
+are checked on the local water/obstacle grid. The solver's numerical uniform
+cost is only a water mask, never a sounding. This is **map geometry, not a
+surveyed passage or a guarantee that all real-world obstructions are mapped**.
+The usual ENC depth/marker review still runs; local canal legs remain caution
+or danger, never automatically green.
+
+Only after a connected local path is found does the authenticated SevenCs
+request start, from the exact chosen Canal exit and with the same vessel draft
+and speed. The provider's first point must be within 2 m; even that tiny join
+is checked, not silently snapped. Provider segments crossing the local crop
+are checked too, to reject shortcuts/backtracking across mapped banks. The
+complete proposal labels the handover waypoint. Original provider RTZ/GeoJSON
+remain untouched and apply only to the SevenCs continuation. No route save,
+approval, activation, publication, server deployment or TestFlight upload.
+
+Validation: 207 focused tests across nine files passed, including a recorded
+Newport canal bend with OSM pontoons, independent polygon-boundary checks,
+disconnected basins, thin walls, bridge spans, missing tiles/obstacles, provider
+seams, auth races, cancellation and legacy marina-solver regressions. This is
+not a live sea trial or proof of the whole Newport departure. Ten phone/split
+day/dark/night Chromium/WebKit layout cases and two real module-worker browser
+cases passed. `npm run ship` passed TypeScript, production build, Capacitor sync
+and artifact secret checks. All 424 web files match the iOS copies. Entry:
+`main-Cf8kHAIc.js`, SHA-256
+`aa79586ac12fb9209716899fa133e6353ea4becdc4f6a1b968094e8b8bdbf226`.
+Worker: `canalDepartureWorker-Bm92wyH2.js`. The local preview returns HTTP 200
+at `http://127.0.0.1:4173/`. No CI run, commit, push or release was made.
+
+### Explicit departure choice — local preview, 2026-09-13
+
+The canal control was too easy to miss: the previous unchecked default sent
+the departure straight to SevenCs. Auto now starts with **no departure mode
+selected**. Two large **Canal / marina** and **Open water** buttons stay in the
+fixed header above the chart, outside the lower scroll area. Calculate requires
+an explicit choice even if both endpoints have already been set.
+
+Canal / marina requires a separate Canal exit and guides taps through departure,
+exit, then destination. The fields use that order too. Selecting canal mode with
+no departure keeps the first tap on Departure, rather than silently assigning
+it to Canal exit. A prompt beside Calculate names the missing position, including
+the reported case with an exit and destination but a blank departure.
+Only Open water can call SevenCs directly. Switching
+modes cancels pending work, clears the proposal/exit but preserves departure and
+destination; tapping the selected mode again preserves pins. Clear or reopening
+requires a fresh choice. The lower panel can shrink when the keyboard opens so
+the fixed choices, chart and editor stay inside the phone or owning iPad pane.
+
+This corrects discoverability and the silent default, not the canal geometry.
+No solver clearances or wall checks were relaxed, and a real Newport departure
+still needs testing with the canal option explicitly selected. Local build/sync
+does not update an already-installed TestFlight app; Run the synced Xcode app
+or reload the local browser preview to test these changes.
+
+Validation: 79 focused tests and 12 Chromium/WebKit phone/split-pane cases pass,
+including day/dark/night, keyboard visibility, explicit mode selection, missing
+departure, mode-change cancellation and refusal without a direct fallback.
+Scoped lint and `git diff --check` pass. `npm run ship` completed TypeScript,
+production build, Capacitor sync and artifact secret checks. All 424 web files
+match their iOS copies byte-for-byte. Entry: `main-CGjLswov.js`; SHA-256
+`862e601fb2adde0829f6b3e042e247cd834de5983b9c5717db8ffff5b6bb8ccf`.
+The local `/plan` preview returns HTTP 200 with this bundle. No CI, archive,
+TestFlight upload, server deployment, commit or push was performed.
+
+### Canal size-limit correction — 2026-09-13
+
+The 06:09 screenshot supplied departure `-27.21448333, 153.0878` and Canal exit
+`-27.17196667, 153.0942` (converted from the displayed rounded minutes). Their
+separation is 4,775 m / 2.58 NM. The old fixed 4 km guard rejected this before
+loading water or obstacles, even though its crop needs only 659,610 cells and
+33 z16 map tiles, within the existing 750,000-cell / 48-tile limits.
+
+Removed the redundant maximum endpoint-distance cutoff. The minimum 20 m
+separation, coordinate validation, 3 m resolution, crop padding, grid/tile/input
+budgets, worker deadline, shoreline/obstacle masks, endpoint and provider-seam
+checks all remain unchanged. Large areas still refuse instead of coarsening the
+grid, carving water or falling back to a direct route. Acceptance of the crop
+does not establish a connected real-world canal or clearance.
+
+Validation: reproduced the screenshot's failure before the fix, then passed
+113 focused tests (including grid/tile refusal, thin walls, provider joins,
+legacy marina/parity and UI regressions). Four Chromium/WebKit worker cases
+passed: a U-bend and a synthetic all-water crop at the screenshot's exact size.
+These verify bounded computation, not live Newport water/obstacle coverage.
+TypeScript, scoped lint, production build, Capacitor sync and artifact secret
+checks passed. All 424 web/iOS files match; `/plan` serves the new bundle.
+Entry: `main-COaijP8D.js`, SHA-256
+`a58f4e8c819a489f98ac3c709a4758c94a329ff251e57e76f6b12f40a0934fe6`.
+No CI, upload, server change, commit or push. Existing Xcode project edits
+were preserved.
+
+### Earlier marina/canal reuse investigation (before connector integration)
+
+- `services/marinaCenterline.ts`: pure grid centreline routing, shore clearance,
+  connected-water checks and line-of-sight simplification. The Newport binary
+  fixture tests exercise berth-to-gate, reverse and cross-estate geometry.
+- `services/tier3/fineCanalGrid.ts`: fine-resolution marina/canal segments and
+  safeguards against clipping bends; consumes an existing navigation grid and
+  corridor, not just two GPS coordinates.
+- `services/tier3/canalLineFollower.ts`: follows connected canal centrelines,
+  with limited endpoint snapping rather than arbitrary long connectors.
+- `services/InshoreRouter.ts` and `services/OsmRouteOverlayService.ts`: collect
+  canal/fairway, breakwater and berth/pontoon geometry for the old engine.
+- `services/curatedFairways.ts`: a manually curated Mooloolaba lane. It is not
+  a general marina-exit database. `services/bathymetricRouter.ts` is a retired
+  adapter returning null, not the implementation to wire into SevenCs.
+
+The 28 focused centreline/parity/canal/fine-grid tests passed in this checkout.
+They establish regression behaviour on fixtures, not present-day navigability.
+The old import path includes assumed marina depths (for example, 5 m for an OSM
+marina polygon), so it must not be adopted as verified depth coverage.
+
+A possible next slice is a separately reviewed local departure/arrival connector
+to a suitable SevenCs offshore endpoint, preserving source provenance and
+checking every connector and join. It must decline without sufficient water,
+obstacle and depth evidence. No connector, route snapping or marina-wall fix has
+been added by this preview; the provider geometry remains unchanged.
 
 ## Provider boundary
 
@@ -52,12 +363,13 @@ and bounded sizes. Failed POSTs are not automatically retried.
 The request supplies a yacht type, selected draft, cruising speed and a fixed
 0.5 m clearance in each water-area category. **No predicted tide is credited.**
 Beam, air draft and other yacht dimensions are not supplied or checked in this
-first trial; the screen and returned warnings explicitly say so. Provider
+first trial; returned warnings explicitly say so. Provider
 checker/expander dependencies remain enabled. Paid weather optimisation and
 voyage optimisation remain disabled.
 
-The returned line is a **trial proposal, not navigation approval**. Basemap
-imagery is not a nautical chart. A provider success flag or a leg marked safe
+The returned line is a **trial proposal, not navigation approval**. ENC display
+does not change or validate the provider route; the background outside available
+ENC coverage is not a nautical chart. A provider success flag or a leg marked safe
 does not become a Thalassa verified-route badge. Proper chart/licence coverage,
 restrictions, vessel dimensions and local conditions still require review.
 

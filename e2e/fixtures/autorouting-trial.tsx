@@ -11,6 +11,8 @@ import { LocationStore } from '../../stores/LocationStore';
 import { awaitSettingsLoaded, useSettingsStore } from '../../stores/settingsStore';
 import { initGlobalKeyboardScroll } from '../../utils/keyboardScroll';
 import type { AutoroutingTrialRequest } from '../../types/autorouting';
+import type { TrialRouteReview } from '../../services/autoroutingReview';
+import { importCell } from '../../services/enc/EncHazardService';
 import '../../index.css';
 
 const params = new URLSearchParams(location.search);
@@ -30,6 +32,7 @@ const settingsReady = awaitSettingsLoaded().then(() =>
                 type: 'sail',
                 length: 35,
                 beam: 11,
+                airDraft: 50,
                 draft: 1.5 / 0.3048,
                 displacement: 12000,
                 maxWaveHeight: 2,
@@ -38,13 +41,154 @@ const settingsReady = awaitSettingsLoaded().then(() =>
         },
     }),
 );
+// Browser-local synthetic reference only. Never seeded in the production app,
+// and never contributes trusted depth/route coverage.
+const fineEncReady = importCell(
+    {
+        cellId: 'ZZ5TEST1',
+        sourceHO: 'ZZ',
+        edition: 1,
+        issued: '2026-09-12',
+        bbox: [152.8, -27, 153.5, -26.3],
+        layers: {
+            DEPARE: {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: { DRVAL1: 8, DRVAL2: 12 },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [152.8, -27],
+                                    [153.5, -27],
+                                    [153.5, -26.3],
+                                    [152.8, -26.3],
+                                    [152.8, -27],
+                                ],
+                            ],
+                        },
+                    },
+                ],
+            },
+            LNDARE: {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [152.8, -27],
+                                    [153.11, -27],
+                                    [153.13, -26.3],
+                                    [152.8, -26.3],
+                                    [152.8, -27],
+                                ],
+                            ],
+                        },
+                    },
+                ],
+            },
+            DEPCNT: {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: { VALDCO: 8 },
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [
+                                [153.15, -27],
+                                [153.15, -26.3],
+                            ],
+                        },
+                    },
+                ],
+            },
+        },
+    },
+    { usage: 'reference' },
+);
+// A distinct overview-scale fixture is necessary: ZZ5TEST1's 0.99° diagonal
+// deliberately fails the production merger's 1.2° ocean-scale filter. Do not
+// widen that fine chart's registry bbox or relax real selection guards just
+// to make a low-zoom screenshot pass. This sparse synthetic coarse chart is
+// only present in the explicit overview test, and remains reference-only.
+const overviewEncReady =
+    params.get('review') === 'overview'
+        ? importCell(
+              {
+                  cellId: 'ZZ2TEST1',
+                  sourceHO: 'ZZ',
+                  edition: 1,
+                  issued: '2026-09-12',
+                  bbox: [151, -28, 155, -23],
+                  layers: {
+                      DEPARE: {
+                          type: 'FeatureCollection',
+                          features: [
+                              {
+                                  type: 'Feature',
+                                  properties: { DRVAL1: 8, DRVAL2: 12 },
+                                  geometry: {
+                                      type: 'Polygon',
+                                      coordinates: [
+                                          [
+                                              [151, -28],
+                                              [155, -28],
+                                              [155, -23],
+                                              [151, -23],
+                                              [151, -28],
+                                          ],
+                                      ],
+                                  },
+                              },
+                          ],
+                      },
+                      LNDARE: {
+                          type: 'FeatureCollection',
+                          features: [
+                              {
+                                  type: 'Feature',
+                                  properties: {},
+                                  geometry: {
+                                      type: 'Polygon',
+                                      coordinates: [
+                                          [
+                                              [151, -28],
+                                              [152.9, -28],
+                                              [152.9, -23],
+                                              [151, -23],
+                                              [151, -28],
+                                          ],
+                                      ],
+                                  },
+                              },
+                          ],
+                      },
+                  },
+              },
+              { usage: 'reference' },
+          )
+        : Promise.resolve();
+const encReady = Promise.all([fineEncReady, overviewEncReady]);
 const control = {
     statuses: 0,
     calculations: 0,
     manualSelections: 0,
     mapsCreated: 0,
     mapsRemoved: 0,
+    mapErrors: [] as string[],
     map: null as mapboxgl.Map | null,
+    review: null as TrialRouteReview | null,
+    releaseReview: null as (() => void) | null,
+    lastRequest: null as AutoroutingTrialRequest | null,
+    providerGeometries: [] as GeoJSON.Geometry[],
+    routeCoordinates: [] as [number, number][],
 };
 Object.assign(window, { __trialFixture: control });
 const OriginalMap = mapboxgl.Map;
@@ -54,6 +198,7 @@ Object.assign(mapboxgl, {
             super(options);
             control.mapsCreated += 1;
             control.map = this;
+            this.on('error', (event) => control.mapErrors.push(event.error.message));
         }
         remove() {
             control.mapsRemoved += 1;
@@ -80,24 +225,189 @@ Object.assign(supabase!.functions, {
             return {
                 data: {
                     enabled: params.get('status') !== 'disabled',
-                    ready: params.get('status') !== 'unready',
+                    ready: !['disabled', 'unready'].includes(params.get('status') ?? ''),
+                    vesselProfile: !['disabled', 'unready'].includes(params.get('status') ?? ''),
                     message: params.get('status') === 'unready' ? 'Fixture provider setup is pending.' : undefined,
                 },
                 error: null,
             };
         }
         control.calculations += 1;
+        control.lastRequest = structuredClone(body);
         const { departure, destination } = body;
+        const coordinates: [number, number][] =
+            params.get('review') === 'sparse'
+                ? Array.from({ length: 1000 }, (_, index) => [
+                      departure.lon + ((destination.lon - departure.lon) * index) / 999,
+                      departure.lat + ((destination.lat - departure.lat) * index) / 999,
+                  ])
+                : [
+                      [departure.lon, departure.lat],
+                      [(departure.lon + destination.lon) / 2 + 0.005, (departure.lat + destination.lat) / 2],
+                      [destination.lon, destination.lat],
+                  ];
+        control.routeCoordinates = structuredClone(coordinates);
+        if (params.get('review') === 'sparse') {
+            // Deliberately synthetic: the 556th original segment is hazardous
+            // even though its raw vertex is not a numbered display waypoint.
+            control.review = {
+                phase: 'complete',
+                legs: coordinates.slice(1).map(([lon, lat], index) => ({
+                    incomplete: false,
+                    verdict: {
+                        grade: index === 555 ? 'danger' : 'clear',
+                        minDepthM: index === 555 ? 1.2 : 8,
+                        minAt: { lon, lat },
+                        needsTide: false,
+                        nudge: null,
+                        nudgeTo: null,
+                        issues:
+                            index === 555
+                                ? [
+                                      {
+                                          severity: 'danger',
+                                          message: 'Sparse fixture obstruction in original segment 556',
+                                          mark: { lon, lat: lat + 0.0002 },
+                                      },
+                                  ]
+                                : [],
+                    },
+                })),
+            };
+        }
+        if (params.get('review') === 'grouped') {
+            // Synthetic verdicts for the warning presentation fixture only.
+            // Playwright swaps just the grading entrypoint for this scenario;
+            // the real panel, grouping helper, map and focus marker still run.
+            control.review = {
+                phase: 'complete',
+                legs: coordinates.slice(1).map(([lon, lat], index) => ({
+                    incomplete: false,
+                    verdict: {
+                        grade: index === 1 ? 'danger' : 'caution',
+                        minDepthM: index === 1 ? 1.0 : 8,
+                        minAt: { lat, lon },
+                        needsTide: index === 1,
+                        nudge: null,
+                        nudgeTo: null,
+                        issues: [
+                            {
+                                severity: 'caution',
+                                message: `${index === 0 ? 50 : 90} m from charted track — review alignment`,
+                                at: { lat: lat + 0.0005, lon },
+                                chartTrack: {
+                                    id: 'synthetic-entrance-track',
+                                    label: 'Fixture entrance track',
+                                    kind: 'recommended-track',
+                                    offsetM: index === 0 ? 50 : 90,
+                                },
+                            },
+                            ...(index === 1
+                                ? [
+                                      {
+                                          severity: 'danger' as const,
+                                          message: 'Fixture shallow depth — 1.0 m charted',
+                                          at: { lat, lon },
+                                      },
+                                      {
+                                          severity: 'danger' as const,
+                                          message: 'Fixture obstruction near route',
+                                          mark: { lat: lat - 0.0002, lon: lon - 0.0002 },
+                                      },
+                                  ]
+                                : []),
+                        ],
+                    },
+                })),
+            };
+        }
+        const providerUnsafe = params.get('review') === 'provider-unsafe';
+        const [hazardLon, hazardLat] = coordinates[1];
+        const rectangle = (delta: number) => [
+            [hazardLon - delta, hazardLat - delta],
+            [hazardLon + delta, hazardLat - delta],
+            [hazardLon + delta, hazardLat + delta],
+            [hazardLon - delta, hazardLat + delta],
+            [hazardLon - delta, hazardLat - delta],
+        ];
+        control.providerGeometries = providerUnsafe
+            ? [
+                  { type: 'Point', coordinates: [...coordinates[1]] },
+                  { type: 'Polygon', coordinates: [rectangle(0.0015), rectangle(0.00025).reverse()] },
+              ]
+            : [];
+        if (providerUnsafe) {
+            // Deliberately conflicting synthetic sources: provider unsafe,
+            // while every independent local leg check reports no issue.
+            // The browser test releases local completion after seeing the alert.
+            control.review = {
+                phase: 'complete',
+                legs: coordinates.slice(1).map(([lon, lat]) => ({
+                    incomplete: false,
+                    verdict: {
+                        grade: 'clear',
+                        minDepthM: 8,
+                        minAt: { lat, lon },
+                        needsTide: false,
+                        nudge: null,
+                        nudgeTo: null,
+                        issues: [],
+                    },
+                })),
+            };
+        }
         return {
             data: {
                 id: 'layout-proposal',
                 provider: 'SevenCs',
                 createdAt: '2026-09-12T00:00:00Z',
-                coordinates: [
-                    [departure.lon, departure.lat],
-                    [(departure.lon + destination.lon) / 2 + 0.005, (departure.lat + destination.lat) / 2],
-                    [destination.lon, destination.lat],
-                ],
+                coordinates,
+                ...(body.vesselProfile ? { vesselProfile: structuredClone(body.vesselProfile) } : {}),
+                // Source-only response exercises the real client classifier,
+                // including compatibility with servers predating providerCheck.
+                ...(providerUnsafe
+                    ? {
+                          source: {
+                              rtz: '<route name="synthetic-browser-unsafe-fixture"/>',
+                              geoJson: JSON.stringify({
+                                  type: 'FeatureCollection',
+                                  features: [
+                                      {
+                                          type: 'Feature',
+                                          properties: {
+                                              type: 'track',
+                                              safe: false,
+                                              name: 'Fixture unsafe track',
+                                          },
+                                          geometry: { type: 'LineString', coordinates },
+                                      },
+                                      {
+                                          type: 'Feature',
+                                          properties: {
+                                              type: 'danger',
+                                              severity: 'Danger',
+                                              name: 'Fixture provider obstruction',
+                                              UUID: 'synthetic-obstruction-id',
+                                              dataset: 'ZZ-FIXTURE-ONLY',
+                                          },
+                                          geometry: control.providerGeometries[0],
+                                      },
+                                      {
+                                          type: 'Feature',
+                                          properties: {
+                                              type: 'danger',
+                                              severity: 'Warning',
+                                              name: 'Fixture provider area with hole',
+                                              UUID: 'synthetic-area-id',
+                                              dataset: 'ZZ-FIXTURE-ONLY',
+                                          },
+                                          geometry: control.providerGeometries[1],
+                                      },
+                                  ],
+                              }),
+                          },
+                      }
+                    : {}),
                 warnings: Array.from(
                     { length: 4 },
                     (_, index) =>
@@ -179,4 +489,6 @@ function Fixture() {
         </main>
     );
 }
-void settingsReady.then(() => createRoot(document.getElementById('root')!).render(<Fixture />));
+void Promise.all([settingsReady, encReady]).then(() =>
+    createRoot(document.getElementById('root')!).render(<Fixture />),
+);

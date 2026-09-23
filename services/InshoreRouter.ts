@@ -57,6 +57,7 @@ import { fetchMapboxWater } from './mapboxWater';
 import { fetchSatelliteWater } from './satelliteWater';
 import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
+import { withChartTrackSource } from './leadingLine';
 
 const log = createLogger('InshoreRouter');
 
@@ -3424,6 +3425,7 @@ export interface TracerLayerBundle {
      * `gatePairs` is only trustworthy when this is false.
      */
     gateChecksUnavailable: boolean;
+    supplementalChecksUnavailable?: boolean;
 }
 
 /**
@@ -3445,7 +3447,10 @@ export interface TracerLayerBundle {
  *   • gate pairs are RETURNED for the explicit thread-the-gate check.
  * Returns null when no installed ENC cells intersect the bbox.
  */
-export async function assembleTracerLayers(bbox: [number, number, number, number]): Promise<TracerLayerBundle | null> {
+export async function assembleTracerLayers(
+    bbox: [number, number, number, number],
+    opts: { chartedDepthOnly?: boolean } = {},
+): Promise<TracerLayerBundle | null> {
     const [minLon, minLat, maxLon, maxLat] = bbox;
     // Same count+byte bound the map merge has had since kill #23. This path
     // never got it: cellsForBBox is an uncapped intersection filter, so a
@@ -3509,13 +3514,19 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
                     (target.features as unknown[]).push(...kept);
                 } else {
                     if (layer === 'DEPARE') stampScaleRank(fc.features as GeoJSON.Feature[], cell.bbox);
-                    (target.features as unknown[]).push(...fc.features);
+                    (target.features as unknown[]).push(
+                        ...(layer === 'RECTRC'
+                            ? fc.features.map((feature) => withChartTrackSource(feature, cell.id))
+                            : fc.features),
+                    );
                 }
             }
         }
         const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
         if (navlne?.features && Array.isArray(navlne.features)) {
-            (merged.NAVLINE!.features as unknown[]).push(...navlne.features);
+            (merged.NAVLINE!.features as unknown[]).push(
+                ...navlne.features.map((feature) => withChartTrackSource(feature, cell.id)),
+            );
         }
         for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
             const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[cl];
@@ -3528,11 +3539,12 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
     if (cellsUsed.length === 0) return null;
 
     // ── OSM overlay → same injection recipe as the live router ──
+    let supplementalChecksUnavailable = false;
     let osmOverlay: OsmRouteOverlay | null = null;
     try {
         osmOverlay = await getOsmRouteOverlay([minLon - 0.05, minLat - 0.05, maxLon + 0.05, maxLat + 0.05]);
         const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
-        if (osmOverlay.water.features.length > 0) {
+        if (!opts.chartedDepthOnly && osmOverlay.water.features.length > 0) {
             const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of osmOverlay.water.features) {
                 (depare.features as unknown[]).push({
@@ -3555,7 +3567,7 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
             }
             merged.DEPARE = depare;
         }
-        if (osmOverlay.marina.features.length > 0) {
+        if (!opts.chartedDepthOnly && osmOverlay.marina.features.length > 0) {
             const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of osmOverlay.marina.features) {
                 (depare.features as unknown[]).push({
@@ -3622,6 +3634,7 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
         log.warn(
             `[tracer] OSM overlay failed (chart-only verdicts): ${err instanceof Error ? err.message : String(err)}`,
         );
+        supplementalChecksUnavailable = !!opts.chartedDepthOnly;
     }
 
     // ── Regional markers + folded ENC laterals → gate pairs (returned, not injected) ──
@@ -3684,6 +3697,7 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
         }
     } catch (err) {
         log.warn(`[tracer] ENC cardinal fold failed: ${err instanceof Error ? err.message : String(err)}`);
+        supplementalChecksUnavailable = !!opts.chartedDepthOnly;
     }
 
     // ── Curated fairways + NtM surveyed-depth zones (same gates as live) ──
@@ -3703,5 +3717,5 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
         log.warn(`[tracer] NtM zone injection failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    return { merged, cellsUsed, gatePairs, gateChecksUnavailable };
+    return { merged, cellsUsed, gatePairs, gateChecksUnavailable, supplementalChecksUnavailable };
 }

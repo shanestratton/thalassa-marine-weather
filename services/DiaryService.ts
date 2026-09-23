@@ -40,6 +40,7 @@ import {
 import { onConnectionChange } from './ConnectionPriorityService';
 import { VoyageLogService } from './VoyageLogService';
 import { ShipLogService } from './ShipLogService';
+import { reconcileDiaryEntries } from './diaryEntryIdentity';
 import {
     savePhoto as idbSavePhoto,
     loadPhoto as idbLoadPhoto,
@@ -500,7 +501,7 @@ class DiaryServiceClass {
             void this.syncPending();
         }
 
-        // Purge stale entries from recently-synced buffer (>30s)
+        // Purge stale entries from recently-synced buffer (>120s)
         const now = Date.now();
         this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 120_000);
         // While an entry's offline twin is still in pending, its freshly
@@ -517,18 +518,17 @@ class DiaryServiceClass {
         // Combine: pending first, then recently-synced, then cached (deduped)
         // This closes the gap where an entry has exited pending (sync succeeded)
         // but hasn't yet appeared in the cache (server refresh pending).
-        // Tombstoned ids are locally-committed deletes awaiting server drain —
-        // they must never surface, whichever source still holds a copy.
-        const deletedIds = this._tombstonedIdSet(scope);
-        const seenIds = new Set<string>();
+        // Tombstoned ids/operations are locally-committed deletes awaiting
+        // server drain — hide either twin, even before its id mapping exists.
+        const isDeleted = this._locallyDeletedEntryMatcher(scope);
         const allSources = [...pending, ...recentlySyncedEntries, ...cached];
-        const deduped: DiaryEntry[] = [];
-        for (const e of allSources) {
-            if (!seenIds.has(e.id) && !deletedIds.has(e.id) && !this._isRecentlyDrained(e.id, scope)) {
-                seenIds.add(e.id);
-                deduped.push(e);
-            }
-        }
+        // The cloud refresh can see the row before the device/Pi write has
+        // acknowledged it. Its operation id already matches, even when the
+        // offline→server id mapping has not been recorded yet.
+        const deduped = reconcileDiaryEntries(
+            allSources.filter((e) => !isDeleted(e)),
+            (id) => this._resolveServerIdForScope(id, scope),
+        );
         const merged = deduped
             .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             .slice(0, limit);
@@ -548,17 +548,18 @@ class DiaryServiceClass {
     async getEntry(id: string): Promise<DiaryEntry | null> {
         const scope = getAuthIdentityScope();
         // Deleted locally — gone, even if the server row still exists.
-        if (this._tombstonedIdSet(scope).has(id) || this._isRecentlyDrained(id, scope)) return null;
+        const isDeleted = this._locallyDeletedEntryMatcher(scope);
+        if (isDeleted({ id })) return null;
 
         // Check pending first
         const pending = this._getPendingEntries(scope);
         const pendingMatch = pending.find((e) => e.id === id);
-        if (pendingMatch) return this._toDisplayEntry(pendingMatch);
+        if (pendingMatch) return isDeleted(pendingMatch) ? null : this._toDisplayEntry(pendingMatch);
 
         // Check cache
         const cached = this._getCachedEntries(scope);
         const cacheMatch = cached.find((e) => e.id === id);
-        if (cacheMatch) return this._toDisplayEntry(cacheMatch);
+        if (cacheMatch) return isDeleted(cacheMatch) ? null : this._toDisplayEntry(cacheMatch);
 
         // Fallback to network
         if (!supabase || !scope.userId) return null;
@@ -567,6 +568,9 @@ class DiaryServiceClass {
         const { data } = await supabase.from(TABLE).select('*').eq('id', id).eq('user_id', scope.userId).single();
         if (!isAuthIdentityScopeCurrent(scope) || !data || (data as DiaryEntry).user_id !== scope.userId) return null;
         const owned = { ...(data as DiaryEntry), owner_user_id: scope.userId };
+        // A delete may have committed while this individual row was in flight.
+        // Re-read the tombstones after the await, including its operation id.
+        if (this._locallyDeletedEntryMatcher(scope)(owned)) return null;
         this._registerEntryMedia(owned, scope);
         return this._toDisplayEntry(owned);
     }
@@ -3263,6 +3267,19 @@ class DiaryServiceClass {
         return new Set(this._getTombstones(scope).map((t) => t.id));
     }
 
+    /** Snapshot owner-scoped deletes once per read/merge, including unmapped twins. */
+    private _locallyDeletedEntryMatcher(
+        scope: AuthIdentityScope,
+    ): (entry: Pick<DiaryEntry, 'id' | 'client_operation_id'>) => boolean {
+        const tombstones = this._getTombstones(scope);
+        const ids = new Set(tombstones.map((t) => t.id));
+        const operations = new Set(tombstones.flatMap((t) => (t.client_operation_id ? [t.client_operation_id] : [])));
+        return (entry) =>
+            ids.has(entry.id) ||
+            (typeof entry.client_operation_id === 'string' && operations.has(entry.client_operation_id)) ||
+            this._isRecentlyDrained(entry.id, scope);
+    }
+
     /** Drained-tombstone grace filter — see RECENT_DRAIN_GRACE_MS. */
     private _isRecentlyDrained(id: string, scope: AuthIdentityScope = getAuthIdentityScope()): boolean {
         const recent = this._recentlyDrained.get(scope.key);
@@ -3667,28 +3684,26 @@ class DiaryServiceClass {
                     pending,
                 );
 
-                // Purge stale entries from recently-synced buffer (>30s)
+                // Purge stale entries from recently-synced buffer (>120s)
                 const now = Date.now();
                 this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 120_000);
 
-                // Collect all IDs already in server data
-                const serverIds = new Set(serverEntries.map((e) => e.id));
-
                 // Merge: server data + pending entries + recently-synced buffer
                 // (pending and recently-synced win on collision with server data)
-                const localDrafts = [...pending, ...cacheOnlyDrafts].filter(
-                    (entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index,
-                );
-                const pendingNotOnServer = localDrafts.filter((e) => !serverIds.has(e.id));
-                const recentNotOnServer = this._recentlySynced.map((r) => r.entry).filter((e) => !serverIds.has(e.id));
 
                 // Locally-deleted entries whose server delete hasn't drained yet
                 // still come back in the server payload — keep them out of the
                 // cache or the delete appears to "undo" itself.
-                const deletedIds = this._tombstonedIdSet(scope);
-                const merged = [...pendingNotOnServer, ...recentNotOnServer, ...serverEntries]
-                    .filter((e) => !deletedIds.has(e.id) && !this._isRecentlyDrained(e.id, scope))
-                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                const isDeleted = this._locallyDeletedEntryMatcher(scope);
+                const merged = reconcileDiaryEntries(
+                    [
+                        ...pending,
+                        ...cacheOnlyDrafts,
+                        ...this._recentlySynced.map((r) => r.entry),
+                        ...serverEntries,
+                    ].filter((e) => !isDeleted(e)),
+                    (id) => this._resolveServerIdForScope(id, scope),
+                ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
                 if (!isAuthIdentityScopeCurrent(scope)) return;
                 this._saveCachedEntries(merged, scope);
             }

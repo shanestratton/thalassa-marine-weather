@@ -10,6 +10,9 @@ import {
     PRESSURE_RUN_STALE_HOURS,
     pressureProvenance,
     pressureSourceText,
+    pressureFrameValidAt,
+    pressureFrameForValidAt,
+    pressureValidTimeText,
 } from '../services/weather/pressureProvenance';
 
 const RUN = '2026-08-22T18:00:00Z';
@@ -50,8 +53,8 @@ describe('pressure provenance', () => {
         // CC-BY. "Fallback" credited nobody, on the one screen where the
         // substitution actually happened.
         const p = pressureProvenance('open-meteo', null, at(1));
-        expect(p.label).toBe('Open-Meteo');
-        expect(pressureSourceText(p)).toBe('Open-Meteo');
+        expect(p.label).toBe('GFS · Open-Meteo coarse fallback');
+        expect(pressureSourceText(p)).toBe('GFS · Open-Meteo coarse fallback');
     });
 
     it('admits an unknown run instead of inventing a cycle', () => {
@@ -68,5 +71,24 @@ describe('pressure provenance', () => {
 
     it('shows an em dash when there is no source at all', () => {
         expect(pressureProvenance(null, null, at(0)).label).toBe('—');
+    });
+});
+
+describe('pressure valid UTC axis', () => {
+    const grid = { refTime: RUN, subFrameStepHours: 2, totalHours: 22, keyframeFhrs: [6, 12, 18] };
+    it('includes the first forecast lead and round-trips refreshed runs by valid time', () => {
+        expect(pressureFrameValidAt(grid, 2)).toBe(at(10));
+        expect(pressureFrameForValidAt(grid, at(10))).toBe(2);
+        expect(
+            pressureFrameForValidAt({ ...grid, refTime: new Date(at(6)).toISOString(), keyframeFhrs: [0, 6] }, at(10)),
+        ).toBe(2);
+        expect(pressureValidTimeText(at(10))).toBe('Valid 08-23 04:00 UTC');
+    });
+    it('clamps out-of-window lookup without relabelling its valid time as now', () => {
+        expect(pressureFrameForValidAt(grid, at(100))).toBe(21);
+        expect(pressureFrameValidAt(grid, 21)).toBe(at(48));
+        expect(pressureFrameForValidAt(grid, at(-6))).toBe(0);
+        expect(pressureFrameForValidAt({ ...grid, refTime: 'invalid' }, at(2))).toBeNull();
+        expect(pressureValidTimeText(null)).toBe('Valid time unknown');
     });
 });

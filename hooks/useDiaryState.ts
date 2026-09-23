@@ -8,6 +8,7 @@
 
 import { useReducer } from 'react';
 import { DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
+import { reconcileDiaryEntries } from '../services/diaryEntryIdentity';
 
 // Default title for a fresh compose: "Monday 14 January 2026 · 14:32".
 // The keyboard doesn't pop up on open — the skipper only edits the
@@ -109,7 +110,7 @@ export const initialDiaryState: DiaryState = {
 
 export type DiaryAction =
     // Page
-    | { type: 'SET_ENTRIES'; entries: DiaryEntry[] }
+    | { type: 'SET_ENTRIES'; entries: DiaryEntry[] | ((previous: DiaryEntry[]) => DiaryEntry[]) }
     | { type: 'SET_LOADING'; loading: boolean }
     | { type: 'SET_SELECTED_ENTRY'; entry: DiaryEntry | null }
     | { type: 'PREPEND_ENTRY'; entry: DiaryEntry }
@@ -166,13 +167,18 @@ export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState
     switch (action.type) {
         // ── Page ──
         case 'SET_ENTRIES':
-            return { ...state, entries: action.entries };
+            return {
+                ...state,
+                entries: reconcileDiaryEntries(
+                    typeof action.entries === 'function' ? action.entries(state.entries) : action.entries,
+                ),
+            };
         case 'SET_LOADING':
             return { ...state, loading: action.loading };
         case 'SET_SELECTED_ENTRY':
             return { ...state, selectedEntry: action.entry };
         case 'PREPEND_ENTRY':
-            return { ...state, entries: [action.entry, ...state.entries], showCompose: false };
+            return { ...state, entries: reconcileDiaryEntries([action.entry, ...state.entries]), showCompose: false };
         case 'UPDATE_ENTRY':
             return {
                 ...state,
@@ -187,7 +193,7 @@ export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState
                 selectedEntry: state.selectedEntry?.id === action.id ? null : state.selectedEntry,
             };
         case 'RESTORE_ENTRY':
-            return { ...state, entries: [...state.entries, action.entry] };
+            return { ...state, entries: reconcileDiaryEntries([...state.entries, action.entry]) };
 
         // ── Compose batch ──
         case 'OPEN_COMPOSE':

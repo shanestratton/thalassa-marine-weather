@@ -22,10 +22,12 @@ import {
  * appends the secret key and forwards to WorldTides, returning the response.
  *
  * Request: POST with JSON body:
- *   { lat: number, lon: number, days?: number, stations?: boolean, stationDistance?: number }
+ *   { lat: number, lon: number, days?: number, stations?: boolean, stationDistance?: number, heights?: boolean }
  *
  * When `stations: true` → returns nearby tide stations (discovery).
  * Otherwise → returns tide extremes (high/low times + heights).
+ * Optional heights:true adds provider-calculated half-hourly predictions,
+ * limited to three days and requested only for a selected chart station.
  *
  * Required Supabase Secret:
  *   WORLDTIDES_API_KEY
@@ -119,7 +121,15 @@ function isValidExtreme(value: unknown): boolean {
     );
 }
 
-function isValidWorldTidesResponse(value: Record<string, unknown>, stations: boolean, days: number): boolean {
+function isValidHeight(value: unknown): boolean {
+    if (!isPlainRecord(value)) return false;
+    const timestamp = parseBoundedInteger(value.dt, 946_684_800, 4_102_444_800);
+    return timestamp !== null && parseBoundedNumber(value.height, -100, 100) !== null &&
+        typeof value.date === 'string' && value.date.length <= 64 &&
+        Math.abs(Date.parse(value.date) - timestamp * 1000) <= 1000;
+}
+
+function isValidWorldTidesResponse(value: Record<string, unknown>, stations: boolean, days: number, heights: boolean): boolean {
     if (value.status !== 200 || value.error != null || !hasBoundedJsonShape(value, { remaining: 25_000 })) {
         return false;
     }
@@ -134,7 +144,8 @@ function isValidWorldTidesResponse(value: Record<string, unknown>, stations: boo
 
     const maxExtremes = days * 8 + 16;
     return (
-        Array.isArray(value.extremes) && value.extremes.length <= maxExtremes && value.extremes.every(isValidExtreme)
+        Array.isArray(value.extremes) && value.extremes.length <= maxExtremes && value.extremes.every(isValidExtreme) &&
+        (!heights || (Array.isArray(value.heights) && value.heights.length <= days * 48 + 2 && value.heights.every(isValidHeight)))
     );
 }
 
@@ -163,6 +174,7 @@ Deno.serve(async (req: Request) => {
         let rawDays: unknown;
         let rawStations: unknown;
         let rawDist: unknown;
+        let rawHeights: unknown;
         if (req.method === 'GET') {
             const url = new URL(req.url);
             rawLat = url.searchParams.get('lat');
@@ -170,6 +182,7 @@ Deno.serve(async (req: Request) => {
             rawDays = url.searchParams.get('days') ?? 14;
             rawStations = url.searchParams.get('stations') ?? false;
             rawDist = url.searchParams.get('stationDistance') ?? 100;
+            rawHeights = url.searchParams.get('heights') ?? false;
         } else {
             const body = await readJsonObject(req, 4096);
             if (!body) return corsResponse(JSON.stringify({ error: 'Invalid JSON request body' }), 400);
@@ -178,6 +191,7 @@ Deno.serve(async (req: Request) => {
             rawDays = body.days ?? 14;
             rawStations = body.stations ?? false;
             rawDist = body.stationDistance ?? 100;
+            rawHeights = body.heights ?? false;
         }
 
         const lat = parseCoordinate(rawLat, 'lat');
@@ -185,12 +199,15 @@ Deno.serve(async (req: Request) => {
         const days = parseBoundedInteger(rawDays, 1, 14);
         const stationDistance = parseBoundedNumber(rawDist, 1, 100);
         const stations = rawStations === true || rawStations === 'true';
+        const heights = rawHeights === true || rawHeights === 'true';
         if (
             lat === null ||
             lon === null ||
             days === null ||
             stationDistance === null ||
-            ![true, false, 'true', 'false'].includes(rawStations as boolean | string)
+            ![true, false, 'true', 'false'].includes(rawStations as boolean | string) ||
+            ![true, false, 'true', 'false'].includes(rawHeights as boolean | string) ||
+            (heights && (stations || days > 3))
         ) {
             return corsResponse(JSON.stringify({ error: 'Invalid tide request bounds' }), 400);
         }
@@ -214,6 +231,15 @@ Deno.serve(async (req: Request) => {
             upstreamUrl.searchParams.set('days', String(days));
             upstreamUrl.searchParams.set('datum', 'LAT');
             upstreamUrl.searchParams.set('start', String(start));
+            if (heights) {
+                // Bounded additive mode; existing extremes-only callers retain
+                // their request cost and response shape. Never accept a client
+                // step/length/key/host to bypass these upstream bounds.
+                upstreamUrl.searchParams.set('heights', '');
+                upstreamUrl.searchParams.set('step', '1800');
+                upstreamUrl.searchParams.set('timezone', '');
+                upstreamUrl.searchParams.set('localtime', '');
+            }
         }
 
         const res = await fetchWithTimeout(upstreamUrl, {}, 12_000);
@@ -224,12 +250,14 @@ Deno.serve(async (req: Request) => {
         }
 
         const data = await readResponseJsonObjectLimited(res, MAX_UPSTREAM_BYTES);
-        if (!data || !isValidWorldTidesResponse(data, stations, days)) {
+        if (!data || !isValidWorldTidesResponse(data, stations, days, heights)) {
             console.error('[proxy-tides] invalid upstream response');
             return corsResponse(JSON.stringify({ error: 'Tide upstream failed' }), 502);
         }
 
-        return corsResponse(JSON.stringify(data), 200, { 'Cache-Control': 'public, max-age=900' });
+        // Dense predictions are requested per user; do not encourage a shared
+        // intermediary to reuse that licensed response for other users.
+        return corsResponse(JSON.stringify(data), 200, { 'Cache-Control': heights ? 'private, max-age=900' : 'public, max-age=900' });
     } catch {
         console.error('[proxy-tides] request failed');
         return corsResponse(JSON.stringify({ error: 'Tide request failed' }), 502);

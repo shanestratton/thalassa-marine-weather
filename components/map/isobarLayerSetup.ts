@@ -16,6 +16,8 @@ const log = createLogger('IsobarLayers');
 export const ISOBAR_LAYER_IDS = [
     'isobar-shadow',
     'isobar-lines',
+    'isobar-detail-lines',
+    'isobar-detail-labels',
     'isobar-major-lines',
     'isobar-labels',
     'isobar-center-labels',
@@ -323,6 +325,7 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         id: 'isobar-shadow',
         type: 'line',
         source: 'isobar-contours',
+        filter: ['!=', ['get', 'isDetail'], true],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             'line-color': 'rgba(3, 9, 20, 0.42)',
@@ -345,7 +348,7 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         id: 'isobar-lines',
         type: 'line',
         source: 'isobar-contours',
-        filter: ['==', ['get', 'isMajor'], false],
+        filter: ['all', ['==', ['get', 'isMajor'], false], ['!=', ['get', 'isDetail'], true]],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             // THE 4 hPa LINES ARE THE CHART (2026-08-21). This is a 4 hPa
@@ -359,6 +362,22 @@ export function initIsobarLayers(map: mapboxgl.Map) {
             'line-color': 'rgba(238, 246, 253, 0.9)',
             'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.2, 5, 1.55, 8, 2.0],
             'line-opacity': 0.95,
+        },
+    });
+
+    // Intermediate rings are intersections of the same actual pressure
+    // field, not invented circles around H/L. Keep the broad 4 hPa overview.
+    map.addLayer({
+        id: 'isobar-detail-lines',
+        type: 'line',
+        source: 'isobar-contours',
+        minzoom: 3,
+        filter: ['==', ['get', 'isDetail'], true],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': '#e9f3fc',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.8, 5, 1.15, 8, 1.5],
+            'line-opacity': 0.78,
         },
     });
 
@@ -389,7 +408,7 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         // MSLP analysis labels essentially every 4 hPa line (verified against
         // the live IDY00030 chart, 2026-08-21). Mapbox's symbol collision
         // still thins them out where they crowd.
-        filter: ['has', 'label'],
+        filter: ['all', ['has', 'label'], ['!=', ['get', 'isDetail'], true]],
         layout: {
             'symbol-placement': 'line',
             'text-field': ['get', 'label'],
@@ -407,6 +426,25 @@ export function initIsobarLayers(map: mapboxgl.Map) {
             'text-halo-color': 'rgba(6, 14, 28, 0.88)',
             'text-halo-width': 2.1,
         },
+    });
+
+    map.addLayer({
+        id: 'isobar-detail-labels',
+        type: 'symbol',
+        source: 'isobar-contours',
+        minzoom: 3,
+        filter: ['==', ['get', 'isDetail'], true],
+        layout: {
+            'symbol-placement': 'line',
+            'text-field': ['get', 'label'],
+            'text-size': 11,
+            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+            'symbol-spacing': 360,
+            'text-max-angle': 30,
+            'text-keep-upright': true,
+            'text-allow-overlap': false,
+        },
+        paint: { 'text-color': '#e9f3fc', 'text-halo-color': 'rgba(6,14,28,0.9)', 'text-halo-width': 1.8 },
     });
 
     createPressureCenterBadges(map);

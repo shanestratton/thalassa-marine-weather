@@ -28,11 +28,29 @@ import {
     type AuthIdentityScope,
 } from './authIdentityScope';
 import { normaliseTraceVerification } from './traceVerification';
+import { AUTOROUTING_PROPOSAL_MAX_POINTS, normaliseAutoroutingProposalEvidence } from './autoroutingProposalEvidence';
 
 const log = createLogger('savedRoutesSync');
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** The optional column is deployed independently of this client. Keep the
+ * wire boundary explicit; point/evidence contents are validated below. */
+interface SavedRouteWireRow {
+    id: string;
+    name: string;
+    points: unknown;
+    created_at: string | null;
+    updated_at?: string | null;
+    deleted?: boolean;
+    trip_id?: unknown;
+    leg_ordinal?: unknown;
+    dest_name?: unknown;
+    planned_route_id?: unknown;
+    passage_voyage_id?: unknown;
+    proposal_evidence?: unknown;
+}
 
 /**
  * Graph-cleanup retries already settled this app session, keyed scope:id.
@@ -74,45 +92,71 @@ async function signedIn(scope: AuthIdentityScope): Promise<boolean> {
 
 /** Outcome of a push — surfaced in the tracer's save flash so a route
  *  that only landed on THIS device never silently poses as synced. */
-export type PushResult = 'ok' | 'signedout' | 'toolarge' | 'error' | 'stale';
+export type PushResult = 'ok' | 'signedout' | 'toolarge' | 'error' | 'stale' | 'schema-pending';
+
+function missingProposalEvidenceColumn(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const value = error as { code?: unknown; message?: unknown };
+    return (
+        ['42703', 'PGRST204'].includes(String(value.code)) &&
+        typeof value.message === 'string' &&
+        value.message.includes('proposal_evidence')
+    );
+}
 
 /** Push one trace to the account. Fire-and-forget from saveTrace. */
 export async function pushSavedRoute(
     trace: SavedTrace,
     scope: AuthIdentityScope = getAuthIdentityScope(),
 ): Promise<PushResult> {
+    // Freeze the write material before the asynchronous session lookup.
+    const proposalEvidence = normaliseAutoroutingProposalEvidence(trace.proposalEvidence, trace.points);
+    if (trace.proposalEvidence !== undefined && !proposalEvidence) return 'error';
+    const snapshot = {
+        ...trace,
+        points: trace.points.map(({ lat, lon }) => ({ lat, lon })),
+        ...(proposalEvidence ? { proposalEvidence } : {}),
+    };
     if (!scope.userId) return 'signedout';
     if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
     if (!(await signedIn(scope))) {
         return isAuthIdentityScopeCurrent(scope) ? 'signedout' : 'stale';
     }
-    // The saved_routes points column carries a 2..200-element check
-    // constraint; an over-long trace would fail server-side with only a
-    // log.warn to show for it. Truncating a route is a safety lie, so
-    // refuse loudly instead.
-    if (trace.points.length > 200) {
-        log.warn(`push skipped for ${trace.id}: ${trace.points.length} points exceeds the 200-point sync cap`);
+    // The proposal-evidence migration supports the full trial limit. Older
+    // backends may reject a long row: retain it locally, never simplify it.
+    if (snapshot.points.length > AUTOROUTING_PROPOSAL_MAX_POINTS) {
+        log.warn(`push skipped for ${snapshot.id}: route exceeds the point sync cap`);
         return 'toolarge';
     }
-    const { error } = await supabase!.from('saved_routes').upsert({
-        id: trace.id,
+    const payload = {
+        id: snapshot.id,
         // Explicit ownership makes a concurrent auth-token transition fail
         // RLS instead of silently defaulting the row to the next account.
         user_id: scope.userId,
-        name: trace.name,
-        points: trace.points.map((p) => [p.lat, p.lon]),
-        created_at: trace.createdAt,
-        updated_at: trace.updatedAt ?? new Date().toISOString(),
-        trip_id: trace.tripId ?? null,
-        leg_ordinal: trace.legOrdinal ?? null,
-        dest_name: trace.destName ?? null,
-        planned_route_id: trace.plannedRouteId ?? null,
+        name: snapshot.name,
+        points: snapshot.points.map((p) => [p.lat, p.lon]),
+        created_at: snapshot.createdAt,
+        updated_at: snapshot.updatedAt ?? new Date().toISOString(),
+        trip_id: snapshot.tripId ?? null,
+        leg_ordinal: snapshot.legOrdinal ?? null,
+        dest_name: snapshot.destName ?? null,
+        planned_route_id: snapshot.plannedRouteId ?? null,
         // The migration deliberately uses UUID for the actual voyages.id.
         // Older local caches may hold an arbitrary string, which must not
         // make the entire canonical route upsert fail.
-        passage_voyage_id: validPassageVoyageId(trace.passageVoyageId) ? trace.passageVoyageId.trim() : null,
+        passage_voyage_id: validPassageVoyageId(snapshot.passageVoyageId) ? snapshot.passageVoyageId.trim() : null,
+        proposal_evidence: proposalEvidence ?? null,
         deleted: false,
-    });
+    };
+    let { error } = await supabase!.from('saved_routes').upsert(payload);
+    if (missingProposalEvidenceColumn(error)) {
+        if (proposalEvidence) return isAuthIdentityScopeCurrent(scope) ? 'schema-pending' : 'stale';
+        if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+        // Legacy ordinary routes may use the old schema. A proposal with
+        // evidence NEVER takes this metadata-dropping compatibility branch.
+        const { proposal_evidence: _unsupported, ...legacy } = payload;
+        ({ error } = await supabase!.from('saved_routes').upsert(legacy));
+    }
     if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
     if (error) {
         log.warn(`push failed for ${trace.id}: ${error.message}`);
@@ -157,13 +201,20 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();
     }
     try {
-        const { data, error } = await supabase!
-            .from('saved_routes')
-            .select(
-                'id, name, points, created_at, updated_at, deleted, trip_id, leg_ordinal, dest_name, planned_route_id, passage_voyage_id',
-            )
-            .order('updated_at', { ascending: false })
-            .limit(100);
+        const fields =
+            'id, name, points, created_at, updated_at, deleted, trip_id, leg_ordinal, dest_name, planned_route_id, passage_voyage_id';
+        const fetchRows = (withEvidence: boolean) =>
+            supabase!
+                .from('saved_routes')
+                .select(`${fields}${withEvidence ? ', proposal_evidence' : ''}`)
+                .order('updated_at', { ascending: false })
+                .limit(100)
+                .returns<SavedRouteWireRow[]>();
+        let { data, error } = await fetchRows(true);
+        if (missingProposalEvidenceColumn(error)) {
+            if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
+            ({ data, error } = await fetchRows(false));
+        }
         if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
         if (error) throw new Error(error.message);
         const rows = data ?? [];
@@ -173,9 +224,27 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         const remote: SavedTrace[] = rows
             .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
             .map((r) => {
-                const points = (r.points as [number, number][])
-                    .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
-                    .map(([lat, lon]) => ({ lat, lon }) as TracePoint);
+                const rawPoints = r.points as unknown[];
+                if (
+                    rawPoints.length < 2 ||
+                    rawPoints.length > AUTOROUTING_PROPOSAL_MAX_POINTS ||
+                    ![...rawPoints].every(
+                        (p) =>
+                            Array.isArray(p) &&
+                            p.length === 2 &&
+                            typeof p[0] === 'number' &&
+                            typeof p[1] === 'number' &&
+                            Number.isFinite(p[0]) &&
+                            Number.isFinite(p[1]) &&
+                            Math.abs(p[0]) <= 90 &&
+                            Math.abs(p[1]) <= 180,
+                    )
+                )
+                    return null;
+                const points = (rawPoints as [number, number][]).map(([lat, lon]) => ({ lat, lon }) as TracePoint);
+                const evidenceValue = r.proposal_evidence ?? localById.get(r.id as string)?.proposalEvidence;
+                const proposalEvidence = normaliseAutoroutingProposalEvidence(evidenceValue, points);
+                if (evidenceValue !== undefined && evidenceValue !== null && !proposalEvidence) return null;
                 // saved_routes predates verification metadata. Keep a local
                 // envelope across its own cloud round-trip only when it still
                 // proves the returned coordinates. A different device safely
@@ -199,10 +268,11 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
                         ? { passageVoyageId: r.passage_voyage_id }
                         : {}),
                     ...(verification ? { verification } : {}),
+                    ...(proposalEvidence ? { proposalEvidence } : {}),
                     points,
                 };
             })
-            .filter((t) => t.points.length >= 2);
+            .filter((t): t is SavedTrace => t !== null);
         const remoteById = new Map(remote.map((t) => [t.id, t]));
         const stamp = (t: SavedTrace): number => new Date(t.updatedAt ?? t.createdAt).getTime();
         const localOnly = local.filter((t) => !remoteById.has(t.id) && !allDeletedIds.has(t.id));
@@ -281,7 +351,7 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             traces
                 .map(
                     (t) =>
-                        `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}:${t.verification?.geometryKey ?? ''}`,
+                        `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}:${t.verification?.geometryKey ?? ''}:${t.proposalEvidence?.savedAt ?? ''}`,
                 )
                 .sort()
                 .join('|');
