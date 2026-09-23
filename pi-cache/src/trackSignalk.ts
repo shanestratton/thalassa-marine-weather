@@ -203,6 +203,63 @@ function firstChildNumber(doc: unknown, collectionPath: string, leaf: string): n
     return null;
 }
 
+/** Signal K's standardized methodQuality values (the GGA adapter's 0..8 codes). */
+const GNSS_FIX_QUALITY = [
+    'no GPS',
+    'GNSS Fix',
+    'DGNSS fix',
+    'Precise GNSS',
+    'RTK fixed integer',
+    'RTK float',
+    'Estimated (DR) mode',
+    'Manual input',
+    'Simulator mode',
+];
+
+/** Match the exact receiver of the position we actually publish, not another
+ * GPS that happened to write the quality path last. Signal K source keys may
+ * contain dots, so values[source] must not go through the path walker. */
+function readGnssExtra(doc: unknown, nowMs: number): Record<string, number | string> {
+    const source = valueAt(doc, 'navigation.position.$source');
+    if (typeof source !== 'string' || !source.trim() || source.length > 120 || /\p{Cc}/u.test(source)) return {};
+    const navigation = (doc as { navigation?: { gnss?: Record<string, unknown> } } | null)?.navigation;
+    const gnss = navigation?.gnss;
+    const extra: Record<string, number | string> = {};
+    for (const [leaf, key] of [
+        ['satellites', 'gnss_satellites'],
+        ['horizontalDilution', 'gnss_hdop'],
+        ['methodQuality', 'gnss_fix_quality'],
+    ]) {
+        const raw = gnss?.[leaf];
+        if (!raw || typeof raw !== 'object') continue;
+        const envelope = raw as Record<string, unknown>;
+        const values = envelope.values;
+        const perSource =
+            values && typeof values === 'object' ? (values as Record<string, unknown>)[source] : undefined;
+        const selected = perSource ?? (envelope.$source === source ? envelope : undefined);
+        if (!selected || typeof selected !== 'object') continue;
+        const node = selected as Record<string, unknown>;
+        const at = typeof node.timestamp === 'string' ? Date.parse(node.timestamp) : NaN;
+        if (!Number.isFinite(at) || at <= 0 || at > nowMs + 1_000 || nowMs - at > 13_000) continue;
+        const value =
+            leaf === 'methodQuality'
+                ? typeof node.value === 'string'
+                    ? GNSS_FIX_QUALITY.indexOf(node.value)
+                    : -1
+                : node.value;
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+        if (leaf === 'satellites' && (!Number.isInteger(value) || value > 256)) continue;
+        if (leaf === 'horizontalDilution' && value > 100) continue;
+        extra[key] = value;
+        extra[`${key}_at_ms`] = at;
+    }
+    // HDOP is dimensionless, not metres. No standardized Signal K horizontal
+    // accuracy path exists; leave metres absent unless an actual receiver
+    // extension is explicitly supported in a future change.
+    if (Object.keys(extra).length) extra.gnss_source = source;
+    return extra;
+}
+
 /**
  * Read the boat's whole bus off a Signal K self document for the cloud
  * snapshot (services/CloudTelemetryService on the phones, vessel_telemetry in
@@ -210,7 +267,7 @@ function firstChildNumber(doc: unknown, collectionPath: string, leaf: string): n
  */
 export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
     const nowMs = now();
-    const extra: Record<string, number | string> = {};
+    const extra: Record<string, number | string> = readGnssExtra(selfDocument, nowMs);
     // The wind record must deduplicate the actual sensor envelope, not a
     // freshly fetched copy of Signal K's cached value or its current GPS clock.
     const twsAt = timestampAt(selfDocument, 'environment.wind.speedTrue', false);

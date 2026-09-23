@@ -13,6 +13,8 @@ interface TopNavProps {
     /** Replaces the live-status chip while browsing historical material or
      *  the unassigned all-diary view. */
     viewStatus?: string;
+    /** Map-first public view: a small floating identity card, not a masthead. */
+    compact?: boolean;
 }
 
 const VESSEL_TYPE_LABEL: Record<string, string> = {
@@ -29,31 +31,42 @@ export default function TopNav({
     connectionLost,
     lastSuccessfulAt,
     viewStatus,
+    compact = false,
 }: TopNavProps) {
     const specs = [VESSEL_TYPE_LABEL[vessel.type] ?? 'Vessel', vessel.model].filter(Boolean).join(' · ');
     const telemetryIsFresh =
         telemetry !== null && !telemetry.is_last_known && isPublicPositionFresh(telemetry.updated_at, nowMs);
 
     return (
-        <header className="relative z-20 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-b border-teal-200/15 bg-linear-to-r from-slate-950 via-slate-900 to-teal-950/70 px-3 py-1.5 shadow-md lg:flex lg:justify-between lg:gap-3 lg:px-6 lg:py-3">
+        <header
+            className={`relative z-20 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 py-2 ${compact ? '' : 'border-b border-teal-200/15 bg-linear-to-r from-slate-950 via-slate-900 to-teal-950/70 shadow-md lg:flex lg:justify-between lg:gap-3 lg:px-6 lg:py-3'}`}
+        >
             {/* Brand & vessel */}
-            <div className="col-start-1 row-start-1 flex min-w-0 flex-1 flex-col lg:gap-1">
-                <span className="text-[9px] leading-3 font-semibold tracking-[0.18em] text-teal-300 uppercase lg:text-xs">
+            <div className={`col-start-1 row-start-1 flex min-w-0 flex-1 flex-col ${compact ? '' : 'lg:gap-1'}`}>
+                <span
+                    className={`text-[9px] leading-3 font-semibold tracking-[0.18em] text-teal-300 uppercase ${compact ? '' : 'lg:text-xs'}`}
+                >
                     Thalassa
                 </span>
                 <div className="flex flex-col min-w-0">
                     <h1
                         title={vessel.name}
-                        className="text-lg lg:text-2xl font-semibold tracking-tight text-slate-100 truncate"
+                        className={`${compact ? 'text-base' : 'text-lg lg:text-2xl'} font-semibold tracking-tight text-slate-100 truncate`}
                     >
                         {vessel.name}
                     </h1>
-                    <span className="hidden text-xs text-slate-400 truncate lg:block">{specs}</span>
+                    {!compact && <span className="hidden text-xs text-slate-400 truncate lg:block">{specs}</span>}
                 </div>
             </div>
 
             {/* Status */}
-            <div className="contents lg:flex lg:max-w-[45%] lg:flex-wrap lg:items-center lg:justify-end lg:gap-x-4 lg:gap-y-1 lg:text-right">
+            <div
+                className={
+                    compact
+                        ? 'contents'
+                        : 'contents lg:flex lg:max-w-[45%] lg:flex-wrap lg:items-center lg:justify-end lg:gap-x-4 lg:gap-y-1 lg:text-right'
+                }
+            >
                 {/* Skipper door — the public log page's only outbound link.
                     RELATIVE /plan (Shane 2026-07-17: "it defaults back to
                     www.thalassawx.app/plan rather than boat-name.thalassawx.app
@@ -66,12 +79,13 @@ export default function TopNav({
                     Still supabase-free here — a plain <a>, not an auth flow. */}
                 <a
                     href="/plan"
-                    className="col-start-2 row-start-1 row-span-2 flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 rounded-lg border border-slate-700 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
+                    aria-label="Skipper sign in"
+                    className={`col-start-2 row-start-1 flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] px-2 py-1.5 rounded-lg border border-slate-700 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-slate-500 transition-colors ${compact ? '' : 'row-span-2'}`}
                     title="Skipper? Sign in and build a passage on the big screen"
                 >
-                    ⚓ Skipper
+                    ⚓ {!compact && 'Skipper'}
                 </a>
-                <span className="hidden lg:block text-[11px] font-mono text-slate-400">
+                <span className={`${compact ? 'hidden' : 'hidden lg:block'} text-[11px] font-mono text-slate-400`}>
                     {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
                 </span>
                 {/* LIVE vs LAST KNOWN. This used to read "Live" whenever telemetry
@@ -81,37 +95,39 @@ export default function TopNav({
                     worse than the blank it replaced: a viewer could plan around it.
                     Under way pulses and says how fresh; moored is grey, still, and
                     says when it was last seen. */}
-                {connectionLost ? (
-                    <span
-                        role="status"
-                        aria-live="polite"
-                        className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-amber-300 lg:text-[11px] lg:uppercase lg:tracking-wider"
-                    >
-                        <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" />
-                        Connection lost · last update {formatPublicAge(lastSuccessfulAt, nowMs)}
-                    </span>
-                ) : viewStatus ? (
-                    <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-slate-300 lg:text-[11px] lg:uppercase lg:tracking-wider">
-                        <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-slate-500" />
-                        {viewStatus}
-                    </span>
-                ) : telemetry ? (
-                    !telemetryIsFresh ? (
+                <div className={compact ? 'col-span-2 row-start-2' : 'contents'}>
+                    {connectionLost ? (
+                        <span
+                            role="status"
+                            aria-live="polite"
+                            className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-amber-300 lg:text-[11px] lg:uppercase lg:tracking-wider"
+                        >
+                            <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" />
+                            Connection lost · last update {formatPublicAge(lastSuccessfulAt, nowMs)}
+                        </span>
+                    ) : viewStatus ? (
                         <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-slate-300 lg:text-[11px] lg:uppercase lg:tracking-wider">
                             <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-slate-500" />
-                            Not tracking · {formatPublicAge(telemetry.updated_at, nowMs)}
+                            {viewStatus}
                         </span>
+                    ) : telemetry ? (
+                        !telemetryIsFresh ? (
+                            <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-slate-300 lg:text-[11px] lg:uppercase lg:tracking-wider">
+                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-slate-500" />
+                                Not tracking · {formatPublicAge(telemetry.updated_at, nowMs)}
+                            </span>
+                        ) : (
+                            <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-emerald-400 lg:text-[11px] lg:uppercase lg:tracking-wider">
+                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
+                                Live · {formatPublicAge(telemetry.updated_at, nowMs)}
+                            </span>
+                        )
                     ) : (
-                        <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-emerald-400 lg:text-[11px] lg:uppercase lg:tracking-wider">
-                            <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
-                            Live · {formatPublicAge(telemetry.updated_at, nowMs)}
+                        <span className="col-start-1 row-start-2 text-xs leading-4 text-slate-300 lg:text-[11px] lg:font-mono">
+                            No telemetry yet
                         </span>
-                    )
-                ) : (
-                    <span className="col-start-1 row-start-2 text-xs leading-4 text-slate-300 lg:text-[11px] lg:font-mono">
-                        No telemetry yet
-                    </span>
-                )}
+                    )}
+                </div>
             </div>
         </header>
     );

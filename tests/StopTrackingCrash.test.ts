@@ -59,7 +59,6 @@ describe('the End Voyage path', () => {
     it('never spreads entries into Math.max', () => {
         expect(code).not.toMatch(/Math\.max\([^)]*\.\.\./);
         expect(code).not.toMatch(/Math\.min\([^)]*\.\.\./);
-        expect(code).toMatch(/const dist = maxOf\(ve\.map\(/);
     });
 
     it('the tidy-up after the track stops cannot escape into the error boundary', () => {

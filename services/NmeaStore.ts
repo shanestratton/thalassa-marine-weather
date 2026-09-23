@@ -16,6 +16,7 @@ import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 import { subscribeAuthIdentityScope } from './authIdentityScope';
+import { validGnssValue, type GnssDiagnostics } from './nmea/gnssDiagnostics';
 import {
     freshWindHistorySummary,
     isWindSpeed,
@@ -102,6 +103,9 @@ export interface NmeaStoreState {
     hdop: TimestampedMetric; // Horizontal dilution (lower = better)
     satellites: TimestampedMetric; // Satellites in use
     gpsFixQuality: number | null; // GGA fix quality (1=GPS, 2=DGPS, 4=RTK)
+    gpsFixQualityUpdatedAt: number;
+    gpsSource: string | null;
+    gpsAccuracyM: TimestampedMetric; // Only receiver-reported horizontal accuracy; never HDOP-derived
 
     // Connection. 'remote' = no gateway socket; the numbers are the boat's
     // own, read from the cloud row the Pi keeps (services/CloudTelemetryService).
@@ -126,6 +130,8 @@ export interface RemoteFeed {
     deviceLabel: string | null;
     /** Epoch ms of the instrument reading, as the Pi reported it. */
     reportedAt: number;
+    /** Diagnostic-only original position time; never substitute the row/GPS clock. */
+    positionSampleAt?: number;
     /** Epoch ms when this phone read it. */
     receivedAt: number;
 }
@@ -137,6 +143,8 @@ export interface RemoteInstrumentSnapshot {
     via?: RemoteVia;
     deviceLabel: string | null;
     reportedAt: number;
+    /** Original position measurement time, used only by GPS diagnostics. */
+    positionSampleAt?: number;
     lat: number | null;
     lon: number | null;
     sogKts: number | null;
@@ -157,6 +165,7 @@ export interface RemoteInstrumentSnapshot {
     rudderDeg: number | null;
     rpm: number | null;
     voltageV: number | null;
+    gnss?: GnssDiagnostics;
     /** Original wind-leaf sample time, never a row/GPS/receipt timestamp. */
     windSampleAt?: number;
     /** Physical source of that exact wind leaf, independent of the summary's sampling cycle. */
@@ -188,6 +197,7 @@ class NmeaStoreClass {
         // A singleton survives account changes. Previous crews' history must not.
         subscribeAuthIdentityScope(() => {
             this.clearWindHistory();
+            this.clearGpsDiagnostics();
             this.notify();
         });
     }
@@ -209,7 +219,10 @@ class NmeaStoreClass {
                 return;
             }
             this.state.connectionStatus = status;
-            if (status === 'connected') this.state.remote = null; // the boat itself wins
+            if (status === 'connected') {
+                if (this.state.remote) this.clearGpsDiagnostics();
+                this.state.remote = null; // the boat itself wins
+            }
             if (status !== 'connected') this.retireAllMetrics();
             this.notify();
         });
@@ -306,7 +319,8 @@ class NmeaStoreClass {
      * Feed the store from the cloud snapshot. Refused while a gateway socket is
      * connected — the boat's own bus always wins — and never touches the
      * socket's own status machine otherwise. Every metric is stamped with the
-     * time this phone read it, so the watchdog ages a feed that stops arriving.
+     * time this phone read it, except GNSS diagnostics which retain their own
+     * sensor time so polling cached quality cannot make it look current.
      */
     ingestRemote(snapshot: RemoteInstrumentSnapshot): boolean {
         if (NmeaListenerService.getStatus() === 'connected' || this.state.connectionStatus === 'connected')
@@ -322,6 +336,7 @@ class NmeaStoreClass {
         )
             return false;
         this.ingestRemoteWind(snapshot, now);
+        this.ingestRemoteGnss(snapshot.gnss, now);
         const put = (metric: TimestampedMetric, value: number | null) => {
             if (value !== null && Number.isFinite(value)) this.updateMetric(metric, value, now);
         };
@@ -344,11 +359,25 @@ class NmeaStoreClass {
         put(this.state.voltage, snapshot.voltageV);
         put(this.state.latitude, snapshot.lat);
         put(this.state.longitude, snapshot.lon);
+        const positionSampleAt = snapshot.positionSampleAt;
         this.state.remote = {
             source: snapshot.source,
             via,
             deviceLabel: snapshot.deviceLabel,
             reportedAt: snapshot.reportedAt,
+            ...(typeof positionSampleAt === 'number' &&
+            Number.isFinite(positionSampleAt) &&
+            positionSampleAt > 0 &&
+            positionSampleAt <= now + 1_000 &&
+            snapshot.lat !== null &&
+            snapshot.lon !== null &&
+            Number.isFinite(snapshot.lat) &&
+            Number.isFinite(snapshot.lon) &&
+            Math.abs(snapshot.lat) <= 90 &&
+            Math.abs(snapshot.lon) <= 180 &&
+            !(snapshot.lat === 0 && snapshot.lon === 0)
+                ? { positionSampleAt }
+                : {}),
             receivedAt: now,
         };
         this.state.connectionStatus = 'remote';
@@ -407,6 +436,8 @@ class NmeaStoreClass {
     /** Ingest an NmeaSample from the listener */
     private ingestSample(sample: NmeaSample): void {
         const now = sample.timestamp;
+        if (this.state.gpsSource !== 'NMEA gateway') this.clearGpsDiagnostics();
+        this.state.gpsSource = 'NMEA gateway';
         const config = NmeaListenerService.getSavedConfig?.();
         this.selectWindHistorySource(
             `gateway:${config?.host ?? 'default'}:${config?.port ?? ''}`,
@@ -451,9 +482,14 @@ class NmeaStoreClass {
         // GPS position
         if (sample.latitude !== null) this.updateMetric(this.state.latitude, sample.latitude, now);
         if (sample.longitude !== null) this.updateMetric(this.state.longitude, sample.longitude, now);
-        if (sample.hdop !== null) this.updateMetric(this.state.hdop, sample.hdop, now);
-        if (sample.satellites !== null) this.updateMetric(this.state.satellites, sample.satellites, now);
-        if (sample.gpsFixQuality !== null) this.state.gpsFixQuality = sample.gpsFixQuality;
+        const gpsDiagnosticsAt = sample.gpsDiagnosticsAt ?? now;
+        if (validGnssValue('hdop', sample.hdop)) this.updateMetric(this.state.hdop, sample.hdop, gpsDiagnosticsAt);
+        if (validGnssValue('satellites', sample.satellites))
+            this.updateMetric(this.state.satellites, sample.satellites, gpsDiagnosticsAt);
+        if (validGnssValue('fixQuality', sample.gpsFixQuality)) {
+            this.state.gpsFixQuality = sample.gpsFixQuality;
+            this.state.gpsFixQualityUpdatedAt = gpsDiagnosticsAt;
+        }
 
         this.notify();
     }
@@ -464,6 +500,46 @@ class NmeaStoreClass {
         this.remoteWindHistory = null;
         this.remoteWindSensor = null;
         this.remoteWindSensorAt = 0;
+    }
+
+    private clearGpsDiagnostics(): void {
+        for (const metric of [this.state.hdop, this.state.satellites, this.state.gpsAccuracyM]) {
+            metric.value = null;
+            metric.lastUpdated = 0;
+            metric.freshness = 'dead';
+        }
+        this.state.gpsFixQuality = null;
+        this.state.gpsFixQualityUpdatedAt = 0;
+        this.state.gpsSource = null;
+    }
+
+    private ingestRemoteGnss(gnss: GnssDiagnostics | undefined, now: number): void {
+        // A snapshot is a complete report: omitted diagnostics must not inherit
+        // the prior gateway/receiver's values, even when position stays fresh.
+        this.clearGpsDiagnostics();
+        if (
+            !gnss ||
+            typeof gnss.source !== 'string' ||
+            !gnss.source.trim() ||
+            gnss.source.length > 120 ||
+            /\p{Cc}/u.test(gnss.source)
+        )
+            return;
+        this.state.gpsSource = gnss.source;
+        for (const field of ['satellites', 'hdop', 'fixQuality', 'accuracyM'] as const) {
+            const sample = gnss[field];
+            if (!sample || !validGnssValue(field, sample.value)) continue;
+            const freshness = getNmeaFreshness(sample.sampleAt, now);
+            if (freshness === 'dead') continue;
+            if (field === 'fixQuality') {
+                this.state.gpsFixQuality = sample.value;
+                this.state.gpsFixQualityUpdatedAt = sample.sampleAt;
+            } else {
+                const metric = field === 'accuracyM' ? this.state.gpsAccuracyM : this.state[field];
+                this.updateMetric(metric, sample.value, sample.sampleAt);
+                metric.freshness = freshness;
+            }
+        }
     }
 
     private selectWindHistorySource(identity: string, source: string): void {
@@ -585,6 +661,7 @@ class NmeaStoreClass {
             this.state.longitude,
             this.state.hdop,
             this.state.satellites,
+            this.state.gpsAccuracyM,
         ];
 
         for (const m of metrics) changed = reconcileNmeaMetricFreshness(m) || changed;
@@ -593,11 +670,9 @@ class NmeaStoreClass {
             this.clearDepthMetadata();
             changed = true;
         }
-        if (
-            (this.state.latitude.value === null || this.state.longitude.value === null) &&
-            this.state.gpsFixQuality !== null
-        ) {
+        if (getNmeaFreshness(this.state.gpsFixQualityUpdatedAt) === 'dead' && this.state.gpsFixQuality !== null) {
             this.state.gpsFixQuality = null;
+            this.state.gpsFixQualityUpdatedAt = 0;
             changed = true;
         }
 
@@ -640,7 +715,7 @@ class NmeaStoreClass {
             metric.lastUpdated = 0;
             metric.freshness = 'dead';
         }
-        this.state.gpsFixQuality = null;
+        this.clearGpsDiagnostics();
         this.clearDepthMetadata();
     }
 
@@ -683,6 +758,9 @@ class NmeaStoreClass {
             hdop: emptyMetric(),
             satellites: emptyMetric(),
             gpsFixQuality: null,
+            gpsFixQualityUpdatedAt: 0,
+            gpsSource: null,
+            gpsAccuracyM: emptyMetric(),
             connectionStatus: 'disconnected',
             remote: null,
             lastAnyUpdate: 0,

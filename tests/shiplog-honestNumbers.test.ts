@@ -4,8 +4,7 @@
  * Shane, 2026-09-06, boat on the hard at Scarborough: the card said 0.1 nm,
  * the day rows under it said 1.6 + 1.0 = 2.6 NM, "Day 1" was dated the day
  * before the track began, the row said LIVE under a "Slide to start tracking"
- * slider, the max speed was 7.4 kts, and the track that went nowhere never
- * deleted itself. Each of those is pinned here.
+ * slider, and the max speed was 7.4 kts. Each of those is pinned here.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -21,10 +20,8 @@ import {
     EMPTY_TRACK_NM,
     EMPTY_TRACK_SPAN_M,
     isEmptyTrack,
-    selectEmptyVoyagesToPrune,
     summarizeEntries,
     trackSpanM,
-    type VoyageSummary,
 } from '../services/shiplog/VoyageSummary';
 import type { ShipLogEntry } from '../types';
 
@@ -112,7 +109,7 @@ describe('day’s runs are for passages', () => {
     });
 });
 
-describe('a track that went nowhere deletes itself', () => {
+describe('track footprint is descriptive metadata', () => {
     const m = (metres: number) => metres / 111_320; // degrees of latitude
     const cloud = [0, 12, -8, 20, -15, 5].map((dm, i) =>
         at(2026, 9, 6, 10, i, {
@@ -139,32 +136,6 @@ describe('a track that went nowhere deletes itself', () => {
         expect(EMPTY_TRACK_SPAN_M).toBe(150);
     });
 
-    it('the sweep prunes it once this device has stopped it', () => {
-        const s: VoyageSummary = {
-            voyageId: 'hard',
-            entryCount: 3398,
-            startedAt: '2026-09-06T00:32:00Z',
-            endedAt: '2026-09-06T04:23:00Z',
-            totalDistanceNM: 0.1,
-            avgSpeedKts: 1.1,
-            hasManual: false,
-            isPlannedRoute: false,
-            isImported: false,
-            firstLat: -27.2,
-            firstLon: 153.11,
-            lastLat: -27.2,
-            lastLon: 153.11,
-            firstIsOnWater: false,
-            landFraction: 1,
-            spanM: 60,
-        };
-        const nowMs = Date.parse('2026-09-06T04:24:00Z');
-        expect(selectEmptyVoyagesToPrune([s], { nowMs, deviceStoppedIds: new Set(['hard']) })).toEqual(['hard']);
-        expect(
-            selectEmptyVoyagesToPrune([{ ...s, spanM: 400 }], { nowMs, deviceStoppedIds: new Set(['hard']) }),
-        ).toEqual([]);
-    });
-
     it('client summaries carry the footprint', () => {
         expect(summarizeEntries(cloud)[0].spanM).toBeCloseTo(trackSpanM(cloud)!, 6);
     });
@@ -187,10 +158,7 @@ describe('what the screens say', () => {
         expect(pipeline).toContain('distanceNM: Math.round(distanceNM * 10_000) / 10_000,');
     });
 
-    it('the stop-time prune and the server summary share the footprint rule', () => {
-        expect(read('hooks/useLogPageState.ts')).toContain(
-            'isEmptyTrack({ totalDistanceNM: dist, spanM: trackSpanM(ve) })',
-        );
+    it('the server summary supplies footprint metadata', () => {
         const migration = read('supabase/migrations/20260906150000_voyage_summary_track_span.sql');
         for (const col of ['min_lat', 'max_lat', 'min_lon', 'max_lon']) expect(migration).toContain(`AS ${col}`);
         expect(migration).toContain('FROM PUBLIC, anon;');

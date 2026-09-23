@@ -1501,11 +1501,13 @@ describe('LogPage — Cast Off handoff', () => {
         // with no outstanding heads-up, so the settled state is null.
         await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
         expect(shipLogHandoffMock.startTracking).toHaveBeenCalledTimes(2);
+        // GPS retries still belong to this fresh Cast Off until its first
+        // successful confirmation; the recorder must retain departure intent.
         expect(shipLogHandoffMock.startTracking).toHaveBeenLastCalledWith(
             true,
             'voyage-handoff',
             expect.anything(),
-            false,
+            true,
         );
         // Tracking just confirmed — THIS is the moment the public page can
         // link the passage, so the publish fires here (default: show), and
@@ -1707,10 +1709,10 @@ describe('LogPage — Cast Off handoff', () => {
             .mockReturnValue({ isTracking: true, currentVoyageId: 'voyage-new' });
         render(<LogPage />);
 
-        // The auto-retry stops the orphan (archiving its log), then starts ours.
+        // The auto-retry stops the orphan, then starts our fresh departure.
         await waitFor(() => expect(shipLogHandoffMock.stopTracking).toHaveBeenCalledWith('voyage-orphan'));
         await waitFor(() =>
-            expect(shipLogHandoffMock.startTracking).toHaveBeenCalledWith(true, 'voyage-new', expect.anything(), false),
+            expect(shipLogHandoffMock.startTracking).toHaveBeenCalledWith(true, 'voyage-new', expect.anything(), true),
         );
         await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
     });

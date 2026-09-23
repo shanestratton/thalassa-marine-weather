@@ -1,0 +1,94 @@
+/* The canvas never shrinks for forms: controls float above it, like Tracer.
+   Container queries also apply to an iPad's half-width pane. */
+.autoroute-full-chart {
+    container-type: inline-size;
+    isolation: isolate;
+}
+.autoroute-map-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+}
+.autoroute-map-header {
+    position: absolute;
+    top: calc(var(--autoroute-safe-top, 0px) + 8px);
+    right: 8px;
+    z-index: 2;
+}
+.autoroute-map-header button {
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+}
+.autoroute-map-zoom {
+    position: absolute;
+    top: calc(var(--autoroute-safe-top, 0px) + 60px);
+    right: 8px;
+    z-index: 1;
+}
+.autoroute-map-zoom button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 22px;
+}
+.autoroute-controls-anchor {
+    position: absolute;
+    top: calc(var(--autoroute-safe-top, 0px) + 8px);
+    bottom: calc(var(--autoroute-safe-bottom, 0px) + 100px);
+    left: 8px;
+    width: min(18rem, calc(100% - 68px));
+    z-index: 2;
+    pointer-events: none;
+    display: flex;
+    align-items: flex-start;
+}
+.autoroute-waypoint-anchor {
+    position: absolute;
+    bottom: calc(var(--autoroute-safe-bottom, 0px) + 76px);
+    left: 8px;
+    width: min(18rem, calc(100% - 68px));
+    max-height: calc(100% - var(--autoroute-safe-top, 0px) - var(--autoroute-safe-bottom, 0px) - 238px);
+    display: flex;
+    z-index: 3;
+    pointer-events: none;
+}
+.autoroute-map-prompt {
+    position: absolute;
+    z-index: 2;
+    left: 8px;
+    right: 8px;
+    bottom: calc(var(--autoroute-safe-bottom, 0px) + 70px);
+    pointer-events: none;
+}
+@container (min-width: 700px) {
+    .autoroute-controls-anchor {
+        bottom: calc(var(--autoroute-safe-bottom, 0px) + 48px);
+    }
+    .autoroute-map-prompt {
+        left: auto;
+        width: min(450px, calc(100% - 440px));
+    }
+}
+/* Pin editing uses a separate right rail when the landscape pane permits it. */
+@container (min-width: 500px) {
+    .autoroute-map-prompt {
+        right: 60px;
+    }
+    .autoroute-waypoint-anchor {
+        left: auto;
+        right: 60px;
+        width: min(18rem, calc(50% - 40px));
+        max-height: calc(100% - var(--autoroute-safe-top, 0px) - var(--autoroute-safe-bottom, 0px) - 100px);
+    }
+    .autoroute-full-chart:has(.autoroute-waypoint-anchor) .autoroute-controls-anchor {
+        width: min(18rem, calc(50% - 40px));
+    }
+}
+@media (max-height: 500px) {
+    .autoroute-controls-anchor {
+        bottom: calc(var(--autoroute-safe-bottom, 0px) + 48px);
+    }
+}

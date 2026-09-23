@@ -73,6 +73,9 @@ describe('pressure chart cues', () => {
         for (const feature of result.contours.features) {
             const pressure = feature.properties?.pressure;
             expect(feature.properties?.isMajor).toBe(pressure % 8 === 0);
+            expect(feature.properties?.isDetail).toBe(pressure % 4 !== 0);
+            expect(pressure % 2).toBe(0);
         }
+        expect(result.contours.features.some((feature) => feature.properties?.isDetail)).toBe(true);
     });
 });

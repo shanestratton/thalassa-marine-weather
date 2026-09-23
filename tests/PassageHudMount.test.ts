@@ -13,12 +13,10 @@ const hook = readFileSync('hooks/usePassageHudInstruments.ts', 'utf8');
 const paneCode = pane.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('the passage pane on the Obs chart', () => {
-    it('mounts inside the chart main, never over the picker or the route tracer, and hands the strip Back', () => {
+    it('mounts inside the chart main, never over the picker or the route tracer', () => {
         expect(app).toContain("import { PassageHudPane } from './components/passage/PassageHudPane';");
-        expect(app).toMatch(/\{chartVisible && !mapPickerActive && !tracerActive && \(\s*<PassageHudPane/);
-        expect(app).toMatch(
-            /<PassageHudPane[\s\S]{0,420}onBack=\{\(\) => \{\s*delete window\.__thalassaPinView;\s*setPage\(previousView \|\| 'dashboard'\);/,
-        );
+        expect(app).toMatch(/\{chartVisible && !mapPickerActive && !tracerActive &&\s*<PassageHudPane \/>\}/);
+        expect(paneCode).not.toContain('onBack');
         // Inside the chart <main> (after MapHub, before the offline chip), so it
         // rides with the split frame instead of the device viewport.
         const mapHubAt = app.indexOf('<MapHub');
@@ -29,26 +27,43 @@ describe('the passage pane on the Obs chart', () => {
         expect(offlineAt).toBeGreaterThan(paneAt);
     });
 
-    it('is off by default and switched on from Preferences', () => {
-        const store = readFileSync('stores/passageHudStore.ts', 'utf8');
-        expect(store).toContain("const ENABLED_KEY = 'thalassa_passage_hud_enabled_v1';");
-        expect(paneCode).toMatch(/if \(!enabled\) return null;/);
-        expect(readFileSync('components/settings/GeneralTab.tsx', 'utf8')).toContain('<PassageStripSection />');
-        expect(readFileSync('components/settings/PassageStripSection.tsx', 'utf8')).toContain(
-            'onChange={setPassageHudEnabled}',
-        );
+    it('is switched on from the OBS layer FAB, with no Settings activation', () => {
+        expect(paneCode).toContain('usePassageHudEnabled');
+        expect(readFileSync('components/settings/GeneralTab.tsx', 'utf8')).not.toContain('PassageStripSection');
+        expect(readFileSync('components/map/MapHub.tsx', 'utf8')).toContain('...passageHudLayerSources({');
         expect(app).toMatch(/chartVisible && passageHudEnabled && passageHudOpen && !mapPickerActive && !tracerActive/);
     });
 
-    it('is no wider than the gap the centred chart furniture leaves, so no licence credit is ever moved', () => {
-        expect(pane).toContain('w-[4.75rem]');
+    it('doubles the original strip width for larger instruments', () => {
+        expect(pane).toContain('w-[9.5rem]');
+        expect(pane).toContain('text-[28px]');
+        expect(pane).toContain('text-[32px]');
         expect(css).not.toMatch(/data-passage-hud[^{]*(credit|Copernicus|rainviewer)/i);
     });
 
+    it('uses one complete-route camera owner and puts explanatory clutter inside the big i', () => {
+        const map = readFileSync('components/map/MapHub.tsx', 'utf8');
+        expect(map).toContain('usePassageRouteFrame({');
+        expect(map).toContain('route: followedRouteCoords,');
+        expect(map).toContain('routeKey: followedVoyageId,');
+        expect(map.replace(/\s+/g, ' ')).toContain(
+            '!showConsensus && !mobActive && !(browseCycloneVisible && closestStorm)',
+        );
+        expect(map).toContain('usePassageWaypointLayer({');
+        expect(map).toContain('aria-label="Show whole route and current vessel position"');
+        expect(map).not.toContain('<SquallLegend');
+        expect(map).toContain('setPassageSquallInfoVisible(browseSquallVisible)');
+        expect(pane).not.toContain('frameRemainingRoute');
+        expect(pane).not.toContain('requestMapFit');
+    });
+
     it('uses pixel clearances where its neighbours are pixel-anchored, and pays the insets in the split like they do', () => {
-        expect(css).toMatch(/\.thalassa-passage-hud \{\s*top: calc\(env\(safe-area-inset-top\) \+ 60px\);/);
-        expect(css).toContain(
-            'max-height: calc(100% - env(safe-area-inset-top) - 60px - 232px - env(safe-area-inset-bottom));',
+        const flat = css.replace(/\s+/g, ' ');
+        expect(flat).toContain(
+            '.thalassa-passage-hud { top: calc(env(safe-area-inset-top) + 60px + var(--passage-hud-credit-clearance, 0px));',
+        );
+        expect(flat).toMatch(
+            /max-height: calc\(\s*100% - env\(safe-area-inset-top\) - 60px - var\(--passage-hud-credit-clearance, 0px\) - 232px - env\(safe-area-inset-bottom\)\s*\);/,
         );
         expect(css).not.toMatch(/\[data-split-pane='chart'\] \.thalassa-passage-hud \{/);
     });
@@ -79,15 +94,14 @@ describe('the passage pane on the Obs chart', () => {
         const squash = (t: string) => t.replace(/\s+/g, '');
         const flat = squash(css);
         for (const neighbour of [
-            '.thalassa-map-back { display: none; }',
-            '.thalassa-helix-legend { left: calc(4.75rem + 12px) !important; bottom: calc(50% - 24px) !important; }',
-            '.fixed.left-2.z-140 { left: calc(4.75rem + 8px); }',
+            '.thalassa-helix-legend { left: calc(9.5rem + 12px) !important; bottom: calc(50% - 24px) !important; }',
+            '.fixed.left-2.z-140 { left: calc(9.5rem + 8px); }',
         ]) {
             expect(flat, neighbour).toContain(squash(`${shown} ${neighbour}`));
         }
         expect(flat).toContain(squash('@media not ((orientation: landscape) and (max-height: 600px)) {'));
         // The selectors those rules lean on still exist where they point.
-        expect(app).toContain('className="thalassa-map-back absolute z-601 px-3"');
+        expect(app).not.toContain('className="thalassa-map-back absolute z-601 px-3"');
         expect(readFileSync('components/map/ThalassaHelixControl.tsx', 'utf8')).toContain(
             'className="thalassa-helix-legend absolute z-500"',
         );
@@ -99,13 +113,13 @@ describe('the passage pane on the Obs chart', () => {
     it('the ENC notice states its own transform in every context it is moved in', () => {
         const flat = css.replace(/\s+/g, ' ');
         expect(flat).toMatch(
-            /\.thalassa-enc-coverage-notice \{ left: calc\(4\.75rem \+ \(100% - 4\.75rem\) \/ 2\); width: min\(390px, calc\(100% - 4\.75rem - 24px\)\); transform: translateX\(-50%\); \}/,
+            /\.thalassa-enc-coverage-notice \{ left: calc\(9\.5rem \+ \(100% - 9\.5rem\) \/ 2\); width: min\(390px, calc\(100% - 9\.5rem - 24px\)\); transform: translateX\(-50%\); \}/,
         );
         expect(flat).toMatch(
-            /\[data-split-pane='chart'\] \.thalassa-enc-coverage-notice \{ left: calc\(4\.75rem \+ 72px\); width: min\(390px, calc\(100% - 4\.75rem - 152px\)\); transform: none; \}/,
+            /\[data-split-pane='chart'\] \.thalassa-enc-coverage-notice \{ left: calc\(9\.5rem \+ 8px\); width: min\(390px, calc\(100% - 9\.5rem - 88px\)\); transform: none; \}/,
         );
         expect(flat).toMatch(
-            /max-width: 360px\) \{ main\[data-passage-hud='open'\][^{]*\.thalassa-enc-coverage-notice \{ left: calc\(4\.75rem \+ 8px\); width: calc\(100% - 4\.75rem - 20px\); transform: none; \}/,
+            /max-width: 360px\) \{ main\[data-passage-hud='open'\][^{]*\.thalassa-enc-coverage-notice \{ left: calc\(9\.5rem \+ 8px\); width: calc\(100% - 9\.5rem - 20px\); transform: none; \}/,
         );
     });
 
@@ -143,14 +157,14 @@ describe('the passage pane on the Obs chart', () => {
 
     it('never switches the Passage overlay off, and only switches it on from a tap', () => {
         expect(paneCode).not.toMatch(/setPassageOverlay\(false\)/);
-        // Two taps may turn it on: the route-and-track button, and LOOK AHEAD
+        // Two user actions may turn it on: route-and-track and departure confirmation.
         // (a ghost with no route on the chart is a boat adrift). Both are
         // inside an onClick — nothing turns it on by mounting or rendering.
         const ons = [...paneCode.matchAll(/setPassageOverlay\(true\)/g)];
         expect(ons).toHaveLength(2);
         for (const on of ons) {
-            const before = paneCode.slice(Math.max(0, on.index - 320), on.index);
-            expect(before).toMatch(/onClick=\{\(\) => \{(?![\s\S]*\}\}\s*\n\s*className)/);
+            const before = paneCode.slice(Math.max(0, on.index - 650), on.index);
+            expect(before).toMatch(/(?:onClick=\{\(\) => \{|onConfirm=\{\(departureMs\) => \{)/);
         }
     });
 
@@ -198,8 +212,8 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
 
     it('the wind timeline follows the offset by the grid’s own clock, and SAYS how far its field reaches', () => {
         expect(layers).toContain('subscribePassageLookAhead(schedule)');
-        expect(layers).toContain('windFrameForForecastHour(fhrs, nowHour + look.aheadMs / 3_600_000)');
-        expect(layers).toContain('reportPassageWindCoverage(Math.max(0, fhrs[fhrs.length - 1] - nowHour));');
+        expect(layers).toContain('passageWindTimeSelection(fhrs, refTime, look, Date.now())');
+        expect(layers).toContain('reportPassageWindCoverage(selection.coverageHours);');
         // Through the manual-scrub path, so the Now auto-tracker leaves it alone…
         expect(layers).toMatch(/setWindHour\(Math\.round\(target\.frame \* 10\) \/ 10\);/);
         // …and handed straight back when the glance ends.
@@ -223,7 +237,7 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
 
     it('a man overboard ends the glance', () => {
         expect(flat(paneCode)).toContain(
-            'MobService.subscribe((state) => { if (state.active) stopPassageLookAhead(); })',
+            'MobService.subscribe((state) => { mobActiveRef.current = !!state.active; if (state.active) { setDepartureOpen(false); setModelOpen(false); stopPassageLookAhead(); } })',
         );
     });
 
@@ -280,10 +294,14 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
         expect(sampler.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')).not.toMatch(/WindFieldAdapter/);
     });
 
-    it('the data credit on the scrubber can wrap but can never be cut off', () => {
-        const credit = /<p[^>]*data-testid="route-scrub-credit"[^>]*>/.exec(flat(scrubber))?.[0] ?? '';
+    it('the data credit is in the big i panel, wraps, and cannot be cut off', () => {
+        const info = readFileSync('components/passage/PassageHudInfoCard.tsx', 'utf8');
+        const status = readFileSync('components/SystemStatusButton.tsx', 'utf8');
+        const credit = /<p[^>]*data-testid="route-scrub-credit"[^>]*>/.exec(flat(info))?.[0] ?? '';
         expect(credit).toBeTruthy();
         expect(credit).not.toMatch(/truncate|line-clamp|whitespace-nowrap|overflow-hidden/);
+        expect(status).toContain('<PassageHudInfoCard />');
+        expect(scrubber).not.toContain('data-testid="route-scrub-credit"');
     });
 
     it('changing the model is a centred dialog, clear of the tab bar — not a bottom sheet', () => {
@@ -361,15 +379,15 @@ describe('phase 3: spread, speed and rain', () => {
     });
 
     it('rain is chosen by CLOCK, as an integer, and never while a frame is still warming up', () => {
-        expect(layers).toContain('rainFollowIndex(frames, rainNowIdxRef.current, now, look.aheadMs)');
+        expect(layers).toContain('passageRainTimeSelection(frames, rainNowIdxRef.current, look, now)');
         expect(flat(layers)).toContain('if (busy) { timer = setTimeout(apply, 400); return; }');
         expect(layers).toContain('timeMs: f.time * 1000,');
         expect(layers).toContain('snapshotClockMs(rainbowSnapshot, Date.now())');
     });
 
-    it('rain is "unsynced" only when it has no timed reach at all', () => {
+    it('rain is "unsynced" when its frames cannot follow the selected departure clock', () => {
         expect(flat(layers)).toContain(
-            "activeLayers.has('rain') && (rainReachHours(unifiedFramesRef.current, Date.now()) === null || rainFollowFailed)",
+            "activeLayers.has('rain') && (!rainReady || rainFollowUnsynced || rainFollowFailed)",
         );
     });
 
@@ -395,9 +413,7 @@ describe('phase 3: spread, speed and rain', () => {
         expect(layers).toContain('rainCommittedIdxRef.current = requestedIndex;');
         expect(layers).toContain('if (target === observed || rainCommittedIdxRef.current === target) {');
         expect(layers).toContain('setRainFollowFailed(true);');
-        expect(flat(layers)).toContain(
-            '(rainReachHours(unifiedFramesRef.current, Date.now()) === null || rainFollowFailed)',
-        );
+        expect(flat(layers)).toContain('(!rainReady || rainFollowUnsynced || rainFollowFailed)');
     });
 
     it('review: the offset is never rewritten from a plan walked while the series is still loading', () => {
@@ -468,7 +484,7 @@ describe('phase 4: the sea at the ghost', () => {
 
     it('the sea is keyed by the ROUTE alone, and the wind cells never wait on it', () => {
         expect(seaCode).toContain("routeForecastKey(coords, 'sea')");
-        expect(flat(paneCode)).toContain('}, [look.on, following, routeCoords]);');
+        expect(flat(paneCode)).toContain('}, [forecastWanted, following, routeCoords]);');
         // Its own effect and its own state: a marine failure cannot blank the wind.
         expect(paneCode).toContain('const [seaLoaded, setSeaLoaded] = useState');
     });

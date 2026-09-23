@@ -5,7 +5,7 @@ import { buildTideStationPopupHtml } from '../components/map/useTideStationLayer
 
 describe('tide station proxy boundary', () => {
     it('keeps the commercial WorldTides credential out of the client bundle', () => {
-        const source = readFileSync(resolve(process.cwd(), 'components/map/useTideStationLayer.ts'), 'utf8');
+        const source = readFileSync(resolve(process.cwd(), 'services/tides/stationDetails.ts'), 'utf8');
         expect(source).toContain('/functions/v1/proxy-tides');
         expect(source).not.toContain('VITE_WORLDTIDES_API_KEY');
         expect(source).not.toContain('CapacitorHttp');

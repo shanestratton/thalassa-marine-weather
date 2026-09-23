@@ -16,6 +16,11 @@ const log = createLogger('WeatherLayers');
 
 import mapboxgl from 'mapbox-gl';
 import { generateIsobars, generateIsobarsFromGrid, FORECAST_HOURS } from '../../services/weather/isobars';
+import {
+    pressureFrameValidAt,
+    pressureFrameForValidAt,
+    PRESSURE_REFRESH_MS,
+} from '../../services/weather/pressureProvenance';
 import { WindStore, useWindStore } from '../../stores/WindStore';
 import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
@@ -47,8 +52,9 @@ import {
     RAINVIEWER_MAP_TILE_SIZE,
     RAINVIEWER_NATIVE_MAX_ZOOM,
 } from '../../services/weather/api/rainviewerTiles';
-import { windForecastHoursForGrid, windFrameForForecastHour } from './windTimeAxis';
-import { rainFollowIndex, rainReachHours, snapshotClockMs } from './rainTimeAxis';
+import { windForecastHoursForGrid } from './windTimeAxis';
+import { snapshotClockMs } from './rainTimeAxis';
+import { passageRainTimeSelection, passageWindTimeSelection } from './passageWeatherTime';
 import {
     getPassageLookAhead,
     reportPassageRainCoverage,
@@ -146,36 +152,6 @@ function ensureRainLayerOrder(map: mapboxgl.Map): void {
     } catch {
         // Style in transit; the next styledata pass retries.
     }
-}
-
-/** Return the model-valid UTC instant represented by one pressure frame. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function pressureFrameValidAt(grid: any, frameIndex: number): number | null {
-    const refTimeMs = new Date(grid?.refTime ?? '').getTime();
-    const stepHours = Number(grid?.subFrameStepHours);
-    if (!Number.isFinite(refTimeMs) || !Number.isFinite(stepHours) || stepHours <= 0) return null;
-
-    return refTimeMs + Math.max(0, Math.round(frameIndex)) * stepHours * 60 * 60 * 1000;
-}
-
-/** Find the nearest frame in a refreshed pressure run for a valid UTC instant. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function pressureFrameForValidAt(grid: any, validAt: number | null): number | null {
-    if (validAt === null) return null;
-    const refTimeMs = new Date(grid?.refTime ?? '').getTime();
-    const stepHours = Number(grid?.subFrameStepHours);
-    const totalHours = Number(grid?.totalHours);
-    if (
-        !Number.isFinite(refTimeMs) ||
-        !Number.isFinite(stepHours) ||
-        stepHours <= 0 ||
-        !Number.isFinite(totalHours) ||
-        totalHours < 1
-    ) {
-        return null;
-    }
-
-    return Math.max(0, Math.min(Math.round((validAt - refTimeMs) / (stepHours * 60 * 60 * 1000)), totalHours - 1));
 }
 
 /**
@@ -318,7 +294,11 @@ export function useWeatherLayers(
      * behaviour.
      */
     frameCenter?: { lat: number; lon: number } | null,
+    /** Passage instruments own the camera; Squall is a separate, current-only overlay. */
+    passageContext?: { hudEnabled: boolean; squallVisible: boolean },
 ) {
+    const passageOwnsCamera = !planMode && (passageContext?.hudEnabled ?? false);
+    const passageSquallVisible = !planMode && (passageContext?.squallVisible ?? false);
     const windState = useWindStore();
     const windForecastHours = useMemo(() => windForecastHoursForGrid(windState.grid), [windState.grid]);
 
@@ -726,6 +706,12 @@ export function useWeatherLayers(
     const isobarFetchRef = useRef<number>(0);
     const isobarFetchedAtRef = useRef(0);
     const isobarLoadingRef = useRef(false);
+    const isobarAttemptAtRef = useRef(0);
+    const pressureUserScrubbedRef = useRef(false);
+    const pressureUserScrubbedTimeRef = useRef(0);
+    const [pressureLoading, setPressureLoading] = useState(false);
+    const [pressureError, setPressureError] = useState<string | null>(null);
+    const [pressureClockMs, setPressureClockMs] = useState(Date.now());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cachedFramesRef = useRef<any[]>([]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -734,6 +720,8 @@ export function useWeatherLayers(
     const forecastHourRef = useRef(forecastHour);
     forecastHourRef.current = forecastHour;
     const [isPlaying, setIsPlaying] = useState(false);
+    const pressurePlayingRef = useRef(isPlaying);
+    pressurePlayingRef.current = isPlaying;
     const [totalFrames, setTotalFrames] = useState(FORECAST_HOURS);
     const [framesReady, setFramesReady] = useState(0);
     const [pressureFrameStepHours, setPressureFrameStepHours] = useState(1);
@@ -782,6 +770,12 @@ export function useWeatherLayers(
             const existingSrc = map.getSource('pressure-heatmap') as mapboxgl.ImageSource;
             if (existingSrc) {
                 existingSrc.updateImage({ url: result.heatmapDataUrl, coordinates });
+                if (map.getLayer('pressure-heatmap-layer'))
+                    map.setLayoutProperty(
+                        'pressure-heatmap-layer',
+                        'visibility',
+                        pressureOverlayModeRef.current ? 'none' : 'visible',
+                    );
             } else {
                 map.addSource('pressure-heatmap', { type: 'image', url: result.heatmapDataUrl, coordinates });
                 map.addLayer(
@@ -817,6 +811,9 @@ export function useWeatherLayers(
                           : undefined,
                 );
             }
+        } else if (map.getLayer('pressure-heatmap-layer')) {
+            // A cache miss must not leave another hour/run's wash in place.
+            map.setLayoutProperty('pressure-heatmap-layer', 'visibility', 'none');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -852,8 +849,9 @@ export function useWeatherLayers(
         // encodes across the batch; the FRAMES_PER_CHUNK tick keeps them off
         // the gesture path.
         const KEYFRAME_INTERVAL = 2;
-        const FRAMES_PER_CHUNK = 3;
+        const FRAMES_PER_CHUNK = 1;
         const computeBatch = () => {
+            if (cachedGridRef.current !== grid) return; // old run / disabled layer
             // REAL chunks. `Math.min(idx + total, total)` always equalled
             // total, so all remaining frames computed in ONE synchronous
             // block and the setTimeout chaining below was dead code. That was
@@ -885,13 +883,7 @@ export function useWeatherLayers(
      *  shape is unexpected. */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const computePressureNowIndex = useCallback((grid: any): number => {
-        if (!grid?.refTime || !grid?.subFrameStepHours) return 0;
-        const ageMs = Date.now() - new Date(grid.refTime).getTime();
-        const ageHours = ageMs / (60 * 60 * 1000);
-        const idx = Math.round(ageHours / grid.subFrameStepHours);
-        // Clamp to the valid range — if the GFS cycle is way out of date we
-        // show the first frame rather than falling off the end.
-        return Math.max(0, Math.min(idx, (grid.totalHours ?? 1) - 1));
+        return pressureFrameForValidAt(grid, Date.now()) ?? 0;
     }, []);
 
     const updateIsobars = useCallback(
@@ -901,7 +893,7 @@ export function useWeatherLayers(
                 cachedGridRef.current &&
                 cachedFramesRef.current.length > 0 &&
                 isobarFetchedAtRef.current > 0 &&
-                cacheAgeMs < 30 * 60 * 1000;
+                cacheAgeMs < PRESSURE_REFRESH_MS;
 
             // The grid is global at 1° resolution, so pan/zoom can use the
             // same data. It must still be renewed for the next GFS cycle:
@@ -920,15 +912,30 @@ export function useWeatherLayers(
             // Avoid competing full-globe requests when the main layer effect
             // and the periodic freshness check happen in the same render turn.
             if (isobarLoadingRef.current) return;
+            if (isobarAttemptAtRef.current && Date.now() - isobarAttemptAtRef.current < 60_000) return;
             isobarLoadingRef.current = true;
+            isobarAttemptAtRef.current = Date.now();
+            setPressureLoading(true);
             const token = ++isobarFetchRef.current;
-            const previousValidAt = pressureFrameValidAt(cachedGridRef.current, forecastHourRef.current);
 
             // Fetch ONCE: fixed global grid. At 1° resolution this is only ~65K
             // points per frame (~320K total for 5 frames) — fast to fetch and process.
             try {
                 const data = await generateIsobars(85, -85, -180, 180, map.getZoom());
-                if (token !== isobarFetchRef.current || !data) return;
+                if (token !== isobarFetchRef.current) return;
+                if (!data) {
+                    setPressureError('Pressure refresh unavailable');
+                    return;
+                }
+                setPressureError(null);
+                // Read the latest choice AFTER the request: a skipper may
+                // have moved the timeline while the replacement run loaded.
+                const manual =
+                    pressurePlayingRef.current ||
+                    (pressureUserScrubbedRef.current && Date.now() - pressureUserScrubbedTimeRef.current < 5 * 60_000);
+                const previousValidAt = manual
+                    ? pressureFrameValidAt(cachedGridRef.current, forecastHourRef.current)
+                    : null;
 
                 // Preserve the currently displayed *valid time* across a GFS
                 // cycle refresh. Otherwise a user reading +6h can suddenly be
@@ -938,6 +945,7 @@ export function useWeatherLayers(
 
                 cachedGridRef.current = data.grid;
                 isobarFetchedAtRef.current = Date.now();
+                setPressureClockMs(Date.now());
                 setPressureFrameStepHours(data.grid.subFrameStepHours || 1);
                 setPressureSource(data.grid.source);
                 setPressureRefTime(data.grid.refTime ?? null);
@@ -964,8 +972,13 @@ export function useWeatherLayers(
 
                 // Precompute remaining frames in background (non-blocking)
                 precomputeFrames(data.grid);
+            } catch {
+                if (token === isobarFetchRef.current) setPressureError('Pressure refresh unavailable');
             } finally {
-                if (token === isobarFetchRef.current) isobarLoadingRef.current = false;
+                if (token === isobarFetchRef.current) {
+                    isobarLoadingRef.current = false;
+                    setPressureLoading(false);
+                }
             }
         },
         [applyFrame, precomputeFrames, computePressureNowIndex],
@@ -1043,7 +1056,13 @@ export function useWeatherLayers(
 
         const stepHours = grid.subFrameStepHours || 1;
         const target = pressureNowIdxRef.current + hoursFromNow / stepHours;
-        const idx = Math.max(0, Math.min(Math.round(target), frameCount - 1));
+        const windReference = Date.parse(windState.grid?.refTime ?? '');
+        // Prefer the wind field's actual UTC instant, not two independently
+        // rounded "Now" indexes that can disagree by an extra model step.
+        const sameUtcFrame = Number.isFinite(windReference)
+            ? pressureFrameForValidAt(grid, windReference + windOffset * 3_600_000)
+            : null;
+        const idx = Math.max(0, Math.min(sameUtcFrame ?? Math.round(target), frameCount - 1));
         if (idx !== forecastHourRef.current) {
             setForecastHour(idx);
         } else if (cachedFramesRef.current[idx]) {
@@ -1058,7 +1077,16 @@ export function useWeatherLayers(
         }
         // framesReady re-fires this once the background precompute lands.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [windHour, windNowIdx, windForecastHours, activeKey, framesReady, pressureFrameStepHours, applyFrame]);
+    }, [
+        windHour,
+        windNowIdx,
+        windForecastHours,
+        windState.grid,
+        activeKey,
+        framesReady,
+        pressureFrameStepHours,
+        applyFrame,
+    ]);
 
     // ── Wind scrubber: update GL engine on hour change ──
     useEffect(() => {
@@ -1281,8 +1309,9 @@ export function useWeatherLayers(
     // "all of the wind and rain etc should alter as the yacht progresses along
     // the route." While the skipper is looking ahead, the strip's scrubber owns
     // this timeline: the field on the chart is the field at the ghost's moment.
-    //   - time comes from the grid's own reference time, not the nearest-frame
-    //     Now index, so +6 h means six hours and not five and a half;
+    //   - time is chosen departure + elapsed, using the grid's own reference
+    //     time rather than its nearest-frame Now index; an undated look rolls
+    //     with Now, but a chosen departure stays fixed;
     //   - it goes through setWindHour, the manual-scrub path, and is re-applied
     //     every minute, so the Now auto-tracker above never pulls it back;
     //   - the grid is 48 hourly frames and the scrubber reaches seven days, so
@@ -1294,9 +1323,12 @@ export function useWeatherLayers(
     // A ref, not a local: a new grid re-runs this effect mid-glance, and the
     // hand-back to Now must still happen when the glance ends.
     const lookAheadDrivingRef = useRef(false);
+    const [windFollowUnsynced, setWindFollowUnsynced] = useState(false);
+    const [rainFollowUnsynced, setRainFollowUnsynced] = useState(false);
     useEffect(() => {
         if (!windReady || !windLayerOn) {
             reportPassageWindCoverage(null);
+            setWindFollowUnsynced(windLayerOn);
             return;
         }
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1309,15 +1341,13 @@ export function useWeatherLayers(
             const refTime = windRefTimeRef.current;
             if (fhrs.length === 0) {
                 reportPassageWindCoverage(null);
+                setWindFollowUnsynced(true);
                 return;
             }
-            const refMs = refTime ? new Date(refTime).getTime() : Number.NaN;
-            const nowHour = Number.isFinite(refMs)
-                ? (Date.now() - refMs) / 3_600_000
-                : (fhrs[Math.min(windNowIdxRef.current, fhrs.length - 1)] ?? 0);
-            reportPassageWindCoverage(Math.max(0, fhrs[fhrs.length - 1] - nowHour));
-
             const look = getPassageLookAhead();
+            const selection = passageWindTimeSelection(fhrs, refTime, look, Date.now());
+            reportPassageWindCoverage(selection.coverageHours);
+            setWindFollowUnsynced(look.on && selection.unsynced);
             if (!look.on) {
                 if (lookAheadDrivingRef.current) {
                     lookAheadDrivingRef.current = false;
@@ -1332,7 +1362,7 @@ export function useWeatherLayers(
                 lookAheadDrivingRef.current = true;
                 setWindPlaying(false);
             }
-            const target = windFrameForForecastHour(fhrs, nowHour + look.aheadMs / 3_600_000);
+            const target = selection.target;
             if (!target) return;
             // A tenth of a frame, the same grain the autoplay uses.
             setWindHour(Math.round(target.frame * 10) / 10);
@@ -1385,26 +1415,37 @@ export function useWeatherLayers(
         setMldPlaying(false);
         const windOn = activeLayers.has('wind') || activeLayers.has('velocity');
         const names: string[] = [];
-        // Rain FOLLOWS within its reach (the effect below). It is on this list
-        // only when no frame of it carries a clock time ahead of now — radar
-        // alone, a snapshot that is not a clock, or the forecast still loading.
-        if (
-            activeLayers.has('rain') &&
-            (rainReachHours(unifiedFramesRef.current, Date.now()) === null || rainFollowFailed)
-        ) {
+        // Rain/wind follow the selected absolute clock only where their actual
+        // frames reach. Missing clocks, failed frames, and out-of-range dates
+        // must not wear the selected departure's time label.
+        if (activeLayers.has('rain') && (!rainReady || rainFollowUnsynced || rainFollowFailed)) {
             names.push('rain');
         }
+        if (windOn && (!windReady || windFollowUnsynced)) names.push('wind');
         if (activeLayers.has('pressure') && !windOn) names.push('pressure');
         for (const [layer, name] of PASSAGE_UNSYNCED_LAYER_NAMES) {
             if (activeLayers.has(layer)) names.push(name);
         }
+        // Squall's Rainbow rain/cloud snapshot is outside activeLayers. It
+        // never follows this time axis, even while the separate Rain layer does.
+        if (passageSquallVisible) names.push('squall/clouds');
         reportPassageUnsyncedLayers(names);
         return () => reportPassageUnsyncedLayers([]);
         // activeKey is the layer set, as a string: a Set is a new object each time.
         // rainFrameCount: the forecast frames arrive after the radar ones, and
         // that is the moment rain stops being "unsynced".
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [passageLookAheadOn, activeKey, rainFrameCount, rainReady, rainFollowFailed]);
+    }, [
+        passageLookAheadOn,
+        activeKey,
+        rainFrameCount,
+        rainReady,
+        rainFollowFailed,
+        rainFollowUnsynced,
+        windReady,
+        windFollowUnsynced,
+        passageSquallVisible,
+    ]);
 
     // ── …and RAIN follows it, as far as the imagery reaches (phase 3) ──
     // Shane 2026-09-17: "squalls or rain depending on where we are … all of the
@@ -1413,7 +1454,8 @@ export function useWeatherLayers(
     // what a skipper scrubs for ("will that line reach us?"). Rules, each one a
     // trap found by reading this pipeline before touching it:
     //   - frames are chosen by CLOCK, never by index (uneven 10/20/30-min steps);
-    //   - at NOW it is the newest OBSERVED radar, not the nearest forecast frame;
+    //   - rolling NOW uses newest OBSERVED radar; a fixed date uses its own
+    //     absolute clock even after that date has passed;
     //   - past the reach it goes BACK to that observed frame and the scrubber
     //     says where the rain ended — the +4 h frame is never held under a
     //     clock reading tomorrow;
@@ -1428,6 +1470,7 @@ export function useWeatherLayers(
     useEffect(() => {
         if (!passageLookAheadOn || !rainLayerOn || !rainReady) {
             reportPassageRainCoverage(null);
+            setRainFollowUnsynced(rainLayerOn && !rainReady);
             return;
         }
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1439,11 +1482,13 @@ export function useWeatherLayers(
             timer = null;
             const frames = unifiedFramesRef.current;
             const now = Date.now();
-            reportPassageRainCoverage(rainReachHours(frames, now));
             const look = getPassageLookAhead();
+            const selection = passageRainTimeSelection(frames, rainNowIdxRef.current, look, now);
+            reportPassageRainCoverage(selection.coverageHours);
+            setRainFollowUnsynced(selection.unsynced);
             if (!look.on || frames.length === 0) return;
             // An INTEGER, always: the swap effect indexes the frame array with it.
-            const target = rainFollowIndex(frames, rainNowIdxRef.current, now, look.aheadMs);
+            const target = selection.target;
             const observed = Math.max(0, Math.min(rainNowIdxRef.current, frames.length - 1));
             const busy = rainTransitionRef.current?.isTransitioning() ?? false;
             if (target === rainFrameIndexRef.current) {
@@ -1722,23 +1767,22 @@ export function useWeatherLayers(
     // target as wall-clock time marches on, so we slide the scrubber
     // forward unless the user has recently scrubbed manually. Skips
     // when no cached grid (layer not active or not yet loaded).
-    const pressureUserScrubbedRef = useRef(false);
-    const pressureUserScrubbedTimeRef = useRef(0);
     useEffect(() => {
         if (!activeLayers.has('pressure')) return;
-        const interval = setInterval(() => {
+        const refresh = () => {
+            if (document.visibilityState === 'hidden') return;
+            setPressureClockMs(Date.now());
             const grid = cachedGridRef.current;
-            if (!grid) return;
 
             // GFS publishes new cycles throughout the day. The global grid
             // stays valid across panning, but not indefinitely; refresh it on
             // a bounded cadence while retaining the currently visible valid
             // time through updateIsobars().
-            if (Date.now() - isobarFetchedAtRef.current >= 30 * 60 * 1000) {
+            if (!grid || Date.now() - isobarFetchedAtRef.current >= PRESSURE_REFRESH_MS) {
                 const map = mapRef.current;
                 if (map) void updateIsobars(map);
-                return;
             }
+            if (!grid) return;
             const newNowIdx = computePressureNowIndex(grid);
             pressureNowIdxRef.current = newNowIdx;
 
@@ -1746,6 +1790,7 @@ export function useWeatherLayers(
             // time authority (see the sync effect above) — advancing the
             // isobar frame here would fight it.
             if (activeLayers.has('wind') || activeLayers.has('velocity')) return;
+            if (pressurePlayingRef.current) return;
 
             // Skip auto-advance if user manually scrubbed within the last 5 min
             const manualAge = Date.now() - pressureUserScrubbedTimeRef.current;
@@ -1754,8 +1799,17 @@ export function useWeatherLayers(
 
             pressureUserScrubbedRef.current = false;
             setForecastHour((prev) => (prev !== newNowIdx ? newNowIdx : prev));
-        }, 60 * 1000);
-        return () => clearInterval(interval);
+        };
+        const interval = setInterval(refresh, 60 * 1000);
+        window.addEventListener('focus', refresh);
+        window.addEventListener('online', refresh);
+        document.addEventListener('visibilitychange', refresh);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('focus', refresh);
+            window.removeEventListener('online', refresh);
+            document.removeEventListener('visibilitychange', refresh);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, computePressureNowIndex, updateIsobars]);
 
@@ -1768,6 +1822,16 @@ export function useWeatherLayers(
         const hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
         const hasPressureLayer = activeLayers.has('pressure');
         const layerCount = activeLayers.size;
+
+        if (passageOwnsCamera) {
+            // These are overlays on a navigational route view, not a weather
+            // takeover. A stale Wind/Squall zoom ceiling must not clamp its fit.
+            map.setMinZoom(0);
+            map.setMaxZoom(22);
+            map.setMaxBounds(undefined!);
+            prevLayerCountRef.current = layerCount;
+            return;
+        }
 
         // AU+NZ fit zoom is published by useMapInit as the "opens-on" target
         // but is NOT used as a hard floor — the user wants to pinch out to
@@ -1856,7 +1920,7 @@ export function useWeatherLayers(
         // fresh activation (which used to trigger an unwanted camera jump).
         prevLayerCountRef.current = planMode ? userLayers.size : layerCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapReady, embedded, activeKey, userKey, planMode]);
+    }, [mapReady, embedded, activeKey, userKey, planMode, passageOwnsCamera]);
 
     // ── Wind ALWAYS opens at its local frame (Shane 2026-08-22) ─────────
     // "If someone presses wind, it always zooms in to level 9, regardless of
@@ -1897,6 +1961,7 @@ export function useWeatherLayers(
         prevWindOnRef.current = windOn;
         if (prev === null || prev === windOn || !windOn) return;
         if (planMode || embedded) return;
+        if (passageOwnsCamera) return;
         // Shared with every other framing path: wind alone gets wind's frame,
         // wind in a stack gets the stack's. Hard-coding wind's own number here
         // would put the camera somewhere different depending on WHICH toggle
@@ -1914,7 +1979,7 @@ export function useWeatherLayers(
             duration: 700,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, mapReady, planMode, embedded]);
+    }, [activeKey, mapReady, planMode, embedded, passageOwnsCamera]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {
@@ -2063,11 +2128,16 @@ export function useWeatherLayers(
             ++isobarFetchRef.current;
             isobarLoadingRef.current = false;
             isobarFetchedAtRef.current = 0;
+            isobarAttemptAtRef.current = 0;
             cachedGridRef.current = null;
             cachedFramesRef.current = [];
             pressureOverlayModeRef.current = false;
             setPressureFrameStepHours(1);
             setPressureSource(null);
+            setPressureRefTime(null);
+            setPressureLoading(false);
+            setPressureError(null);
+            setFramesReady(0);
         }
 
         // ── Static tile layers (sea, temperature, clouds) ──
@@ -2836,6 +2906,11 @@ export function useWeatherLayers(
     useEffect(() => {
         const map = mapRef.current;
         return () => {
+            // Invalidate the latest request generation, not a mount-time copy.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            ++isobarFetchRef.current;
+            cachedGridRef.current = null;
+            cachedFramesRef.current = [];
             // Invoke rain cleanup to remove map layers + abort pending fetches
             if (rainCleanupRef.current) {
                 rainCleanupRef.current();
@@ -3043,6 +3118,10 @@ export function useWeatherLayers(
         pressureFrameStepHours,
         pressureSource,
         pressureRefTime,
+        pressureValidTimeMs: pressureFrameValidAt(cachedGridRef.current, forecastHour),
+        pressureLoading,
+        pressureError,
+        pressureClockMs,
         isPlaying,
         setIsPlaying,
         totalFrames,

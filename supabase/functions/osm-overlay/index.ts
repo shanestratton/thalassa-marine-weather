@@ -2,8 +2,8 @@
  * osm-overlay — Overpass proxy for the DESKTOP PASSAGE BUILDER (masterplan
  * Phase 5.2). The browser can't reach the boat's Pi, so this edge function
  * serves the SAME OSM route overlay the pi-cache does: identical Overpass
- * query, identical feature classing (v5 schema incl. berths), cached in the
- * `osm_overlay_cache` table with the same 7-day/0.01°-tile semantics.
+ * query, identical feature classing (incl. berths), cached in the
+ * `osm_overlay_cache` table for 7 days against the exact queried bbox.
  *
  * PORTED from pi-cache/src/services/osm.ts — if the recipe changes there,
  * mirror it here (both sites marked). Deployed with default JWT verification:
@@ -15,21 +15,26 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import type { Feature, FeatureCollection, LineString, Polygon, Position } from 'npm:@types/geojson@7946';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { parseCoordinate, readJsonObject } from '../_shared/http-security.ts';
+import regionalBundle from './data/newport-v1.json' with { type: 'json' };
+import { loadRegionalOverlay, NEWPORT_COVERAGE, selectRegionalOverlay } from '../_shared/regional-overlay.ts';
 import {
-    fetchWithTimeout,
-    parseCoordinate,
-    readJsonObject,
-    readResponseTextLimited,
-} from '../_shared/http-security.ts';
+    fetchOverpassDocument,
+    isOverlayPayload,
+    overlayCacheKey,
+    overlayUnavailableResponse,
+} from '../_shared/overpass-fetch.ts';
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
-const OVERPASS_TIMEOUT_MS = 45_000;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const CACHE_SCHEMA_VERSION = 'v5';
+// Deployed atomically with this function; no public upstream request or user
+// positions are needed for the controlled Newport inventory. Validate lazily.
+let regionalData: ReturnType<typeof loadRegionalOverlay> | undefined;
 
 const CORS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Expose-Headers': 'X-Overlay-Cache, X-Overlay-Source, X-Overlay-Source-Date, Retry-After',
 };
 
 interface OsmRouteOverlay {
@@ -56,11 +61,6 @@ function emptyOverlay(): OsmRouteOverlay {
         navLines: { type: 'FeatureCollection', features: [] },
         berths: { type: 'FeatureCollection', features: [] },
     };
-}
-
-function bboxCacheKey(bbox: [number, number, number, number]): string {
-    const round = (n: number): string => (Math.round(n * 100) / 100).toFixed(2);
-    return `${CACHE_SCHEMA_VERSION}_${round(bbox[0])}_${round(bbox[1])}_${round(bbox[2])}_${round(bbox[3])}`;
 }
 
 // ── SHARED RECIPE (verbatim from pi-cache/src/services/osm.ts) ─────────────
@@ -114,33 +114,12 @@ interface OverpassResponse {
     elements: OverpassElement[];
 }
 
-async function fetchFromOverpass(bbox: [number, number, number, number]): Promise<OsmRouteOverlay> {
-    const query = buildQuery(bbox);
-    // Overpass convention: POST with body `data=<query>` URL-encoded.
-    // Raw query in body without `data=` returns 406. Apache also
-    // requires a User-Agent — without one we get 406 Not Acceptable.
-    const response = await fetchWithTimeout(
-        OVERPASS_URL,
-        {
-            method: 'POST',
-            body: 'data=' + encodeURIComponent(query),
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'thalassa-osm-overlay/1.0 (https://thalassawx.app)',
-            },
-        },
-        OVERPASS_TIMEOUT_MS,
-    );
-    if (!response.ok) {
-        throw new Error(`Overpass returned HTTP ${response.status}`);
-    }
-    const text = await readResponseTextLimited(response, 20_000_000);
-    if (text === null) throw new Error('Overpass response exceeded byte limit');
-    const json = JSON.parse(text) as OverpassResponse;
-    if (!json || !Array.isArray(json.elements) || json.elements.length > 25_000) {
-        throw new Error('Overpass response schema is invalid');
-    }
-    return assembleOverlay(json);
+async function fetchFromOverpass(
+    bbox: [number, number, number, number],
+    signal: AbortSignal,
+): Promise<OsmRouteOverlay> {
+    const json = await fetchOverpassDocument(buildQuery(bbox), signal);
+    return assembleOverlay(json as OverpassResponse);
 }
 
 /** Coordinates of a way returned by `out geom` (Overpass inline geometry). */
@@ -382,11 +361,8 @@ Deno.serve(async (req) => {
         let bboxStr = url.searchParams.get('bbox');
         if (!bboxStr && req.method === 'POST') {
             const body = await readJsonObject(req, 4096);
-            bboxStr = typeof body?.bbox === 'string'
-                ? body.bbox
-                : Array.isArray(body?.bbox)
-                ? body.bbox.join(',')
-                : null;
+            bboxStr =
+                typeof body?.bbox === 'string' ? body.bbox : Array.isArray(body?.bbox) ? body.bbox.join(',') : null;
         }
         const parts = (bboxStr ?? '').split(',').map(Number);
         if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
@@ -416,14 +392,37 @@ Deno.serve(async (req) => {
             });
         }
         const bbox: [number, number, number, number] = [w, s, e, n];
-        const key = bboxCacheKey(bbox);
+        if (
+            w >= NEWPORT_COVERAGE[0] &&
+            s >= NEWPORT_COVERAGE[1] &&
+            e <= NEWPORT_COVERAGE[2] &&
+            n <= NEWPORT_COVERAGE[3]
+        ) {
+            regionalData ??= loadRegionalOverlay(regionalBundle);
+            const regional = selectRegionalOverlay(await regionalData, bbox);
+            if (!regional) throw new Error('Regional coverage mismatch');
+            return new Response(JSON.stringify(regional), {
+                headers: {
+                    ...CORS,
+                    'Content-Type': 'application/json',
+                    'X-Overlay-Cache': 'regional',
+                    'X-Overlay-Source': regional.provenance.region,
+                    'X-Overlay-Source-Date': regional.provenance.sourceAsOf,
+                    // Revalidate age server-side on every request, not cached
+                    // against fetch time in the old seven-day Overpass table.
+                    'Cache-Control': 'no-store',
+                },
+            });
+        }
+        const key = overlayCacheKey(bbox);
 
         const { data: hit } = await admin
             .from('osm_overlay_cache')
             .select('payload, fetched_at')
             .eq('tile_key', key)
             .maybeSingle();
-        if (hit && Date.now() - new Date(hit.fetched_at as string).getTime() < CACHE_TTL_MS) {
+        const age = hit ? Date.now() - new Date(hit.fetched_at as string).getTime() : NaN;
+        if (hit && isOverlayPayload(hit.payload) && age >= 0 && age < CACHE_TTL_MS) {
             return new Response(JSON.stringify(hit.payload), {
                 headers: {
                     ...CORS,
@@ -434,7 +433,7 @@ Deno.serve(async (req) => {
             });
         }
 
-        const fresh = await fetchFromOverpass(bbox);
+        const fresh = await fetchFromOverpass(bbox, req.signal);
         await admin
             .from('osm_overlay_cache')
             .upsert({ tile_key: key, payload: fresh as unknown, fetched_at: new Date().toISOString() });
@@ -448,9 +447,8 @@ Deno.serve(async (req) => {
         });
     } catch (err) {
         console.warn('[osm-overlay] failed:', err instanceof Error ? err.message : err);
-        // Same degradation contract as the pi-cache: empty overlay, never 500.
-        return new Response(JSON.stringify(emptyOverlay()), {
-            headers: { ...CORS, 'Content-Type': 'application/json', 'X-Overlay-Cache': 'error' },
-        });
+        // Failure is not a successful, empty obstacle inventory. Existing
+        // clients already fail closed / use their explicit offline fallback.
+        return overlayUnavailableResponse(CORS);
     }
 });

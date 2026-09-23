@@ -25,6 +25,8 @@ import {
     type RouteTimeScrubberProps,
     type SpreadBandPoint,
 } from '../components/passage/RouteTimeScrubber';
+import { PassageHudInfoCard } from '../components/passage/PassageHudInfoCard';
+import { getPassageHudInfo, setPassageSquallInfoVisible } from '../stores/passageHudInfoStore';
 
 const HOUR = 3_600_000;
 const NOW = new Date(2026, 8, 18, 9, 0, 0).getTime(); // a Friday, 09:00 local
@@ -49,10 +51,20 @@ const setup = (over: Partial<RouteTimeScrubberProps> = {}) => {
         cruiseKts: 6,
         onAhead: vi.fn(),
         onPlaying: vi.fn(),
+        onLive: vi.fn(),
         onOpenModel: vi.fn(),
         ...over,
     };
-    const view = render(<RouteTimeScrubber {...props} />);
+    // System Status is a portal over the still-mounted chart. Render its info
+    // card alongside the scrubber to verify the relocated detail content.
+    const view = render(<RouteTimeScrubber {...props} />, {
+        wrapper: ({ children }) => (
+            <>
+                {children}
+                <PassageHudInfoCard />
+            </>
+        ),
+    });
     const track = screen.getByTestId('route-scrub-track');
     // jsdom lays nothing out: give the track a box to be touched in.
     track.getBoundingClientRect = () =>
@@ -63,6 +75,7 @@ const setup = (over: Partial<RouteTimeScrubberProps> = {}) => {
 afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    setPassageSquallInfoVisible(false);
 });
 
 describe('what it says', () => {
@@ -71,10 +84,22 @@ describe('what it says', () => {
         expect(screen.getByTestId('route-scrub-moment').textContent).toBe('Fri 15:00');
     });
 
-    it('carries no LIVE button of its own: the strip beside it has the way back, and the track needs the width', () => {
-        setup();
-        expect(screen.queryByTestId('route-scrub-exit')).toBeNull();
-        expect(screen.getByTestId('route-time-scrubber').querySelectorAll('button')).toHaveLength(2);
+    it('has a visible LIVE return even when the separate instrument pane is minimized', () => {
+        const { props } = setup({ aheadMs: 6 * HOUR, playing: true });
+        const live = screen.getByRole('button', { name: 'Back to live conditions' });
+        expect(live).toHaveTextContent('LIVE');
+        fireEvent.click(live);
+        expect(props.onPlaying).toHaveBeenCalledWith(false);
+        expect(props.onLive).toHaveBeenCalledOnce();
+        expect(props.onAhead).not.toHaveBeenCalled();
+    });
+
+    it('keeps the LIVE return available when no route time remains to scrub', () => {
+        const { props } = setup({ maxMs: 0 });
+        const live = screen.getByRole('button', { name: 'Back to live conditions' });
+        expect(live).toBeEnabled();
+        fireEvent.click(live);
+        expect(props.onLive).toHaveBeenCalledOnce();
     });
 
     it('reads NOW at the start, minutes under the hour, days past two', () => {
@@ -84,14 +109,90 @@ describe('what it says', () => {
         expect(fmtAhead(48 * HOUR)).toBe('+2 d');
         expect(fmtAhead(75 * HOUR)).toBe('+3 d 3 h');
         expect(fmtAhead(7 * 24 * HOUR)).toBe('+7 d');
+        expect(fmtAhead(0, true)).toBe('DEPART');
+        expect(fmtAhead(30_000, true)).toBe('DEPART');
+        expect(fmtAhead(6 * HOUR, true)).toBe('+6 h');
     });
 
-    it('credits the forecast’s source beside the numbers, and NEVER truncates it — a licence condition', () => {
+    it('uses a fixed departure plus passage elapsed time, without drifting as now advances', () => {
+        const departureMs = NOW + 24 * HOUR;
+        const { props, rerender, track } = setup({ departureMs, aheadMs: 3 * HOUR });
+        expect(screen.getByTestId('route-scrub-moment')).toHaveTextContent('Sat 12:00');
+        expect(track).toHaveAttribute('aria-valuetext', 'Sat 12:00 · +3 h · departs Sat 09:00');
+        rerender(<RouteTimeScrubber {...props} nowMs={NOW + 6 * HOUR} />);
+        expect(screen.getByTestId('route-scrub-moment')).toHaveTextContent('Sat 12:00');
+        expect(getPassageHudInfo()?.moment).toBe('Sat 12:00 · +3 h · departs Sat 09:00');
+    });
+
+    it('labels a future zero offset DEPART, not NOW, and retains its clock when edited', () => {
+        const { props, track } = setup({ departureMs: NOW + 24 * HOUR, onOpenDeparture: vi.fn(), playing: true });
+        expect(track).toHaveAttribute('aria-valuetext', 'Sat 09:00 · DEPART · departs Sat 09:00');
+        const button = screen.getByRole('button', {
+            name: 'Change departure time. Leaves Sat 09:00. Forecast Sat 09:00',
+        });
+        fireEvent.click(button);
+        expect(props.onPlaying).toHaveBeenCalledWith(false);
+        expect(props.onOpenDeparture).toHaveBeenCalledOnce();
+        expect(vi.mocked(props.onPlaying).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(props.onOpenDeparture!).mock.invocationCallOrder[0],
+        );
+        expect(props.onAhead).not.toHaveBeenCalled();
+        expect(props.onLive).not.toHaveBeenCalled();
+    });
+
+    it('credits the forecast’s source in the existing info panel, without truncation', () => {
         setup({ modelLabel: 'UKMO', modelProvider: 'UK Met Office' });
         const credit = screen.getByTestId('route-scrub-credit');
         expect(credit.textContent).toBe('Forecast data: UK Met Office');
         // It may wrap on a narrow phone. It may not be cut off with an ellipsis.
         expect(credit.className).not.toMatch(/truncate|line-clamp|text-ellipsis|overflow-hidden|whitespace-nowrap/);
+    });
+
+    it('keeps all explanations below the slider off the compact chart face', () => {
+        setup({ aheadMs: 6 * HOUR, rainCoverageHours: 3.4, joining: true, unsyncedLayers: ['squalls'] });
+        const scrubber = screen.getByTestId('route-time-scrubber');
+        expect(scrubber).not.toHaveTextContent('Chart rain ends');
+        expect(scrubber).not.toHaveTextContent('Forecast data:');
+        expect(scrubber).not.toHaveTextContent('unchecked estimate');
+        expect(scrubber).not.toHaveTextContent('own time');
+        expect(scrubber.querySelectorAll('button')).toHaveLength(3); // Play, LIVE, model; no extra info FAB
+        const details = screen.getByTestId('passage-hud-info');
+        expect(details).toHaveTextContent('Chart rain ends +3.4 h');
+        expect(details).toHaveTextContent('Joining route · unchecked estimate');
+        expect(details).toHaveTextContent('Chart squalls: still at its own time');
+        expect(details).toHaveTextContent('Forecast data: ECMWF');
+        expect(screen.getByRole('link', { name: 'CC BY 4.0' })).toHaveAttribute(
+            'href',
+            'https://creativecommons.org/licenses/by/4.0/',
+        );
+    });
+
+    it('clears the info descriptor when forecast mode ends, rather than retaining a stale forecast', () => {
+        const { unmount } = setup({ aheadMs: 6 * HOUR });
+        expect(getPassageHudInfo()?.moment).toBe('Fri 15:00 · +6 h');
+        unmount();
+        expect(getPassageHudInfo()).toBeNull();
+    });
+
+    it('updates the info panel when a model or coverage changes', () => {
+        const { rerender, props } = setup({ aheadMs: 6 * HOUR, rainCoverageHours: 3.4 });
+        rerender(<RouteTimeScrubber {...props} modelLabel="ICON" modelProvider="DWD" rainCoverageHours={8} />);
+        expect(screen.queryByTestId('route-scrub-note')).toBeNull();
+        expect(screen.getByTestId('route-scrub-credit')).toHaveTextContent('Forecast data: DWD');
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('ICON');
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('Rain imagery reaches +8.0 h.');
+    });
+
+    it('makes the squall key available from info even without a forecast scrubber', () => {
+        setPassageSquallInfoVisible(true);
+        render(<PassageHudInfoCard />);
+        expect(screen.getByRole('contentinfo', { name: 'Squall intensity legend' })).toBeInTheDocument();
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('Possible');
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('Extreme');
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('observed conditions');
+        expect(screen.queryByTestId('route-scrub-credit')).toBeNull();
+        act(() => setPassageSquallInfoVisible(false));
+        expect(screen.queryByTestId('passage-hud-info')).toBeNull();
     });
 
     it('names the model on the button that changes it', () => {
@@ -114,7 +215,7 @@ describe('where the chart’s wind stops', () => {
     it('marks how far the wind FIELD reaches, and says so once the ghost has sailed past it', () => {
         setup({ maxMs: 100 * HOUR, aheadMs: 60 * HOUR, endsAtArrival: true, windCoverageHours: 46.4 });
         expect(screen.getByTestId('route-scrub-coverage').style.width).toBe('46.4%');
-        expect(screen.getByTestId('route-scrub-note').textContent).toBe('Chart wind ends +46 h — numbers continue');
+        expect(screen.getByTestId('route-scrub-note').textContent).toBe('Chart wind ends +46 h');
     });
 
     it('says nothing about it while the ghost is inside the field, or when the wind layer is off', () => {
@@ -152,6 +253,21 @@ describe('chart layers that are NOT at this moment', () => {
         cleanup();
         setup({ aheadMs: 6 * HOUR });
         expect(screen.queryByTestId('route-scrub-unsynced')).toBeNull();
+    });
+
+    it('keeps own-time caveats at zero elapsed time for a scheduled future departure', () => {
+        setup({
+            departureMs: NOW + 72 * HOUR,
+            aheadMs: 0,
+            windCoverageHours: 0,
+            rainCoverageHours: 0,
+            unsyncedLayers: ['wind', 'rain', 'currents'],
+        });
+        expect(screen.getByTestId('route-scrub-unsynced')).toHaveTextContent(
+            'Chart wind, rain, currents: still at their own time',
+        );
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('DEPART');
+        expect(getPassageHudInfo()?.ownTime).toEqual(['wind', 'rain', 'currents']);
     });
 
     it('does not push the wind-field note off the glass: both honesty notes show together', () => {
@@ -263,6 +379,15 @@ describe('Play', () => {
         expect(props.onAhead).toHaveBeenCalledWith(0);
         expect(props.onPlaying).toHaveBeenCalledWith(true);
     });
+
+    it('replays a fixed departure from zero passage elapsed time, not a new leave time', () => {
+        const { props } = setup({ departureMs: NOW + 24 * HOUR, aheadMs: 20 * HOUR });
+        const play = screen.getByRole('button', { name: 'Play again from departure' });
+        fireEvent.click(play);
+        expect(props.onAhead).toHaveBeenCalledWith(0);
+        expect(props.onPlaying).toHaveBeenCalledWith(true);
+        expect(props.onLive).not.toHaveBeenCalled();
+    });
 });
 
 describe('the band: where it blows, and where the models stop agreeing', () => {
@@ -288,6 +413,23 @@ describe('the band: where it blows, and where the models stop agreeing', () => {
         // …while the pinned model's line carries on for as long as IT has wind.
         expect(paths.line).toContain('75.00,');
         expect(paths.line).not.toContain('100.00,');
+    });
+
+    it('restarts the pinned-model line on each side of an internal gap, even while the envelope continues', () => {
+        const points: SpreadBandPoint[] = [0, 0.25, 0.5, 0.75, 1].map((f) => ({
+            f,
+            minKts: 8,
+            maxKts: 22,
+            pinnedKts: f === 0.5 ? null : 10 + f * 10,
+            level: 'agree',
+        }));
+        const paths = spreadBandPaths(points);
+        expect(paths.band).toHaveLength(1);
+        expect([...paths.line.matchAll(/M([\d.]+),/g)].map((match) => Number(match[1]))).toEqual([0, 75]);
+        expect([...paths.line.matchAll(/L([\d.]+),/g)].map((match) => Number(match[1]))).toEqual([25, 100]);
+        expect(paths.line).not.toContain('50.00,');
+        // Isolated values do not manufacture a connecting stroke either.
+        expect(spreadBandPaths([points[0], points[2], points[4]]).line).not.toContain('L');
     });
 
     it('a single point is not a band, and nothing is drawn with no spread at all', () => {
@@ -344,6 +486,23 @@ describe('phase 3 notes', () => {
         cleanup();
         setup({ maxMs: 100 * HOUR, aheadMs: 80 * HOUR, assumedFromMs: 70 * HOUR, arrivalEstimated: false });
         expect(screen.queryByTestId('route-scrub-note')).toBeNull(); // flat speed assumes nothing about the wind
+    });
+
+    it('keeps missing route-forecast assumptions visible when chart imagery has also ended', () => {
+        setup({
+            departureMs: NOW + 120 * HOUR,
+            maxMs: 100 * HOUR,
+            aheadMs: 72 * HOUR,
+            assumedFromMs: 48 * HOUR,
+            arrivalEstimated: true,
+            windCoverageHours: 0,
+            rainCoverageHours: 0,
+        });
+        expect(screen.getByTestId('route-scrub-note')).toHaveTextContent(
+            'No wind forecast here — 6.0 kn assumed · Chart wind ends +0 h',
+        );
+        expect(screen.getByTestId('route-scrub-note')).not.toHaveTextContent('numbers continue');
+        expect(screen.getByTestId('route-scrub-unsynced')).toHaveTextContent('Chart rain: still at its own time');
     });
 
     it('an arrival worked from the wind is called an estimate; a flat-speed one names the speed', () => {

@@ -19,6 +19,7 @@ import { WindBarb, windBarbColor } from './WindBarb';
 import { fetchWindGrid, type WindSample } from '../windField';
 import { classifyNearbyVesselFreshness, formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
 import { shipTypeLabel, vesselColor } from '../aisShipType';
+import { publicVoyageWaypoints } from '../publicVoyageWaypoints';
 
 // Wind barbs are a skipper's tool, not a viewer's — the public page is for
 // following a boat, and the control was competing with the base-map switcher in
@@ -39,6 +40,8 @@ interface MapContainerProps {
     passageLine?: [number, number][] | null;
     /** Named waypoints dropped under way — labelled pins on the track. */
     waypoints: VoyageLogWaypoint[];
+    /** Resolved selected track, supplying the scope omitted by older waypoint payloads. */
+    waypointVoyageId?: string;
     /** Nearby AIS contacts to plot. */
     nearbyVessels: NearbyVessel[];
     /** True when the dashboard's latest public-log request failed or aged out. */
@@ -124,6 +127,7 @@ function MapContainer({
     entries,
     passageLine,
     waypoints,
+    waypointVoyageId,
     nearbyVessels,
     connectionLost,
     onEntryClick,
@@ -139,21 +143,33 @@ function MapContainer({
     // kicks: one right after React commits the new layout, one after any
     // CSS transition settles — cheap no-ops when the size didn't change.
     const mapRef = useRef<import('react-map-gl/mapbox').MapRef | null>(null);
+    // The identity/voyage card now floats over the chart. On intentional
+    // framing, leave room for it and the right-hand control column. Reading
+    // the current box also honours the viewer folding that card away; normal
+    // polling still never recentres their map.
+    const framePadding = React.useCallback(() => {
+        const container = mapRef.current?.getContainer?.();
+        if (!container) return { top: 64, bottom: 72, left: 28, right: 28 };
+        const bounds = container.getBoundingClientRect();
+        const header = document.querySelector('[data-testid="public-voyage-header"][data-overlay="true"]');
+        const headerBounds = header?.getBoundingClientRect();
+        return {
+            top: Math.min(
+                headerBounds && headerBounds.height > 0 ? Math.max(24, headerBounds.bottom - bounds.top + 16) : 24,
+                bounds.height * 0.55,
+            ),
+            bottom: Math.min(100, bounds.height * 0.22),
+            left: Math.min(28, bounds.width * 0.06),
+            right: Math.min(92, bounds.width * 0.24),
+        };
+    }, []);
     const exploreDestination = () => {
         if (!destinationTarget) return;
         exploredFocusKey.current = focusKey ?? '';
         setDestinationDetail(true);
         setStyleMode('satellite');
-        const container = mapRef.current?.getContainer?.();
-        const height = container?.clientHeight || 400;
-        const width = container?.clientWidth || 400;
         mapRef.current?.fitBounds(destinationBounds(destinationTarget.center), {
-            padding: {
-                top: Math.min(60, height * 0.15),
-                bottom: Math.min(90, height * 0.22),
-                left: Math.min(24, width * 0.06),
-                right: Math.min(24, width * 0.06),
-            },
+            padding: framePadding(),
             maxZoom: 15,
             duration: 1000,
         });
@@ -270,9 +286,13 @@ function MapContainer({
      * finished is a fact about the voyage, not a competing claim about the plan.
      */
     const hasPlanLine = !!passageLine && passageLine.length >= 2;
+    const lifecycleWaypoints = useMemo(
+        () => publicVoyageWaypoints(waypoints, waypointVoyageId),
+        [waypoints, waypointVoyageId],
+    );
     const shownWaypoints = useMemo(
-        () => (hasPlanLine ? waypoints.filter((w) => w.name !== 'Voyage Start') : waypoints),
-        [waypoints, hasPlanLine],
+        () => (hasPlanLine ? lifecycleWaypoints.filter((w) => w.name !== 'Voyage Start') : lifecycleWaypoints),
+        [lifecycleWaypoints, hasPlanLine],
     );
 
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
@@ -427,13 +447,13 @@ function MapContainer({
                 [maxLon, maxLat],
             ],
             {
-                padding: { top: 64, bottom: 72, left: 28, right: 28 },
+                padding: framePadding(),
                 duration: 900,
                 maxZoom: 14,
                 essential: true,
             },
         );
-    }, []);
+    }, [framePadding]);
 
     const focusTargetRef = useRef({ allCoords, telemetryFix });
     focusTargetRef.current = { allCoords, telemetryFix };
@@ -504,7 +524,7 @@ function MapContainer({
                     [minLon, minLat],
                     [maxLon, maxLat],
                 ];
-                map.fitBounds(bounds, { padding: 72, duration: 700, maxZoom: 12, essential: true });
+                map.fitBounds(bounds, { padding: framePadding(), duration: 700, maxZoom: 12, essential: true });
                 return;
             }
             // Provisional only — the key stays unclaimed above, so this is
@@ -518,7 +538,7 @@ function MapContainer({
             cancelAnimationFrame(frame);
             if (retryTimer !== undefined) clearTimeout(retryTimer);
         };
-    }, [focusKey, framable]);
+    }, [focusKey, framable, framePadding]);
 
     // Selecting an entry deliberately does NOT move the camera — the whole
     // track is already framed, and viewers want to keep the overview.
@@ -612,7 +632,11 @@ function MapContainer({
                 maxZoom={20}
                 attributionControl={false}
             >
-                <NavigationControl position="top-left" showCompass={false} />
+                <NavigationControl
+                    position="top-right"
+                    showCompass={false}
+                    style={{ marginTop: 168, marginRight: 20 }}
+                />
                 {/* The default strip, plus the AIS credit. AISHub gave written
                     permission for public display on 2026-09-02 ("we will
                     appreciate it if you credit AISHub but that's not mandatory")
@@ -1104,14 +1128,14 @@ function MapContainer({
             )}
 
             {/* Basemap toggle */}
-            <div className="absolute top-3 right-3 flex rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider">
+            <div className="absolute top-3 right-3 flex w-16 flex-col rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[10px] font-bold uppercase tracking-wide">
                 {(['dark', 'satellite'] as StyleMode[]).map((m) => (
                     <button
                         key={m}
                         onClick={() => setStyleMode(m)}
                         aria-label={`${m === 'dark' ? 'Map' : 'Satellite'} basemap`}
                         aria-pressed={styleMode === m}
-                        className={`min-h-[44px] px-3 py-1.5 transition-colors ${
+                        className={`min-h-[44px] px-1 py-1.5 transition-colors ${
                             styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
                         }`}
                     >

@@ -10,12 +10,24 @@
  * What would mislead a skipper here: a forecast wearing a live reading's face;
  * a ghost that leaves from the route's first point instead of from the boat;
  * one model's numbers shown for a moment under another model's name; the last
- * hour of a forecast held past its end; a glance that outlives the strip and
- * leaves the chart showing tomorrow.
+ * hour of a forecast held past its end; a minimized instrument pane that
+ * silently resets the scrubber, or a disabled HUD that leaves tomorrow shown.
  */
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as renderBase, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PassageHudInfoCard } from '../components/passage/PassageHudInfoCard';
+import { fmtMoment } from '../components/passage/RouteTimeScrubber';
+
+// Details are now in the existing blue i panel. Mount its body alongside the
+// pane so these data-honesty tests still exercise the displayed explanations.
+const InfoTestHost = ({ children }: { children: React.ReactNode }) => (
+    <>
+        {children}
+        <PassageHudInfoCard />
+    </>
+);
+const render = (ui: React.ReactNode) => renderBase(ui, { wrapper: InfoTestHost });
 
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
@@ -83,6 +95,7 @@ const HOUR = 3_600_000;
 const proxy = vi.hoisted(() => ({
     calls: [] as { models: string; points: number }[],
     hours: 169,
+    hourSpeedDelta: 0,
     offline: false,
     hold: null as null | Promise<void>,
     failNext: false,
@@ -151,7 +164,10 @@ vi.mock('../services/weather/openMeteoProxy', () => ({
             for (const model of models) {
                 // One model is answered unsuffixed, several are suffixed — as the service does.
                 const sfx = models.length > 1 ? `_${model}` : '';
-                hourly[`wind_speed_10m${sfx}`] = fill(() => proxy.speedFor(model, station));
+                hourly[`wind_speed_10m${sfx}`] = fill((h) => {
+                    const value = proxy.speedFor(model, station);
+                    return value === null ? null : value + h * proxy.hourSpeedDelta;
+                });
                 hourly[`wind_direction_10m${sfx}`] = fill(() => proxy.dirFor(model));
                 hourly[`wind_gusts_10m${sfx}`] = fill(() =>
                     model === 'jma_gsm' || model === 'ecmwf_aifs025_single' ? null : proxy.speedFor(model, station) + 8,
@@ -172,8 +188,11 @@ import { WindStore } from '../stores/WindStore';
 import {
     __resetPassageHudForTests,
     getPassageGhost,
+    getPassageGhostJoinPath,
     getPassageGhostPath,
     getPassageLookAhead,
+    isPassageHudEnabled,
+    isPassageHudOpen,
     reportPassageWindCoverage,
     setPassageAheadMs,
     setPassageHudEnabled,
@@ -185,6 +204,7 @@ import { __clearRouteForecastCacheForTests } from '../services/routeForecastSamp
 import { __clearRouteSpreadCacheForTests } from '../services/routeForecastSpread';
 import { __clearRouteSeaCacheForTests } from '../services/routeSeaSampler';
 import { consumeMapFit, peekMapFit } from '../stores/MapFitTargetStore';
+import { calculateDistance } from '../utils/navigationCalculations';
 import type { VoyagePlan } from '../types';
 
 const snapshot = (over: Partial<RemoteInstrumentSnapshot> = {}): RemoteInstrumentSnapshot => ({
@@ -236,9 +256,13 @@ const boatStillReporting = async () => {
         await vi.advanceTimersByTimeAsync(2_100);
     });
 };
-const lookAhead = async () => {
+const lookAhead = async ({ joining = false } = {}) => {
     fireEvent.click(screen.getByTestId('hud-look-ahead'));
-    await waitFor(() => expect(text('hud-tws')).not.toContain('—'));
+    fireEvent.click(screen.getByRole('button', { name: /Preview passage/ }));
+    await waitFor(() => {
+        if (joining) expect(text('route-scrub-join')).toBe('Joining route · unchecked estimate');
+        else expect(text('hud-tws')).not.toContain('—');
+    });
 };
 
 beforeEach(() => {
@@ -251,10 +275,11 @@ beforeEach(() => {
     setPassageHudEnabled(true);
     setPassageHudOpen(true);
     NmeaStore.clearRemote();
-    useFollowRouteStore.getState().stopFollowing();
+    useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
     profile.vessel = { cruisingSpeed: 6, length: 42, type: 'sail' };
     proxy.calls.length = 0;
     proxy.hours = 169;
+    proxy.hourSpeedDelta = 0;
     proxy.offline = false;
     proxy.hold = null;
     proxy.failNext = false;
@@ -283,11 +308,119 @@ afterEach(() => {
 });
 
 describe('asking to look ahead', () => {
-    it('needs a route to look along', () => {
+    const chooseDeparture = (at: number) => {
+        fireEvent.click(screen.getByRole('button', { name: 'Choose a time' }));
+        const date = new Date(at);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        fireEvent.change(screen.getByLabelText('Departure date'), {
+            target: { value: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` },
+        });
+        fireEvent.change(screen.getByLabelText('Departure time'), {
+            target: { value: `${pad(date.getHours())}:${pad(date.getMinutes())}` },
+        });
+        fireEvent.click(screen.getByRole('button', { name: /Preview passage/ }));
+    };
+
+    it('Ahead opens a cancellable departure picker without changing the live chart', () => {
+        underWay();
         render(<PassageHudPane />);
-        const button = screen.getByTestId('hud-look-ahead') as HTMLButtonElement;
-        expect(button.disabled).toBe(true);
-        expect(label('hud-look-ahead')).toContain('follow a route first');
+        fireEvent.click(screen.getByTestId('hud-look-ahead'));
+        expect(screen.getByRole('dialog')).toBeVisible();
+        expect(getPassageLookAhead().on).toBe(false);
+        expect(getPassageGhost()).toBeNull();
+        expect(isPassageOverlayOn()).toBe(false);
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(getPassageLookAhead().on).toBe(false);
+        expect(text('hud-mode')).toBe('Live');
+    });
+
+    it('scheduled departure changes forecast/ETA clocks, not the starting boat position', async () => {
+        proxy.hourSpeedDelta = 0.4;
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        const currentWind = text('hud-tws');
+        const currentApparent = text('hud-aws');
+        const origin = getPassageGhost()!;
+        const departure = Math.floor((Date.now() + 24 * HOUR) / 60_000) * 60_000;
+        fireEvent.click(screen.getByRole('button', { name: /Change departure time/ }));
+        chooseDeparture(departure);
+        await waitFor(() => expect(text('hud-tws')).not.toBe(currentWind));
+        expect(text('hud-aws')).not.toBe(currentApparent);
+        expect(getPassageLookAhead()).toEqual({ on: true, aheadMs: 0, playing: false, departureMs: departure });
+        expect(getPassageGhost()).toMatchObject({ lat: origin.lat, lon: origin.lon, label: 'DEPART' });
+        expect(text('route-scrub-moment')).toContain(fmtMoment(departure));
+        expect(label('hud-eta')).toContain('cruise at 6.0 knots');
+        const slider = screen.getByTestId('route-scrub-track');
+        const duration = Number(slider.getAttribute('aria-valuemax')) * 60_000;
+        expect(label('hud-eta')).toContain(new Date(departure + duration).toLocaleDateString());
+        // Advancing the scrubber does not advance the departure or final ETA.
+        const eta = label('hud-eta');
+        act(() => setPassageAheadMs(2 * HOUR));
+        expect(label('hud-eta')).toBe(eta);
+        expect(text('route-scrub-moment')).toContain(fmtMoment(departure + 2 * HOUR));
+        expect(screen.queryByText(/OLD FORECAST/)).toBeNull();
+    });
+
+    it('editing a fixed departure resets playback and does not roll the date with wall time', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            underWay();
+            render(<PassageHudPane />);
+            fireEvent.click(screen.getByTestId('hud-look-ahead'));
+            const departure = Math.floor((Date.now() + 24 * HOUR) / 60_000) * 60_000;
+            chooseDeparture(departure);
+            await waitFor(() => expect(getPassageGhost()).not.toBeNull());
+            act(() => setPassageAheadMs(HOUR));
+            const clock = text('route-scrub-moment');
+            for (let i = 0; i < 4; i++) {
+                await act(async () => vi.advanceTimersByTimeAsync(10_000));
+                act(() => void NmeaStore.ingestRemote(snapshot()));
+            }
+            expect(text('route-scrub-moment')).toBe(clock);
+            fireEvent.click(screen.getByRole('button', { name: 'Play the passage forward' }));
+            fireEvent.click(screen.getByRole('button', { name: /Change departure time/ }));
+            expect(getPassageLookAhead().playing).toBe(false);
+            chooseDeparture(departure + 12 * HOUR);
+            expect(getPassageLookAhead()).toEqual({
+                on: true,
+                aheadMs: 0,
+                playing: false,
+                departureMs: departure + 12 * HOUR,
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a future departure past available weather shows dashes, not today’s numbers', async () => {
+        proxy.hours = 6;
+        underWay();
+        render(<PassageHudPane />);
+        fireEvent.click(screen.getByTestId('hud-look-ahead'));
+        chooseDeparture(Date.now() + 24 * HOUR);
+        await waitFor(() => expect(text('hud-forecast-note')).toBe('PAST FORECAST'));
+        expect(text('hud-tws')).toContain('—');
+        expect(text('hud-sea')).toContain('—');
+        expect(getPassageGhost()?.label).toBe('DEPART');
+    });
+
+    it('MOB closes a pending departure dialog and cannot leave a forecast boat behind', () => {
+        underWay();
+        render(<PassageHudPane />);
+        fireEvent.click(screen.getByTestId('hud-look-ahead'));
+        act(() => mob.raise());
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(getPassageLookAhead().on).toBe(false);
+        expect(getPassageGhost()).toBeNull();
+    });
+
+    it('needs a route to look along', () => {
+        useFollowRouteStore.getState().stopFollowing();
+        const { container } = render(<PassageHudPane />);
+        expect(container).toBeEmptyDOMElement();
+        expect(isPassageHudEnabled()).toBe(false);
     });
 
     it('needs a cruising speed, and says where to set one', () => {
@@ -365,17 +498,12 @@ describe('a forecast never wears a live reading’s face', () => {
     });
 });
 
-describe('the rest of the passage is put on screen, once', () => {
-    it('frames from the BOAT to the destination on the way in — not the water already sailed', async () => {
+describe('the chart owns full-route framing', () => {
+    it('does not replace the whole-route overview with a remaining-route fit on entering forecast', async () => {
         underWay();
         render(<PassageHudPane />);
         await lookAhead();
-        const target = consumeMapFit()!;
-        const [minLon, minLat, maxLon, maxLat] = target.bbox;
-        expect(minLat).toBeCloseTo(-27.5, 2); // where she is, not -28 where the route began
-        expect(maxLat).toBeCloseTo(-27, 2);
-        expect(minLon).toBeCloseTo(153, 2);
-        expect(maxLon).toBeCloseTo(154, 2);
+        expect(peekMapFit()).toBeNull();
     });
 
     it('never moves the camera again while she scrubs: the skipper’s own pan and zoom win', async () => {
@@ -422,18 +550,36 @@ describe('the ghost leaves from where she IS', () => {
         expect(ghost.label).toBe('NOW');
     });
 
+    it('starts at the exact GPS fix even a few metres off route and leaves the followed geometry unchanged', async () => {
+        const position = { lat: -27.5001, lon: 153.0001 };
+        act(() => void NmeaStore.ingestRemote(snapshot(position)));
+        const followed = useFollowRouteStore.getState().routeCoords;
+        const savedGeometry = useFollowRouteStore.getState().voyagePlan?.routeGeoJSON;
+        render(<PassageHudPane />);
+        await lookAhead({ joining: true });
+        expect(getPassageGhost()).toMatchObject({ ...position, label: 'NOW · JOIN EST.' });
+        expect(getPassageGhostJoinPath()).toEqual([position, { lat: position.lat, lon: 153 }]);
+        expect(getPassageGhostPath()).toEqual([{ lat: position.lat, lon: 153 }, ...ROUTE.slice(1)]);
+        act(() => setPassageAheadMs(2 * HOUR));
+        expect(useFollowRouteStore.getState().routeCoords).toBe(followed);
+        expect(useFollowRouteStore.getState().routeCoords).toEqual(ROUTE);
+        expect(useFollowRouteStore.getState().voyagePlan?.routeGeoJSON).toBe(savedGeometry);
+    });
+
     it('stays UNDER the boat at NOW as she sails on — not up to a mile astern because the label rounds', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         try {
             underWay();
             render(<PassageHudPane />);
             await lookAhead();
-            // 0.3 NM further up the leg: "83 NM to go" does not change, the boat has.
-            act(() => void NmeaStore.ingestRemote(snapshot({ lat: -27.495 })));
+            // Less than the old 0.05 NM equality threshold: the displayed
+            // distance rounds to the same value, but NOW still follows GPS.
+            const position = { lat: -27.4999, lon: 153.0001 };
+            act(() => void NmeaStore.ingestRemote(snapshot(position)));
             await act(async () => {
                 await vi.advanceTimersByTimeAsync(2_100);
             });
-            expect(getPassageGhost()!.lat).toBeCloseTo(-27.495, 3);
+            expect(getPassageGhost()).toMatchObject({ ...position, label: 'NOW · JOIN EST.' });
         } finally {
             vi.useRealTimers();
         }
@@ -533,6 +679,7 @@ describe('the wind she will sail INTO', () => {
         underWay();
         render(<PassageHudPane />);
         fireEvent.click(screen.getByTestId('hud-look-ahead'));
+        fireEvent.click(screen.getByRole('button', { name: /Preview passage/ }));
         await waitFor(() => expect(text('hud-forecast-note')).toBe('NO FORECAST'));
         expect(text('hud-tws')).toContain('—');
         expect(getPassageGhost()).not.toBeNull();
@@ -551,20 +698,58 @@ describe('a boat that is OFF her line', () => {
         offLine();
         render(<PassageHudPane />);
         const live = text('hud-route').match(/(\d+)NM/)![1];
-        await lookAhead();
+        await lookAhead({ joining: true });
         expect(text('hud-route')).toBe(`To go${live}NM6.0KN CRUISE`);
         expect(Number(live)).toBeGreaterThan(90); // 83 along + ~10 back
     });
 
-    it('the ghost waits on the line while the way back is sailed, then runs', async () => {
+    it('the ghost sails from the actual fix to the line before moving along it', async () => {
         offLine();
         render(<PassageHudPane />);
-        await lookAhead();
-        act(() => setPassageAheadMs(1 * HOUR)); // 6 NM sailed of a ~10 NM way back
-        expect(getPassageGhost()!.lat).toBeCloseTo(-27.5, 2);
+        await lookAhead({ joining: true });
+        const backNm = calculateDistance(-27.5, 153.188, -27.5, 153);
+        const joinMs = (backNm / 6) * HOUR;
+        expect(getPassageGhost()).toMatchObject({ lat: -27.5, lon: 153.188 });
+        const routePath = getPassageGhostPath();
+        expect(getPassageGhostJoinPath()).toEqual([
+            { lat: -27.5, lon: 153.188 },
+            { lat: -27.5, lon: 153 },
+        ]);
+        act(() => setPassageAheadMs(joinMs / 2));
+        expect(getPassageGhost()!.lat).toBeCloseTo(-27.5, 9);
+        expect(getPassageGhost()!.lon).toBeCloseTo(153.094, 9);
+        expect(getPassageGhostPath()).toBe(routePath);
+        act(() => setPassageAheadMs(joinMs));
+        expect(getPassageGhost()!.lat).toBeCloseTo(-27.5, 9);
+        expect(getPassageGhost()!.lon).toBeCloseTo(153, 9);
         act(() => setPassageAheadMs(5 * HOUR)); // 30 sailed, ~20 of it along the line
         expect(getPassageGhost()!.lat).toBeGreaterThan(-27.25);
         expect(getPassageGhost()!.lat).toBeLessThan(-27.1);
+        expect(useFollowRouteStore.getState().routeCoords).toEqual(ROUTE);
+        expect(getPassageGhostPath()).toBe(routePath);
+    });
+
+    it('withholds route-only weather while joining and restores it once the ghost reaches the route', async () => {
+        offLine();
+        render(<PassageHudPane />);
+        await lookAhead({ joining: true });
+        for (const id of ['hud-tws', 'hud-twd', 'hud-aws', 'hud-sea', 'hud-set', 'hud-rain']) {
+            expect(text(id)).toContain('—');
+        }
+        expect(screen.queryByTestId('hud-tws-spread')).toBeNull();
+        expect(text('route-scrub-join')).toBe('Joining route · unchecked estimate');
+        act(() => setPassageAheadMs(3 * HOUR));
+        await waitFor(() => expect(text('hud-tws')).not.toContain('—'));
+        await waitFor(() => expect(text('hud-sea')).not.toContain('—'));
+        expect(screen.queryByTestId('route-scrub-join')).toBeNull();
+    });
+
+    it('leaves framing of the off-route boat to the map overview, without a competing fit request', async () => {
+        act(() => void NmeaStore.ingestRemote(snapshot({ lat: -27.5, lon: 152.8 })));
+        render(<PassageHudPane />);
+        await lookAhead({ joining: true });
+        expect(getPassageGhost()?.lon).toBeCloseTo(152.8);
+        expect(peekMapFit()).toBeNull();
     });
 
     it('abeam of the far end from miles off is NOT "0.0 to go" on a dead slider', async () => {
@@ -573,7 +758,7 @@ describe('a boat that is OFF her line', () => {
             useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
         });
         render(<PassageHudPane />);
-        await lookAhead();
+        await lookAhead({ joining: true });
         const max = Number(screen.getByTestId('route-scrub-track').getAttribute('aria-valuemax'));
         expect(max).toBeGreaterThan(60); // more than an hour of axis, in minutes
         expect(text('hud-route')).not.toContain('0.0NM');
@@ -1281,11 +1466,61 @@ describe('where the chart’s wind field stops', () => {
         await lookAhead();
         act(() => reportPassageWindCoverage(46));
         act(() => setPassageAheadMs(60 * HOUR));
-        expect(text('route-scrub-note')).toBe('Chart wind ends +46 h — numbers continue');
+        expect(text('route-scrub-note')).toBe('Chart wind ends +46 h');
     });
 });
 
 describe('the glance ends', () => {
+    it('keeps the scrubber, playback and ghost running when minimized, with a visible LIVE way back', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            underWay();
+            render(<PassageHudPane />);
+            await lookAhead();
+            act(() => setPassageAheadMs(6 * HOUR));
+            fireEvent.click(screen.getByRole('button', { name: 'Play the passage forward' }));
+            const offset = getPassageLookAhead().aheadMs;
+            const ghost = getPassageGhost();
+            const path = getPassageGhostPath();
+            fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
+            expect(isPassageHudOpen()).toBe(false);
+            expect(screen.getByTestId('passage-hud')).not.toBeVisible();
+            expect(screen.getByTestId('route-time-scrubber')).toBeVisible();
+            expect(getPassageLookAhead()).toEqual({ on: true, aheadMs: offset, playing: true, departureMs: null });
+            expect(getPassageGhost()).toBe(ghost);
+            expect(getPassageGhostPath()).toBe(path);
+            await act(async () => vi.advanceTimersByTimeAsync(1_100));
+            expect(getPassageLookAhead().on).toBe(true);
+            expect(getPassageLookAhead().aheadMs).toBeGreaterThan(offset);
+            expect(getPassageGhost()).not.toEqual(ghost);
+            const live = screen.getByRole('button', { name: 'Back to live conditions' });
+            expect(live).toBeVisible();
+            fireEvent.click(live);
+            expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false, departureMs: null });
+            expect(getPassageGhost()).toBeNull();
+            expect(getPassageGhostPath()).toBeNull();
+            expect(getPassageGhostJoinPath()).toBeNull();
+            expect(screen.queryByTestId('route-time-scrubber')).toBeNull();
+            expect(screen.getByRole('button', { name: 'Show passage instruments' })).toBeVisible();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('disabling the minimized HUD ends the forecast and removes all of its controls', async () => {
+        underWay();
+        const view = render(<PassageHudPane />);
+        await lookAhead();
+        act(() => setPassageAheadMs(9 * HOUR));
+        fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
+        act(() => setPassageHudEnabled(false));
+        expect(view.container).toBeEmptyDOMElement();
+        expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false, departureMs: null });
+        expect(getPassageGhost()).toBeNull();
+        expect(getPassageGhostPath()).toBeNull();
+        expect(getPassageGhostJoinPath()).toBeNull();
+    });
+
     it('LIVE on the strip goes straight back', async () => {
         underWay();
         render(<PassageHudPane />);
@@ -1304,7 +1539,7 @@ describe('the glance ends', () => {
         await lookAhead();
         act(() => setPassageAheadMs(9 * HOUR));
         view.unmount();
-        expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false });
+        expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false, departureMs: null });
         expect(getPassageGhost()).toBeNull();
     });
 
@@ -1314,7 +1549,11 @@ describe('the glance ends', () => {
         await lookAhead();
         act(() => useFollowRouteStore.getState().stopFollowing());
         expect(getPassageLookAhead().on).toBe(false);
-        expect(text('hud-mode')).toBe('Live');
+        expect(isPassageHudEnabled()).toBe(false);
+        expect(screen.queryByTestId('passage-hud')).toBeNull();
+        expect(screen.queryByTestId('route-time-scrubber')).toBeNull();
+        expect(getPassageGhost()).toBeNull();
+        expect(getPassageGhostJoinPath()).toBeNull();
     });
 
     it('and so does the strip standing down behind a storm card or the planner', async () => {
@@ -1323,8 +1562,10 @@ describe('the glance ends', () => {
             underWay();
             render(<PassageHudPane />);
             await lookAhead();
-            // What index.css does to the strip for those surfaces.
+            // Those surfaces suppress both the readings and the forecast
+            // controls; an ordinary collapse leaves the scrubber visible.
             screen.getByTestId('passage-hud').style.display = 'none';
+            screen.getByTestId('route-time-scrubber').style.display = 'none';
             act(() => {
                 vi.advanceTimersByTime(1100);
             });

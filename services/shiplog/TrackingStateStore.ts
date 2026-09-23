@@ -125,6 +125,8 @@ export interface TrackingState {
     boatId?: string;
     currentVoyageId?: string;
     voyageStartTime?: string;
+    /** Only an actual departure creates this status; recovery must not rebuild pending markers from later fixes. */
+    voyageStartCapture?: 'pending' | 'captured';
     voyageEndTime?: string;
     lastMovementTime?: string;
     lastEntryTime?: string;

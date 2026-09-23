@@ -223,6 +223,10 @@ verify_jwt = true
 # and a service-role-only idempotent database transaction.
 verify_jwt = false
 
+[functions.diary-comments]
+# Guest plain-text comments: publication checks, persisted quota and moderation.
+verify_jwt = false
+
 [functions.feedback-email-worker]
 # Privileged durable-outbox worker. The gateway verifies the fast wake's anon
 # JWT or cron's legacy service-role JWT; function code then requires the exact

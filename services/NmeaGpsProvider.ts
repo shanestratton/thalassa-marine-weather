@@ -173,10 +173,13 @@ class NmeaGpsProviderClass {
         if (Date.now() - fixedAt > NMEA_USABLE_MAX_AGE_MS) return;
 
         const hdop = state.hdop.value;
-        // Estimate accuracy from HDOP: typical baseline ~5m, better receivers ~2.5m
-        // DGPS/RTK get much tighter
+        // Preserve the legacy direct-gateway estimate. New Pi diagnostic
+        // fields must not silently turn its previous 5 m fallback into a
+        // sub-metre navigation claim: HDOP is geometry, not measured accuracy.
+        // The info panel uses receiver-reported gpsAccuracyM separately.
         const baseAccuracy = state.gpsFixQuality && state.gpsFixQuality >= 2 ? 1.5 : 5;
-        const accuracy = hdop !== null ? hdop * baseAccuracy : 5;
+        const directGateway = state.connectionStatus === 'connected' && !state.remote;
+        const accuracy = directGateway && state.gpsFixQuality !== 0 && hdop !== null ? hdop * baseAccuracy : 5;
 
         const pos: NmeaGpsPosition = {
             latitude: lat,

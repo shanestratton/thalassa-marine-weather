@@ -71,6 +71,7 @@ import {
 import { GebcoDepthService } from '../../services/GebcoDepthService';
 import { mountCautionAreaLayers } from './encCautionMounts';
 import { existingMapLayerIds } from './mapLayerQueries';
+import { ENC_DETAIL_MIN_ZOOM, ENC_OVERVIEW_MIN_ZOOM } from './encDisplayScale';
 
 export { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
 import {
@@ -164,6 +165,10 @@ const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
 function findInsertionAnchor(map: mapboxgl.Map): string | undefined {
     const style = map.getStyle();
     const layers = style?.layers ?? [];
+    const chartAnchor = layers.find(
+        (layer) => (layer.metadata as Record<string, unknown> | undefined)?.['thalassa:enc-anchor'],
+    );
+    if (chartAnchor) return chartAnchor.id;
     const candidates = ['settlement-major-label', 'place-city', 'country-label', 'admin-0-boundary'];
     for (const id of candidates) {
         if (layers.some((l) => l.id === id)) return id;
@@ -1442,10 +1447,32 @@ export function mountEncVectorLayer(
  * when encGeometryWorker's answer lands in the cached merge — a focused
  * two-source refresh, not the full 14-source re-upload.
  */
-let lastPushedGlazeFeats: unknown = null;
-let lastPushedContourFeats: unknown = null;
+interface EncUploadState {
+    generation: number;
+    removed: boolean;
+    lastPushedGlazeFeats: unknown;
+    lastPushedContourFeats: unknown;
+}
+const uploadStates = new WeakMap<mapboxgl.Map, EncUploadState>();
+function uploadState(map: mapboxgl.Map): EncUploadState {
+    let state = uploadStates.get(map);
+    if (!state) {
+        state = { generation: 0, removed: false, lastPushedGlazeFeats: null, lastPushedContourFeats: null };
+        uploadStates.set(map, state);
+        const owned = state;
+        map.on('remove', () => {
+            owned.removed = true;
+            owned.generation++;
+            owned.lastPushedGlazeFeats = null;
+            owned.lastPushedContourFeats = null;
+        });
+    }
+    return state;
+}
 
 export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorData): void {
+    const state = uploadState(map);
+    if (state.removed) return;
     const setData = (id: string, fc: FeatureCollection) => {
         const src = map.getSource(id);
         if (src && 'setData' in src) (src as mapboxgl.GeoJSONSource).setData(fc);
@@ -1455,24 +1482,23 @@ export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorDa
     // reply), so reference inequality reliably means "changed" — a
     // contours-only upgrade must not re-serialize the multi-thousand-feature
     // DEPARE_GLAZE, the heaviest ENC source (cycle-4 audit, red-team missed).
-    if (data.DEPARE_GLAZE.features !== lastPushedGlazeFeats) {
+    if (data.DEPARE_GLAZE.features !== state.lastPushedGlazeFeats) {
         // Kill #28: this push lands during quiet plotting (minutes after
         // merge-done) and hands Mapbox's geojson worker the heaviest ENC
         // source for a z18 re-tile — crumb it, or the trail shows silence.
         crumb('enc:upgrade-push', `glaze ${data.DEPARE_GLAZE.features.length}f`);
         setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
-        lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
+        state.lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
     }
-    if (data.DEPCNT_DERIVED.features !== lastPushedContourFeats) {
+    if (data.DEPCNT_DERIVED.features !== state.lastPushedContourFeats) {
         crumb('enc:upgrade-push', `contours ${data.DEPCNT_DERIVED.features.length}f`);
         setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
-        lastPushedContourFeats = data.DEPCNT_DERIVED.features;
+        state.lastPushedContourFeats = data.DEPCNT_DERIVED.features;
     }
 }
 
-/** Monotonic token — a newer refresh supersedes the staggered tail of an
- *  older one (per map is overkill: one chart map exists per session). */
-let refreshGeneration = 0;
+// Upload ownership is per map: an isolated trial must neither cancel the
+// other pane's chart nor keep querying Mapbox after its own map is removed.
 
 // ── Night dim (S-52 night-palette v1) ──────────────────────────────
 // The near-opaque white DEPARE ramp at the helm destroys night vision
@@ -1512,7 +1538,9 @@ export function setEncNightDim(map: mapboxgl.Map, on: boolean): void {
 }
 
 export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorData): void {
-    const generation = ++refreshGeneration;
+    const state = uploadState(map);
+    if (state.removed) return;
+    const generation = ++state.generation;
     const setData = (id: string, fc: FeatureCollection) => {
         const src = map.getSource(id);
         if (src && 'setData' in src) (src as mapboxgl.GeoJSONSource).setData(fc);
@@ -1539,8 +1567,8 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     // refreshEncAsyncLayers won't redundantly re-serialise the heaviest source on
     // the first post-merge notify. A worker upgrade REPLACES .features (a new
     // array), so the async path still re-pushes the genuinely-changed collection.
-    lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
-    lastPushedContourFeats = data.DEPCNT_DERIVED.features;
+    state.lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
+    state.lastPushedContourFeats = data.DEPCNT_DERIVED.features;
     // rAF with a WATCHDOG (2026-07-15, "your white layer is not showing…
     // just the old enc layer"): rAF only fires while the browser is
     // painting — an occluded/throttled tab (browser pane, PWA behind the
@@ -1567,7 +1595,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     // uploads past ~3 s.
     const deferStart = Date.now();
     const step = (): void => {
-        if (generation !== refreshGeneration) return; // superseded — newer refresh owns the sources
+        if (state.removed || generation !== state.generation) return;
         if (typeof map.isMoving === 'function' && map.isMoving() && Date.now() - deferStart < 3000) {
             schedule(step);
             return;
@@ -1615,10 +1643,10 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     // and the "default 2.5 m draft" caveat lost for the session
     // (2026-07-12 audit, the mixed-datum trap this module's own rules
     // prohibit).
-    const state = depthStyleState.get(map);
-    const safetyDepthM = state?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
+    const depthState = depthStyleState.get(map);
+    const safetyDepthM = depthState?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
     depthStyleState.set(map, {
-        ...state,
+        ...depthState,
         safetyDepthM,
         depcntValdcosByCell: distinctValdcosByCell(data.DEPCNT),
     });
@@ -1631,6 +1659,12 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
  * Tear down all sources + layers. Idempotent.
  */
 export function unmountEncVectorLayer(map: mapboxgl.Map): void {
+    const state = uploadStates.get(map);
+    if (state) {
+        state.generation++;
+        state.lastPushedGlazeFeats = null;
+        state.lastPushedContourFeats = null;
+    }
     for (const id of ALL_LAYER_IDS) {
         if (map.getLayer(id)) {
             try {
@@ -1733,12 +1767,29 @@ export function setEncPlottingMode(map: mapboxgl.Map, plotting: boolean): void {
     applyEncVisibility(map);
 }
 
+/** Keep the paper-chart base visible when fitting a long passage. Only base
+ * geometry gets an overview floor: marks, leads, soundings and contours keep
+ * their own scale/SCAMIN rules. No fabricated ocean fill across chart gaps. */
+export function setEncOverviewMode(map: mapboxgl.Map, overview: boolean): void {
+    const minzoom = overview ? ENC_OVERVIEW_MIN_ZOOM : ENC_DETAIL_MIN_ZOOM;
+    for (const id of [
+        ENC_VEC_LAYERS.DEPARE,
+        ENC_VEC_LAYERS.DEPARE_FINE,
+        ENC_VEC_LAYERS.LNDARE,
+        ENC_VEC_LAYERS.LNDARE_ISLET,
+        ENC_VEC_LAYERS.COALNE,
+    ]) {
+        const layer = map.getLayer(id);
+        if (layer && layer.minzoom !== minzoom) map.setLayerZoomRange(id, minzoom, layer.maxzoom ?? 24);
+    }
+}
+
 /** THE composer — the only writer of the visibility layout property.
  *  Exported for tests (a stub map with getLayer/setLayoutProperty is
  *  enough to verify the precedence table). */
 export function applyEncVisibility(map: mapboxgl.Map): void {
     const st = getVisibilityState(map);
-    const satOn = satelliteBaseOn();
+    const satOn = satelliteBaseOn(map);
     for (const id of ALL_LAYER_IDS) {
         if (!map.getLayer(id)) continue;
         let want = st.master;

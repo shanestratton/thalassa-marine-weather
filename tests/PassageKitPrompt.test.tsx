@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { create } from 'zustand';
 
 const setPage = vi.fn();
+const uiStore = create(() => ({ currentView: 'log', setPage }));
 
 vi.mock('../services/ShipLogService', () => ({
     ShipLogService: {
@@ -22,7 +23,7 @@ vi.mock('../services/ShipLogService', () => ({
     },
 }));
 vi.mock('../stores/uiStore', () => ({
-    useUIStore: (sel: (s: { setPage: (p: string) => void }) => unknown) => sel({ setPage }),
+    useUIStore: (sel: (s: ReturnType<typeof uiStore.getState>) => unknown) => uiStore(sel),
 }));
 vi.mock('../stores/PassageStore', () => ({
     PassageStore: { getState: () => ({}) },
@@ -73,12 +74,38 @@ beforeEach(() => {
     vi.setSystemTime(new Date(2026, 7, 26, 10, 0, 0));
     followStore.setState({ isFollowing: false, routeCoords: [], voyageId: null, startedAt: null });
     setPage.mockClear();
+    uiStore.setState({ currentView: 'log' });
 });
 afterEach(() => {
     vi.useRealTimers();
 });
 
 describe('PassageKitPrompt — route-committed trigger', () => {
+    it('never covers Glass, including restored follow state and a later visit to Log', () => {
+        uiStore.setState({ currentView: 'dashboard' });
+        render(<PassageKitPrompt />);
+        act(() => followStore.setState({ isFollowing: true, routeCoords: PASSAGE_ROUTE, startedAt: 'restored' }));
+        expect(screen.queryByText(/This is a passage/)).toBeNull();
+        act(() => uiStore.setState({ currentView: 'log' }));
+        expect(screen.queryByText(/This is a passage/)).toBeNull();
+    });
+
+    it('does not replay a restored route even when launched directly in Log', () => {
+        followStore.setState({ isFollowing: true, routeCoords: PASSAGE_ROUTE, startedAt: 'restored' });
+        render(<PassageKitPrompt />);
+        expect(screen.queryByText(/This is a passage/)).toBeNull();
+    });
+
+    it('clears a planning prompt when leaving Log', () => {
+        render(<PassageKitPrompt />);
+        act(() => followStore.setState({ isFollowing: true, routeCoords: PASSAGE_ROUTE, startedAt: 'new' }));
+        expect(screen.getByText(/This is a passage/)).toBeInTheDocument();
+        act(() => uiStore.setState({ currentView: 'dashboard' }));
+        expect(screen.queryByText(/This is a passage/)).toBeNull();
+        act(() => uiStore.setState({ currentView: 'log' }));
+        expect(screen.queryByText(/This is a passage/)).toBeNull();
+    });
+
     it('warns the moment a passage-grade route is followed — no tracking required', () => {
         render(<PassageKitPrompt />);
         expect(screen.queryByText(/This is a passage/)).toBeNull();

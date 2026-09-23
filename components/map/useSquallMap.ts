@@ -89,21 +89,54 @@ export function useSquallMap(
     userLon?: number,
     allCyclones?: ActiveCyclone[],
     onSelectStorm?: (storm: ActiveCyclone) => void,
+    /** Passage uses squalls as an overlay, without the standalone view's camera takeover. */
+    preserveViewport = false,
 ) {
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
     const isSetUp = useRef(false);
     const stormMarkersRef = useRef<mapboxgl.Marker[]>([]);
-    const prevMaxZoomRef = useRef<number | null>(null);
-    const prevMinZoomRef = useRef<number | null>(null);
-    /** What squall itself pinned the floor to — the restore is skipped when
-     *  another view (cyclone) has since moved it. */
-    const pinnedMinZoomRef = useRef<number | null>(null);
-    const zoomSnapRef = useRef<(() => void) | null>(null);
     const lastRefreshAtRef = useRef<number>(0);
     const loadSessionRef = useRef(0);
     const inflightControllerRef = useRef<AbortController | null>(null);
     /** Detach for the styledata re-assert that keeps the cloud up. */
     const styleWatchRef = useRef<(() => void) | null>(null);
+    // Keep a passage-activated squall view as an overlay until it is turned
+    // off. Closing the HUD alone must not trigger a delayed camera takeover.
+    const overlaySessionRef = useRef(false);
+    if (!visible) overlaySessionRef.current = false;
+    else if (preserveViewport) overlaySessionRef.current = true;
+    const preserveCamera = overlaySessionRef.current;
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !visible || preserveCamera) return;
+        const ausNzMin = (map as mapboxgl.Map & { __ausNzMinZoom?: number }).__ausNzMinZoom ?? 3;
+        const minInt = Math.round(ausNzMin);
+        const previousMax = map.getMaxZoom();
+        const previousMin = map.getMinZoom();
+        map.setMinZoom(minInt);
+        map.setMaxZoom(SQUALL_MAX_ZOOM);
+        if (userLat && userLon && isFinite(userLat) && isFinite(userLon)) {
+            map.flyTo({ center: [userLon, userLat], zoom: minInt, duration: 800 });
+        } else {
+            map.easeTo({ center: [145, -28], zoom: minInt, duration: 400 });
+        }
+        const onZoomEnd = () => {
+            const zoom = map.getZoom();
+            const snapped = Math.max(minInt, Math.min(Math.round(zoom), SQUALL_MAX_ZOOM));
+            if (Math.abs(zoom - snapped) > 0.05) map.easeTo({ zoom: snapped, duration: 150 });
+        };
+        map.on('zoomend', onZoomEnd);
+        return () => {
+            map.off('zoomend', onZoomEnd);
+            // Restore only constraints still owned by squall: a cyclone or
+            // another weather layer may already have taken over the camera.
+            if (map.getMaxZoom() === SQUALL_MAX_ZOOM) map.setMaxZoom(previousMax);
+            if (map.getMinZoom() === minInt) map.setMinZoom(previousMin);
+        };
+        // Coordinates choose the entry frame; live position updates never refly it.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapRef, mapReady, visible, preserveCamera]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -146,65 +179,13 @@ export function useSquallMap(
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
             }
-            if (zoomSnapRef.current) {
-                map.off('zoomend', zoomSnapRef.current);
-                zoomSnapRef.current = null;
-            }
             for (const m of stormMarkersRef.current) m.remove();
             stormMarkersRef.current = [];
-            if (prevMaxZoomRef.current !== null) {
-                map.setMaxZoom(prevMaxZoomRef.current);
-                prevMaxZoomRef.current = null;
-            }
-            // The min zoom was pinned at setup too — leaving it raised kept
-            // the whole map from zooming out after the squall view closed.
-            // Restore ONLY if the floor is still the one squall set: tapping
-            // a storm flips squall off and the cyclone view on in the same
-            // batch, and cyclone's effect (declared first) has already
-            // lowered the floor to 1 by the time this branch runs. An
-            // unconditional restore stomped it back to ~3 and locked the
-            // skipper out of the basin-wide frame.
-            if (prevMinZoomRef.current !== null) {
-                if (pinnedMinZoomRef.current === null || map.getMinZoom() === pinnedMinZoomRef.current) {
-                    map.setMinZoom(prevMinZoomRef.current);
-                }
-                prevMinZoomRef.current = null;
-                pinnedMinZoomRef.current = null;
-            }
             return;
         }
 
         // ── Setup ──
         if (!isSetUp.current) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
-            const minInt = Math.round(ausNzMin);
-            prevMaxZoomRef.current = map.getMaxZoom();
-            prevMinZoomRef.current = map.getMinZoom();
-            pinnedMinZoomRef.current = minInt;
-            map.setMinZoom(minInt);
-            map.setMaxZoom(SQUALL_MAX_ZOOM);
-
-            // Open at AU+NZ fit (or user location if known)
-            const targetZoom = minInt;
-            if (userLat && userLon && isFinite(userLat) && isFinite(userLon)) {
-                map.flyTo({ center: [userLon, userLat], zoom: targetZoom, duration: 800 });
-            } else {
-                map.easeTo({ center: [145, -28], zoom: targetZoom, duration: 400 });
-            }
-
-            // Integer-only zoom snap — keeps Rainbow tile fetches stable
-            // (no half-zoom states triggering a fresh fetch every frame).
-            const onZoomEnd = () => {
-                const z = map.getZoom();
-                const snapped = Math.max(minInt, Math.min(Math.round(z), SQUALL_MAX_ZOOM));
-                if (Math.abs(z - snapped) > 0.05) {
-                    map.easeTo({ zoom: snapped, duration: 150 });
-                }
-            };
-            map.on('zoomend', onZoomEnd);
-            zoomSnapRef.current = onZoomEnd;
-
             // Top-left HUD removed 2026-04-25 — redundant with the
             // bottom-left SquallLegend chip's status pill which already
             // shows LIVE / Nm / Nh freshness. Two HUDs saying the same

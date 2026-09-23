@@ -37,9 +37,17 @@ import {
     clusterKeepsDepthGrid,
     persistLegVerdicts,
     hydrateLegVerdicts,
+    LEG_VERDICTS_KEY,
     type TracerContext,
 } from '../services/routeTracer';
 import { authScopedStorageKey } from '../services/authIdentityScope';
+import {
+    parseChartTrackLines,
+    parseLeadingLines,
+    chartTrackOffsetForLeg,
+    withChartTrackSource,
+    type LatLon,
+} from '../services/leadingLine';
 
 const poly = (w: number, s: number, e: number, n: number, props: Record<string, unknown> = {}) => ({
     type: 'Feature' as const,
@@ -292,6 +300,35 @@ describe('routeTracer — persisted verdicts survive only their own schema', () 
         localStorage.clear();
     });
 
+    it('does not replay v2 midpoint/steering advisories after the typed-track review change', () => {
+        localStorage.clear();
+        const fingerprint = 'AU5TEST@1@2026-09-13@100@cloud-3';
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_leg_verdicts_v2'),
+            JSON.stringify({
+                draftM: 2.4,
+                draftAssumed: false,
+                encFingerprint: fingerprint,
+                entries: [
+                    [
+                        'old-lead-warning',
+                        {
+                            grade: 'caution',
+                            issues: [{ severity: 'caution', message: '53 m off the lead — steer to the transit' }],
+                            minDepthM: 10,
+                            minAt: null,
+                            needsTide: false,
+                            nudge: null,
+                            nudgeTo: null,
+                        },
+                    ],
+                ],
+            }),
+        );
+        expect(hydrateLegVerdicts(2.4, false, fingerprint)).toBeNull();
+        localStorage.clear();
+    });
+
     it('rejects a bank stamped with the old numeric registry counter', () => {
         // The counter was boot-scoped, so hydration essentially never matched
         // and every relaunch cold-regraded the whole passage (2026-08-04 Lady
@@ -299,7 +336,7 @@ describe('routeTracer — persisted verdicts survive only their own schema', () 
         // false match against a fingerprint string.
         localStorage.clear();
         localStorage.setItem(
-            authScopedStorageKey('thalassa_leg_verdicts_v2'),
+            authScopedStorageKey(LEG_VERDICTS_KEY),
             JSON.stringify({ draftM: 2.4, draftAssumed: false, encVersion: 7, entries: [] }),
         );
         expect(hydrateLegVerdicts(2.4, false, 'AU5BR001@12@2026-01-01@100@cloud-3')).toBeNull();
@@ -665,37 +702,243 @@ describe('routeTracer — cardinal vs lead (Mackay 2026-08-25)', () => {
 });
 
 describe('routeTracer — leads (P3)', () => {
+    const typedTrack = (pts: LatLon[], properties: Record<string, unknown> = {}) =>
+        parseChartTrackLines([
+            {
+                geometry: { type: 'LineString', coordinates: pts.map((p) => [p.lon, p.lat]) },
+                properties: { acronym: 'RECTRC', CATTRK: 1, ...properties },
+            },
+        ]);
     it('riding ~50 m off a parallel lead is a caution with the offset', () => {
         const ctx = {
             ...baseCtx,
-            leads: [
-                {
-                    pts: [
-                        { lat: -27.005, lon: 153.002 },
-                        { lat: -27.005, lon: 153.008 },
-                    ],
-                },
-            ],
+            chartTracks: typedTrack([
+                { lat: -27.005, lon: 153.002 },
+                { lat: -27.005, lon: 153.008 },
+            ]),
         };
         const v = validateTraceLeg({ lat: -27.00455, lon: 153.003 }, { lat: -27.00455, lon: 153.007 }, ctx);
         expect(v.grade).toBe('caution');
-        expect(v.issues[0].message).toMatch(/\d+ m off the lead/);
+        expect(v.issues[0].message).toMatch(/\d+ m from charted track — review alignment/);
+        expect(v.issues[0].message).not.toMatch(/steer|safe|clearance/);
+        expect(v.issues[0].chartTrack).toMatchObject({ kind: 'recommended-track', offsetM: expect.any(Number) });
     });
 
     it('a crossing (non-parallel) leg near the lead is NOT flagged', () => {
         const ctx = {
             ...baseCtx,
-            leads: [
-                {
-                    pts: [
-                        { lat: -27.005, lon: 153.002 },
-                        { lat: -27.005, lon: 153.008 },
-                    ],
-                },
-            ],
+            chartTracks: typedTrack([
+                { lat: -27.005, lon: 153.002 },
+                { lat: -27.005, lon: 153.008 },
+            ]),
         };
         const v = validateTraceLeg({ lat: -27.007, lon: 153.005 }, { lat: -27.003, lon: 153.005 }, ctx);
         expect(v.issues.filter((i) => i.message.includes('lead'))).toHaveLength(0);
+        expect(v.issues.filter((i) => i.chartTrack)).toHaveLength(0);
+    });
+
+    // Local metre coordinates keep the false-positive regression intent
+    // independent of rounded geographic fixtures or chart-provider order.
+    const point = (x: number, y: number): LatLon => ({
+        lon: 153.005 + x / (111_320 * Math.cos((-27.005 * Math.PI) / 180)),
+        lat: -27.005 + y / 110_540,
+    });
+    const line = (a: [number, number], b: [number, number], props?: Record<string, unknown>) =>
+        typedTrack([point(...a), point(...b)], props);
+    const trackWarnings = (a: LatLon, b: LatLon, chartTracks: ReturnType<typeof typedTrack>) =>
+        validateTraceLeg(a, b, { ...baseCtx, chartTracks }).issues.filter((issue) => issue.chartTrack);
+
+    it('does not call along-track distance beyond a finite endpoint an offset', () => {
+        expect(trackWarnings(point(150, 0), point(250, 0), line([0, 0], [100, 0]))).toEqual([]);
+        expect(trackWarnings(point(-250, 0), point(-150, 0), line([0, 0], [100, 0]))).toEqual([]);
+    });
+
+    it.each([5, 20, 90])('does not warn on a genuine %s-degree crossing', (angle) => {
+        const dy = Math.tan((angle * Math.PI) / 180) * 300;
+        const a = angle === 90 ? point(0, -300) : point(-300, -dy);
+        const b = angle === 90 ? point(0, 300) : point(300, dy);
+        expect(trackWarnings(a, b, line([-800, 0], [800, 0]))).toEqual([]);
+    });
+
+    it('does not describe the screenshot-style shallow crossing as a 53m steering error', () => {
+        expect(trackWarnings(point(-147, -56.2), point(453, 162.2), line([-800, 0], [800, 0]))).toEqual([]);
+    });
+
+    it('recognises joining and leaving alignment instead of demanding a snap', () => {
+        const tracks = line([-800, 0], [800, 0]);
+        expect(trackWarnings(point(-300, 100), point(300, 0), tracks)).toEqual([]);
+        expect(trackWarnings(point(-300, 0), point(300, 100), tracks)).toEqual([]);
+    });
+
+    it('is independent of chart order and suppresses a nearby-track warning when already aligned', () => {
+        const exact = line([-800, 0], [800, 0]);
+        const nearby = line([-800, 100], [800, 100]);
+        const a = point(-300, 0),
+            b = point(300, 0);
+        expect(trackWarnings(a, b, [...nearby, ...exact])).toEqual([]);
+        expect(trackWarnings(a, b, [...exact, ...nearby])).toEqual([]);
+    });
+
+    it('chooses the closest relevant track and does not repeat duplicate chart lines', () => {
+        const near = line([-800, 53], [800, 53], { OBJNAM: 'Channel approach', _cellId: 'TEST5', rcid: 7 });
+        const far = line([-800, 120], [800, 120]);
+        const a = point(-300, 0),
+            b = point(300, 0);
+        const first = trackWarnings(a, b, [...far, ...near, ...near]);
+        expect(first).toHaveLength(1);
+        expect(first[0].chartTrack?.offsetM).toBeCloseTo(53, 1);
+        expect(first[0].chartTrack?.label).toBe('Channel approach');
+        expect(trackWarnings(a, b, [...near, ...far])).toEqual(first);
+    });
+
+    it('measures against the closest branch of the same U-shaped track', () => {
+        const track = typedTrack([point(-800, 0), point(800, 0), point(800, 100), point(-800, 100)]);
+        expect(trackWarnings(point(-300, 0), point(300, 0), track)).toEqual([]);
+    });
+
+    it('retains a joined/bending track identity instead of warning about a different parallel line', () => {
+        const actual = typedTrack([point(-800, 0), point(0, 0), point(800, 140)]);
+        const nearby = line([-800, 53], [800, 53]);
+        expect(trackWarnings(point(-300, 0), point(300, 0), [...nearby, ...actual])).toEqual([]);
+        expect(trackWarnings(point(-300, 0), point(300, 0), [...actual, ...nearby])).toEqual([]);
+    });
+
+    it('notices crossing a perpendicular branch of the same track before considering parallel alignment', () => {
+        const track = typedTrack([point(-800, 0), point(0, 0), point(0, 800)]);
+        expect(trackWarnings(point(-600, 53), point(600, 53), track)).toEqual([]);
+    });
+
+    it('reviews a sustained finite overlap without depending on a pin at the track start', () => {
+        const track = line([-500, 0], [500, 0]);
+        const long = chartTrackOffsetForLeg(point(-1500, 53), point(1500, 53), track);
+        const split = chartTrackOffsetForLeg(point(-500, 53), point(1500, 53), track);
+        expect(long?.offsetM).toBeCloseTo(53, 5);
+        expect(split?.offsetM).toBeCloseTo(53, 5);
+        expect(long?.track.id).toBe(split?.track.id);
+    });
+
+    it('does not turn floating-point noise at exactly 40m into a caution', () => {
+        expect(chartTrackOffsetForLeg(point(-300, 40), point(300, 40), line([-800, 0], [800, 0]))).toBeNull();
+    });
+
+    it('bounds dense alignment geometry and reports an incomplete check, never a silent clear', () => {
+        const tracks = typedTrack(Array.from({ length: 258 }, (_, i) => point(i % 2 ? 300 : -300, 53)));
+        const verdict = validateTraceLeg(point(-300, 0), point(300, 0), { ...baseCtx, chartTracks: tracks });
+        expect(verdict.grade).toBe('caution');
+        expect(verdict.issues.some((issue) => issue.message.includes('alignment check incomplete'))).toBe(true);
+        expect(verdict.issues.some((issue) => issue.chartTrack)).toBe(false);
+    });
+
+    it('retains a stable source/type/category identity, including reversed feature geometry', () => {
+        const props = { OBJNAM: 'North channel', _cellId: 'TEST5', rcid: 7, ORIENT: 90, TRAFIC: 4 };
+        const forward = line([-800, 53], [800, 53], props)[0];
+        const reverse = line([800, 53], [-800, 53], props)[0];
+        expect(forward.chartTrack.id).toBe(reverse.chartTrack.id);
+        expect(forward.chartTrack).toMatchObject({
+            objectClass: 'RECTRC',
+            category: 1,
+            source: 'enc',
+            sourceCell: 'TEST5',
+            featureId: '7',
+            name: 'North channel',
+            orientationDeg: 90,
+            traffic: 4,
+        });
+        const before = structuredClone(forward);
+        chartTrackOffsetForLeg(point(-300, 0), point(300, 0), [forward]);
+        expect(forward).toEqual(before);
+    });
+
+    it('reads ogr2ogr lowercase attributes and identifies unnamed source features without mutating blobs', () => {
+        const feature = Object.freeze({
+            properties: Object.freeze({ acronym: 'RECTRC', cattrk: 2, rcid: 407, orient: 183, trafic: 4 }),
+            geometry: { type: 'LineString', coordinates: [point(-800, 53), point(800, 53)].map((p) => [p.lon, p.lat]) },
+        });
+        const stamped = withChartTrackSource(feature, 'OC-61-10RCS5');
+        expect(stamped).not.toBe(feature);
+        expect(stamped.properties).not.toBe(feature.properties);
+        expect(feature.properties).not.toHaveProperty('_cellId');
+        const track = parseChartTrackLines([stamped])[0];
+        expect(track.chartTrack).toMatchObject({
+            sourceCell: 'OC-61-10RCS5',
+            category: 2,
+            orientationDeg: 183,
+            traffic: 4,
+            label: 'Charted recommended track · OC-61-10RCS5 / 407',
+        });
+        const named = parseChartTrackLines([
+            { ...stamped, properties: { ...stamped.properties, objnam: 'Lowercase name' } },
+        ])[0];
+        expect(named.chartTrack.label).toBe('Lowercase name');
+        expect(parseChartTrackLines([{ ...stamped, properties: { acronym: 'NAVLNE', catnav: 1 } }])).toEqual([]);
+        expect(
+            parseChartTrackLines([{ ...stamped, properties: { acronym: 'NAVLNE', catnav: 3 } }])[0].chartTrack.kind,
+        ).toBe('leading-line');
+    });
+
+    it.each([undefined, 0, 1, 2, 4, '1,3', [3]])('does not promote NAVLNE CATNAV=%s into a track', (CATNAV) => {
+        expect(line([-800, 53], [800, 53], { acronym: 'NAVLNE', CATNAV })).toEqual([]);
+    });
+
+    it('keeps an explicit NAVLNE 3 distinct from a recommended track, without claiming a centreline', () => {
+        const tracks = line([-800, 53], [800, 53], { acronym: 'NAVLNE', CATNAV: 3 });
+        expect(tracks[0].chartTrack).toMatchObject({ objectClass: 'NAVLNE', category: 3, kind: 'leading-line' });
+        expect(trackWarnings(point(-300, 0), point(300, 0), tracks)[0].message).not.toMatch(/steer|centre/);
+    });
+
+    it('does not warn from untyped legacy geometry or change its existing parser', () => {
+        const feature = {
+            geometry: {
+                type: 'LineString',
+                coordinates: [
+                    [153.002, -27.005],
+                    [153.008, -27.005],
+                ],
+            },
+            properties: { CATNAV: 1 },
+        };
+        const legacy = parseLeadingLines([feature]);
+        expect(legacy).toHaveLength(1);
+        expect(legacy[0]).toEqual({
+            pts: [
+                { lon: 153.002, lat: -27.005 },
+                { lon: 153.008, lat: -27.005 },
+            ],
+        });
+        const verdict = validateTraceLeg(point(-300, 53), point(300, 53), { ...baseCtx, leads: legacy });
+        expect(verdict.issues.filter((i) => i.chartTrack)).toEqual([]);
+    });
+
+    it('rejects malformed vertices instead of joining a recommended track across a gap', () => {
+        const features = [
+            {
+                properties: { acronym: 'RECTRC', CATTRK: 1 },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [153, -27],
+                        [NaN, -27],
+                        [153.1, -27],
+                    ],
+                },
+            },
+        ];
+        expect(parseChartTrackLines(features)).toEqual([]);
+    });
+
+    it('does not waive a real land/depth/cardinal warning while classifying track alignment', () => {
+        const a = { lat: -27.01, lon: 153.018 },
+            b = { lat: -27.01, lon: 153.024 };
+        const original = validateTraceLeg(a, b, baseCtx);
+        const tracks = typedTrack([
+            { lat: -27.00955, lon: 153.017 },
+            { lat: -27.00955, lon: 153.025 },
+        ]);
+        const withTrack = validateTraceLeg(a, b, { ...baseCtx, chartTracks: tracks });
+        expect(original.grade).toBe('danger');
+        expect(withTrack.grade).toBe('danger');
+        expect(withTrack.minDepthM).toEqual(original.minDepthM);
+        expect(withTrack.issues.filter((i) => !i.chartTrack)).toEqual(original.issues);
     });
 });
 

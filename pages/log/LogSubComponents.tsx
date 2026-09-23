@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry } from '../../types';
+import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming';
 import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { classifyCompletedVoyage } from '../../utils/passageClass';
 import { useFollowRoute } from '../../context/FollowRouteContext';
@@ -413,11 +414,8 @@ export const VoyageCard: React.FC<{
             [summary, isLand],
         );
         const dist = summary.totalDistanceNM;
-        const durationMs = Math.max(0, new Date(summary.endedAt).getTime() - new Date(summary.startedAt).getTime());
-        const durationHrs = Math.floor(durationMs / 3600000);
-        const durationMins = Math.floor((durationMs % 3600000) / 60000);
-        const durationLabel =
-            durationHrs >= 24 ? `${Math.ceil(durationHrs / 24)}d` : `${durationHrs}h ${durationMins}m`;
+        const durationMs = voyageElapsedMs(summary);
+        const durationLabel = formatVoyageDuration(durationMs);
         const dateLabel = summary.startedAt
             ? new Date(summary.startedAt).toLocaleDateString('en-GB', {
                   day: '2-digit',

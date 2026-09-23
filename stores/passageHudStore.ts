@@ -17,9 +17,9 @@
  * ahead along the route:
  *
  *   lookAhead.on       — false = LIVE. Nothing on the chart is a forecast.
- *   lookAhead.aheadMs  — how far ahead of NOW the scrubber stands. An OFFSET,
- *                        not a clock time: parked at +6 h it stays +6 h from
- *                        wherever she is when the skipper next looks.
+ *   lookAhead.departureMs — a chosen departure time, or null to follow NOW.
+ *   lookAhead.aheadMs  — elapsed passage time after that departure. Legacy
+ *                        rolling looks stay +6 h from NOW when parked at +6 h.
  *   lookAhead.playing  — the scrubber is running itself forward.
  *
  * Three readers, one writer each way: the strip (forecast cells), the ghost on
@@ -32,9 +32,13 @@
  * must never open showing tomorrow's wind to someone who did not ask for it.
  */
 import { useSyncExternalStore } from 'react';
+import { PASSAGE_DEPARTURE_MAX_MS } from '../services/passageDeparture';
+import type { RoutePoint } from '../services/routeProgress';
+
+export { PASSAGE_DEPARTURE_MAX_MS } from '../services/passageDeparture';
 
 const KEY = 'thalassa_passage_hud_open_v1';
-/** Off until the skipper asks for it in Settings → Preferences (Shane's home for toggles). */
+/** Off until the skipper enables the followed route's HUD from the chart layers. */
 const ENABLED_KEY = 'thalassa_passage_hud_enabled_v1';
 
 function readFlag(key: string): boolean {
@@ -57,8 +61,8 @@ export function isPassageHudOpen(): boolean {
 export function setPassageHudOpen(next: boolean): void {
     if (next === open) return;
     open = next;
-    // The scrubber belongs to the open strip. Hiding the strip ends the glance.
-    if (!next) stopPassageLookAhead();
+    // Collapse only hides the instruments. The bottom scrubber keeps the same
+    // forecast time, playback and ghost, with its own way back to live.
     try {
         if (next) localStorage.setItem(KEY, '1');
         else localStorage.removeItem(KEY);
@@ -126,18 +130,26 @@ export const LOOK_AHEAD_MAX_MS = 7 * 24 * 3_600_000;
 
 export interface PassageLookAhead {
     on: boolean;
+    /** Fixed departure in epoch milliseconds; null preserves the rolling NOW axis. */
+    departureMs: number | null;
     aheadMs: number;
     playing: boolean;
 }
 
-const LIVE: PassageLookAhead = Object.freeze({ on: false, aheadMs: 0, playing: false });
+const LIVE: PassageLookAhead = Object.freeze({ on: false, departureMs: null, aheadMs: 0, playing: false });
 // A NEW object on every change and the SAME object otherwise — what
 // useSyncExternalStore needs from a snapshot.
 let lookAhead: PassageLookAhead = LIVE;
 const lookAheadListeners = new Set<() => void>();
 
 function setLookAhead(next: PassageLookAhead): void {
-    if (next.on === lookAhead.on && next.aheadMs === lookAhead.aheadMs && next.playing === lookAhead.playing) return;
+    if (
+        next.on === lookAhead.on &&
+        next.departureMs === lookAhead.departureMs &&
+        next.aheadMs === lookAhead.aheadMs &&
+        next.playing === lookAhead.playing
+    )
+        return;
     lookAhead = next.on ? next : LIVE;
     lookAheadListeners.forEach((fn) => fn());
 }
@@ -168,10 +180,24 @@ export function usePassageLookAheadOn(): boolean {
     return useSyncExternalStore(subscribePassageLookAhead, isLookingAhead, isLookingAhead);
 }
 
-/** Into look-ahead, standing at NOW: the model's numbers for this hour. */
-export function startPassageLookAhead(): void {
-    if (lookAhead.on) return;
-    setLookAhead({ on: true, aheadMs: 0, playing: false });
+/**
+ * Choose a fixed departure from now through five days ahead and reset the
+ * passage clock. Null explicitly resets to a rolling NOW departure; an
+ * omitted date starts idempotently. Invalid dates leave the look unchanged.
+ */
+export function startPassageLookAhead(departureMs?: number | null): void {
+    if (departureMs === undefined) {
+        if (lookAhead.on) return;
+        setLookAhead({ on: true, departureMs: null, aheadMs: 0, playing: false });
+        return;
+    }
+    if (departureMs === null) {
+        setLookAhead({ on: true, departureMs: null, aheadMs: 0, playing: false });
+        return;
+    }
+    const now = Date.now();
+    if (!Number.isFinite(departureMs) || departureMs < now || departureMs > now + PASSAGE_DEPARTURE_MAX_MS) return;
+    setLookAhead({ on: true, departureMs, aheadMs: 0, playing: false });
 }
 
 /** Back to LIVE. Also forgets the ghost: there is no ghost of the present. */
@@ -179,6 +205,7 @@ export function stopPassageLookAhead(): void {
     setLookAhead(LIVE);
     publishPassageGhost(null);
     publishPassageGhostPath(null);
+    publishPassageGhostJoinPath(null);
 }
 
 /** Move the scrubber. Ignored while live; clamped to 0…`maxMs` (≤ 7 days). */
@@ -214,25 +241,36 @@ let ghost: PassageGhost | null = null;
  * ride a line nobody can see. Drawn for exactly as long as the glance lasts:
  * opt-in per look, which is the shape Shane asked routes on this chart to be.
  */
-let ghostPath: readonly { lat: number; lon: number }[] | null = null;
+let ghostPath: readonly RoutePoint[] | null = null;
+/** Unchecked forecast approach from the actual fix to the route, separate from the followed geometry. */
+let ghostJoinPath: readonly RoutePoint[] | null = null;
 const ghostListeners = new Set<() => void>();
 
-export function getPassageGhostPath(): readonly { lat: number; lon: number }[] | null {
+export function getPassageGhostPath(): readonly RoutePoint[] | null {
     return ghostPath;
 }
 
-export function publishPassageGhostPath(next: readonly { lat: number; lon: number }[] | null): void {
+function sameGhostPath(a: readonly RoutePoint[] | null, b: readonly RoutePoint[] | null): boolean {
+    return (
+        a === b || (!!a && !!b && a.length === b.length && a.every((p, i) => p.lat === b[i].lat && p.lon === b[i].lon))
+    );
+}
+
+export function publishPassageGhostPath(next: readonly RoutePoint[] | null): void {
     const clean = next && next.length >= 2 ? next : null;
-    if (clean === ghostPath) return;
-    if (
-        clean &&
-        ghostPath &&
-        clean.length === ghostPath.length &&
-        clean.every((p, i) => p.lat === ghostPath![i].lat && p.lon === ghostPath![i].lon)
-    ) {
-        return;
-    }
+    if (sameGhostPath(clean, ghostPath)) return;
     ghostPath = clean;
+    ghostListeners.forEach((fn) => fn());
+}
+
+export function getPassageGhostJoinPath(): readonly RoutePoint[] | null {
+    return ghostJoinPath;
+}
+
+export function publishPassageGhostJoinPath(next: readonly RoutePoint[] | null): void {
+    const clean = next && next.length >= 2 ? next : null;
+    if (sameGhostPath(clean, ghostJoinPath)) return;
+    ghostJoinPath = clean;
     ghostListeners.forEach((fn) => fn());
 }
 
@@ -266,9 +304,9 @@ export function publishPassageGhost(next: PassageGhost | null): void {
 // ── How much wind the chart actually has ───────────────────────
 
 /**
- * Hours of wind field ahead of NOW that the chart's wind layer holds, or null
- * when that layer is off / has no grid. The field is 48 hourly frames; the
- * strip's numbers reach seven days. The scrubber says where the one stops.
+ * Hours of wind field after the selected departure (NOW for a rolling look).
+ * Zero means no future coverage from that departure; null means the layer is
+ * off or its coverage is unavailable. The scrubber says where the field stops.
  */
 let windCoverageHours: number | null = null;
 const windCoverageListeners = new Set<() => void>();
@@ -347,9 +385,9 @@ export function usePassageSpeedPref(): PassageSpeedPref {
 // ── How far the chart's RAIN reaches ───────────────────────────
 
 /**
- * Hours ahead of NOW that the chart's rain imagery can follow the scrubber to
- * (the forecast frames reach about four), or null when the rain layer is off or
- * has no frame it can put a clock time on. Twin of the wind coverage above.
+ * Hours after the selected departure (NOW for a rolling look) that rain
+ * imagery can follow. Zero means no future coverage; null means the layer is
+ * off or has no frame it can put a clock time on. Twin of wind coverage above.
  */
 let rainCoverageHours: number | null = null;
 const rainCoverageListeners = new Set<() => void>();
@@ -359,7 +397,7 @@ export function getPassageRainCoverageHours(): number | null {
 }
 
 export function reportPassageRainCoverage(hours: number | null): void {
-    const next = hours !== null && Number.isFinite(hours) && hours > 0 ? Math.round(hours * 10) / 10 : null;
+    const next = hours !== null && Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 10) / 10 : null;
     if (next === rainCoverageHours) return;
     rainCoverageHours = next;
     rainCoverageListeners.forEach((fn) => fn());
@@ -419,6 +457,7 @@ export function __resetPassageHudForTests(): void {
     lookAhead = LIVE;
     ghost = null;
     ghostPath = null;
+    ghostJoinPath = null;
     windCoverageHours = null;
     rainCoverageHours = null;
     speedPref = readSpeedPref();

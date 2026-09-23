@@ -37,6 +37,7 @@ import { PassageBanner } from './PassageBanner';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
 import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
+import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
@@ -200,8 +201,13 @@ import {
 } from './mapHubHelpers';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useRouteGhostMarker } from './useRouteGhostMarker';
+import { usePassageRouteFrame } from './usePassageRouteFrame';
+import { usePassageWaypointLayer } from './usePassageWaypointLayer';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
+import { usePassageHudEnabled, usePassageHudOpen, usePassageLookAheadOn } from '../../stores/passageHudStore';
+import { setPassageSquallInfoVisible } from '../../stores/passageHudInfoStore';
+import { passageHudLayerSources, usePassageHudLayerActivation } from './passageHudLayer';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useMobMarker } from './useMobMarker';
 import { useAnchorSwingLayer } from './useAnchorSwingLayer';
@@ -220,7 +226,6 @@ import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { EncAttributionChip } from './EncAttributionChip';
 import { HazardReportPanel } from '../passage/HazardReportPanel';
-import { SquallLegend } from './SquallLegend';
 import { ThreatBanner } from './ThreatBanner';
 import { ConnectivityChip } from './ConnectivityChip';
 import { PerfOverlay } from './PerfOverlay';
@@ -1182,7 +1187,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // route silently live in one browser's localStorage.
             void cloud.then((result) => {
                 if (result === 'signedout') flashTraceFeedback('Saved here — sign in to sync across devices');
-                else if (result === 'toolarge') flashTraceFeedback('Saved here — over 200 pins, too long to sync');
+                else if (result === 'toolarge') flashTraceFeedback('Saved here — over 10,000 pins, too long to sync');
                 else if (result === 'error') flashTraceFeedback('Saved here — cloud sync will retry later');
             });
             // Planned-route compatibility mirror — the same planned_%
@@ -2324,9 +2329,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     /** One-time toast surfaced when PerfGuardian downtiered the device
      *  on the previous session. Cleared on dismiss / first render. */
     const [perfToast, setPerfToast] = useState<boolean>(() => consumePerfDowntierToast());
-    /** Currently-displayed planned route on the chart. Null when none.
-     *  Independent from the active follow-route — these come from saved
-     *  ship-log entries, not the live voyage system. */
+    /** Currently-displayed planned route. Passage uses the Log's exact
+     *  followed geometry; the Routes picker can display a saved plan. */
     const [activeChartRoute, setActiveChartRoute] = useState<RouteOrTrack | null>(null);
     /** Currently-displayed recorded track on the chart. Null when none. */
     const [activeChartTrack, setActiveChartTrack] = useState<RouteOrTrack | null>(null);
@@ -2355,6 +2359,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // The "Passage" overlay switch — OFF by default (Shane 2026-09-09: the
     // punter adds the current route from the layer FAB when he wants it).
     const passageOverlay = usePassageOverlay();
+    const passageHudEnabled = usePassageHudEnabled();
+    const passageHudOpen = usePassageHudOpen();
+    const passageLookingAhead = usePassageLookAheadOn();
     const { activeVoyageMode } = useActiveVoyageChartSync(setActiveChartRoute, setActiveChartTrack, passageOverlay);
 
     /** Vessel position + trail are FORCED visible during Active Voyage
@@ -2510,15 +2517,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setCapturedCoords,
     ]);
 
-    // Follow Route overlay — REMOVED from this chart entirely (Shane
-    // 2026-08-03: "on the obs page, can we ensure that the route does not
-    // show up"). It was already suppressed on Plan and in the tracer
-    // (2026-07-09 "remove all of the spaghetti"), which made OBS its only
-    // remaining surface — and OBS stays uncluttered. The followed route
-    // still renders where it earns its keep: the Log page's live map and
-    // the public voyage page. useFollowRouteMapbox died with this call;
-    // follow-route STATE is untouched (publishing, leg grading and the
-    // destination flag below all still read it).
+    // One route source: Passage now draws the exact followed Log route via
+    // useActiveVoyageChartSync + useRouteTrackLayer below. The forecast hull
+    // reads that same follow geometry; no separate name-matched saved route.
 
     // Destination flag — pulsing green flag at the active voyage's
     // destination, with a live distance + bearing chip from the user's
@@ -2530,6 +2531,43 @@ export const MapHub: React.FC<MapHubProps> = ({
     // plugged in, and no way on the chart to ask what it was or drop it).
     const [stopFollowAsk, setStopFollowAsk] = useState(false);
     const followedPlan = useFollowRouteStore((s) => s.voyagePlan);
+    const isFollowingRoute = useFollowRouteStore((s) => s.isFollowing);
+    const followedRouteCoords = useFollowRouteStore((s) => s.routeCoords);
+    const followedVoyageId = useFollowRouteStore((s) => s.voyageId);
+    const passageHudOnChart =
+        passageHudEnabled &&
+        isFollowingRoute &&
+        followedRouteCoords.length >= 2 &&
+        !embedded &&
+        !pickerMode &&
+        !isPinView;
+    const passageOverviewAvailable =
+        passageHudOnChart &&
+        !planningSurface &&
+        !showConsensus &&
+        !mobActive &&
+        !(browseCycloneVisible && closestStorm);
+    const { overviewLocked, resumeOverview, pauseOverview } = usePassageRouteFrame({
+        mapRef,
+        mapReady,
+        enabled: passageOverviewAvailable,
+        route: followedRouteCoords,
+        routeKey: followedVoyageId,
+        layoutKey: `${passageHudOpen}:${passageLookingAhead}`,
+    });
+    usePassageWaypointLayer({
+        mapRef,
+        mapReady,
+        enabled: passageHudOnChart && passageOverlay && !planningSurface,
+        routeCoords: followedRouteCoords,
+    });
+    // The chart's large blue i owns the squall key, not a floating legend
+    // covering the passage. Embedded and picker charts do not publish to it.
+    useEffect(() => {
+        if (embedded || pickerMode || isPinView) return;
+        setPassageSquallInfoVisible(browseSquallVisible);
+        return () => setPassageSquallInfoVisible(false);
+    }, [embedded, pickerMode, isPinView, browseSquallVisible]);
     // The followed route's flag is part of the same overlay: off until asked for.
     useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) });
     // Passage strip look-ahead: where she will be at the scrubbed moment. The
@@ -2575,7 +2613,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
 
     // ── Rain Squall Map (GMGSI IR with BD Enhancement Curve) ──
-    useSquallMap(mapRef, mapReady, browseSquallVisible, location.lat, location.lon, allCyclones, handleSelectStorm);
+    useSquallMap(
+        mapRef,
+        mapReady,
+        browseSquallVisible,
+        location.lat,
+        location.lon,
+        allCyclones,
+        handleSelectStorm,
+        passageHudOnChart,
+    );
 
     // ── Cyclone zoom center-lock — components/map/mapHub/useCycloneCenterLock.ts ──
     useCycloneCenterLock(mapRef, mapReady, browseCycloneVisible, closestStorm);
@@ -2662,7 +2709,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
 
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
-    useLocationDot(mapRef, locationDotRef, mapReady && (!effectiveVesselTrackingVisible || planningSurface));
+    useLocationDot(mapRef, locationDotRef, mapReady && !planningSurface && !effectiveVesselTrackingVisible);
 
     // ── Fly to the selected weather location when it arrives / changes ──
     // `initialCenter` on useMapInit sets the mount-time centre, but when the
@@ -2735,7 +2782,19 @@ export const MapHub: React.FC<MapHubProps> = ({
         location,
         planningSurface,
         weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null,
+        { hudEnabled: passageHudOnChart, squallVisible: browseSquallVisible },
     );
+    usePassageHudLayerActivation({
+        isFollowing: isFollowingRoute,
+        routeCoords: followedRouteCoords,
+        enabled: passageHudOnChart,
+        weather,
+        setWeatherInspectMode,
+        closeWeatherInspect,
+        setLightningVisible,
+        setCycloneVisible,
+        setSquallVisible,
+    });
     activeWeatherLayersRef.current = weather.userLayers;
     // Read by the layer-framing effect below, which deliberately depends only
     // on the layer set — so it must not close over a location from whenever it
@@ -2926,7 +2985,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         const on = new Set(framed.filter((k) => weather.userLayers.has(k)));
         const prev = prevSnapLayersRef.current;
         prevSnapLayersRef.current = on;
-        if (planningSurface) return;
+        // Passage owns its route framing; its bundled Wind/Rain activation
+        // must not snap back to the weather-location box afterwards.
+        if (planningSurface || passageHudOnChart) return;
         // Fire only for a layer that NEWLY appears. Comparing sets (rather
         // than a single boolean) also catches a SWITCH between two framed
         // layers — e.g. rain to wind via selectInGroup is a fresh framing
@@ -2966,7 +3027,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         // LAYER_FRAME_ZOOM is a module constant now (mapConstants) — shared
         // with useWeatherLayers' minZoom floor, and not a valid dependency.
-    }, [weather.userLayers, planningSurface]);
+    }, [weather.userLayers, planningSurface, passageHudOnChart]);
 
     /* useWeatherLayers returns a fresh object literal on every call, so keying
        these on `weather` re-minted both callbacks on EVERY MapHub render and
@@ -3282,22 +3343,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                             {pickerLabel || 'Tap the chart to choose a location'}
                         </p>
                         <p className="mt-1 text-xs text-sky-200/80">
-                            Your tap is marked and saved immediately. Use Back to cancel.
+                            Your tap is marked and saved immediately. Use Cancel to leave without choosing.
                         </p>
                     </div>
                 )}
 
                 {/* Pin bounce + location pulse animations moved to index.css */}
 
-                {/* PIN VIEW BACK BUTTON removed — there's already a
-                    middle-left back chevron in the global chrome, no
-                    need for a second one in the top-left slot fighting
-                    the zoom pill. Exit paths now: tap the existing
-                    middle-left chevron, or use the bottom nav to leave
-                    Charts. Shane: "there is already a chevron middle left
-                    claude." (Get Directions was a third exit path until
-                    2026-09-05 — driving directions to a position on the
-                    water, which is why it went.) */}
+                {/* OBS is a top-level tab: leave via the bottom navigation.
+                    The host supplies Cancel only during location selection. */}
 
                 {/* ═══ ZOOM-LEVEL FAB ═══
                     Top-left pill showing current map zoom — self-
@@ -3306,6 +3360,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                     FAB top-right position (top:56px right:16px in
                     App.tsx). Visible in pin-view too. */}
                 {!pickerMode && <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />}
+
+                {passageOverviewAvailable && !overviewLocked && (
+                    <button
+                        type="button"
+                        className="thalassa-passage-overview absolute z-700 min-h-11 rounded-xl border border-purple-300/40 bg-slate-950/95 px-3 py-2 text-xs font-bold text-purple-100 shadow-lg backdrop-blur-xl active:bg-purple-900/80"
+                        style={{
+                            top: 'calc(env(safe-area-inset-top) + 112px)',
+                            left: passageHudOpen ? 'calc(9.5rem + 8px)' : '12px',
+                            maxWidth: passageHudOpen ? 'calc(100% - 9.5rem - 88px)' : 'calc(100% - 100px)',
+                        }}
+                        aria-label="Show whole route and current vessel position"
+                        onClick={resumeOverview}
+                    >
+                        Whole route
+                    </button>
+                )}
 
                 {/* Visual raster beneath the ENC stack. Satellite and Ocean
                     used to be wired map layers with no remaining control;
@@ -3446,6 +3516,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // "Routes"; with feature-gated MPA context the mixed
                             // category says "Map", never "Charts".
                             sources: [
+                                ...passageHudLayerSources({
+                                    isFollowing: isFollowingRoute,
+                                    routeCoords: followedRouteCoords,
+                                    enabled: passageHudEnabled,
+                                    weather,
+                                    setWeatherInspectMode,
+                                    closeWeatherInspect,
+                                    setLightningVisible,
+                                    setCycloneVisible,
+                                    setSquallVisible,
+                                }),
                                 // CAPAD protected-area context belongs with map
                                 // overlays, not the tactical danger menu. Its
                                 // popup remains explicitly indicative and
@@ -3463,7 +3544,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     : []),
                                 // Routes — picker for saved planned passages from
                                 // the ships log. Tap opens a sheet listing them;
-                                // selection draws the route as a violet dashed line
+                                // selection draws the route as a solid purple line
                                 // and fits the map to its bounds.
                                 // Passage — the voyage under way (its planned route,
                                 // sailed track and the followed route's flag). OFF by
@@ -3480,10 +3561,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                               onToggle: () => {
                                                   const next = !passageOverlay;
                                                   setPassageOverlay(next);
-                                                  if (!next) {
-                                                      setActiveChartRoute(null);
-                                                      setActiveChartTrack(null);
-                                                  }
+                                                  // The sync removes only its own overlays;
+                                                  // preserve anything picked manually.
                                               },
                                           },
                                       ]
@@ -4564,12 +4643,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                             message="Open the radial menu to fine-tune any individual layer."
                         />
                         <CoachMark
-                            seenKey="thalassa_coach_legend_chip"
-                            visibleWhen={mapReady && (browseLightningVisible || browseSquallVisible)}
-                            anchor="bottom-left"
-                            arrow="down"
+                            seenKey="thalassa_coach_squall_info"
+                            visibleWhen={mapReady && browseSquallVisible}
+                            anchor="top-right"
+                            arrow="up"
                             initialDelayMs={2000}
-                            message="The legend in the bottom-left explains every colour you see on the chart."
+                            message="Open the blue i for the squall colour key and passage forecast details."
                         />
                         {/* Two CoachMarks lived here — "Sky / Tactical / Charts"
                             and a chart-library hint — both gated on
@@ -4660,6 +4739,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     flyTo={(lat, lon, zoom) => {
                         const map = mapRef.current;
                         if (!map) return;
+                        pauseOverview();
                         map.flyTo({ center: [lon, lat], zoom, duration: 1200, essential: true });
                     }}
                 />
@@ -4675,31 +4755,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onShow={anchorageLayer.showAnchorage}
                 />
 
-                {/* Bottom-left legend stack. flex-col-reverse → first child
-                    sits at the bottom of the column.
-
-                    The offset clears whatever the weather controls are
-                    occupying below. It used to be a flat 240px for ANY active
-                    layer, which was both wrong and wasteful: wrong because the
-                    legend bar (expanded, ~160px on top of an 80px anchor)
-                    reached 240px itself and the stack landed right on it, and
-                    wasteful because 240px was reserved even for layers that
-                    show no model selector at all.
-
-                    The single-layer legend has since MOVED OUT of this corner
-                    entirely — it now sits mid-left above the back chevron
-                    (via MapWeatherControls / ThalassaHelixControl), which is what actually fixed the
-                    pile-up. LegendDock (2+ layers) still lives here but
-                    collapses to 44px chips.
-
-                    So the only tall thing left below is WindModelFieldSelector,
-                    and it renders for WIND only: clear it when wind is up,
-                    otherwise sit just above the scrubber. Note lightning can no
-                    longer coexist with wind (they are mutually exclusive as of
-                    2026-07-22), so in practice the 240px branch is reached by
-                    the SQUALL legend rather than the lightning one.
-                    Shane 2026-07-22, on the pile-up and the lost real estate. */}
-                {!pickerMode && !planningSurface && (browseLightningVisible || browseSquallVisible) && (
+                {/* Keep lightning attribution visible. The tall squall key
+                    now lives in the existing blue i information panel. */}
+                {!pickerMode && !planningSurface && browseLightningVisible && (
                     <div
                         className="fixed left-2 z-140 flex flex-col-reverse gap-2 pointer-events-none"
                         style={{
@@ -4711,7 +4769,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                     >
                         <BlitzortungAttribution visible={browseLightningVisible} />
-                        <SquallLegend visible={browseSquallVisible} />
                     </div>
                 )}
 
@@ -5004,9 +5061,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                 />
 
                 {/* ═══ ACTION FABS ═══ */}
+                {!embedded && !pickerMode && planningSurface && !isPinView && (
+                    <PlannerVesselLocator
+                        mapRef={mapRef}
+                        mapReady={mapReady}
+                        autoCenter={capturedCoords.length === 0 && !traceOrigin && !traceDest}
+                    />
+                )}
                 {!embedded && !pickerMode && !planningSurface && !isPinView && (
                     <MapActionFabs
                         onLocateMe={() => {
+                            pauseOverview();
                             triggerHaptic('medium');
                             // Exit full-screen overlay layers so user returns to base map
                             if (squallVisible) setSquallVisible(false);
@@ -5041,6 +5106,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             );
                         }}
                         onRecenter={() => {
+                            pauseOverview();
                             if (mapRef.current && weatherCoords) {
                                 mapRef.current.flyTo({
                                     center: [weatherCoords.lon, weatherCoords.lat],

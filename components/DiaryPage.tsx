@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 
 import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
+import { reconcileDiaryEntries, reconcileDiaryRefresh } from '../services/diaryEntryIdentity';
 import { triggerHaptic } from '../utils/system';
 import { haversineMeters } from '../services/shiplog/GpsTrackBuffer';
 import { extractPhotoExif } from '../utils/exifGps';
@@ -20,6 +21,7 @@ import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { VideoTrimmer } from './diary/VideoTrimmer';
 import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
+import { useDiaryPendingComments } from '../hooks/useDiaryPendingComments';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
@@ -93,6 +95,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         isPlaying,
         keyboardHeight,
     } = state;
+    const pendingComments = useDiaryPendingComments(
+        entries.map((entry) => entry.id),
+        !loading && !showCompose,
+    );
     const latestEntriesRef = useRef(entries);
     latestEntriesRef.current = entries;
     const latestSelectedEntryRef = useRef(selectedEntry);
@@ -100,7 +106,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // Setter shims — same API surface, backed by dispatch
     const setEntries = useCallback(
         (v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
-            dispatch({ type: 'SET_ENTRIES', entries: typeof v === 'function' ? v(latestEntriesRef.current) : v });
+            // Resolve functional updates in the reducer, not against a render
+            // snapshot: a poll and Save can both finish before React renders.
+            dispatch({ type: 'SET_ENTRIES', entries: v });
         },
         [dispatch],
     );
@@ -307,18 +315,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     return;
                 }
 
-                setEntries((previous) => {
-                    const freshIds = new Set(fresh.map((entry) => entry.id));
-                    const preserved = previous.filter(
-                        (entry) =>
-                            entry.id.startsWith('offline-') &&
-                            !freshIds.has(entry.id) &&
-                            !freshIds.has(DiaryService.resolveServerId(entry.id) ?? ''),
-                    );
-                    return [...fresh, ...preserved].sort(
-                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-                    );
-                });
+                setEntries((previous) =>
+                    reconcileDiaryRefresh(fresh, previous, (id) => DiaryService.resolveServerId(id)),
+                );
             } catch (error) {
                 if (requestIsCurrent()) log.warn('Diary entries could not be refreshed:', error);
             } finally {
@@ -1045,7 +1044,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     // next poll collapses it (Shane, 2026-09-01: "we get a
                     // phantom entry for a few seconds"). Replace, never
                     // duplicate.
-                    setEntries((prev) => [entry, ...prev.filter((e) => e.id !== entry.id)]);
+                    const savedEntry = entry;
+                    setEntries((prev) =>
+                        reconcileDiaryEntries([savedEntry, ...prev], (id) => DiaryService.resolveServerId(id)),
+                    );
                     setShowCompose(false);
                     // Offer to publish it to the public Voyage Log.
                     setPublishPromptEntry(entry);
@@ -1494,6 +1496,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 />
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto px-4 min-h-0" style={{ paddingBottom: '4px' }}>
+                    {pendingComments.error && (
+                        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-amber-200">
+                            <span>{pendingComments.error}</span>
+                            <button
+                                type="button"
+                                className="min-h-11 shrink-0 px-2 font-bold"
+                                onClick={pendingComments.refresh}
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    )}
                     {loading ? (
                         <div className="space-y-3 px-1">
                             <ShimmerBlock variant="card" />
@@ -1522,6 +1536,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                             <SwipeableDiaryCard
                                                 key={entry.id}
                                                 entry={entry}
+                                                pendingCommentCount={pendingComments.counts[entry.id] ?? 0}
                                                 onTap={() => {
                                                     setSelectedEntry(entry);
                                                     triggerHaptic('light');

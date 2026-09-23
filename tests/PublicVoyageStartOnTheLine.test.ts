@@ -25,7 +25,9 @@ const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/
 describe('public voyage explorer — the start belongs to the line', () => {
     it('drops the ship-log Voyage Start marker only when a plan line exists', () => {
         expect(code).toMatch(/const hasPlanLine = !!passageLine && passageLine\.length >= 2;/);
-        expect(code).toMatch(/hasPlanLine \? waypoints\.filter\(\(w\) => w\.name !== 'Voyage Start'\) : waypoints/);
+        expect(code).toMatch(
+            /hasPlanLine \? lifecycleWaypoints\.filter\(\(w\) => w\.name !== 'Voyage Start'\) : lifecycleWaypoints/,
+        );
     });
 
     it('renders the filtered list, not the raw one', () => {

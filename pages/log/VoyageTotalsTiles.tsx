@@ -4,6 +4,7 @@
  * pages/LogPage.tsx.
  */
 import React from 'react';
+import { formatVoyageDuration } from '../../utils/voyageTiming';
 
 export const VoyageTotalsTiles: React.FC<{
     voyageStats: { totalNm: number; totalMs: number; voyageCount: number };
@@ -13,11 +14,7 @@ export const VoyageTotalsTiles: React.FC<{
     // already excludes suggested/planned routes.
     const totalNmRaw = voyageStats.totalNm;
     const totalMs = voyageStats.totalMs;
-    const totalHrs = Math.round((totalMs / (1000 * 60 * 60)) * 10) / 10;
-    const atSeaDays = Math.round(totalHrs / 24);
-    const atSeaValue = totalHrs < 24 ? totalHrs.toString() : atSeaDays.toString();
-    // Singular where it is singular: "1 days" read as a typo on the skipper's own log.
-    const atSeaUnit = totalHrs < 24 ? (totalHrs === 1 ? 'hr' : 'hrs') : atSeaDays === 1 ? 'day' : 'days';
+    const atSeaValue = formatVoyageDuration(totalMs);
     return (
         <div className="shrink-0 px-4 pb-3">
             <div className="grid grid-cols-3 gap-2.5">
@@ -67,10 +64,7 @@ export const VoyageTotalsTiles: React.FC<{
                         Sea Time
                     </div>
                     <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-black text-white tabular-nums leading-none">{atSeaValue}</span>
-                        <span className="text-[11px] font-bold text-emerald-300/60 uppercase tracking-wider">
-                            {atSeaUnit}
-                        </span>
+                        <span className="text-lg font-black text-white tabular-nums leading-none">{atSeaValue}</span>
                     </div>
                 </div>
                 {/* ── Voyages ── */}

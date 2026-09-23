@@ -42,7 +42,8 @@
  */
 import { createPolarSpeedLookup } from './isochrone/polar';
 import { sampleRouteForecast, type RouteForecast } from './routeForecastSampler';
-import { stationOnIndex, type RouteIndex } from './routeProgress';
+import { stationOnIndex, type RouteIndex, type RoutePoint, type RouteStation } from './routeProgress';
+import { calculateBearing } from '../utils/navigationCalculations';
 import type { PolarData } from '../types';
 
 /** The isochrone router's light-air rule (IsochroneRouter: minWindSpeed). */
@@ -256,8 +257,8 @@ export function planPassage(input: PassagePlanInput): PassagePlan {
         return plan;
     }
 
-    // Bounded: 7 days of 15-minute rows is 672; the +2 is the arrival row.
-    const maxRows = Math.ceil(maxMs / stepMs) + 2;
+    // Allow the initial row, an exact join onto the route, and arrival.
+    const maxRows = Math.ceil(maxMs / stepMs) + 3;
     for (let row = 0; row < maxRows; row++) {
         let leg: LegSpeed;
         if (back > 0) {
@@ -279,6 +280,14 @@ export function planPassage(input: PassagePlanInput): PassagePlan {
         if (t >= maxMs) break;
         const dtMs = Math.min(stepMs, maxMs - t);
         const canSail = (leg.kts * dtMs) / 3_600_000;
+        if (back > 0 && totalNm - along > 1e-9 && canSail >= back) {
+            // Join before pricing any onward sailing, including when both the
+            // join and arrival fit inside this step. When the join IS the end,
+            // the arrival branch below keeps the speed she approached at.
+            t += (back / leg.kts) * 3_600_000;
+            back = 0;
+            continue;
+        }
         if (leg.kts > 0 && canSail >= remaining) {
             // She arrives inside this step: land the last row exactly on it.
             t += (remaining / leg.kts) * 3_600_000;
@@ -311,6 +320,75 @@ export interface PlanMoment {
     arrived: boolean;
     /** Her speed here is assumed: there is no wind forecast for this stretch. */
     assumed: boolean;
+}
+
+export interface PassageGhostStation extends RouteStation {
+    /** Sailing from the actual fix to the route; route-only weather does not describe this position. */
+    joining: boolean;
+}
+
+/**
+ * Position on the plan, including the approach from the actual GPS fix.
+ * `backNm` must be the full distance from that fix to the route, even when it
+ * is below the live instrument's threshold for counting cross-track miles.
+ * The approach is a straight joining segment, not a checked navigable route.
+ */
+export function passageGhostAt({
+    index,
+    moment,
+    start,
+    startAlongNm,
+    backNm,
+}: {
+    index: RouteIndex;
+    moment: PlanMoment;
+    start: RoutePoint;
+    startAlongNm: number;
+    backNm: number;
+}): PassageGhostStation | null {
+    if (
+        !Number.isFinite(start.lat) ||
+        !Number.isFinite(start.lon) ||
+        Math.abs(start.lat) > 90 ||
+        Math.abs(start.lon) > 180 ||
+        !Number.isFinite(backNm) ||
+        !Number.isFinite(moment.toGoNm)
+    ) {
+        return null;
+    }
+    const join = stationOnIndex(index, startAlongNm);
+    const station = stationOnIndex(index, moment.alongNm);
+    if (!join || !station) return null;
+    const back = Math.max(0, backNm);
+    const sailedNm = Math.max(0, back + (index.totalNm - join.alongNm) - moment.toGoNm);
+
+    // Preserve the exact GPS coordinate at NOW, including sub-mile offsets.
+    if (sailedNm === 0) {
+        return {
+            ...join,
+            ...start,
+            bearingDeg: back > 0 ? calculateBearing(start.lat, start.lon, join.lat, join.lon) : join.bearingDeg,
+            arrived: back === 0 && moment.arrived,
+            joining: back > 0,
+        };
+    }
+    // A tiny arithmetic residual at the join is not another approach segment.
+    if (back === 0 || sailedNm >= back - 1e-9) return { ...station, joining: false };
+
+    const fraction = Math.max(0, Math.min(1, sailedNm / back));
+    // Same linear latitude/longitude interpolation as the followed route,
+    // with the shortest longitude span across the antimeridian.
+    const lonDelta = ((((join.lon - start.lon) % 360) + 540) % 360) - 180;
+    const lon = ((((start.lon + lonDelta * fraction) % 360) + 540) % 360) - 180;
+    const lat = start.lat + (join.lat - start.lat) * fraction;
+    return {
+        ...join,
+        lat,
+        lon,
+        bearingDeg: calculateBearing(lat, lon, join.lat, join.lon),
+        arrived: false,
+        joining: true,
+    };
 }
 
 /** Where the plan has her `aheadMs` from now. Clamped to the table's ends. */

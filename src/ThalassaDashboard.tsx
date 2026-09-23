@@ -17,6 +17,7 @@ import {
 } from './voyageLogApi';
 import { PUBLIC_POSITION_FRESH_MS } from './publicVoyageFreshness';
 import { usePublicInstrumentFeed } from './usePublicInstrumentFeed';
+import { hasUsablePublicRoute, shouldDefaultToAllDiary } from './publicDiaryDefaults';
 
 // The lightbox (and the 74 KB tz-lookup chunk it drags in) is only needed
 // after a photo tap — keep it off the page's critical path.
@@ -99,6 +100,9 @@ export default function ThalassaDashboard() {
     const [pollFailed, setPollFailed] = useState(false);
     const [nowMs, setNowMs] = useState(() => Date.now());
     const requestSequence = useRef(0);
+    // Only the first successful load chooses the default. Polling must never
+    // override a visitor who explicitly picks Latest or a historic voyage.
+    const initialTripDecided = useRef(false);
     // The entry currently in focus — drives the map fly-to AND the
     // sidebar's master/detail mode (null = show the full feed).
     const [selectedEntry, setSelectedEntry] = useState<VoyageLogEntry | null>(null);
@@ -111,13 +115,14 @@ export default function ThalassaDashboard() {
     // Keep the viewer's choice across polling and folding the panel. Historic
     // trips always show their diary, never today's live instrument feed.
     const [panelView, setPanelView] = useState<PublicVoyagePanel | null>(null);
-    // A phone opens on the map. Changing views never remounts MapContainer:
-    // the viewer keeps their zoom, position and chosen basemap.
+    // Routed trips open on the map; a route-less first load opens its diary.
+    // Changing views never remounts MapContainer: the viewer keeps their zoom,
+    // position and chosen basemap.
     const [mobileView, setMobileView] = useState<'map' | 'panel'>('map');
     const isMobile = usePublicMediaQuery('(max-width: 1023px)');
     const isShortLandscape = usePublicMediaQuery('(max-width: 1023px) and (max-height: 500px)');
     const [mapExpandedChoice, setMapExpandedChoice] = useState<boolean | null>(null);
-    const mapExpanded = mobileView === 'map' && (mapExpandedChoice ?? isShortLandscape);
+    const mapExpanded = (!isMobile || mobileView === 'map') && (mapExpandedChoice ?? isShortLandscape);
     const { handle } = parseVoyageLogParams();
     const instrumentPanelOpen =
         state.status === 'ready' &&
@@ -156,12 +161,24 @@ export default function ThalassaDashboard() {
             try {
                 const data = await fetchVoyageLog(handle, trip);
                 if (requestId !== requestSequence.current) return;
+                if (!initialTripDecided.current && trip === 'latest') {
+                    initialTripDecided.current = true;
+                    if (!hasUsablePublicRoute(data)) setMobileView('panel');
+                    if (shouldDefaultToAllDiary(data)) {
+                        setRequestedTrip('all-diary');
+                        return;
+                    }
+                }
                 const receivedAt = Date.now();
                 setState({ status: 'ready', data });
                 acceptInstruments(instrumentRequestId, data);
                 // Pick a starting panel once. Late full responses cannot change
                 // the viewer's choice or stop a newer consent-checked fast feed.
-                setPanelView((previous) => previous ?? (data.instruments_shared === true ? 'instruments' : 'diary'));
+                setPanelView(
+                    (previous) =>
+                        previous ??
+                        (hasUsablePublicRoute(data) && data.instruments_shared === true ? 'instruments' : 'diary'),
+                );
                 setLastSuccessfulAt(receivedAt);
                 setNowMs(receivedAt);
                 setPollFailed(false);
@@ -255,6 +272,7 @@ export default function ThalassaDashboard() {
     const handleLightboxClose = useCallback(() => setLightbox(null), []);
 
     const handleTripChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+        initialTripDecided.current = true;
         setRequestedTrip(event.target.value);
     }, []);
 
@@ -373,13 +391,14 @@ export default function ThalassaDashboard() {
     const canViewInstruments = requestedTrip === 'latest';
     const visiblePanel = canViewInstruments ? (panelView ?? 'diary') : 'diary';
     const panelLabel = visiblePanel === 'instruments' ? 'instruments' : 'log entries';
+    const headerOverMap = !isMobile || mobileView === 'map';
 
     return (
         // One viewport, one phone view, with navigation outside the scrolling
         // panel. Desktop retains its map + sidebar. Safe areas include a
         // landscape notch and the home indicator; dvh follows browser chrome.
         <div
-            className="flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-900 text-slate-100 font-sans"
+            className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-900 text-slate-100 font-sans"
             style={{
                 paddingTop: 'env(safe-area-inset-top)',
                 paddingBottom: 'env(safe-area-inset-bottom)',
@@ -387,8 +406,13 @@ export default function ThalassaDashboard() {
                 paddingRight: 'env(safe-area-inset-right)',
             }}
         >
-            <div className={`shrink-0 ${mapExpanded ? 'hidden lg:block' : ''}`}>
+            <div
+                data-testid="public-voyage-header"
+                data-overlay={headerOverMap ? 'true' : 'false'}
+                className={`${mapExpanded ? 'hidden' : ''} ${headerOverMap ? 'absolute left-3 right-24 top-[calc(env(safe-area-inset-top)+0.75rem)] z-30 max-w-[420px] overflow-hidden rounded-2xl border border-white/15 bg-slate-950/85 shadow-xl backdrop-blur-xl' : 'shrink-0 border-b border-slate-700/60'}`}
+            >
                 <TopNav
+                    compact
                     vessel={vessel}
                     telemetry={scopedTelemetry}
                     entryCount={entries.length}
@@ -407,38 +431,9 @@ export default function ThalassaDashboard() {
                 {/* A public log is a voyage shelf, not a single rolling feed. The
                 special latest option remains an auto-following mode; choosing
                 a concrete track id below freezes that voyage during polling. */}
-                <section
-                    aria-label="Voyage selection"
-                    className="shrink-0 border-b border-slate-700/80 bg-slate-900/95 px-3 py-1.5 shadow-xs backdrop-blur-md lg:px-6 lg:py-2.5"
-                >
-                    <div className="mx-auto flex max-w-(--breakpoint-2xl) flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="hidden min-w-0 items-center gap-2.5 lg:flex">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-sky-400/25 bg-sky-400/10 text-sm text-sky-300">
-                                ⛵
-                            </span>
-                            <div className="min-w-0">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                    Voyage explorer
-                                </p>
-                                <p className="truncate text-xs font-medium text-slate-300">
-                                    {isAllDiaryView
-                                        ? 'A complete public diary, across every trip.'
-                                        : selectedTrip?.active
-                                          ? 'Live track and its linked passage route.'
-                                          : selectedTripLabel
-                                            ? 'A saved record of this completed passage.'
-                                            : 'Choose a trip, or follow the newest one.'}
-                                </p>
-                            </div>
-                        </div>
-
-                        <label
-                            className="group flex w-full min-w-0 items-center gap-2 lg:w-100"
-                            aria-busy={isTripLoading}
-                        >
-                            <span className="hidden shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 lg:block">
-                                Viewing
-                            </span>
+                <section aria-label="Voyage selection" className="shrink-0 px-2 pb-2">
+                    <div className="min-w-0">
+                        <label className="group flex w-full min-w-0 items-center gap-2" aria-busy={isTripLoading}>
                             <span className="relative min-w-0 flex-1">
                                 <select
                                     value={requestedTrip}
@@ -492,7 +487,7 @@ export default function ThalassaDashboard() {
 
                 {isActiveTrackView && (
                     <div className={mobileView === 'panel' ? 'hidden lg:block' : ''}>
-                        <VoyageProgressBar track={track} destination={destination} />
+                        <VoyageProgressBar compact track={track} destination={destination} />
                     </div>
                 )}
             </div>
@@ -510,6 +505,7 @@ export default function ThalassaDashboard() {
                         entries={entries}
                         passageLine={passage?.plan_line ?? null}
                         waypoints={waypoints ?? EMPTY_WAYPOINTS}
+                        waypointVoyageId={selectedTrip?.kind === 'track' ? selectedTrip.id : undefined}
                         nearbyVessels={showNearbyVessels ? (nearbyVessels ?? NO_VESSELS) : NO_VESSELS}
                         onEntryClick={handleSelect}
                         selectedEntryId={visiblePanel === 'diary' ? selectedEntry?.id : undefined}
@@ -530,7 +526,7 @@ export default function ThalassaDashboard() {
                         aria-label={mapExpanded ? 'Restore page header' : 'Expand map'}
                         aria-pressed={mapExpanded}
                         title={mapExpanded ? 'Restore page header' : 'Expand map'}
-                        className="absolute left-16 top-3 flex h-11 w-11 items-center justify-center rounded-lg border border-white/20 bg-slate-950/90 text-teal-200 shadow-lg focus-visible:outline-2 focus-visible:outline-teal-200 lg:hidden"
+                        className="absolute right-3 top-28 z-20 flex h-11 w-16 items-center justify-center rounded-lg border border-white/20 bg-slate-950/90 text-teal-200 shadow-lg focus-visible:outline-2 focus-visible:outline-teal-200"
                     >
                         <svg
                             aria-hidden="true"
@@ -593,7 +589,7 @@ export default function ThalassaDashboard() {
                                     aria-label="Side panel view"
                                     className="flex rounded-xl border border-slate-600/60 bg-slate-950 p-1"
                                 >
-                                    {(['instruments', 'diary'] as const).map((view) => (
+                                    {(['diary', 'instruments'] as const).map((view) => (
                                         <button
                                             key={view}
                                             type="button"
@@ -618,6 +614,7 @@ export default function ThalassaDashboard() {
                                 </div>
                             </div>
                             <DiarySidebar
+                                publicHandle={handle ?? undefined}
                                 entries={entries}
                                 telemetry={scopedTelemetry}
                                 instruments={instrumentFeed.snapshot?.instruments ?? null}
@@ -656,7 +653,7 @@ export default function ThalassaDashboard() {
                 aria-label="Voyage views"
                 className="grid shrink-0 grid-cols-3 gap-1 border-t border-slate-600/60 bg-slate-950 px-2 py-1.5 lg:hidden"
             >
-                {(['map', 'instruments', 'diary'] as const).map((view) => {
+                {(['map', 'diary', 'instruments'] as const).map((view) => {
                     const active =
                         view === 'map' ? mobileView === 'map' : mobileView === 'panel' && visiblePanel === view;
                     return (

@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
     summarizeEntries,
     mergeSummariesWithLive,
+    isEmptyTrack,
     careerTotalsFromSummaries,
     type VoyageSummary,
 } from '../services/shiplog/VoyageSummary';
@@ -173,7 +174,7 @@ describe('mergeSummariesWithLive', () => {
         expect(mergeSummariesWithLive(summaries, [])).toBe(summaries);
     });
 
-    it('overlays a live recomputed summary for a loaded/active voyage', () => {
+    it('extends a cloud summary with newer live entries without shrinking its history', () => {
         const summaries = [serverSummary('a', '2026-02-01T10:00:00.000Z', 50)];
         // Active voyage 'a' has grown — local entries show more distance
         const entries = [
@@ -183,7 +184,9 @@ describe('mergeSummariesWithLive', () => {
         const merged = mergeSummariesWithLive(summaries, entries);
         expect(merged).toHaveLength(1);
         expect(merged[0].totalDistanceNM).toBeCloseTo(63); // live wins over stale 50
-        expect(merged[0].entryCount).toBe(2);
+        expect(merged[0].entryCount).toBe(10);
+        expect(merged[0].startedAt).toBe(summaries[0].startedAt);
+        expect(merged[0].firstLat).toBe(summaries[0].firstLat);
         expect(merged[0].endedAt).toBe('2026-02-01T11:30:00.000Z');
     });
 
@@ -215,6 +218,112 @@ describe('mergeSummariesWithLive', () => {
         const merged = mergeSummariesWithLive(summaries, entries);
         const b = merged.find((s) => s.voyageId === 'b')!;
         expect(b.totalDistanceNM).toBe(30); // server copy preserved
+    });
+
+    it('retains the full 230 NM passage when only one arrival point is held locally', () => {
+        const cloud: VoyageSummary = {
+            ...serverSummary('long-passage', '2026-09-17T10:00:00.000Z', 230.1),
+            startedAt: '2026-09-15T04:00:00.000Z',
+            entryCount: 18_286,
+            spanM: 300_000,
+            hasManual: true,
+            isImported: true,
+            isPlannedRoute: true,
+            avgSpeedKts: 5.3,
+            landFraction: 0.02,
+        };
+        const tail = mk({
+            voyageId: cloud.voyageId,
+            timestamp: cloud.endedAt,
+            latitude: cloud.lastLat!,
+            longitude: cloud.lastLon!,
+            cumulativeDistanceNM: 230.1,
+            speedKts: 0,
+            isOnWater: false,
+        });
+
+        const [merged] = mergeSummariesWithLive([cloud], [tail]);
+
+        expect(merged).toEqual(cloud);
+        expect(isEmptyTrack(merged)).toBe(false);
+        expect(careerTotalsFromSummaries([{ ...merged, isImported: false, isPlannedRoute: false }])).toEqual({
+            totalDistance: 230.1,
+            totalTimeAtSeaHrs: 54,
+            totalVoyages: 1,
+        });
+    });
+
+    it('preserves an unknown cloud footprint instead of replacing it with a zero-span tail', () => {
+        const cloud = { ...serverSummary('old-rpc', '2026-02-01T10:00:00.000Z', 230.1), spanM: null };
+        const [merged] = mergeSummariesWithLive(
+            [cloud],
+            [mk({ voyageId: cloud.voyageId, timestamp: cloud.endedAt, cumulativeDistanceNM: 230.1 })],
+        );
+        expect(merged.spanM).toBeNull();
+        expect(isEmptyTrack(merged)).toBe(false);
+    });
+
+    it('does not regress a resumed passage when the local distance restarted at zero', () => {
+        const cloud = { ...serverSummary('resumed', '2026-02-01T10:00:00.000Z', 230.1), spanM: 300_000 };
+        const [merged] = mergeSummariesWithLive(
+            [cloud],
+            [
+                mk({
+                    voyageId: cloud.voyageId,
+                    timestamp: '2026-02-01T11:00:00.000Z',
+                    cumulativeDistanceNM: 0,
+                    latitude: -21,
+                    longitude: 149,
+                    entryType: 'manual',
+                }),
+            ],
+        );
+        expect(merged).toMatchObject({
+            totalDistanceNM: 230.1,
+            entryCount: cloud.entryCount,
+            startedAt: cloud.startedAt,
+            endedAt: '2026-02-01T11:00:00.000Z',
+            firstLat: cloud.firstLat,
+            lastLat: -21,
+            lastLon: 149,
+            spanM: 300_000,
+            hasManual: true,
+        });
+        expect(isEmptyTrack(merged)).toBe(false);
+    });
+
+    it('extends the departure with older local rows without losing the cloud arrival or classifications', () => {
+        const cloud = {
+            ...serverSummary('a', '2026-02-01T10:00:00.000Z', 50),
+            startedAt: '2026-02-01T01:00:00.000Z',
+            hasManual: true,
+            landFraction: 0.1,
+            spanM: 100_000,
+        };
+        const [merged] = mergeSummariesWithLive(
+            [cloud],
+            [
+                mk({
+                    voyageId: 'a',
+                    timestamp: '2026-02-01T00:00:00.000Z',
+                    latitude: -28,
+                    longitude: 154,
+                    isOnWater: true,
+                }),
+            ],
+        );
+        expect(merged).toMatchObject({
+            startedAt: '2026-02-01T00:00:00.000Z',
+            firstLat: -28,
+            firstLon: 154,
+            firstIsOnWater: true,
+            endedAt: cloud.endedAt,
+            lastLat: cloud.lastLat,
+            lastLon: cloud.lastLon,
+            avgSpeedKts: cloud.avgSpeedKts,
+            landFraction: cloud.landFraction,
+            hasManual: true,
+        });
     });
 });
 

@@ -9,6 +9,7 @@ import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { AudioWidget } from './AudioWidget';
 import { DiaryPhoto } from './DiaryPhoto';
 import { DiaryVideo } from './DiaryVideo';
+import { DiaryCommentModeration } from './DiaryCommentModeration';
 import { UndoToast } from '../ui/UndoToast';
 import { toast } from '../Toast';
 import {
@@ -235,6 +236,8 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                 allowTranscribe={true}
                             />
                         )}
+
+                        <DiaryCommentModeration key={e.id} entryId={e.id} />
 
                         {/* 6. Tags */}
                         {e.tags.length > 0 && (

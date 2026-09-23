@@ -49,7 +49,11 @@ vi.mock('../services/nativeStorage', () => ({
     },
 }));
 
-import { getCachedVoyageTrack, setCachedVoyageTrack } from '../services/shiplog/VoyageTrackCache';
+import {
+    clearCachedVoyageTrack,
+    getCachedVoyageTrack,
+    setCachedVoyageTrack,
+} from '../services/shiplog/VoyageTrackCache';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import type { ShipLogEntry } from '../types';
 
@@ -88,6 +92,73 @@ beforeEach(() => {
 });
 
 describe('VoyageTrackCache account isolation', () => {
+    it('preserves a full cached passage when stop supplies only two tail points', async () => {
+        const fullTrack = [...track('departure'), ...track('arrival')];
+        await setCachedVoyageTrack('same-voyage', fullTrack);
+        const tail = track('tail');
+        const firstTailPoint = tail[0];
+        const readTailPoint = vi.fn(() => firstTailPoint);
+        Object.defineProperty(tail, 0, { get: readTailPoint });
+
+        await setCachedVoyageTrack('same-voyage', tail, getAuthIdentityScope(), { preserveExisting: true });
+
+        expect(readTailPoint).not.toHaveBeenCalled();
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toEqual(fullTrack);
+    });
+
+    it('still stores a partial stop snapshot when no cached history exists', async () => {
+        const tail = track('tail');
+
+        await setCachedVoyageTrack('same-voyage', tail, getAuthIdentityScope(), { preserveExisting: true });
+
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toEqual(tail);
+    });
+
+    it('lets a complete fetch replace a larger cache without resurrecting deleted entries', async () => {
+        const retained = track('retained');
+        await setCachedVoyageTrack('same-voyage', [...track('deleted'), ...retained]);
+
+        await setCachedVoyageTrack('same-voyage', retained);
+
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toEqual(retained);
+    });
+
+    it('serializes an explicit clear after an in-flight partial snapshot without resurrecting it', async () => {
+        const gate = deferredGate();
+        mocks.delayedLoad = gate;
+        const writing = setCachedVoyageTrack('same-voyage', track('tail'), getAuthIdentityScope(), {
+            preserveExisting: true,
+        });
+        await gate.started;
+        const clearing = clearCachedVoyageTrack('same-voyage');
+        gate.doRelease();
+        await Promise.all([writing, clearing]);
+        mocks.delayedLoad = null;
+
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toBeNull();
+        expect(mocks.files.size).toBe(0);
+    });
+
+    it('abandons a partial snapshot when identity changes during the existing-cache check', async () => {
+        const gate = deferredGate();
+        mocks.delayedLoad = gate;
+        const writing = setCachedVoyageTrack('same-voyage', track('a'), getAuthIdentityScope(), {
+            preserveExisting: true,
+        });
+        await gate.started;
+        setAuthIdentityScope('cache-b');
+        gate.doRelease();
+        await writing;
+        mocks.delayedLoad = null;
+
+        expect(mocks.files.size).toBe(0);
+        expect(mocks.prefs.size).toBe(0);
+        await setCachedVoyageTrack('same-voyage', track('b'), getAuthIdentityScope(), { preserveExisting: true });
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toEqual(track('b'));
+        setAuthIdentityScope('cache-a');
+        await expect(getCachedVoyageTrack('same-voyage')).resolves.toBeNull();
+    });
+
     it('stops inspecting an oversized track and preserves its existing cache', async () => {
         await setCachedVoyageTrack('same-voyage', track('existing'));
         const oversized = track('oversized');

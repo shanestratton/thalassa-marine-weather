@@ -37,6 +37,7 @@ import {
     refreshEncAsyncLayers,
     refreshEncVectorData,
     setEncChartDetail,
+    setEncOverviewMode,
     setEncVectorVisibility,
     unmountEncVectorLayer,
     updateEncDepthStyle,
@@ -50,36 +51,27 @@ import {
     subscribeGeometryUpgrades,
     type EncMergedVectorData,
 } from '../../services/enc/EncHazardService';
+import { encDisplayScale, ENC_MERGE_MIN_ZOOM } from './encDisplayScale';
+import { setEncDisplayState } from './encDisplayState';
 
 const log = createLogger('useEncVectorLayer');
 
-/** Merge window = viewport expanded this many × per side. Big enough
- *  that a normal pan stays inside it; small enough that the merged
- *  set stays a bay, not a coastline. */
-const WINDOW_FACTOR = 2.5;
-
-/** Don't run the (heavy, main-thread) ENC merge below this zoom. The map
- *  boots at the Aus+NZ fit (~z4), where the ONLY ENC layer that renders is
- *  SOUNDG — SCAMIN-thinned to a handful of soundings — yet a merge there
- *  still explodes ~30k soundings + walks every overview/1° coastal cell,
- *  a multi-second freeze on FIRST OPEN (Shane 2026-07-16: "stalls at zoom
- *  4, comes good"). The meaningful ENC (depth bands, marks, land) all
- *  render from z7; merging fires as the skipper zooms toward their water,
- *  over a small zoomed-in window, not the whole country. 6.5 gives a touch
- *  of pre-load so the chart's ready by the z7 render floor. Gate the
- *  COMPUTE, not just the render (lesson: zoom-gate-render-only-compute). */
-const ENC_MERGE_MIN_ZOOM = 6.5;
+// Browsing retains its z6.5 compute gate: a country-wide z4 boot once
+// stalled while merging geometry that could not draw. Active plotting also
+// supports bounded z5+ passage overviews (encDisplayScale), with base-layer
+// render floors aligned to that compute policy rather than disappearing at z7.
 let prewarmInFlight: Promise<unknown> | null = null;
 let lastPrewarmAt = 0;
 
 type Bbox = [number, number, number, number];
 
-function windowFor(map: mapboxgl.Map): Bbox {
+function windowFor(map: mapboxgl.Map, plotting = false): Bbox {
     const b = map.getBounds()!;
     const cx = (b.getWest() + b.getEast()) / 2;
     const cy = (b.getSouth() + b.getNorth()) / 2;
-    const hw = ((b.getEast() - b.getWest()) / 2) * WINDOW_FACTOR;
-    const hh = ((b.getNorth() - b.getSouth()) / 2) * WINDOW_FACTOR;
+    const factor = encDisplayScale(map.getZoom(), plotting).windowFactor;
+    const hw = ((b.getEast() - b.getWest()) / 2) * factor;
+    const hh = ((b.getNorth() - b.getSouth()) / 2) * factor;
     return [cx - hw, Math.max(cy - hh, -85), cx + hw, Math.min(cy + hh, 85)];
 }
 
@@ -280,7 +272,18 @@ export function useEncVectorLayer(
         const onMoveEnd = () => {
             // No ENC below the render floor → no merge to schedule (kills the
             // z4 boot stall). Crossing UP past the floor fires a normal moveend.
-            if (map.getZoom() < ENC_MERGE_MIN_ZOOM) return;
+            const scale = encDisplayScale(map.getZoom(), plotting);
+            if (!scale.merge) {
+                setEncDisplayState(map, {
+                    phase: !visible && !plotting ? 'off' : 'zoom-in',
+                    overview: scale.overview,
+                    loadedCells: 0,
+                });
+                // Cancel a queued/in-flight close-up apply before it can
+                // publish stale "loaded" state below the compute floor.
+                setBumpCounter((c) => c + 1);
+                return;
+            }
             const win = mergedWindowRef.current;
             // Stale when the ZOOM BUCKET changes, not when raw |dz| ≥ 1:
             // the merge's cull threshold and sounding LOD key off
@@ -293,8 +296,21 @@ export function useEncVectorLayer(
             const zNow = map.getZoom();
             const zMerged = mergedZoomRef.current;
             const paramsFresh =
-                Math.round(zNow) === Math.round(zMerged) && zNow >= GLAZE_MIN_ZOOM === zMerged >= GLAZE_MIN_ZOOM;
-            if (win && viewportInside(map, win) && paramsFresh) return;
+                Math.round(zNow) === Math.round(zMerged) &&
+                scale.overview === encDisplayScale(zMerged, plotting).overview &&
+                zNow >= GLAZE_MIN_ZOOM === zMerged >= GLAZE_MIN_ZOOM;
+            if (win && viewportInside(map, win) && paramsFresh) {
+                const previous = lastAppliedRef.current as EncMergedVectorData | null;
+                if (mountedRef.current && previous) {
+                    setEncOverviewMode(map, scale.overview);
+                    setEncDisplayState(map, {
+                        phase: !visible && !plotting ? 'off' : previous.cellCount > 0 ? 'loaded' : 'unavailable',
+                        overview: scale.overview,
+                        loadedCells: !visible && !plotting ? 0 : previous.cellCount,
+                    });
+                }
+                return;
+            }
             // FIRST merge of the session: nothing on screen to protect, so
             // skip the pan-coalescing debounce and go now — the 250 ms was
             // pure added time-to-chart on boot (z10-boot audit, 2026-07-16).
@@ -315,7 +331,7 @@ export function useEncVectorLayer(
             if (t !== null) window.clearTimeout(t);
             map.off('moveend', onMoveEnd);
         };
-    }, [mapRef, mapReady]);
+    }, [mapRef, mapReady, plotting, visible]);
 
     useEffect(() => {
         if (!mapReady) return;
@@ -325,6 +341,18 @@ export function useEncVectorLayer(
         let cancelled = false;
 
         const apply = async () => {
+            const zoom = map.getZoom();
+            const scale = encDisplayScale(zoom, plotting);
+            const report = (phase: 'loading' | 'loaded' | 'unavailable' | 'zoom-in' | 'off', loadedCells = 0) =>
+                setEncDisplayState(map, { phase, overview: scale.overview, loadedCells });
+            if (mountedRef.current) {
+                // Never lower an old harbour dataset's floor before a valid
+                // overview merge exists. A fine-only library can be excluded
+                // at this scale; that is not permission to render its cached
+                // close-up geometry as an overview fallback.
+                if (!scale.overview) setEncOverviewMode(map, false);
+                if (!visible && !plotting) setEncVectorVisibility(map, false);
+            }
             if (!hasAnyDisplayCells()) {
                 if (mountedRef.current) {
                     detachEncFeatureClickHandlers(map);
@@ -332,15 +360,18 @@ export function useEncVectorLayer(
                     mountedRef.current = false;
                     lastAppliedRef.current = null;
                 }
+                report('unavailable');
                 return;
             }
 
-            // Below the render floor the merge would be pure wasted compute —
-            // the z4 boot freeze. Skip it (leave any existing mount alone; its
-            // layers don't render below their own minzoom anyway). The merge
-            // runs when the skipper zooms in past ENC_MERGE_MIN_ZOOM.
-            if (map.getZoom() < ENC_MERGE_MIN_ZOOM) {
-                log.warn(`[apply] skipped — z=${map.getZoom().toFixed(1)} below merge floor ${ENC_MERGE_MIN_ZOOM}`);
+            // Country-wide views still do no merge work. Plotting passage
+            // overviews have a separate bounded floor; ordinary browsing and
+            // prewarm keep their original gate.
+            if (!scale.merge) {
+                log.info(
+                    `[apply] skipped — z=${zoom.toFixed(1)} below ${plotting ? 'plotting' : 'browsing'} merge floor`,
+                );
+                report(!visible && !plotting ? 'off' : 'zoom-in');
                 return;
             }
 
@@ -370,15 +401,17 @@ export function useEncVectorLayer(
             if (!visible && !plotting) {
                 if (mountedRef.current) setEncVectorVisibility(map, false);
                 log.info('[apply] skipped — ENC chart toggled off');
+                report('off');
                 return;
             }
 
             try {
-                const win = windowFor(map);
+                const win = windowFor(map, plotting);
+                report('loading');
                 log.info(
                     `[apply] merge start z=${map.getZoom().toFixed(1)} win=${win.map((v) => v.toFixed(2)).join(',')}`,
                 );
-                const data = await getMergedVectorData(win, map.getZoom(), { includeReferences: true });
+                const data = await getMergedVectorData(win, zoom, { includeReferences: true });
                 log.info(
                     `[apply] merge done: ${
                         data
@@ -390,9 +423,16 @@ export function useEncVectorLayer(
                               'NULL (no cells in window, or superseded)'
                     }`,
                 );
-                if (cancelled || !data) return;
+                if (cancelled) return;
+                const currentScale = encDisplayScale(map.getZoom(), plotting);
+                if (!currentScale.merge || currentScale.overview !== scale.overview || !viewportInside(map, win))
+                    return;
+                if (!data) {
+                    report('unavailable');
+                    return;
+                }
                 mergedWindowRef.current = win;
-                mergedZoomRef.current = map.getZoom();
+                mergedZoomRef.current = zoom;
                 if (mountedRef.current) {
                     // refreshEncVectorData re-applies the depth style from
                     // the per-map state it seeded at mount, so the safety
@@ -415,12 +455,15 @@ export function useEncVectorLayer(
                     mountedRef.current = true;
                 }
                 lastAppliedRef.current = data;
+                setEncOverviewMode(map, scale.overview);
                 // Always-on by default — explicit toggle from the FAB flips it.
                 setEncVectorVisibility(map, visible);
                 // Detail mode independently controls the busy fills + coastlines.
                 // Apply AFTER visibility so the detail-hide stays effective.
                 setEncChartDetail(map, chartDetail);
+                report(data.cellCount > 0 ? 'loaded' : 'unavailable', data.cellCount);
             } catch (err) {
+                if (!cancelled) report('unavailable');
                 log.warn('failed to mount vector layer', err);
             }
         };

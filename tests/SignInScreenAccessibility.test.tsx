@@ -9,6 +9,12 @@ vi.mock('../services/auth/SocialAuthService', () => ({
     signInWithAppleOnWeb: vi.fn(),
 }));
 
+vi.mock('../services/auth/googleSignIn', () => ({
+    GOOGLE_SIGN_IN_ENABLED: true,
+    signInWithGoogle: vi.fn(),
+    signInWithGoogleOnWeb: vi.fn(),
+}));
+
 vi.mock('../stores/authStore', () => ({
     useAuthStore: (selector: (state: { user: null }) => unknown) => selector({ user: null }),
 }));
@@ -97,6 +103,27 @@ describe('SignInScreen accessibility', () => {
         expect(
             screen.queryByText(/Apple sign-in is not enabled in this beta build; use email/i),
         ).not.toBeInTheDocument();
+    });
+
+    it('keeps privacy copy in scrollable normal flow after every sign-in option', () => {
+        render(
+            <SignInScreen
+                isOpen
+                prompt="Sign in to open your passage builder — your charts, tides and saved routes live on your account."
+            />,
+        );
+
+        const dialog = screen.getByRole('dialog', { name: 'Sign in to Thalassa' });
+        const privacy = screen.getByRole('link', { name: 'Terms & Privacy' }).closest('footer');
+        expect(dialog).toHaveClass('overflow-y-auto', 'overflow-x-hidden', 'overscroll-contain');
+        expect(dialog).not.toHaveClass('overflow-hidden', 'justify-center');
+        expect(privacy).toHaveClass('relative', 'mt-6', 'mb-auto', 'shrink-0');
+        expect(privacy).not.toHaveClass('absolute');
+        for (const name of ['Sign in with email', 'Sign in with Apple', 'Sign in with Google']) {
+            const button = screen.getByRole('button', { name });
+            expect(button).toHaveClass('w-full', 'h-12');
+            expect(button.compareDocumentPosition(privacy!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        }
     });
 
     it('routes the browser Apple button through the Services-ID OAuth flow', () => {

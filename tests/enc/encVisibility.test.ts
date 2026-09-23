@@ -22,11 +22,13 @@ import {
     applyEncVisibility,
     setEncChartDetail,
     setEncPlottingMode,
+    setEncOverviewMode,
     setEncRouteFocusMode,
     setEncVectorVisibility,
 } from '../../components/map/EncVectorLayer';
 import { ENC_VEC_LAYERS } from '../../components/map/encLayerIds';
 import type mapboxgl from 'mapbox-gl';
+import { SATELLITE_KEY, satelliteBaseOn, setEncMapBase } from '../../components/map/encDepthStyleState';
 
 /** Stub map: every layer exists; records the last visibility per layer. */
 function stubMap(): { map: mapboxgl.Map; vis: Map<string, string> } {
@@ -43,6 +45,40 @@ function stubMap(): { map: mapboxgl.Map; vis: Map<string, string> } {
 
 describe('ENC visibility state machine', () => {
     beforeEach(() => localStorage.clear());
+
+    it('lowers only chart-base layers for passage overview, leaving detail floors untouched', () => {
+        const ranges = new Map<string, number>();
+        const map = {
+            getLayer: (id: string) => ({ minzoom: ranges.get(id) ?? 7 }),
+            setLayerZoomRange: (id: string, min: number) => ranges.set(id, min),
+        } as unknown as mapboxgl.Map;
+        setEncOverviewMode(map, true);
+        expect([...ranges.values()]).toEqual([5, 5, 5, 5, 5]);
+        expect(ranges.get(ENC_VEC_LAYERS.DEPARE)).toBe(5);
+        expect(ranges.has(ENC_VEC_LAYERS.RECTRC)).toBe(false);
+        expect(ranges.has(ENC_VEC_LAYERS.BCNLAT)).toBe(false);
+        expect(ranges.has(ENC_VEC_LAYERS.DEPCNT_SAFETY)).toBe(false);
+        expect(ranges.has(ENC_VEC_LAYERS.SOUNDG)).toBe(false);
+        setEncOverviewMode(map, false);
+        expect([...ranges.values()]).toEqual([7, 7, 7, 7, 7]);
+    });
+
+    it('keeps an isolated ENC chart independent of the other map imagery preference', () => {
+        localStorage.setItem(SATELLITE_KEY, 'true');
+        const trial = stubMap();
+        const obs = stubMap();
+        setEncMapBase(trial.map, false);
+        applyEncVisibility(trial.map);
+        applyEncVisibility(obs.map);
+        expect(trial.vis.get(ENC_VEC_LAYERS.LNDARE)).toBe('visible');
+        expect(obs.vis.get(ENC_VEC_LAYERS.LNDARE)).toBe('none');
+        expect(satelliteBaseOn(trial.map)).toBe(false);
+        expect(satelliteBaseOn(obs.map)).toBe(true);
+        expect(localStorage.getItem(SATELLITE_KEY)).toBe('true');
+        localStorage.setItem(SATELLITE_KEY, 'false');
+        expect(satelliteBaseOn(obs.map)).toBe(false);
+        expect(satelliteBaseOn(trial.map)).toBe(false);
+    });
 
     it('master OFF hides everything; master ON restores', () => {
         const { map, vis } = stubMap();

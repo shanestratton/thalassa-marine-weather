@@ -1,23 +1,221 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import type { TrialRouteReview } from '../services/autoroutingReview';
+import type mapboxgl from 'mapbox-gl';
+
+type MapFixtureWindow = Window & { __trialFixture: { map: mapboxgl.Map } };
 
 const sizes = [
     { width: 390, height: 844, pane: false },
     { width: 430, height: 932, pane: false },
     { width: 1024, height: 768, pane: true },
 ];
-async function openFixture(page: Page, size: (typeof sizes)[number], mode: string, status = 'ready') {
+const runtimeErrors = new WeakMap<Page, string[]>();
+for (const scenario of ['bend', 'reported-size'] as const) {
+    test(`Canal solver runs in a disposable browser worker: ${scenario}`, async ({ page }) => {
+        await openFixture(page, sizes[0], 'dark');
+        const result = await page.evaluate(async (scenario) => {
+            const path = '/services/autoroutingCanalDeparture.ts';
+            const { runCanalDepartureWorker } = await import(/* @vite-ignore */ path);
+            const geometryPath = '/services/canalDepartureGeometry.ts';
+            const { canalDepartureBbox } = await import(/* @vite-ignore */ geometryPath);
+            const ll = (x: number, y: number) => [
+                153 + x / (111320 * Math.cos((-27.2 * Math.PI) / 180)),
+                -27.2 + y / 111320,
+            ];
+            const point = (x: number, y: number) => {
+                const [lon, lat] = ll(x, y);
+                return { lon, lat };
+            };
+            const start = scenario === 'bend' ? point(50, 50) : { lat: -(27 + 12.869 / 60), lon: 153 + 5.268 / 60 },
+                exit = scenario === 'bend' ? point(350, 50) : { lat: -(27 + 10.318 / 60), lon: 153 + 5.652 / 60 };
+            const bbox = canalDepartureBbox(start, exit);
+            const water = {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [0, 0],
+                                    [100, 0],
+                                    [100, 175],
+                                    [300, 175],
+                                    [300, 0],
+                                    [400, 0],
+                                    [400, 250],
+                                    [0, 250],
+                                    [0, 0],
+                                ].map(([x, y]) => ll(x, y)),
+                            ],
+                        },
+                    },
+                ],
+            };
+            if (scenario === 'reported-size') {
+                // Artificial water ONLY: prove this exact crop fits/runs in a
+                // browser worker, not that Newport's real banks are navigable.
+                const [w, s, e, n] = bbox;
+                water.features[0].geometry.coordinates = [
+                    [
+                        [w, s],
+                        [e, s],
+                        [e, n],
+                        [w, n],
+                        [w, s],
+                    ],
+                ];
+            }
+            const OriginalWorker = window.Worker;
+            let created = 0,
+                terminated = 0;
+            window.Worker = class extends OriginalWorker {
+                constructor(url: string | URL, options?: WorkerOptions) {
+                    super(url, options);
+                    created++;
+                }
+                terminate() {
+                    terminated++;
+                    super.terminate();
+                }
+            };
+            try {
+                const out = await runCanalDepartureWorker(
+                    [start, exit, bbox, water, { type: 'FeatureCollection', features: [] }],
+                    new AbortController().signal,
+                );
+                const metres = (coordinate: number[]) => [
+                    (coordinate[0] - 153) * 111320 * Math.cos((-27.2 * Math.PI) / 180),
+                    (coordinate[1] + 27.2) * 111320,
+                ];
+                let innerCornerDistanceM = Infinity;
+                if (scenario === 'bend') {
+                    for (let i = 1; i < out.coordinates.length; i++) {
+                        const a = metres(out.coordinates[i - 1]),
+                            b = metres(out.coordinates[i]);
+                        const dx = b[0] - a[0],
+                            dy = b[1] - a[1];
+                        for (const [x, y] of [
+                            [100, 175],
+                            [300, 175],
+                        ]) {
+                            const t =
+                                dx || dy
+                                    ? Math.max(
+                                          0,
+                                          Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)),
+                                      )
+                                    : 0;
+                            innerCornerDistanceM = Math.min(
+                                innerCornerDistanceM,
+                                Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy),
+                            );
+                        }
+                    }
+                }
+                return {
+                    created,
+                    terminated,
+                    points: out.coordinates.length,
+                    first: out.coordinates[0],
+                    last: out.coordinates.at(-1),
+                    start: [start.lon, start.lat],
+                    exit: [exit.lon, exit.lat],
+                    cells: out.grid.width * out.grid.height,
+                    innerCornerDistanceM,
+                };
+            } finally {
+                window.Worker = OriginalWorker;
+            }
+        }, scenario);
+        expect(result.created).toBe(1);
+        expect(result.terminated).toBe(1);
+        expect(result.points).toBeGreaterThan(scenario === 'bend' ? 4 : 1);
+        if (scenario === 'reported-size') expect(result.cells).toBe(659610);
+        else expect(result.innerCornerDistanceM).toBeGreaterThan(24);
+        expect(result.first).toEqual(result.start);
+        expect(result.last).toEqual(result.exit);
+    });
+}
+test.afterEach(async ({ page }) => {
+    expect(runtimeErrors.get(page) ?? [], 'No unhandled chart errors, including after Close').toEqual([]);
+});
+async function openFixture(
+    page: Page,
+    size: (typeof sizes)[number],
+    mode: string,
+    status = 'ready',
+    automatic = false,
+    review = 'native',
+) {
+    const errors: string[] = [];
+    runtimeErrors.set(page, errors);
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+        if (/AuthIdentityScope|failed to mount/.test(message.text())) console.info(message.text());
+    });
     const origin = 'http://127.0.0.1:4199';
+    // Surface fixture/module failures directly instead of the production
+    // stale-chunk reload hiding their cause behind an empty planning screen.
+    await page.addInitScript(() => sessionStorage.setItem('lazyRetry_lastReloadAt', String(Date.now())));
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
+        if (
+            ['grouped', 'provider-unsafe', 'sparse'].includes(review) &&
+            url.pathname === '/services/autoroutingReview.ts' &&
+            !url.searchParams.has('fixtureOriginal')
+        )
+            return route.fulfill({
+                contentType: 'application/javascript',
+                body: `export * from '/services/autoroutingReview.ts?fixtureOriginal=1';
+                    export async function reviewAutoroutingProposal(_route, _draft, signal, onProgress) {
+                        const review = window.__trialFixture.review;
+                        if (!review) throw new Error('Synthetic review missing');
+                        if (signal.aborted) return {...review, phase:'stopped'};
+                        if (${JSON.stringify(review)} === 'provider-unsafe') {
+                            onProgress({phase:'checking',legs:review.legs.map(()=>null)});
+                            await new Promise(resolve => window.__trialFixture.releaseReview = resolve);
+                            if (signal.aborted) return {...review, phase:'stopped'};
+                        }
+                        onProgress(review);
+                        return review;
+                    }`,
+            });
+        if (automatic && url.pathname === '/services/verifyCanalExitChart.ts')
+            return route.fulfill({
+                contentType: 'application/javascript',
+                body: 'export const verifyCanalExitChart = async () => true;',
+            });
+        if (automatic && url.pathname === '/services/automaticCanalExit.ts')
+            return route.fulfill({
+                contentType: 'application/javascript',
+                body: `export const VERIFIED_CANAL_EXIT_PROFILES = [];
+                    export function resolveAutomaticCanalExit(start) {
+                        if (start.lat !== -27.2) return {status:'manual-required',reason:'No reviewed fixture exit.'};
+                        return {status:'resolved',profileId:'synthetic',label:'Fixture channel',sourceRevision:'fixture-only',
+                            validUntil:new Date(Date.now()+3600000).toISOString(),outboundBearingDeg:0,
+                            gateCentres:[{lat:-27.195,lon:153.15},{lat:-27.19,lon:153.15}],exit:{lat:-27.19,lon:153.15}};
+                    }`,
+            });
+        if (url.origin === origin && url.pathname.endsWith('.pbf'))
+            return route.fulfill({ contentType: 'application/x-protobuf', body: Buffer.alloc(0) });
+        if (url.pathname === '/services/enc/autoSyncFromPi.ts')
+            return route.fulfill({
+                contentType: 'application/javascript',
+                body: 'export const startAutoSyncPolling = () => {};',
+            });
         if (url.pathname === '/services/supabase.ts')
             return route.fulfill({
                 contentType: 'application/javascript',
-                body: 'export const supabase = {auth:{},functions:{}}; export const getCurrentUserId = async () => "trial-layout-fixture";',
+                body: 'export const supabase = {auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})},functions:{}}; export const getCurrentUserId = async () => "trial-layout-fixture"; export const isSupabaseConfigured = () => false; export const supabaseAnonKey = "fixture-only"; export const supabaseUrl = "https://fixture.invalid";',
             });
         if (url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/styles/'))
             return route.fulfill({
                 json: {
                     version: 8,
+                    glyphs: `${origin}/e2e/fixtures/glyphs/{fontstack}/{range}.pbf`,
                     sources: {},
                     layers: [
                         {
@@ -36,7 +234,9 @@ async function openFixture(page: Page, size: (typeof sizes)[number], mode: strin
     });
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.setViewportSize({ width: size.width, height: size.height });
-    await page.goto(`/e2e/fixtures/autorouting-trial.html?mode=${mode}&pane=${size.pane}&status=${status}`);
+    await page.goto(
+        `/e2e/fixtures/autorouting-trial.html?mode=${mode}&pane=${size.pane}&status=${status}&review=${review}`,
+    );
     await expect(page.getByRole('button', { name: 'Slide to Start Plotting', exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
 }
@@ -100,6 +300,78 @@ async function hitVisible(element: Locator) {
         )
         .toBe(true);
 }
+async function setControlsExpanded(page: Page, expanded: boolean) {
+    const toggle = page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ });
+    await expect(toggle).toBeVisible();
+    if ((await toggle.getAttribute('aria-expanded')) !== String(expanded)) await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', String(expanded));
+}
+async function showReview(page: Page) {
+    await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toBeVisible();
+    await setControlsExpanded(page, true);
+    const review = page.getByRole('button', { name: 'Review', exact: true });
+    await review.click();
+    await expect(review).toHaveAttribute('aria-pressed', 'true');
+}
+async function showSetup(page: Page) {
+    await setControlsExpanded(page, true);
+    const setup = page.getByRole('button', { name: 'Setup', exact: true });
+    await setup.click();
+    await expect(setup).toHaveAttribute('aria-pressed', 'true');
+}
+/** Open real disclosure controls from the outside in; never force-click a
+ * locator hidden behind an intentionally collapsed advisory. */
+async function revealAdvisory(locator: Locator) {
+    for (let depth = 0; depth < 4; depth++) {
+        const closed = locator.locator('xpath=ancestor::details[not(@open)][last()]');
+        if (!(await closed.count())) break;
+        await closed.locator(':scope > summary').click();
+    }
+    await expect(locator).toBeVisible();
+}
+async function routeGeometry(page: Page) {
+    return page.evaluate(() => {
+        const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+        const source = map.getStyle().sources.trial as mapboxgl.GeoJSONSourceSpecification;
+        const data = source.data as GeoJSON.FeatureCollection<GeoJSON.LineString>;
+        return data.features.find((feature) => feature.geometry.type === 'LineString')!.geometry.coordinates;
+    });
+}
+async function calculateSmallFixtureRoute(page: Page) {
+    await slideToChoice(page);
+    await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+    await page.getByRole('button', { name: 'Open water', exact: true }).click();
+    await page.getByText('Enter coordinates', { exact: true }).click();
+    for (const [name, value] of [
+        ['departure latitude', '-26.68'],
+        ['departure longitude', '153.16'],
+        ['destination latitude', '-26.67'],
+        ['destination longitude', '153.18'],
+    ])
+        await page.getByLabel(name, { exact: true }).fill(value);
+    await page.getByLabel('destination longitude', { exact: true }).blur();
+    await page.getByText('Enter coordinates', { exact: true }).click();
+    await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+    await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+    );
+    await settleGroupedMap(page);
+}
+async function chartRect(page: Page) {
+    const chart = page.getByRole('region', { name: /Trial chart/ });
+    return chart.evaluate((node) => {
+        const { x, y, width, height } = node.getBoundingClientRect();
+        const canvas = node.querySelector('canvas')?.getBoundingClientRect();
+        return {
+            x,
+            y,
+            width,
+            height,
+            canvas: canvas ? { x: canvas.x, y: canvas.y, width: canvas.width, height: canvas.height } : null,
+        };
+    });
+}
 async function fits(page: Page, pane: boolean) {
     const dialog = page.getByRole('dialog', { name: 'Autorouting trial' });
     const box = await dialog.boundingBox();
@@ -108,9 +380,8 @@ async function fits(page: Page, pane: boolean) {
     expect(Math.abs(box!.x - frame!.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(box!.width - frame!.width)).toBeLessThanOrEqual(1);
     const chart = await page.getByRole('region', { name: /Trial chart/ }).boundingBox();
-    expect(chart!.height).toBeGreaterThanOrEqual(100);
-    expect(chart!.y).toBeGreaterThanOrEqual(box!.y);
-    expect(chart!.y + chart!.height).toBeLessThanOrEqual(box!.y + box!.height + 1);
+    for (const key of ['x', 'y', 'width', 'height'] as const)
+        expect(Math.abs(chart![key] - box![key]), `Chart fills dialog ${key}`).toBeLessThanOrEqual(1);
     expect(
         await dialog.evaluate((node) =>
             [...node.querySelectorAll('button, input, p'), node]
@@ -121,6 +392,9 @@ async function fits(page: Page, pane: boolean) {
     await hitVisible(page.getByRole('button', { name: 'Close autorouting trial' }));
     await hitVisible(page.getByRole('button', { name: 'Zoom trial chart in' }));
     await hitVisible(page.getByRole('button', { name: 'Zoom trial chart out' }));
+    // The dock handle remains reachable while its content scrolls/collapses;
+    // the chart is not resized into a second, smaller panel.
+    await hitVisible(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ }));
     expect(await dialog.evaluate((node) => node.scrollTop)).toBe(0);
 }
 async function capture(page: Page, info: TestInfo, name: string) {
@@ -128,6 +402,890 @@ async function capture(page: Page, info: TestInfo, name: string) {
     await page.screenshot({ path, animations: 'disabled' });
     await info.attach(name, { path, contentType: 'image/png' });
 }
+
+async function groupedReviewState(page: Page) {
+    return page.evaluate(() => {
+        const fixture = (
+            window as unknown as {
+                __trialFixture: {
+                    review: TrialRouteReview;
+                    map: {
+                        queryRenderedFeatures(options: { layers: string[] }): Array<{ properties: { number: number } }>;
+                        getStyle(): {
+                            sources: Record<
+                                string,
+                                {
+                                    data: {
+                                        geometry?: { coordinates: number[] };
+                                        features?: Array<{ geometry: { type: string }; properties: { color: string } }>;
+                                    };
+                                }
+                            >;
+                        };
+                    };
+                };
+            }
+        ).__trialFixture;
+        const sources = fixture.map.getStyle().sources;
+        const issues = fixture.review.legs.map((leg) => leg!.verdict.issues);
+        return {
+            focus: sources['trial-focus'].data.geometry?.coordinates,
+            legColors: sources['trial-review'].data.features
+                ?.filter((feature) => feature.geometry.type === 'LineString')
+                .map((feature) => feature.properties.color),
+            trackIssueCount: issues.flat().filter((issue) => issue.chartTrack).length,
+            labels: [
+                ...new Set(
+                    fixture.map
+                        .queryRenderedFeatures({ layers: ['trial-waypoint-labels'] })
+                        .map((feature) => feature.properties.number),
+                ),
+            ].sort(),
+            firstTrackSpot: [issues[0][0].at!.lon, issues[0][0].at!.lat],
+            worstTrackSpot: [issues[1][0].at!.lon, issues[1][0].at!.lat],
+            depthSpot: [issues[1][1].at!.lon, issues[1][1].at!.lat],
+            obstructionSpot: [issues[1][2].mark!.lon, issues[1][2].mark!.lat],
+        };
+    });
+}
+
+async function settleGroupedMap(page: Page) {
+    await page.evaluate(async () => {
+        const map = (
+            window as unknown as {
+                __trialFixture: { map: { isMoving(): boolean; once(event: string, listener: () => void): void } };
+            }
+        ).__trialFixture.map;
+        if (map.isMoving()) await new Promise<void>((resolve) => map.once('moveend', resolve));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+}
+
+for (const size of [
+    { width: 390, height: 844, pane: false },
+    { width: 568, height: 320, pane: false },
+]) {
+    test(`Tracer waypoint move preserves the route and rechecks at ${size.width}`, async ({
+        page,
+        browserName,
+    }, info) => {
+        test.setTimeout(60_000);
+        await openFixture(page, size, size.width === 390 ? 'light' : 'dark', 'ready', false, 'grouped');
+        await slideToChoice(page);
+        await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+        await page.getByRole('button', { name: 'Open water', exact: true }).click();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        for (const [name, value] of [
+            ['departure latitude', '-26.68'],
+            ['departure longitude', '153.16'],
+            ['destination latitude', '-26.67'],
+            ['destination longitude', '153.18'],
+        ])
+            await page.getByLabel(name, { exact: true }).fill(value);
+        await page.getByLabel('destination longitude', { exact: true }).blur();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+        await showReview(page);
+        await page.getByRole('button', { name: 'Select waypoint 2', exact: true }).click();
+        const editor = page.getByRole('region', { name: 'Waypoint 2', exact: true });
+        await expect(editor).toBeVisible();
+        const geometry = () =>
+            page.evaluate(() => {
+                const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+                const source = map.getStyle().sources.trial as mapboxgl.GeoJSONSourceSpecification;
+                const data = source.data as GeoJSON.FeatureCollection<GeoJSON.LineString>;
+                return data.features.find((feature) => feature.geometry.type === 'LineString')!.geometry.coordinates;
+            });
+        const original = await geometry();
+        const place = async () => {
+            await editor.getByRole('button', { name: 'Move', exact: true }).click();
+            await settleGroupedMap(page);
+            await hitVisible(editor.getByRole('button', { name: 'Confirm move', exact: true }));
+            await hitVisible(editor.getByRole('button', { name: 'Cancel', exact: true }));
+            const target = await page.evaluate(() => {
+                const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+                const canvas = map.getCanvas(),
+                    rect = canvas.getBoundingClientRect();
+                for (const x of [0.82, 0.6, 0.45, 0.95])
+                    for (const y of [0.46, 0.58, 0.7]) {
+                        const point = { x: rect.x + rect.width * x, y: rect.y + rect.height * y };
+                        if (document.elementFromPoint(point.x, point.y) === canvas) return point;
+                    }
+                throw new Error('No exposed chart remains for waypoint movement');
+            });
+            await page.mouse.click(target.x, target.y);
+            await expect(editor.getByText('New position', { exact: true })).toBeVisible();
+            await expect(editor.getByRole('button', { name: 'Confirm move', exact: true })).toBeEnabled();
+        };
+        await place();
+        expect(await geometry()).toEqual(original);
+        await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+        expect(await geometry()).toEqual(original);
+        await place();
+        await capture(page, info, `tracer-moving-${size.width}`);
+        await editor.getByRole('button', { name: 'Confirm move', exact: true }).click();
+        await expect(page.getByText('Edited · provider checks no longer apply', { exact: true })).toBeVisible();
+        const edited = await geometry();
+        expect(edited).toHaveLength(original.length);
+        expect(edited[0]).toEqual(original[0]);
+        expect(edited[2]).toEqual(original[2]);
+        expect(edited[1]).not.toEqual(original[1]);
+        await editor.getByRole('button', { name: 'Close waypoint editor' }).click();
+        await showReview(page);
+        await expect(page.getByText('Original SevenCs report · before waypoint edits')).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Save as planned route', exact: true })).toBeDisabled();
+        const undo = page.getByRole('button', { name: /Undo last move$/ });
+        // At very short landscape heights the entire expanded area, including
+        // its footer, deliberately scrolls instead of squeezing the controls.
+        // Playwright mobile WebKit cannot synthesize a mouse wheel; verify
+        // physical scrolling in Chromium and reachable controls in both.
+        if (size.height < 500 && browserName === 'chromium') {
+            const expanded = page.locator('.trial-tracer-expanded');
+            await expanded.hover();
+            await page.mouse.wheel(0, await expanded.evaluate((node) => node.scrollHeight));
+            await expect.poll(() => expanded.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+        }
+        await undo.scrollIntoViewIfNeeded();
+        await hitVisible(undo);
+        await undo.click();
+        await expect.poll(() => geometry()).toEqual(original);
+        await expect(page.getByText('Edited · provider checks no longer apply', { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /Undo last move$/ })).toHaveCount(0);
+        await expect(page.getByRole('region', { name: 'Route chart checks' }).getByRole('status')).toContainText(
+            '2/2 checked segments',
+        );
+        expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, mapsCreated: 1 });
+        expect(runtimeErrors.get(page)).toEqual([]);
+    });
+}
+
+for (const size of [sizes[0], sizes[2]]) {
+    test(`Setup and Review preserve the proposal and Show whole route clears the close-up at ${size.width}`, async ({
+        page,
+    }, info) => {
+        await openFixture(page, size, 'dark', 'ready', false, 'grouped');
+        await calculateSmallFixtureRoute(page);
+        const original = await routeGeometry(page);
+        await setControlsExpanded(page, true);
+        await expect(page.getByRole('button', { name: 'Review', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByRole('button', { name: 'Calculate trial route', exact: true })).toBeHidden();
+        await showSetup(page);
+        await expect(page.getByRole('button', { name: 'Calculate trial route', exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Clear', exact: true })).toBeVisible();
+        expect(await routeGeometry(page)).toEqual(original);
+        await showReview(page);
+        expect(await routeGeometry(page)).toEqual(original);
+        await page.getByRole('button', { name: 'Select waypoint 2', exact: true }).click();
+        const editor = page.getByRole('region', { name: 'Waypoint 2', exact: true });
+        await expect(editor).toBeVisible();
+        await settleGroupedMap(page);
+        await editor.getByRole('button', { name: 'Show on chart', exact: true }).click();
+        await settleGroupedMap(page);
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+                    const source = map.getStyle().sources['trial-review'] as mapboxgl.GeoJSONSourceSpecification;
+                    const data = source.data as GeoJSON.FeatureCollection<GeoJSON.Point>;
+                    const pin = data.features.find(
+                        (feature) => feature.geometry.type === 'Point' && feature.properties?.number === 2,
+                    )!;
+                    const pixel = map.project(pin.geometry.coordinates as [number, number]);
+                    const canvas = map.getCanvas(),
+                        frame = canvas.getBoundingClientRect();
+                    return document.elementFromPoint(frame.x + pixel.x, frame.y + pixel.y) === canvas;
+                }),
+            )
+            .toBe(true);
+        const closeZoom = await page.evaluate(() =>
+            (window as unknown as MapFixtureWindow).__trialFixture.map.getZoom(),
+        );
+        await editor.getByRole('button', { name: 'Close waypoint editor', exact: true }).click();
+        await showReview(page);
+        const fit = page.getByRole('button', { name: 'Show whole route', exact: true }).last();
+        await hitVisible(fit);
+        await fit.click();
+        await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
+            'aria-expanded',
+            'false',
+        );
+        await settleGroupedMap(page);
+        await expect
+            .poll(async () => page.evaluate(() => (window as unknown as MapFixtureWindow).__trialFixture.map.getZoom()))
+            .toBeLessThan(closeZoom);
+        await proposalFitsChart(page);
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+                    const source = map.getStyle().sources.trial as mapboxgl.GeoJSONSourceSpecification;
+                    const data = source.data as GeoJSON.FeatureCollection<GeoJSON.LineString>;
+                    const coordinates = data.features.find((feature) => feature.geometry.type === 'LineString')!
+                        .geometry.coordinates;
+                    const canvas = map.getCanvas(),
+                        frame = canvas.getBoundingClientRect();
+                    return [coordinates[0], coordinates.at(-1)!].every((coordinate) => {
+                        const pixel = map.project(coordinate as [number, number]);
+                        return document.elementFromPoint(frame.x + pixel.x, frame.y + pixel.y) === canvas;
+                    });
+                }),
+            )
+            .toBe(true);
+        expect(await routeGeometry(page)).toEqual(original);
+        expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, mapsCreated: 1 });
+        await capture(page, info, `whole-route-after-inspection-${size.width}`);
+    });
+}
+
+test('Waypoint tap target accepts a near-edge touch without changing route geometry', async ({ page }) => {
+    await openFixture(page, sizes[0], 'light', 'ready', false, 'grouped');
+    await calculateSmallFixtureRoute(page);
+    const original = await routeGeometry(page);
+    const cameraBeforeSelection = await page.evaluate(() => {
+        const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+        return { zoom: map.getZoom(), centre: map.getCenter().toArray() };
+    });
+    const target = await page.evaluate(() => {
+        const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+        const source = map.getStyle().sources['trial-review'] as mapboxgl.GeoJSONSourceSpecification;
+        const data = source.data as GeoJSON.FeatureCollection<GeoJSON.Point>;
+        const pin = data.features.find(
+            (feature) => feature.geometry.type === 'Point' && feature.properties?.number === 2,
+        )!;
+        const centre = map.project(pin.geometry.coordinates as [number, number]);
+        const canvas = map.getCanvas(),
+            frame = canvas.getBoundingClientRect();
+        for (const [dx, dy] of [
+            [18, 0],
+            [-18, 0],
+            [0, 18],
+            [0, -18],
+        ]) {
+            const pixel: [number, number] = [centre.x + dx, centre.y + dy];
+            const target = { x: frame.x + pixel[0], y: frame.y + pixel[1] };
+            // Outside the visible 12px marker/stroke: old exact-point hit
+            // testing misses it, but the 44px touch target must select pin2.
+            if (
+                document.elementFromPoint(target.x, target.y) === canvas &&
+                map.queryRenderedFeatures(pixel, { layers: ['trial-waypoints'] }).length === 0
+            )
+                return target;
+        }
+        throw new Error('No exposed near-edge waypoint tap target');
+    });
+    await page.mouse.click(target.x, target.y);
+    await expect(page.getByRole('region', { name: 'Waypoint 2', exact: true })).toBeVisible();
+    await settleGroupedMap(page);
+    const cameraAfterSelection = await page.evaluate(() => {
+        const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+        return { zoom: map.getZoom(), centre: map.getCenter().toArray() };
+    });
+    expect(cameraAfterSelection.zoom).toBeCloseTo(cameraBeforeSelection.zoom, 5);
+    expect(cameraAfterSelection.centre[0]).toBeCloseTo(cameraBeforeSelection.centre[0], 5);
+    expect(cameraAfterSelection.centre[1]).toBeCloseTo(cameraBeforeSelection.centre[1], 5);
+    expect(await routeGeometry(page)).toEqual(original);
+    expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, mapsCreated: 1 });
+});
+
+test('Setup and Review preserve an unsaved planned-route name', async ({ page }) => {
+    await openFixture(page, sizes[0], 'dark');
+    await calculateSmallFixtureRoute(page);
+    const original = await routeGeometry(page);
+    await showReview(page);
+    const save = page.getByRole('button', { name: 'Save as planned route', exact: true });
+    await expect(save).toBeEnabled();
+    await save.click();
+    const name = page.getByRole('textbox', { name: 'Planned route name', exact: true });
+    await name.fill('Newport trial — still reviewing');
+    await name.blur();
+    await showSetup(page);
+    await expect(name).toBeHidden();
+    await showReview(page);
+    await expect(name).toHaveValue('Newport trial — still reviewing');
+    expect(await routeGeometry(page)).toEqual(original);
+    expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, mapsCreated: 1 });
+    // Do not submit: the regression concerns local form state, not saving.
+});
+
+test('ENC passage overview still draws after zooming below the detail floor', async ({ page }, info) => {
+    await openFixture(page, sizes[0], 'dark', 'ready', false, 'overview');
+    await slideToChoice(page);
+    await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+    await setControlsExpanded(page, false);
+    await page.evaluate(() =>
+        (window as unknown as MapFixtureWindow).__trialFixture.map.jumpTo({
+            center: [153.16, -26.68],
+            zoom: 5.8,
+            padding: 0,
+        }),
+    );
+    await expect
+        .poll(() =>
+            page.evaluate(() => {
+                const map = (window as unknown as MapFixtureWindow).__trialFixture.map;
+                return map
+                    .queryRenderedFeatures()
+                    .some((feature) => feature.layer?.id.startsWith('enc-') && feature.layer?.type === 'fill');
+            }),
+        )
+        .toBe(true);
+    await capture(page, info, 'tracer-enc-passage-overview');
+    expect(runtimeErrors.get(page)).toEqual([]);
+});
+
+test('Fine-only chart imports do not pretend to provide a passage overview', async ({ page }) => {
+    await openFixture(page, sizes[0], 'dark');
+    await slideToChoice(page);
+    await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+    await setControlsExpanded(page, false);
+    await page.evaluate(() =>
+        (window as unknown as MapFixtureWindow).__trialFixture.map.jumpTo({
+            center: [153.16, -26.68],
+            zoom: 5.8,
+            padding: 0,
+        }),
+    );
+    await expect(page.getByRole('button', { name: /Reference: chart unavailable at this view/ })).toBeVisible();
+    expect(runtimeErrors.get(page)).toEqual([]);
+});
+
+for (const size of sizes)
+    for (const mode of ['light', 'dark', 'night']) {
+        test(`Exact provider hazards use the fullscreen chart at ${size.width} ${mode}${size.pane ? ' split' : ''}`, async ({
+            page,
+        }, info) => {
+            test.setTimeout(60_000);
+            await openFixture(page, size, mode, 'ready', false, 'provider-unsafe');
+            await slideToChoice(page);
+            await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+            await page.getByRole('button', { name: 'Open water', exact: true }).click();
+            const fullCanvas = await chartRect(page);
+            await fits(page, size.pane);
+            await setControlsExpanded(page, false);
+            expect(await chartRect(page)).toEqual(fullCanvas);
+            await setControlsExpanded(page, true);
+            expect(await chartRect(page)).toEqual(fullCanvas);
+            await page.getByText('Enter coordinates', { exact: true }).click();
+            for (const [name, value] of [
+                ['departure latitude', '-26.68'],
+                ['departure longitude', '153.16'],
+                ['destination latitude', '-26.67'],
+                ['destination longitude', '153.18'],
+            ])
+                await page.getByLabel(name, { exact: true }).fill(value);
+            await page.getByLabel('destination longitude', { exact: true }).blur();
+            await page.getByText('Enter coordinates', { exact: true }).click();
+            await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+            const toggle = page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ });
+            await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+            expect(await chartRect(page)).toEqual(fullCanvas);
+            await expect(
+                page.getByRole('status').filter({ hasText: 'Danger reported · open Route review before proceeding.' }),
+            ).toBeVisible();
+            await showReview(page);
+            const checks = page.getByRole('region', { name: 'Route chart checks', exact: true });
+            const report = checks.getByRole('alert', { name: 'SevenCs provider report', exact: true });
+            await expect(report).toContainText('Fixture provider obstruction');
+            await expect(report).toContainText('Fixture provider area with hole');
+            await expect(report.getByRole('button', { name: 'Locate provider finding 1', exact: true })).toHaveCount(0);
+            await expect
+                .poll(() =>
+                    page.evaluate(
+                        () =>
+                            typeof (window as unknown as { __trialFixture: { releaseReview: unknown } }).__trialFixture
+                                .releaseReview,
+                    ),
+                )
+                .toBe('function');
+            await page.evaluate(() =>
+                (window as unknown as { __trialFixture: { releaseReview: () => void } }).__trialFixture.releaseReview(),
+            );
+            await expect(checks.getByRole('status')).toHaveText(
+                '0 danger · 0 caution · 0 incomplete · 2/2 checked segments',
+            );
+
+            for (const [index, type, layer] of [
+                [0, 'Point', 'trial-provider-point'],
+                [1, 'Polygon', 'trial-provider-fill'],
+            ] as const) {
+                await showReview(page);
+                const locator = report.getByRole('button', {
+                    name: `Locate provider finding ${index + 2}`,
+                    exact: true,
+                    includeHidden: true,
+                });
+                await revealAdvisory(locator);
+                await locator.scrollIntoViewIfNeeded();
+                await hitVisible(locator);
+                await locator.click();
+                await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+                expect(await chartRect(page)).toEqual(fullCanvas);
+                await settleGroupedMap(page);
+                await expect
+                    .poll(() =>
+                        page.evaluate(
+                            ({ index, type, layer }) => {
+                                const fixture = (
+                                    window as unknown as {
+                                        __trialFixture: {
+                                            providerGeometries: GeoJSON.Geometry[];
+                                            map: {
+                                                getStyle(): {
+                                                    sources: Record<
+                                                        string,
+                                                        { data: GeoJSON.Feature | GeoJSON.FeatureCollection }
+                                                    >;
+                                                };
+                                                queryRenderedFeatures(options: { layers: string[] }): GeoJSON.Feature[];
+                                            };
+                                        };
+                                    }
+                                ).__trialFixture;
+                                const data = fixture.map.getStyle().sources['trial-provider-hazard']?.data;
+                                const highlighted = data?.type === 'Feature' ? data : data?.features[0];
+                                return {
+                                    exact:
+                                        JSON.stringify(highlighted?.geometry) ===
+                                        JSON.stringify(fixture.providerGeometries[index]),
+                                    type: highlighted?.geometry.type,
+                                    rendered: fixture.map.queryRenderedFeatures({ layers: [layer] }).length > 0,
+                                    expectedType: type,
+                                };
+                            },
+                            { index, type, layer },
+                        ),
+                    )
+                    .toEqual({ exact: true, type, rendered: true, expectedType: type });
+                await expect
+                    .poll(() =>
+                        page.evaluate((index) => {
+                            const fixture = (
+                                window as unknown as {
+                                    __trialFixture: {
+                                        providerGeometries: Array<GeoJSON.Point | GeoJSON.Polygon>;
+                                        map: {
+                                            project(point: [number, number]): { x: number; y: number };
+                                            getCanvas(): HTMLCanvasElement;
+                                        };
+                                    };
+                                }
+                            ).__trialFixture;
+                            const prompt = document.querySelector('.autoroute-map-prompt')!.getBoundingClientRect();
+                            const canvas = fixture.map.getCanvas().getBoundingClientRect();
+                            const geometry = fixture.providerGeometries[index];
+                            const points =
+                                geometry.type === 'Point' ? [geometry.coordinates] : geometry.coordinates.flat();
+                            return points.every(
+                                (point) =>
+                                    fixture.map.project(point as [number, number]).y + canvas.y <= prompt.top - 4,
+                            );
+                        }, index),
+                    )
+                    .toBe(true);
+                await fits(page, size.pane);
+            }
+            // Rendered fill must preserve the source's hole instead of turning
+            // its camera bounds or centroid into a fabricated hazard polygon.
+            expect(
+                await page.evaluate(() => {
+                    const fixture = (
+                        window as unknown as {
+                            __trialFixture: {
+                                providerGeometries: GeoJSON.Geometry[];
+                                map: {
+                                    project(point: [number, number]): { x: number; y: number };
+                                    queryRenderedFeatures(
+                                        point: { x: number; y: number },
+                                        options: { layers: string[] },
+                                    ): unknown[];
+                                };
+                            };
+                        }
+                    ).__trialFixture;
+                    const point = (fixture.providerGeometries[0] as GeoJSON.Point).coordinates as [number, number];
+                    const inHole = fixture.map.project(point);
+                    const inArea = fixture.map.project([point[0] + 0.0008, point[1]]);
+                    return {
+                        hole: fixture.map.queryRenderedFeatures(inHole, { layers: ['trial-provider-fill'] }).length,
+                        area: fixture.map.queryRenderedFeatures(inArea, { layers: ['trial-provider-fill'] }).length > 0,
+                    };
+                }),
+            ).toEqual({ hole: 0, area: true });
+            await capture(page, info, `provider-polygon-fullscreen-${mode}`);
+            await showReview(page);
+            expect(await chartRect(page)).toEqual(fullCanvas);
+            await expect(report).toContainText('Provider details · source feature 3');
+            await expect(report).toHaveCSS('color', mode === 'light' ? 'rgb(153, 27, 27)' : 'rgb(248, 113, 113)');
+            const sent = await page.evaluate(
+                () =>
+                    (window as unknown as { __trialFixture: { lastRequest: { vesselProfile: unknown } } })
+                        .__trialFixture.lastRequest.vesselProfile,
+            );
+            expect(sent).toMatchObject({
+                draftStatus: 'measured',
+                length: { status: 'measured' },
+                beam: { status: 'measured' },
+                airDraft: { status: 'measured' },
+            });
+            if (size.pane) {
+                await page.getByRole('button', { name: 'Companion action 0' }).click();
+                await expect(page.getByRole('button', { name: 'Companion action 1' })).toBeVisible();
+            }
+            await page.getByRole('button', { name: 'Close autorouting trial', exact: true }).click();
+            expect((await fixtureCounts(page)).mapsRemoved).toBe(1);
+        });
+    }
+
+for (const size of [sizes[0], { width: 1440, height: 900, pane: false }]) {
+    test(`Provider unsafe report remains prominent above local green checks at ${size.width}`, async ({
+        page,
+    }, info) => {
+        test.setTimeout(60_000);
+        await openFixture(page, size, 'dark', 'ready', false, 'provider-unsafe');
+        await slideToChoice(page);
+        await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+        await page.getByRole('button', { name: 'Open water', exact: true }).click();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        for (const [name, value] of [
+            ['departure latitude', '-26.68'],
+            ['departure longitude', '153.16'],
+            ['destination latitude', '-26.67'],
+            ['destination longitude', '153.18'],
+        ])
+            await page.getByLabel(name, { exact: true }).fill(value);
+        await page.getByLabel('destination longitude', { exact: true }).blur();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+        await showReview(page);
+
+        const checks = page.getByRole('region', { name: 'Route chart checks', exact: true });
+        const report = checks.getByRole('alert', { name: 'SevenCs provider report', exact: true });
+        await expect(report).toHaveCount(1);
+        await expect(report.getByRole('heading', { name: 'SevenCs reported an unsafe proposal' })).toBeVisible();
+        await expect(report).toContainText('Do not use this proposal for navigation.');
+        await expect(report).toContainText('Local chart checks below do not override provider findings');
+        await expect(report).toContainText('Fixture unsafe track');
+        await expect(report).toContainText('Fixture provider obstruction');
+        await expect(checks.getByRole('status')).toHaveText('Checking 0/2 detailed route segments…');
+        await expect(report).toHaveCSS('color', 'rgb(248, 113, 113)');
+        await expect(report).toHaveCSS('border-color', 'rgb(248, 113, 113)');
+
+        // The unsafe alert must exist before grading completes, and survive
+        // local green results without relabelling them as provider clearance.
+        await page.evaluate(() => {
+            const fixture = (window as unknown as { __trialFixture: { releaseReview: () => void } }).__trialFixture;
+            fixture.releaseReview();
+        });
+        await expect(checks.getByRole('status')).toHaveText(
+            '0 danger · 0 caution · 0 incomplete · 2/2 checked segments',
+        );
+        await expect(checks).toContainText('Green: no local issue found');
+        await expect(report).toHaveCSS('color', 'rgb(248, 113, 113)');
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const map = (
+                        window as unknown as {
+                            __trialFixture: {
+                                map: {
+                                    queryRenderedFeatures(options: { layers: string[] }): Array<{
+                                        properties: { number: number };
+                                    }>;
+                                    getStyle(): {
+                                        sources: Record<
+                                            string,
+                                            {
+                                                data: {
+                                                    features: Array<{
+                                                        geometry: { type: string };
+                                                        properties: { color: string };
+                                                    }>;
+                                                };
+                                            }
+                                        >;
+                                    };
+                                };
+                            };
+                        }
+                    ).__trialFixture.map;
+                    return {
+                        legColors: map
+                            .getStyle()
+                            .sources['trial-review'].data.features.filter(
+                                (feature) => feature.geometry.type === 'LineString',
+                            )
+                            .map((feature) => feature.properties.color),
+                        labels: [
+                            ...new Set(
+                                map
+                                    .queryRenderedFeatures({ layers: ['trial-waypoint-labels'] })
+                                    .map((feature) => feature.properties.number),
+                            ),
+                        ].sort(),
+                    };
+                }),
+            )
+            .toEqual({ legColors: ['#10b981', '#10b981'], labels: [1, 2, 3] });
+        expect(
+            await checks.evaluate((node) => {
+                const report = node.querySelector('[aria-label="SevenCs provider report"]')!;
+                const localHeading = [...node.querySelectorAll('h3')].find((h) =>
+                    h.textContent?.includes('Waypoints & local chart checks'),
+                )!;
+                return !!(report.compareDocumentPosition(localHeading) & Node.DOCUMENT_POSITION_FOLLOWING);
+            }),
+        ).toBe(true);
+        const heading = report.getByRole('heading', { name: 'SevenCs reported an unsafe proposal' });
+        await heading.scrollIntoViewIfNeeded();
+        await hitVisible(heading);
+        // The complete report can scroll inside the dock; every finding must
+        // remain reachable, but it must not shrink the full-screen map.
+        await fits(page, false);
+        expect(
+            await report.evaluate((node) =>
+                [node, ...node.querySelectorAll('h3, p, li')].every(
+                    (element) => element.scrollWidth <= element.clientWidth + 1,
+                ),
+            ),
+        ).toBe(true);
+        await settleGroupedMap(page);
+        await capture(page, info, 'provider-unsafe-above-local-green');
+        for (const finding of await report.getByRole('listitem').all()) {
+            await finding.scrollIntoViewIfNeeded();
+            await hitVisible(finding);
+        }
+        const localHeading = checks.getByRole('heading', { name: 'Waypoints & local chart checks', exact: true });
+        await localHeading.scrollIntoViewIfNeeded();
+        await hitVisible(localHeading);
+        await fits(page, false);
+        await settleGroupedMap(page);
+        await capture(page, info, 'provider-unsafe-local-checks');
+        expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, manualSelections: 0, mapsCreated: 1 });
+        await page.getByRole('button', { name: 'Close autorouting trial', exact: true }).click();
+        await expect(page.getByRole('dialog', { name: 'Autorouting trial', exact: true })).toHaveCount(0);
+        expect((await fixtureCounts(page)).mapsRemoved).toBe(1);
+    });
+
+    test(`Grouped chart-track warnings retain hazard locations at ${size.width}`, async ({ page }, info) => {
+        test.setTimeout(60_000);
+        await openFixture(page, size, 'dark', 'ready', false, 'grouped');
+        await slideToChoice(page);
+        await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+        await page.getByRole('button', { name: 'Open water', exact: true }).click();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        for (const [name, value] of [
+            ['departure latitude', '-26.68'],
+            ['departure longitude', '153.16'],
+            ['destination latitude', '-26.67'],
+            ['destination longitude', '153.18'],
+        ])
+            await page.getByLabel(name, { exact: true }).fill(value);
+        await page.getByLabel('destination longitude', { exact: true }).blur();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+        await showReview(page);
+
+        const checks = page.getByRole('region', { name: 'Route chart checks', exact: true });
+        const grouped = page.getByRole('region', { name: 'Chart track advisories', exact: true });
+        await expect(grouped.getByRole('listitem')).toHaveCount(1);
+        await expect(grouped).toContainText('Track 1 · Fixture entrance track');
+        await expect(grouped).toContainText('Up to 90 m from charted track');
+        await expect(grouped).toContainText('Detailed route segments 1–2');
+        await expect(checks.getByRole('status')).toHaveText(
+            '1 danger · 1 caution · 0 incomplete · 2/2 checked segments',
+        );
+        await expect(checks.getByText('50 m from charted track — review alignment', { exact: true })).toHaveCount(0);
+        await expect(checks.getByText('90 m from charted track — review alignment', { exact: true })).toHaveCount(0);
+        await expect(checks.getByText('Leg 2→3: danger · 1.0 m least', { exact: true })).toHaveCount(1);
+        await expect(checks.getByText('Needs tide — no tidal clearance or departure window established.')).toHaveCount(
+            1,
+        );
+        await expect.poll(async () => (await groupedReviewState(page)).legColors).toEqual(['#fbbf24', '#f87171']);
+        await expect.poll(async () => (await groupedReviewState(page)).labels).toEqual([1, 2, 3]);
+        const state = await groupedReviewState(page);
+        expect(state.trackIssueCount).toBe(2);
+
+        const summary = grouped.getByRole('button', { name: 'Locate track 1: Fixture entrance track', exact: true });
+        await summary.scrollIntoViewIfNeeded();
+        await hitVisible(summary);
+        await fits(page, false);
+        await settleGroupedMap(page);
+        await capture(page, info, 'grouped-track-summary');
+        await summary.click();
+        await expect.poll(async () => (await groupedReviewState(page)).focus).toEqual(state.worstTrackSpot);
+        await showReview(page);
+        const waypoints = checks.getByRole('list', { name: 'Proposal waypoints' }).getByRole('listitem');
+        await expect(waypoints.nth(2)).toHaveClass(/border-sky-400/);
+
+        const local = checks.getByRole('button', {
+            name: 'Locate track 1 near segment 1',
+            exact: true,
+            includeHidden: true,
+        });
+        await revealAdvisory(local);
+        await local.scrollIntoViewIfNeeded();
+        await hitVisible(local);
+        await local.click();
+        await expect.poll(async () => (await groupedReviewState(page)).focus).toEqual(state.firstTrackSpot);
+
+        for (const [name, spot] of [
+            ['Fixture shallow depth — 1.0 m charted ↗', state.depthSpot],
+            ['Fixture obstruction near route ↗', state.obstructionSpot],
+        ] as const) {
+            await showReview(page);
+            const hazard = checks.getByRole('button', { name, exact: true, includeHidden: true });
+            await revealAdvisory(hazard);
+            await hazard.scrollIntoViewIfNeeded();
+            await hitVisible(hazard);
+            await hazard.click();
+            await expect.poll(async () => (await groupedReviewState(page)).focus).toEqual(spot);
+        }
+        await fits(page, false);
+        await settleGroupedMap(page);
+        await capture(page, info, 'grouped-track-hazards');
+        expect((await groupedReviewState(page)).legColors).toEqual(['#fbbf24', '#f87171']);
+        expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, manualSelections: 0, mapsCreated: 1 });
+        await page.getByRole('button', { name: 'Close autorouting trial', exact: true }).click();
+        await expect(page.getByRole('dialog', { name: 'Autorouting trial', exact: true })).toHaveCount(0);
+        expect((await fixtureCounts(page)).mapsRemoved).toBe(1);
+    });
+}
+
+for (const size of [sizes[0], sizes[2]]) {
+    test(`Sparse 240 NM review keeps the exact 1000-point route and hidden hazard at ${size.width}${size.pane ? ' split' : ''}`, async ({
+        page,
+    }, info) => {
+        test.setTimeout(60_000);
+        await openFixture(page, size, 'dark', 'ready', false, 'sparse');
+        await slideToChoice(page);
+        await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+        await page.getByRole('button', { name: 'Open water', exact: true }).click();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        const endLongitude = 153 + ((240 * 1852) / (6371000 * Math.cos((27 * Math.PI) / 180))) * (180 / Math.PI);
+        for (const [name, value] of [
+            ['departure latitude', '-27'],
+            ['departure longitude', '153'],
+            ['destination latitude', '-27'],
+            ['destination longitude', String(endLongitude)],
+        ])
+            await page.getByLabel(name, { exact: true }).fill(value);
+        await page.getByLabel('destination longitude', { exact: true }).blur();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+        await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
+            'aria-expanded',
+            'false',
+        );
+        await settleGroupedMap(page);
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const fixture = (
+                        window as unknown as {
+                            __trialFixture: {
+                                routeCoordinates: [number, number][];
+                                review: TrialRouteReview;
+                                map: {
+                                    getStyle(): { sources: Record<string, { data: GeoJSON.FeatureCollection }> };
+                                    queryRenderedFeatures(options: {
+                                        layers: string[];
+                                    }): Array<{ properties: { number: number } }>;
+                                };
+                            };
+                        }
+                    ).__trialFixture;
+                    const sources = fixture.map.getStyle().sources;
+                    const route = sources.trial.data.features.find((feature) => feature.geometry.type === 'LineString')
+                        ?.geometry as GeoJSON.LineString | undefined;
+                    const reviewed = sources['trial-review'].data.features;
+                    return {
+                        rawCoordinates: route?.coordinates.length,
+                        exactPath: JSON.stringify(route?.coordinates) === JSON.stringify(fixture.routeCoordinates),
+                        displayPoints: reviewed.filter((feature) => feature.geometry.type === 'Point').length,
+                        checkedSegments: reviewed.filter((feature) => feature.geometry.type === 'LineString').length,
+                        originalChecks: fixture.review.legs.length,
+                        dangerousSegments: reviewed.filter(
+                            (feature) =>
+                                feature.geometry.type === 'LineString' && feature.properties?.color === '#f87171',
+                        ).length,
+                        renderedLabels: [
+                            ...new Set(
+                                fixture.map
+                                    .queryRenderedFeatures({ layers: ['trial-waypoint-labels'] })
+                                    .map((feature) => feature.properties.number),
+                            ),
+                        ].sort((a, b) => a - b),
+                    };
+                }),
+            )
+            .toEqual({
+                rawCoordinates: 1000,
+                exactPath: true,
+                displayPoints: 6,
+                checkedSegments: 999,
+                originalChecks: 999,
+                dangerousSegments: 1,
+                renderedLabels: [1, 2, 3, 4, 5, 6],
+            });
+        await fits(page, size.pane);
+        await capture(page, info, 'sparse-240nm-full-route');
+        await showReview(page);
+        const checks = page.getByRole('region', { name: 'Route chart checks', exact: true });
+        await expect(checks).toContainText('6 waypoints · 1000 detailed route points');
+        await expect(checks.getByRole('status')).toHaveText(
+            '1 danger · 0 caution · 0 incomplete · 999/999 checked segments',
+        );
+        const rows = checks.getByRole('list', { name: 'Proposal waypoints' }).getByRole('listitem');
+        await expect(rows).toHaveCount(6);
+        await expect(rows.nth(3)).toContainText('Leg 3→4: danger · 1.2 m least');
+        await expect(rows.nth(3).getByText('● 4', { exact: true })).toHaveCSS('color', 'rgb(248, 113, 113)');
+        await expect(rows.nth(3)).toContainText('Segment 556');
+        const hazard = checks.getByRole('button', {
+            name: 'Sparse fixture obstruction in original segment 556 ↗',
+            exact: true,
+        });
+        await hazard.scrollIntoViewIfNeeded();
+        await hitVisible(hazard);
+        await capture(page, info, 'sparse-240nm-hidden-segment-warning');
+        await hazard.click();
+        await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
+            'aria-expanded',
+            'false',
+        );
+        await settleGroupedMap(page);
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const fixture = (
+                        window as unknown as {
+                            __trialFixture: {
+                                review: TrialRouteReview;
+                                map: {
+                                    getStyle(): { sources: Record<string, { data: GeoJSON.Feature<GeoJSON.Point> }> };
+                                };
+                            };
+                        }
+                    ).__trialFixture;
+                    const exact = fixture.review.legs[555]!.verdict.issues[0].mark!;
+                    return {
+                        focus: fixture.map.getStyle().sources['trial-focus'].data.geometry.coordinates,
+                        expected: [exact.lon, exact.lat],
+                    };
+                }),
+            )
+            .toEqual({
+                focus: [153 + ((endLongitude - 153) * 556) / 999, -26.9998],
+                expected: [153 + ((endLongitude - 153) * 556) / 999, -26.9998],
+            });
+        await capture(page, info, 'sparse-240nm-exact-hazard-locator');
+        await showReview(page);
+        await expect(rows.nth(3)).toHaveClass(/border-sky-400/);
+        expect(await fixtureCounts(page)).toMatchObject({ calculations: 1, manualSelections: 0, mapsCreated: 1 });
+        await page.getByRole('button', { name: 'Close autorouting trial', exact: true }).click();
+        expect((await fixtureCounts(page)).mapsRemoved).toBe(1);
+    });
+}
+
 async function proposalFitsChart(page: Page) {
     await expect
         .poll(() =>
@@ -174,6 +1332,61 @@ async function proposalFitsChart(page: Page) {
         .toBe(true);
 }
 
+test('Tall proposal endpoints remain visible below the floating controls', async ({ page }, info) => {
+    await openFixture(page, sizes[0], 'dark');
+    await slideToChoice(page);
+    await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+    await page.getByRole('button', { name: 'Open water', exact: true }).click();
+    await page.getByText('Enter coordinates', { exact: true }).click();
+    for (const [name, value] of [
+        ['departure latitude', '-26.7'],
+        ['departure longitude', '153.16'],
+        ['destination latitude', '-26.65'],
+        ['destination longitude', '153.16'],
+    ])
+        await page.getByLabel(name, { exact: true }).fill(value);
+    await page.getByLabel('destination longitude', { exact: true }).blur();
+    await page.getByText('Enter coordinates', { exact: true }).click();
+    await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
+    await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+    );
+    await settleGroupedMap(page);
+    await capture(page, info, 'tall-proposal-collapsed');
+    await expect
+        .poll(() =>
+            page.evaluate(() => {
+                const map = (
+                    window as unknown as {
+                        __trialFixture: {
+                            map: {
+                                getStyle(): { sources: { trial: { data: GeoJSON.FeatureCollection } } };
+                                project(point: [number, number]): { x: number; y: number };
+                                getCanvas(): HTMLCanvasElement;
+                            };
+                        };
+                    }
+                ).__trialFixture.map;
+                const canvas = map.getCanvas();
+                const frame = canvas.getBoundingClientRect();
+                const route = map
+                    .getStyle()
+                    .sources.trial.data.features.find((feature) => feature.geometry.type === 'LineString')?.geometry as
+                    | GeoJSON.LineString
+                    | undefined;
+                return (
+                    !!route &&
+                    [route.coordinates[0], route.coordinates.at(-1)!].every((coordinate) => {
+                        const point = map.project(coordinate as [number, number]);
+                        return document.elementFromPoint(frame.x + point.x, frame.y + point.y) === canvas;
+                    })
+                );
+            }),
+        )
+        .toBe(true);
+});
+
 for (const size of sizes)
     for (const mode of ['light', 'dark', 'night']) {
         test(`Trial proposal stays isolated and usable at ${size.width} ${mode}${size.pane ? ' split' : ''}`, async ({
@@ -219,19 +1432,53 @@ for (const size of sizes)
                 await document.fonts.ready;
             });
             await expect(page.getByRole('button', { name: 'Calculate trial route' })).toBeDisabled();
-            await expect(dialog).toContainText(
+            await expect(dialog).not.toContainText(
                 'Trial departure: leaving now. The scheduled departure on Planning home is not used.',
             );
-            await expect(page.getByLabel('Trial vessel draft in metres', { exact: true })).toHaveValue('1.5');
-            await expect(page.getByLabel('Trial cruising speed in knots', { exact: true })).toHaveValue('6');
+            await expect(page.getByLabel('Trial vessel draft in metres', { exact: true })).toHaveCount(0);
+            await expect(page.getByLabel('Trial cruising speed in knots', { exact: true })).toHaveCount(0);
+            // Real ENC importer, viewport hook and renderer over one tiny
+            // synthetic reference cell — not a photograph masquerading as ENC.
+            await expect
+                .poll(() =>
+                    page.evaluate(() => {
+                        const map = (
+                            window as unknown as {
+                                __trialFixture: { map: { getStyle: () => { layers: { id: string }[] } } };
+                            }
+                        ).__trialFixture.map;
+                        const layers = map.getStyle().layers;
+                        const enc = layers.findIndex((layer) => layer.id === 'enc-vec-depare-fill');
+                        const route = layers.findIndex((layer) => layer.id === 'trial-route');
+                        return enc >= 0 && route > enc;
+                    }),
+                )
+                .toBe(true);
             await fits(page, size.pane);
             await capture(page, info, 'trial-initial');
+            for (const name of ['Canal / marina', 'Open water'])
+                await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'false');
+            await page.getByRole('button', { name: 'Canal / marina', exact: true }).click();
+            await page.getByText('Enter coordinates', { exact: true }).click();
+            await page.getByLabel('canal exit latitude', { exact: true }).fill('-26.675');
+            await page.getByLabel('canal exit longitude', { exact: true }).fill('153.165');
+            await expect(page.getByRole('button', { name: /^canal exit/i })).toContainText('153°');
+            await fits(page, size.pane);
+            await capture(page, info, 'trial-canal-controls');
+            await page.getByText('Enter coordinates', { exact: true }).click();
+            await page.getByRole('button', { name: 'Open water', exact: true }).click();
             const chart = page.getByRole('region', { name: /Trial chart/ });
             const chartBox = await chart.boundingBox();
+            const expandedChart = await chartRect(page);
+            await setControlsExpanded(page, false);
+            expect(await chartRect(page)).toEqual(expandedChart);
             await chart.click({ position: { x: chartBox!.width * 0.4, y: chartBox!.height * 0.4 } });
+            await setControlsExpanded(page, true);
             await expect(page.getByRole('button', { name: /^departure/i })).toContainText(/\d+°\d{2}\.\d{3}′[NS]/);
             await expect(page.getByRole('button', { name: /^departure/i })).toContainText(/\d{3}°\d{2}\.\d{3}′[EW]/);
+            await setControlsExpanded(page, false);
             await chart.click({ position: { x: chartBox!.width * 0.65, y: chartBox!.height * 0.7 } });
+            await setControlsExpanded(page, true);
             await expect(page.getByRole('button', { name: /^destination/i })).toContainText(/\d+°\d{2}\.\d{3}′[NS]/);
             await expect(page.getByRole('button', { name: /^destination/i })).toContainText(/\d{3}°\d{2}\.\d{3}′[EW]/);
             await fits(page, size.pane);
@@ -239,9 +1486,69 @@ for (const size of sizes)
             const calculate = page.getByRole('button', { name: 'Calculate trial route' });
             await expect(calculate).toBeEnabled();
             await calculate.click();
+            await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
+                'aria-expanded',
+                'false',
+            );
+            expect(await chartRect(page)).toEqual(expandedChart);
+            await showReview(page);
             const proposal = page.getByRole('region', { name: 'Trial proposal' });
             await expect(proposal).toContainText('SevenCs proposal');
             await expect(proposal).toContainText('Fixture warning 4');
+            const checks = page.getByRole('region', { name: 'Route chart checks' });
+            await expect(checks).toBeVisible();
+            await expect(checks.getByRole('list', { name: 'Proposal waypoints' }).locator('li')).toHaveCount(3);
+            // The only cell in this fixture is reference-only. It must not
+            // turn any of the real local grader's route segments green.
+            await expect(checks.getByRole('status')).toContainText('incomplete');
+            expect(
+                await page.evaluate(
+                    () => (window as unknown as { __trialFixture: { mapErrors: string[] } }).__trialFixture.mapErrors,
+                ),
+            ).toEqual([]);
+            await expect
+                .poll(() =>
+                    page.evaluate(() => {
+                        const map = (
+                            window as unknown as {
+                                __trialFixture: {
+                                    map: {
+                                        queryRenderedFeatures(options: {
+                                            layers: string[];
+                                        }): { properties: { number: number } }[];
+                                    };
+                                };
+                            }
+                        ).__trialFixture.map;
+                        return [
+                            ...new Set(
+                                map
+                                    .queryRenderedFeatures({ layers: ['trial-waypoint-labels'] })
+                                    .map((f) => f.properties.number),
+                            ),
+                        ].sort();
+                    }),
+                )
+                .toEqual([1, 2, 3]);
+            expect(
+                await page.evaluate(() => {
+                    const map = (
+                        window as unknown as {
+                            __trialFixture: {
+                                map: {
+                                    getStyle(): {
+                                        sources: Record<
+                                            string,
+                                            { data?: { features: { properties: { color: string } }[] } }
+                                        >;
+                                    };
+                                };
+                            };
+                        }
+                    ).__trialFixture.map;
+                    return map.getStyle().sources['trial-review'].data!.features.map((f) => f.properties.color);
+                }),
+            ).not.toContain('#10b981');
             await expect
                 .poll(() =>
                     page.evaluate(() => {
@@ -278,6 +1585,7 @@ for (const size of sizes)
             await fits(page, size.pane);
             await proposalFitsChart(page);
             await capture(page, info, 'trial-proposal');
+            await showSetup(page);
             await calculate.scrollIntoViewIfNeeded();
             await hitVisible(calculate);
             if (size.pane) {
@@ -309,6 +1617,8 @@ for (const size of sizes)
             await page.getByRole('button', { name: 'Clear', exact: true }).click();
             await expect(page.getByLabel('departure latitude', { exact: true })).toHaveValue('');
             await expect(calculate).toBeDisabled();
+            for (const name of ['Canal / marina', 'Open water'])
+                await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'false');
             await page.getByRole('button', { name: 'Close autorouting trial' }).click();
             await expect(dialog).toHaveCount(0);
             await slideToChoice(page);
@@ -363,8 +1673,10 @@ test('authorized but unready Auto opens its chart without calculating', async ({
     await expect(dialog).toContainText('Fixture provider setup is pending.');
     await fits(page, false);
     const chart = page.getByRole('region', { name: /Trial chart/ });
-    await chart.click({ position: { x: 100, y: 100 } });
-    await chart.click({ position: { x: 150, y: 120 } });
+    await setControlsExpanded(page, false);
+    await chart.click({ position: { x: 100, y: 350 } });
+    await chart.click({ position: { x: 150, y: 450 } });
+    await setControlsExpanded(page, true);
     await expect(page.getByRole('button', { name: 'Calculate trial route', exact: true })).toBeDisabled();
     expect(await fixtureCounts(page)).toEqual({
         statuses: 2,
@@ -377,3 +1689,39 @@ test('authorized but unready Auto opens its chart without calculating', async ({
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Slide to Start Plotting', exact: true })).toBeVisible();
 });
+
+for (const [index, mode] of ['dark', 'light', 'night'].entries()) {
+    test(`Automatic canal exit fits phone/pane and retains manual override: ${mode}`, async ({ page }, info) => {
+        const size = sizes[index];
+        await openFixture(page, size, mode, 'ready', true);
+        await slideToChoice(page);
+        await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
+        await page.getByRole('button', { name: 'Canal / marina', exact: true }).click();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        await page.getByLabel('departure latitude', { exact: true }).fill('-27.2');
+        await page.getByLabel('departure longitude', { exact: true }).fill('153.15');
+        await page.getByLabel('destination latitude', { exact: true }).fill('-27');
+        await page.getByLabel('destination longitude', { exact: true }).fill('153.4');
+        await page.getByLabel('destination longitude', { exact: true }).blur();
+        await page.getByText('Enter coordinates', { exact: true }).click();
+        const automatic = page.getByRole('region', { name: 'Automatic channel exit' });
+        await automatic.scrollIntoViewIfNeeded();
+        await expect(automatic).toBeVisible();
+        await expect(page.getByLabel('canal exit latitude')).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Calculate trial route' })).toBeEnabled();
+        await fits(page, size.pane);
+        await capture(page, info, 'automatic-channel-exit');
+        const choose = page.getByRole('button', { name: 'Choose manually' });
+        await choose.scrollIntoViewIfNeeded();
+        await hitVisible(choose);
+        await choose.click();
+        await expect(automatic).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Calculate trial route' })).toBeDisabled();
+        await expect(page.getByRole('button', { name: /^Canal exit/i })).toHaveAttribute('aria-pressed', 'true');
+        await page.getByRole('button', { name: 'Use automatic channel exit' }).click();
+        await expect(automatic).toBeVisible();
+        await fits(page, size.pane);
+        await page.getByRole('button', { name: 'Close autorouting trial' }).click();
+        expect((await fixtureCounts(page)).calculations).toBe(0);
+    });
+}

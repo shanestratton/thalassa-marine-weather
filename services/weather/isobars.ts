@@ -7,7 +7,7 @@
  *
  * Pipeline:
  *   1. Fetch a global GFS pressure grid (or validate the fallback grid)
- *   2. Marching-squares contour algorithm → polylines at 4hPa intervals
+ *   2. Marching-squares contours → 4hPa overview / 2hPa closer-view detail
  *   3. Detect H/L pressure centers (local extrema)
  *   4. Return GeoJSON Feature Collections for Mapbox GL rendering
  */
@@ -64,7 +64,7 @@ interface IsobarResult {
 
 // ── Constants ──────────────────────────────────────────────────
 
-const ISOBAR_INTERVAL = 4; // hPa between contour lines (synoptic standard)
+const ISOBAR_INTERVAL = 2; // Genuine intermediate contours; the renderer hides detail at world zoom.
 const GRID_RESOLUTION = 1.0; // degrees (1° ≈ 111km — fast, sufficient for synoptic scale)
 const _GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
@@ -112,6 +112,8 @@ async function fetchPressureGridGfs(
     west: number,
     east: number,
 ): Promise<PressureGrid | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
     try {
         const url = `${SUPABASE_URL}/functions/v1/fetch-pressure-grid`;
         const res = await fetch(url, {
@@ -121,6 +123,7 @@ async function fetchPressureGridGfs(
                 Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
             },
             body: JSON.stringify({ north, south, east, west, hours: GRIB_FORECAST_HOURS }),
+            signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -129,7 +132,7 @@ async function fetchPressureGridGfs(
 
         const data: GfsGridResponse = await res.json();
 
-        if (!data.frames || data.frames.length === 0) return null;
+        if (!data.frames || data.frames.length === 0 || !Number.isFinite(Date.parse(data.refTime ?? ''))) return null;
 
         const { lats, lons, frames } = data;
         if (!Array.isArray(lats) || !Array.isArray(lons) || !Array.isArray(frames) || frames.length === 0) {
@@ -140,7 +143,12 @@ async function fetchPressureGridGfs(
         const totalHours = frames.length;
 
         // Sanity check: lat/lon values must be in valid geographic range
-        if (lats.some((l) => Math.abs(l) > 90.1) || lons.some((l) => Math.abs(l) > 360.1)) {
+        if (
+            rows < 3 ||
+            cols < 3 ||
+            lats.some((l) => !Number.isFinite(l) || Math.abs(l) > 90.1) ||
+            lons.some((l) => !Number.isFinite(l) || Math.abs(l) > 360.1)
+        ) {
             return null;
         }
 
@@ -153,7 +161,12 @@ async function fetchPressureGridGfs(
             (frame) =>
                 Array.isArray(frame) &&
                 frame.length === frameRows &&
-                frame.every((row) => Array.isArray(row) && row.length === frameCols && row.every(Number.isFinite)),
+                frame.every(
+                    (row) =>
+                        Array.isArray(row) &&
+                        row.length === frameCols &&
+                        row.every((p) => Number.isFinite(p) && p >= 800 && p <= 1100),
+                ),
         );
         if (!rectangular) {
             log.warn('[ISOBAR] Rejected malformed GFS pressure-grid rows');
@@ -254,6 +267,8 @@ async function fetchPressureGridGfs(
         };
     } catch (e) {
         return null;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -304,6 +319,7 @@ export async function fetchPressureGrid(
         // Fetch all forecast hours of pressure + wind in one request
         const results = await fetchOpenMeteoPoints<{
             hourly?: {
+                time?: string[];
                 pressure_msl?: number[];
                 wind_speed_10m?: number[];
                 wind_direction_10m?: number[];
@@ -315,6 +331,8 @@ export async function fetchPressureGrid(
             // would make grid index h represent different UTC instants across
             // the globe and distort moving synoptic systems.
             timezone: 'UTC',
+            // One global model, not a different Best Match model in each cell.
+            models: 'ncep_gfs025',
         });
 
         const uniqueLats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
@@ -323,6 +341,25 @@ export async function fetchPressureGrid(
         // Determine actual number of hours returned
         const sampleHourly = results[0]?.hourly?.pressure_msl;
         const totalHours = sampleHourly?.length ?? FORECAST_HOURS;
+        const times = results[0]?.hourly?.time;
+        const utcMs = (value: string) => Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
+        if (
+            !times ||
+            times.length !== totalHours ||
+            totalHours < 2 ||
+            times.some(
+                (value, i) =>
+                    !Number.isFinite(utcMs(value)) || (i > 0 && utcMs(value) - utcMs(times[i - 1]) !== 3_600_000),
+            ) ||
+            results.some(
+                (point) =>
+                    point.hourly?.time?.length !== totalHours ||
+                    point.hourly.time.some((value, i) => utcMs(value) !== utcMs(times[i])),
+            )
+        ) {
+            log.warn('[ISOBAR] Rejected fallback grid without a shared hourly UTC axis');
+            return null;
+        }
 
         // Build hourly grids indexed by hour
         const allHourlyPressure: number[][][] = [];
@@ -341,7 +378,12 @@ export async function fetchPressureGrid(
                     const idx = r * uniqueLons.length + c;
                     const hourly = results[idx]?.hourly;
                     const pressure = hourly?.pressure_msl?.[h];
-                    if (typeof pressure !== 'number' || !Number.isFinite(pressure)) {
+                    if (
+                        typeof pressure !== 'number' ||
+                        !Number.isFinite(pressure) ||
+                        pressure < 800 ||
+                        pressure > 1100
+                    ) {
                         log.warn('[ISOBAR] Rejected incomplete Open-Meteo fallback pressure grid');
                         return null;
                     }
@@ -367,11 +409,10 @@ export async function fetchPressureGrid(
             rows: uniqueLats.length,
             cols: uniqueLons.length,
             totalHours,
-            // Open-Meteo's hourly forecast is already wall-clock aligned
-            // (hour 0 of its output corresponds to wall-clock "now"),
-            // so we signal that by setting refTime to the current time
-            // and subFrameStepHours to 1. Net effect: nowIdx = 0.
-            refTime: new Date().toISOString(),
+            // The first provider timestamp is the axis origin, NOT the fetch
+            // clock (which may be 59 minutes later, or a cached response).
+            // This is a valid-time origin, not an exposed model run time.
+            refTime: new Date(utcMs(times[0])).toISOString(),
             keyframeFhrs: Array.from({ length: totalHours }, (_, i) => i),
             subFrameStepHours: 1,
             source: 'open-meteo',
@@ -851,6 +892,7 @@ export async function generateIsobars(
 /** Cache for heatmap reuse across interpolated sub-frames */
 let _heatmapCache: { dataUrl: string; bounds: [number, number, number, number] } | null = null;
 let _heatmapCacheHour = -1;
+let _heatmapCacheGrid: PressureGrid | null = null;
 /**
  * How far a sub-frame may borrow a keyframe's wash. With KEYFRAME_INTERVAL 2
  * in useWeatherLayers, a sub-frame is at most one frame from its keyframe, so
@@ -884,10 +926,7 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
         for (const chain of chains) {
             contourFeatures.push({
                 type: 'Feature',
-                // Every second 4 hPa contour is a quiet visual major. The
-                // field still contains the full synoptic 4 hPa spacing; the
-                // renderer uses this flag to make the chart easier to scan.
-                properties: { pressure: level, label: `${level}`, isMajor: level % 8 === 0 },
+                properties: { pressure: level, label: `${level}`, isMajor: level % 8 === 0, isDetail: level % 4 !== 0 },
                 geometry: { type: 'LineString', coordinates: chain },
             });
         }
@@ -921,8 +960,13 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
             heatmapBounds = heatmap.bounds;
             _heatmapCache = heatmap;
             _heatmapCacheHour = hour;
+            _heatmapCacheGrid = grid;
         }
-    } else if (_heatmapCache && Math.abs(hour - _heatmapCacheHour) <= MAX_HEATMAP_REUSE_FRAMES) {
+    } else if (
+        _heatmapCache &&
+        _heatmapCacheGrid === grid &&
+        Math.abs(hour - _heatmapCacheHour) <= MAX_HEATMAP_REUSE_FRAMES
+    ) {
         // Sub-frames borrow the last keyframe's wash rather than re-painting
         // and re-encoding a canvas per frame — that cost is exactly what the
         // 2026-08-02 chunking audit was fixing, so it stays.

@@ -1,10 +1,10 @@
 /**
  * EncAttributionChip — viewport-aware ENC source credit.
  *
- * Shows a small chip in the bottom-left of the map listing which
- * hydrographic offices' data the user is currently looking at. IHO
- * standard practice — every chart display has source attribution
- * visible whenever surveyed data is being shown.
+ * Shows renderer lifecycle separately from the available source inventory.
+ * Bbox-intersecting imports are NOT a count of painted charts or route
+ * coverage: scale selection, memory caps and missing local blobs can all
+ * make those counts differ. The source drawer preserves raw import identity.
  *
  * Visibility rules:
  *  - Hidden when no ENC cells intersect the current viewport.
@@ -12,8 +12,8 @@
  *  - Re-evaluates on every map `moveend` (panning, zooming).
  *  - Re-evaluates on cell-list changes (import / remove).
  *
- * Format: "Charts: AHO ed.4 (2024)" for one source, or
- *         "Charts: AHO, NOAA" for multiple, with a tooltip listing
+ * Format: "ENC: AHO ed.4 (2024)" for one source, or
+ *         "ENC: AHO, NOAA" for multiple, with a tooltip listing
  *         every cell in detail when the user taps the chip.
  */
 
@@ -21,9 +21,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
 import { chartAgeLabel, chartAgeYears, isChartStale } from '../../services/enc/chartCurrency';
-import { getCoverage as getEncCoverage, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
+import { getDisplayCoverage, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import type { EncCatzoc, EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
+import { EMPTY_ENC_DISPLAY, getEncDisplayState, subscribeEncDisplay } from './encDisplayState';
 
 // ── Bbox helpers ──────────────────────────────────────────────────
 
@@ -100,11 +101,14 @@ function summariseSources(cells: EncCell[]): { ho: string; latestIssued: string;
 interface EncAttributionChipProps {
     mapRef: React.MutableRefObject<mapboxgl.Map | null>;
     mapReady: boolean;
+    /** Compact maps have their own controls below the chart, not over it. */
+    bottom?: number;
 }
 
-export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, mapReady }) => {
+export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, mapReady, bottom }) => {
     const [cellsInView, setCellsInView] = useState<EncCell[]>([]);
     const [expanded, setExpanded] = useState(false);
+    const [display, setDisplay] = useState(EMPTY_ENC_DISPLAY);
 
     const recompute = useCallback(() => {
         const map = mapRef.current;
@@ -112,7 +116,10 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             setCellsInView([]);
             return;
         }
-        const all = getEncCoverage();
+        // Attribute everything the renderer can paint, but never let an
+        // unsigned library overlay inherit the authority of an ENC cell.
+        // Previously reference-only water had no source chip at all.
+        const all = getDisplayCoverage();
         if (all.length === 0) {
             setCellsInView([]);
             return;
@@ -142,7 +149,23 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
         return subscribeToEnc(() => recompute());
     }, [recompute]);
 
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapReady || !map) return;
+        const update = () => setDisplay(getEncDisplayState(map));
+        update();
+        return subscribeEncDisplay(map, update);
+    }, [mapRef, mapReady]);
+
     if (cellsInView.length === 0) return null;
+
+    const navigationInView = cellsInView.filter((cell) => cell.usage !== 'reference');
+    const referenceInView = cellsInView.filter((cell) => cell.usage === 'reference');
+    const referenceOnly = navigationInView.length === 0;
+    // Keep the compact source/edition/confidence about the navigation data
+    // when both authorities overlap. The extra reference layer is identified
+    // separately, not combined into a stronger-looking source summary.
+    const attributedCells = referenceOnly ? referenceInView : navigationInView;
 
     // Freshly-registered cloud cells carry a placeholder identity
     // (sourceHO 'cloud', ed.0, no issue date) until their blob lands —
@@ -150,8 +173,8 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
     // (2026-07-12 audit). Real cells drive the label; edition/year come
     // from a cell of the SAME HO as the label (they used to be paired
     // from whichever cell happened to be first in view).
-    const hydratedInView = cellsInView.filter((c) => c.sourceHO !== 'cloud' && c.edition > 0 && c.issued);
-    const sources = summariseSources(hydratedInView.length > 0 ? hydratedInView : cellsInView);
+    const hydratedInView = attributedCells.filter((c) => c.sourceHO !== 'cloud' && c.edition > 0 && c.issued);
+    const sources = summariseSources(hydratedInView.length > 0 ? hydratedInView : attributedCells);
     let compactLabel: string;
     if (hydratedInView.length === 0) {
         compactLabel = 'downloading…';
@@ -172,11 +195,22 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
     const ageYears = chartAgeYears(latestIssued, Date.now());
     const stale = isChartStale(ageYears);
     const ageLabel = chartAgeLabel(ageYears);
-    const worstCatzoc = worstCatzocInView(cellsInView);
+    const worstCatzoc = worstCatzocInView(navigationInView);
     const catTone = catzocTone(worstCatzoc);
     // The emerald frame reads as "trust green" — drop it whenever the data
     // behind it isn't trustworthy (stale edition or low/no CATZOC) — audit #5.
-    const frameCaution = stale || isLowConfidenceCatzoc(worstCatzoc);
+    const frameCaution =
+        display.phase !== 'loaded' || display.overview || referenceOnly || stale || isLowConfidenceCatzoc(worstCatzoc);
+    const displayLabel =
+        display.phase === 'loaded'
+            ? `${display.overview ? 'Overview · ' : ''}${display.loadedCells} loaded`
+            : display.phase === 'loading'
+              ? 'loading chart…'
+              : display.phase === 'off'
+                ? 'display off'
+                : display.phase === 'zoom-in'
+                  ? 'zoom in for charts'
+                  : 'chart unavailable at this view';
     const tone = stale
         ? {
               dot: 'bg-amber-400',
@@ -203,7 +237,10 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             className="absolute right-2 z-140 pointer-events-auto max-w-[280px]"
             // Above the Mapbox ⓘ + scale stack, lifted to 4rem + 73px (≈ 137–193px
             // above the inset) to clear the Locate fab on 2026-09-06.
-            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 204px)' }}
+            style={{
+                bottom: bottom ?? 'calc(env(safe-area-inset-bottom) + 204px)',
+                maxWidth: 'min(280px, calc(100% - 16px))',
+            }}
             role="contentinfo"
             aria-label="ENC chart attribution"
         >
@@ -214,12 +251,10 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             >
                 <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} aria-hidden="true" />
                 <span className={`font-bold ${frameCaution ? 'text-amber-300' : 'text-emerald-300'}`}>
-                    {'⚓'} Charts:
+                    {'⚓'} {referenceOnly ? 'Reference:' : 'ENC:'}{' '}
                 </span>
-                <span>{compactLabel}</span>
-                {cellsInView.length > 1 && (
-                    <span className="text-emerald-300/70 ml-1">· {cellsInView.length} cells</span>
-                )}
+                <span>{displayLabel}</span>
+                {referenceOnly && <span className="text-amber-300">· display only</span>}
                 {stale && (
                     <span
                         className="ml-1 font-bold text-amber-300"
@@ -232,10 +267,24 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
 
             {expanded && (
                 <div className="mt-1 rounded-lg border border-emerald-400/20 bg-black/80 backdrop-blur-xs px-2 py-2 text-[11px] leading-snug text-emerald-100/80 max-h-[40vh] overflow-y-auto">
-                    <p className="mb-1 text-[11px] uppercase tracking-wider text-emerald-300/75">In view</p>
+                    <p className="mb-1 text-[11px] uppercase tracking-wider text-emerald-300/75">
+                        Available imports · {cellsInView.length} cells
+                    </p>
+                    <p className="mb-2">
+                        {compactLabel}
+                        {!referenceOnly && referenceInView.length > 0 ? ` · ${referenceInView.length} reference` : ''}
+                    </p>
+                    <p className="mb-2 text-amber-200">
+                        {display.overview ? 'Passage overview — zoom in for chart detail. ' : ''}
+                        Imported and loaded counts are not rendered coverage. Chart gaps and scale-dependent detail
+                        remain; check each leg close up.
+                    </p>
                     {cellsInView.map((cell) => (
                         <div key={cell.id} className="mb-1 last:mb-0">
                             <span className="font-mono text-emerald-200">{cell.id}</span>
+                            {cell.usage === 'reference' && (
+                                <span className="text-amber-300"> · reference only — not navigation coverage</span>
+                            )}
                             <span className="text-emerald-300/70">
                                 {cell.sourceHO === 'cloud'
                                     ? ' · downloading…'
@@ -252,10 +301,12 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                             )}
                         </div>
                     ))}
-                    <p className={`mt-2 text-[11px] ${tone.text}`}>
-                        <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle ${tone.dot}`} />
-                        Worst confidence in view: {tone.label}
-                    </p>
+                    {!referenceOnly && (
+                        <p className={`mt-2 text-[11px] ${tone.text}`}>
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle ${tone.dot}`} />
+                            Available ENC confidence: {tone.label}
+                        </p>
+                    )}
                     {ageLabel && (
                         <p className={`mt-1 text-[11px] ${stale ? 'text-amber-300' : 'text-emerald-300/75'}`}>
                             Latest edition ~{ageLabel} old
@@ -263,7 +314,10 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                         </p>
                     )}
                     <p className="mt-1 text-[11px] text-emerald-300/70 italic">
-                        Source: hydrographic offices. Verify visually before navigation.
+                        {referenceOnly
+                            ? 'Reference display only. These imports do not establish charted navigation coverage.'
+                            : 'Imported ENC layers, rendered by Thalassa. Basemap and reference layers do not establish charted navigation coverage.'}{' '}
+                        Check source, chart updates and local conditions before navigation.
                     </p>
                 </div>
             )}

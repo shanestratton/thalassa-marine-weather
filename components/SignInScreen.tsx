@@ -183,7 +183,13 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 aria-modal={emailMode ? undefined : 'true'}
                 aria-labelledby="sign-in-title"
                 aria-hidden={emailMode || undefined}
-                className="bg-slate-950 flex flex-col items-center justify-center px-6 overflow-hidden"
+                className="bg-slate-950 flex flex-col items-center px-6 overflow-x-hidden overflow-y-auto overscroll-contain"
+                style={{
+                    paddingTop: onClose
+                        ? 'max(5rem, calc(env(safe-area-inset-top) + 4rem))'
+                        : 'max(1.5rem, env(safe-area-inset-top))',
+                    paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
+                }}
             >
                 <h2 id="sign-in-title" className="sr-only">
                     Sign in to Thalassa
@@ -230,9 +236,9 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 stay exactly as designed. The pulse keyframe (below)
                 animates a teal drop-shadow-sm around it so the mark
                 breathes like a beacon. */}
-                <div className="relative z-10 mb-8 flex flex-col items-center text-center">
+                <div className="relative z-10 mt-auto mb-6 flex shrink-0 flex-col items-center text-center">
                     <div
-                        className="w-40 sm:w-44 flex items-center justify-center"
+                        className="w-32 sm:w-40 flex items-center justify-center"
                         style={{
                             animation: 'signInPulse 4s ease-in-out infinite',
                         }}
@@ -274,7 +280,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 a soft sky frame so the area reads as a deliberate
                 conversion moment, not just two stock buttons floating
                 on a dark page. */}
-                <div className="relative z-10 w-full max-w-sm">
+                <div className="relative z-10 w-full max-w-sm shrink-0">
                     {/* Optional contextual prompt — when a caller says
                     "Sign in to restore your vessel" we render it
                     here in a quiet italic sky line above the buttons.
@@ -402,13 +408,11 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     )}
                 </div>
 
-                {/* Footer — the gentle trust aside (legal copy lives in the
-                Disclaimer modal). PINNED to the viewport bottom: it had BOTH
-                `relative` and `absolute` classes, and when `relative` won the
-                cascade it fell into normal flow right under the button and
-                overlapped it (Shane 2026-07-17: "words under the CTA button").
-                Pure absolute now, clear of the centred content. */}
-                <div className="absolute bottom-6 left-6 right-6 z-10 text-center">
+                {/* Keep privacy copy after every sign-in action in normal flow.
+                Top/bottom auto margins centre the complete group when it fits;
+                on short screens they collapse so nothing overflows above the
+                scroll origin or floats across a provider button. */}
+                <footer className="relative z-10 mt-6 mb-auto w-full shrink-0 text-center">
                     <p className="text-[10px] text-slate-500 leading-relaxed max-w-xs mx-auto">
                         Signing in enables automatic private cloud sync. Location is sent only when a weather, map,
                         Guardian, route, or AI feature you request needs it.
@@ -423,7 +427,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                             Terms &amp; Privacy
                         </a>
                     </p>
-                </div>
+                </footer>
 
                 {/* Pulse keyframe — drop-shadow-sm filter rather than the
                 old disc-based box-shadow, because the lockup is now a

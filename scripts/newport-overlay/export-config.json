@@ -1,0 +1,19 @@
+{
+    "attributes": { "type": true, "id": true },
+    "linear_tags": true,
+    "area_tags": true,
+    "include_tags": [
+        "natural",
+        "waterway",
+        "water",
+        "leisure",
+        "man_made",
+        "floating",
+        "barrier",
+        "aeroway",
+        "bridge",
+        "area",
+        "seamark:type",
+        "seamark:navigation_line:category"
+    ]
+}

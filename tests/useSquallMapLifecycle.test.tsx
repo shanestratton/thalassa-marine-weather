@@ -28,6 +28,8 @@ function deferred<T>() {
 function makeMap() {
     const sources = new Set<string>();
     const layers = new Set<string>();
+    let maxZoom = 22;
+    let minZoom = 0;
     const map = {
         __ausNzMinZoom: 3,
         getSource: vi.fn((id: string) => (sources.has(id) ? {} : undefined)),
@@ -38,10 +40,14 @@ function makeMap() {
         removeLayer: vi.fn((id: string) => layers.delete(id)),
         getStyle: vi.fn(() => ({ layers: [] })),
         getContainer: vi.fn(() => document.createElement('div')),
-        getMaxZoom: vi.fn(() => 22),
-        getMinZoom: vi.fn(() => 0),
-        setMaxZoom: vi.fn(),
-        setMinZoom: vi.fn(),
+        getMaxZoom: vi.fn(() => maxZoom),
+        getMinZoom: vi.fn(() => minZoom),
+        setMaxZoom: vi.fn((value: number) => {
+            maxZoom = value;
+        }),
+        setMinZoom: vi.fn((value: number) => {
+            minZoom = value;
+        }),
         getZoom: vi.fn(() => 3),
         flyTo: vi.fn(),
         easeTo: vi.fn(),
@@ -54,6 +60,45 @@ function makeMap() {
 describe('useSquallMap request lifecycle', () => {
     beforeEach(() => {
         vi.stubEnv('VITE_SUPABASE_URL', 'https://thalassa.example');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => ({ ok: true, json: async () => ({ snapshot: null }) })),
+        );
+    });
+
+    it('loads passage squalls without moving or constraining the map, including when HUD closes', async () => {
+        const { map } = makeMap();
+        const ref = { current: map as never };
+        const hook = renderHook(
+            ({ preserveViewport }) => useSquallMap(ref, true, true, -27, 153, undefined, undefined, preserveViewport),
+            { initialProps: { preserveViewport: true } },
+        );
+        await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+        hook.rerender({ preserveViewport: false });
+        expect(map.flyTo).not.toHaveBeenCalled();
+        expect(map.easeTo).not.toHaveBeenCalled();
+        expect(map.setMinZoom).not.toHaveBeenCalled();
+        expect(map.setMaxZoom).not.toHaveBeenCalled();
+        expect(map.on).not.toHaveBeenCalledWith('zoomend', expect.anything());
+        hook.unmount();
+    });
+
+    it('releases standalone squall camera limits when the HUD takes over', () => {
+        const { map } = makeMap();
+        const ref = { current: map as never };
+        const hook = renderHook(
+            ({ preserveViewport }) => useSquallMap(ref, true, true, -27, 153, undefined, undefined, preserveViewport),
+            { initialProps: { preserveViewport: false } },
+        );
+        expect(map.flyTo).toHaveBeenCalledOnce();
+        expect(map.getMinZoom()).toBe(3);
+        expect(map.getMaxZoom()).toBe(8);
+        hook.rerender({ preserveViewport: true });
+        expect(map.getMinZoom()).toBe(0);
+        expect(map.getMaxZoom()).toBe(22);
+        expect(map.off).toHaveBeenCalledWith('zoomend', expect.anything());
+        expect(map.flyTo).toHaveBeenCalledOnce();
+        hook.unmount();
     });
 
     afterEach(() => {

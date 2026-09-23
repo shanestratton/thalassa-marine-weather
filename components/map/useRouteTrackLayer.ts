@@ -2,7 +2,7 @@
  * useRouteTrackLayer — render ONE selected route or track on the chart.
  *
  * Used twice in MapHub:
- *   - For the "Routes" Charts entry → green colour, dashed line
+ *   - For the "Routes" Charts entry → purple colour, solid line
  *   - For the "Tracks" Charts entry → amber colour, solid line
  *
  * Both instances are independent so a user can have a planned route
@@ -12,8 +12,8 @@
  * On select:
  *   1. Builds a GeoJSON LineString from the selected item's points
  *   2. Mounts the source + layer (line + glow + endpoint dots)
- *   3. fitBounds() to the item's bbox so the chart immediately frames
- *      the whole route — no panning required
+ *   3. fitBounds() on an explicit selection change. Geometry updates and
+ *      basemap reloads redraw without taking the chart away from the skipper.
  *
  * On clear (item === null):
  *   - Removes source + layer + endpoint markers
@@ -21,12 +21,13 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
+import { getPassageLookAhead } from '../../stores/passageHudStore';
 
 export type RouteTrackVariant = 'route' | 'track';
 
 const VARIANT_STYLE: Record<
     RouteTrackVariant,
-    { color: string; glowColor: string; dasharray: number[] | null; startLabel: string; endLabel: string }
+    { color: string; glowColor: string; startLabel: string; endLabel: string }
 > = {
     route: {
         // Violet (purple-500) — distinct from the sky-blue the active
@@ -37,14 +38,12 @@ const VARIANT_STYLE: Record<
         //   amber     = recorded track (useRouteTrackLayer track variant)
         color: '#a855f7',
         glowColor: 'rgba(168, 85, 247, 0.35)',
-        dasharray: [2.2, 1.6], // dashed: this is a PLAN, not an actual path
         startLabel: 'A',
         endLabel: 'B',
     },
     track: {
         color: '#fbbf24', // amber-400 — actually-sailed
         glowColor: 'rgba(251, 191, 36, 0.35)',
-        dasharray: null, // solid: this is what really happened
         startLabel: '◉',
         endLabel: '⚑',
     },
@@ -59,25 +58,26 @@ interface Args {
 }
 
 export function useRouteTrackLayer({ mapRef, mapReady, variant, selected }: Args) {
-    const sourceId = `routetrack-${variant}-source`;
-    const lineId = `routetrack-${variant}-line`;
-    const glowId = `routetrack-${variant}-glow`;
-    const startMarkerRef = useRef<mapboxgl.Marker | null>(null);
-    const endMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    const selectedRef = useRef(selected);
+    selectedRef.current = selected;
+    const syncRef = useRef<(() => void) | null>(null);
+    const fittedRef = useRef<{ map: mapboxgl.Map; variant: RouteTrackVariant; id: string } | null>(null);
+    const hasSelection = selected !== null;
 
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !mapReady) return;
+        if (!map || !mapReady || !hasSelection) return;
 
-        // The z-order re-assert armed below — cleanup must detach it or
-        // every route pick leaks one idle listener for the map's lifetime.
-        let idleHandler: (() => void) | null = null;
+        const sourceId = `routetrack-${variant}-source`;
+        const lineId = `routetrack-${variant}-line`;
+        const glowId = `routetrack-${variant}-glow`;
+        const style = VARIANT_STYLE[variant];
+        let startMarker: mapboxgl.Marker | null = null;
+        let endMarker: mapboxgl.Marker | null = null;
+        let lastPoints: RouteOrTrack['points'] | null = null;
+        let lastSource: mapboxgl.GeoJSONSource | null = null;
 
-        const cleanup = () => {
-            if (idleHandler) {
-                map.off('idle', idleHandler);
-                idleHandler = null;
-            }
+        const clear = () => {
             try {
                 if (map.getLayer(lineId)) map.removeLayer(lineId);
             } catch {
@@ -93,126 +93,136 @@ export function useRouteTrackLayer({ mapRef, mapReady, variant, selected }: Args
             } catch {
                 /* missing */
             }
-            if (startMarkerRef.current) {
-                startMarkerRef.current.remove();
-                startMarkerRef.current = null;
-            }
-            if (endMarkerRef.current) {
-                endMarkerRef.current.remove();
-                endMarkerRef.current = null;
-            }
+            startMarker?.remove();
+            startMarker = null;
+            endMarker?.remove();
+            endMarker = null;
+            lastPoints = null;
+            lastSource = null;
         };
 
-        if (!selected || selected.points.length < 2) {
-            cleanup();
-            return;
-        }
-
-        // Always rebuild from scratch — switching from one route to
-        // another is just as much work as a fresh mount and avoids
-        // setData edge cases when bounds change dramatically.
-        cleanup();
-
-        const coords: GeoJSON.Position[] = selected.points.map((p) => [p.lon, p.lat]);
-        const feature: GeoJSON.Feature<GeoJSON.LineString> = {
-            type: 'Feature',
-            properties: {},
-            geometry: { type: 'LineString', coordinates: coords },
-        };
-
-        map.addSource(sourceId, { type: 'geojson', data: feature });
-
-        const style = VARIANT_STYLE[variant];
-
-        // NO beforeId, and a z-order OWNER (field bug 2026-08-03: "the
-        // tracks are just flashing on the screen, then they disappear —
-        // the start and finish points are there though"). The old
-        // insert-beneath-the-first-symbol-layer anchor was computed at
-        // pick time, and every ENC cell and weather layer that mounts
-        // asynchronously afterwards inserts ABOVE that anchor — so the
-        // line drew once and was then entombed, while the DOM endpoint
-        // markers floated on happily above the canvas. Same disease the
-        // tracer had ("waypoints but no line between them"); same cure:
-        // add at the top of the style, then re-assert on every map idle
-        // with ZERO writes at steady state so promotion can never feed a
-        // repaint→idle loop.
-        //
-        // Glow underlay — soft halo so the line stays visible against
-        // busy basemaps (satellite, weather rasters).
-        map.addLayer({
-            id: glowId,
-            type: 'line',
-            source: sourceId,
-            paint: {
-                'line-color': style.glowColor,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 6, 10, 14, 16, 20],
-                'line-blur': 4,
-                'line-opacity': 0.85,
-            },
-        });
-        // Main line.
-        map.addLayer({
-            id: lineId,
-            type: 'line',
-            source: sourceId,
-            paint: {
-                'line-color': style.color,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.6, 10, 3.2, 16, 4.8],
-                'line-opacity': 0.95,
-                ...(style.dasharray ? { 'line-dasharray': style.dasharray } : {}),
-            },
-        });
-
-        // Re-assert on idle: late ENC/imagery mounts land on top of the
-        // style and bury the line. Only write when actually buried — a
-        // clean pass makes zero style mutations, which is what lets this
-        // listener stay armed for the whole selection without looping.
+        // Late ENC/imagery can bury either line. Route and track form one
+        // foreground group: ignoring the sibling avoids two idle handlers
+        // continuously promoting their own line above one another.
         const ensureOnTop = () => {
+            const order = (map.getStyle()?.layers ?? []).map((layer) => layer.id);
+            const glowAt = order.indexOf(glowId);
+            const lineAt = order.indexOf(lineId);
+            if (glowAt < 0 || lineAt < 0) return;
+            const buried = order.slice(glowAt + 1).some((id) => !/^routetrack-(route|track)-(glow|line)$/.test(id));
+            if (!buried && lineAt > glowAt) return;
+            map.moveLayer(glowId);
+            map.moveLayer(lineId);
+        };
+
+        const sync = () => {
+            const item = selectedRef.current;
+            if (!item || item.points.length < 2) {
+                clear();
+                return;
+            }
+            // A style swap removes canvas sources/layers but leaves DOM
+            // markers. Keep those markers and restore from the latest points.
+            if (!map.isStyleLoaded()) return;
             try {
-                const order = (map.getStyle()?.layers ?? []).map((l) => l.id);
-                const lineAt = order.indexOf(lineId);
-                if (lineAt < 0) return;
-                const buriedBy = order.slice(lineAt + 1).filter((id) => id !== glowId && id !== lineId);
-                if (buriedBy.length === 0) return;
-                map.moveLayer(glowId);
-                map.moveLayer(lineId);
+                let source = map.getSource(sourceId) as mapboxgl.GeoJSONSource | undefined;
+                const geometryChanged = source !== lastSource || item.points !== lastPoints;
+                if (!source || geometryChanged) {
+                    const feature: GeoJSON.Feature<GeoJSON.LineString> = {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: item.points.map((point) => [point.lon, point.lat]),
+                        },
+                    };
+                    if (source) source.setData(feature);
+                    else {
+                        map.addSource(sourceId, { type: 'geojson', data: feature });
+                        source = map.getSource(sourceId) as mapboxgl.GeoJSONSource;
+                    }
+                }
+                if (!map.getLayer(glowId)) {
+                    map.addLayer({
+                        id: glowId,
+                        type: 'line',
+                        source: sourceId,
+                        paint: {
+                            'line-color': style.glowColor,
+                            'line-width': ['interpolate', ['linear'], ['zoom'], 4, 6, 10, 14, 16, 20],
+                            'line-blur': 4,
+                            'line-opacity': 0.85,
+                        },
+                    });
+                }
+                if (!map.getLayer(lineId)) {
+                    map.addLayer({
+                        id: lineId,
+                        type: 'line',
+                        source: sourceId,
+                        paint: {
+                            'line-color': style.color,
+                            'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.6, 10, 3.2, 16, 4.8],
+                            'line-opacity': 0.95,
+                        },
+                    });
+                }
+                ensureOnTop();
+
+                const start = item.points[0];
+                const end = item.points[item.points.length - 1];
+                if (!startMarker) {
+                    startMarker = createEndpointMarker(style.color, style.startLabel)
+                        .setLngLat([start.lon, start.lat])
+                        .addTo(map);
+                } else if (geometryChanged) startMarker.setLngLat([start.lon, start.lat]);
+                if (!endMarker) {
+                    endMarker = createEndpointMarker(style.color, style.endLabel)
+                        .setLngLat([end.lon, end.lat])
+                        .addTo(map);
+                } else if (geometryChanged) endMarker.setLngLat([end.lon, end.lat]);
+                lastPoints = item.points;
+                lastSource = source ?? null;
+
+                const fitted = fittedRef.current;
+                if (fitted?.map !== map || fitted.variant !== variant || fitted.id !== item.id) {
+                    // Look-ahead frames the remaining passage itself. Its
+                    // route/track can arrive asynchronously afterwards; do
+                    // not replace that view or defer a fit until look-ahead ends.
+                    if (!getPassageLookAhead().on) {
+                        const [w, s, e, n] = item.bbox;
+                        map.fitBounds(
+                            [
+                                [w, s],
+                                [e, n],
+                            ],
+                            { padding: 60, duration: 1200, maxZoom: 11 },
+                        );
+                    }
+                    fittedRef.current = { map, variant, id: item.id };
+                }
             } catch {
-                /* style mid-swap — the next idle heals */
+                // A concurrent style swap can interrupt any mount step.
+                // style.load/idle retries without registering more handlers.
             }
         };
-        ensureOnTop();
-        map.on('idle', ensureOnTop);
-        idleHandler = ensureOnTop;
 
-        // Endpoint dots — small labelled circles at A and B so the user
-        // can read direction at a glance even when the line is dashed.
-        const start = selected.points[0];
-        const end = selected.points[selected.points.length - 1];
-        startMarkerRef.current = createEndpointMarker(style.color, style.startLabel)
-            .setLngLat([start.lon, start.lat])
-            .addTo(map);
-        endMarkerRef.current = createEndpointMarker(style.color, style.endLabel)
-            .setLngLat([end.lon, end.lat])
-            .addTo(map);
+        syncRef.current = sync;
+        map.on('style.load', sync);
+        map.on('idle', sync);
+        sync();
+        return () => {
+            syncRef.current = null;
+            map.off('style.load', sync);
+            map.off('idle', sync);
+            clear();
+        };
+    }, [mapRef, mapReady, variant, hasSelection]);
 
-        // Auto-fit the map to the selected route — the user shouldn't
-        // have to hunt for it.
-        try {
-            const [w, s, e, n] = selected.bbox;
-            map.fitBounds(
-                [
-                    [w, s],
-                    [e, n],
-                ],
-                { padding: 60, duration: 1200, maxZoom: 11 },
-            );
-        } catch {
-            /* bbox might be invalid for a 1-point route — already filtered */
-        }
-
-        return cleanup;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapReady, variant, selected?.id]);
+    useEffect(() => {
+        if (!selected) fittedRef.current = null;
+        syncRef.current?.();
+    }, [selected]);
 }
 
 /** Build the small endpoint pill DOM element. */

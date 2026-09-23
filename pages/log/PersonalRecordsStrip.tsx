@@ -6,6 +6,7 @@
  */
 import React from 'react';
 import type { PersonalRecords } from '../../services/shiplog/VoyageSummary';
+import { formatVoyageDuration } from '../../utils/voyageTiming';
 
 export const PersonalRecordsStrip: React.FC<{ records: PersonalRecords }> = ({ records }) => (
     <div className="px-4 mb-2">
@@ -25,10 +26,7 @@ export const PersonalRecordsStrip: React.FC<{ records: PersonalRecords }> = ({ r
                 },
                 {
                     label: 'Longest',
-                    value: (() => {
-                        const h = records.longestDurationMs / 3600000;
-                        return h >= 24 ? `${Math.floor(h / 24)}d` : `${Math.round(h)}h`;
-                    })(),
+                    value: formatVoyageDuration(records.longestDurationMs),
                     unit: '',
                     icon: '⏱️',
                 },

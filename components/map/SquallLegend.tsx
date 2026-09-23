@@ -4,10 +4,8 @@
  *
  * Mirrors BlitzortungAttribution's structure: scrubber-pill shell
  * (slate translucent, blur, 16px radius), two-column layout — colormap
- * key on the left, status + label on the right. Lives in the same
- * bottom-left corner as the lightning chip; the two layers are mutually
- * exclusive in the radial menu so they share the anchor without
- * colliding.
+ * key on the left, status + label on the right. Lives in the chart's
+ * large blue information panel, keeping the map and scrubber unobstructed.
  *
  * Source-of-truth for the swatch colours is `SQUALL_COLOR_RAMP` in
  * isobarLayerSetup.ts. If you change one, change the other so what the
@@ -67,12 +65,10 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
         statusLabel = `${ageMin}m ago`;
     }
 
-    // Positioning is owned by MapHub's bottom-left legend stack so this
-    // chip composes cleanly with BlitzortungAttribution / others when
-    // multiple layers are active (e.g. Storm Watch enables both).
+    // Inline in System Status: no chart entrance animation or map positioning.
     return (
         <div
-            className="flex items-center gap-3 text-[11px] leading-tight text-white/85 pointer-events-auto chart-chip-up"
+            className="flex items-center gap-3 text-[11px] leading-tight text-white/85 pointer-events-auto"
             style={{
                 background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.80))',
                 backdropFilter: 'blur(20px)',

@@ -24,6 +24,7 @@ import {
     type ParsedNmeaDepth,
 } from './nmea/nmeaSentence';
 import { NMEA_SAMPLE_INTERVAL_MS } from './nmea/nmeaCadence';
+import { validGnssValue } from './nmea/gnssDiagnostics';
 // Bearings cannot be averaged arithmetically: the mean of 359 and 001 is 180,
 // which points a north-facing boat due south. That trap sits exactly where
 // Serene Summer was moored when the compass was reported wrong (2026-08-08).
@@ -242,6 +243,7 @@ interface RawAccumulator {
     hdop: number | null;
     satellites: number | null;
     gpsFixQuality: number | null;
+    gpsDiagnosticsAt: number | null;
 }
 
 /**
@@ -1673,15 +1675,21 @@ class NmeaListenerServiceClass {
     private parseGGA(parts: string[]) {
         // $xxGGA,time,lat,N/S,lon,E/W,quality,numSats,hdop,alt,M,...
         const quality = parseNmeaInteger(parts[6]);
-        if (quality === null || quality === 0) return; // 0 = invalid
+        if (!validGnssValue('fixQuality', quality)) return;
 
+        // No fix is a current diagnostic, not an absent sentence. Replace the
+        // whole diagnostic tuple so a later partial GGA cannot re-date an
+        // earlier satellite count/HDOP within this aggregation window.
         this.accumulator.gpsFixQuality = quality;
-
         const numSats = parseNmeaInteger(parts[7]);
-        if (numSats !== null) this.accumulator.satellites = numSats;
-
+        this.accumulator.satellites = validGnssValue('satellites', numSats) ? numSats : null;
         const hdop = parseNmeaNumber(parts[8]);
-        if (hdop !== null) this.accumulator.hdop = hdop;
+        this.accumulator.hdop = validGnssValue('hdop', hdop) ? hdop : null;
+        this.accumulator.gpsDiagnosticsAt = Date.now();
+
+        // Invalid GGA coordinates must never replace the last valid GGA/RMC
+        // position, even when a no-fix sentence still carries numeric lat/lon.
+        if (quality === 0) return;
 
         // Also extract position (may be more accurate than RMC on some receivers)
         const lat = nmeaLatLon(parts[2], parts[3], 90);
@@ -1786,6 +1794,7 @@ class NmeaListenerServiceClass {
             hdop: this.accumulator.hdop,
             satellites: this.accumulator.satellites,
             gpsFixQuality: this.accumulator.gpsFixQuality,
+            gpsDiagnosticsAt: this.accumulator.gpsDiagnosticsAt,
         };
 
         // Reset accumulator
@@ -1818,7 +1827,10 @@ class NmeaListenerServiceClass {
             sample.waterTemp,
         ].some((value) => value !== null);
         const hasGps = sample.latitude !== null && sample.longitude !== null;
-        if (hasInstruments || hasGps) {
+        // A receiver losing its fix may now send only GGA quality=0. Publish
+        // that evidence even without coordinates or another live instrument.
+        const hasGpsDiagnostics = sample.gpsFixQuality !== null;
+        if (hasInstruments || hasGps || hasGpsDiagnostics) {
             for (const cb of this.listeners) cb(sample);
         }
     }
@@ -1848,6 +1860,7 @@ class NmeaListenerServiceClass {
             hdop: null,
             satellites: null,
             gpsFixQuality: null,
+            gpsDiagnosticsAt: null,
         };
     }
 }

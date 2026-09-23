@@ -10,6 +10,13 @@ const mocks = vi.hoisted(() => ({
     setEntryPublished: vi.fn(),
     toastError: vi.fn(),
     toastSuccess: vi.fn(),
+    listComments: vi.fn(),
+    moderateComment: vi.fn(),
+}));
+
+vi.mock('../services/DiaryCommentService', () => ({
+    listDiaryGuestComments: mocks.listComments,
+    moderateDiaryGuestComment: mocks.moderateComment,
 }));
 
 vi.mock('../services/DiaryService', () => ({
@@ -86,9 +93,27 @@ beforeEach(() => {
     vi.clearAllMocks();
     mocks.ensureEnabled.mockResolvedValue({ handle: 'captain', api_key: 'public-key', enabled: true });
     mocks.setEntryPublished.mockResolvedValue(true);
+    mocks.listComments.mockResolvedValue([]);
+    mocks.moderateComment.mockResolvedValue(undefined);
 });
 
 describe('DiaryEntryView Voyage Log publishing', () => {
+    it('shows approval below the entry and approves its guest comment inside the diary', async () => {
+        mocks.listComments.mockResolvedValueOnce([
+            { id: 'comment-1', guest_name: 'Mum', body: 'Enjoy Mackay!', status: 'pending' },
+        ]);
+        renderEntry({ is_public: true });
+        const review = screen.getByRole('region', { name: 'Guest comment approval' });
+        expect(
+            screen.getByText(entry.body).compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        await screen.findByText('Enjoy Mackay!');
+        expect(mocks.listComments).toHaveBeenCalledExactlyOnceWith(entry.id);
+        fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+        await screen.findByText('Approved');
+        expect(mocks.moderateComment).toHaveBeenCalledExactlyOnceWith('comment-1', 'approve');
+    });
+
     it("records the skipper's publish intent before waiting for Voyage Log setup", async () => {
         let resolvePublished: ((value: boolean) => void) | undefined;
         mocks.setEntryPublished.mockReturnValue(

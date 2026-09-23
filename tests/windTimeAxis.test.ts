@@ -194,6 +194,48 @@ describe('the passage look-ahead drives the chart’s wind BY THE CLOCK', () => 
         expect(getPassageWindCoverageHours()).toBeCloseTo(44, 0);
     });
 
+    it('a chosen departure shifts wind immediately and reports remaining coverage from that departure', async () => {
+        const rendered = renderHook(() => useWeatherLayers(mapRef, false, false, location));
+        act(() => WindStore.setGrid(agedGrid(0)));
+        await waitFor(() => expect(rendered.result.current.windReady).toBe(true));
+        act(() => {
+            startPassageLookAhead(Date.now() + 24 * HOUR);
+            setPassageAheadMs(6 * HOUR);
+        });
+        await act(settle);
+        expect(rendered.result.current.windHour).toBeCloseTo(30, 1);
+        expect(getPassageWindCoverageHours()).toBeCloseTo(23, 0);
+        expect(getPassageUnsyncedLayers()).toEqual([]);
+        act(() => startPassageLookAhead(Date.now() + 12 * HOUR));
+        await act(settle);
+        expect(rendered.result.current.windHour).toBeCloseTo(12, 1);
+        expect(getPassageWindCoverageHours()).toBeCloseTo(35, 0);
+        act(() => startPassageLookAhead(null));
+        await act(settle);
+        expect(rendered.result.current.windHour).toBeCloseTo(0, 1);
+    });
+
+    it('does not present the last wind frame as matching a departure beyond the available field', async () => {
+        const rendered = renderHook(() => useWeatherLayers(mapRef, false, false, location));
+        act(() => WindStore.setGrid(agedGrid(0)));
+        await waitFor(() => expect(rendered.result.current.windReady).toBe(true));
+        act(() => startPassageLookAhead(Date.now() + 4 * 24 * HOUR));
+        await act(settle);
+        expect(rendered.result.current.windHour).toBe(47);
+        expect(getPassageWindCoverageHours()).toBe(0);
+        expect(getPassageUnsyncedLayers()).toEqual(['wind']);
+    });
+
+    it('a wind grid with no reference clock is explicitly unsynced, not assigned a guessed date', async () => {
+        const rendered = renderHook(() => useWeatherLayers(mapRef, false, false, location));
+        act(() => WindStore.setGrid(grid(48)));
+        await waitFor(() => expect(rendered.result.current.windReady).toBe(true));
+        act(() => startPassageLookAhead(Date.now() + HOUR));
+        await act(settle);
+        expect(getPassageWindCoverageHours()).toBeNull();
+        expect(getPassageUnsyncedLayers()).toEqual(['wind']);
+    });
+
     it('parks on the last frame past the end of the field — the scrubber, not the particles, says it has ended', async () => {
         const rendered = renderHook(() => useWeatherLayers(mapRef, false, false, location));
         act(() => WindStore.setGrid(agedGrid(0)));
@@ -241,6 +283,8 @@ describe('the passage look-ahead drives the chart’s wind BY THE CLOCK', () => 
     it('names the layers that are NOT at the scrubbed moment, and stops them animating with no pause button', async () => {
         sessionStorage.setItem('thalassa_active_layers', JSON.stringify(['wind', 'rain']));
         const rendered = renderHook(() => useWeatherLayers(mapRef, false, false, location));
+        act(() => WindStore.setGrid(agedGrid(0)));
+        await waitFor(() => expect(rendered.result.current.windReady).toBe(true));
         act(() => rendered.result.current.setRainPlaying(true));
         expect(getPassageUnsyncedLayers()).toEqual([]);
         act(() => startPassageLookAhead());
@@ -255,6 +299,8 @@ describe('the passage look-ahead drives the chart’s wind BY THE CLOCK', () => 
     it('isobars riding the wind timeline are NOT on that list; isobars alone are', async () => {
         sessionStorage.setItem('thalassa_active_layers', JSON.stringify(['wind', 'pressure']));
         const both = renderHook(() => useWeatherLayers(mapRef, false, false, location));
+        act(() => WindStore.setGrid(agedGrid(0)));
+        await waitFor(() => expect(both.result.current.windReady).toBe(true));
         act(() => startPassageLookAhead());
         await act(settle);
         expect(getPassageUnsyncedLayers()).toEqual([]);

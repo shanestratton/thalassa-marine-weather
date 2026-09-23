@@ -5,6 +5,7 @@ import type { VoyageLogDestination, VoyageLogTrackPoint } from '../voyageLogApi'
 interface VoyageProgressBarProps {
     track: VoyageLogTrackPoint[];
     destination: VoyageLogDestination | null;
+    compact?: boolean;
 }
 
 const formatDateTime = (d: Date): string => {
@@ -13,7 +14,7 @@ const formatDateTime = (d: Date): string => {
     return `${datePart} · ${timePart}`;
 };
 
-export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, destination }) => {
+export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, destination, compact = false }) => {
     // The raw track carries thousands of points and this component re-renders
     // on the page's 30 s clock. Parse each timestamp once per payload instead
     // of allocating a Date per point per render.
@@ -42,8 +43,12 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
     const etaDate = avgSog && avgSog > 0.1 ? new Date(Date.now() + (dtgNm / avgSog) * 3600 * 1000) : null;
 
     return (
-        <div className="shrink-0 px-4 lg:px-6 py-2 lg:py-2.5 bg-slate-900 border-b border-slate-700/80 z-20 relative">
-            <div className="mb-2 flex min-w-0 items-center justify-between gap-3 text-xs lg:hidden">
+        <div
+            className={`shrink-0 px-3 pb-3 z-20 relative ${compact ? '' : 'lg:px-6 py-2 lg:py-2.5 bg-slate-900 border-b border-slate-700/80'}`}
+        >
+            <div
+                className={`mb-2 flex min-w-0 items-center justify-between gap-3 text-xs ${compact ? '' : 'lg:hidden'}`}
+            >
                 <span className="truncate font-semibold text-teal-200" title={destination.name ?? 'Destination'}>
                     To {destination.name ?? 'Destination'}
                 </span>
@@ -51,7 +56,9 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
                     <strong className="text-white">{Math.round(dtgNm)} nm</strong> to go
                 </span>
             </div>
-            <div className="hidden items-center justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-1.5 lg:flex">
+            <div
+                className={`${compact ? 'hidden' : 'hidden lg:flex'} items-center justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-1.5`}
+            >
                 <span>Passage Progress</span>
                 <span className="text-sky-400">{Math.round(pct)}%</span>
             </div>
@@ -82,7 +89,9 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
             </div>
 
             {/* End labels + stats */}
-            <div className="hidden flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mt-1.5 text-[10px] font-mono lg:flex">
+            <div
+                className={`${compact ? 'hidden' : 'hidden lg:flex'} flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mt-1.5 text-[10px] font-mono`}
+            >
                 <span className="text-slate-500">Departure</span>
                 <div className="flex flex-wrap items-baseline gap-3 text-slate-400">
                     <span>

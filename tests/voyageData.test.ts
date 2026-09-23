@@ -159,10 +159,10 @@ describe('Voyage Data Utilities', () => {
             expect(stats?.weather.avgAirTemp).toBeCloseTo(26, 0);
         });
 
-        it('should calculate duration correctly', () => {
+        it('preserves the recorded duration of imported tracks', () => {
             const entries: ShipLogEntry[] = [
-                createMockEntry({ timestamp: '2026-02-03T12:00:00Z' }), // End (newest)
-                createMockEntry({ timestamp: '2026-02-01T06:00:00Z' }), // Start (oldest)
+                createMockEntry({ timestamp: '2026-02-03T12:00:00Z', source: 'gpx_import' }), // End (newest)
+                createMockEntry({ timestamp: '2026-02-01T06:00:00Z', source: 'gpx_import' }), // Start (oldest)
             ];
 
             const stats = calculateVoyageStats(entries);

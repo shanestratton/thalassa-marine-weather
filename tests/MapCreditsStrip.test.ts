@@ -96,7 +96,7 @@ describe('the Mapbox ⓘ is never under the Locate fab', () => {
 
     it('the ENC chip moves above the lifted stack instead of colliding with it', () => {
         const enc = strip(readFileSync('components/map/EncAttributionChip.tsx', 'utf8'));
-        expect(enc).toContain("bottom: 'calc(env(safe-area-inset-bottom) + 204px)'");
+        expect(enc).toContain("bottom: bottom ?? 'calc(env(safe-area-inset-bottom) + 204px)'");
         expect(enc).not.toContain('+ 136px');
     });
 });

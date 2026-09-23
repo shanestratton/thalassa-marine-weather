@@ -1,4 +1,5 @@
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -9,9 +10,10 @@ const requestTracerOpen = vi.fn();
 
 type AuthState = { user: unknown; authChecked: boolean; logout: typeof logout };
 let authState: AuthState = { user: null, authChecked: true, logout };
+let builderActive = true;
 
 vi.mock('../services/deepLink', () => ({
-    isBuilderDeepLink: () => true,
+    isBuilderDeepLink: () => builderActive,
     requestTracerOpen: () => requestTracerOpen(),
 }));
 
@@ -38,7 +40,69 @@ import { PlanSignOutButton } from '../components/PlanSignOutButton';
 describe('/plan session gate', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        builderActive = true;
         authState = { user: null, authChecked: true, logout };
+    });
+
+    it('covers the planner while the boot session is unresolved and traps keyboard focus', () => {
+        authState = { ...authState, authChecked: false };
+        render(
+            <>
+                <button type="button">Underlying planner action</button>
+                <BuilderDeepLink />
+            </>,
+        );
+
+        const checking = screen.getByRole('dialog', { name: 'Checking your session…' });
+        expect(checking).toHaveAttribute('aria-modal', 'true');
+        expect(checking).toHaveAttribute('aria-busy', 'true');
+        expect(checking).toHaveClass('fixed', 'inset-0', 'bg-slate-950');
+        expect(checking).toHaveFocus();
+        fireEvent.keyDown(checking, { key: 'Tab' });
+        expect(checking).toHaveFocus();
+        fireEvent.keyDown(checking, { key: 'Escape' });
+        expect(checking).toBeInTheDocument();
+        expect(screen.queryByTestId('sign-in-wall')).not.toBeInTheDocument();
+        expect(requestTracerOpen).not.toHaveBeenCalled();
+    });
+
+    it('does not trust a provisional user before the session check completes', () => {
+        authState = { ...authState, user: { id: 'previous-skipper' }, authChecked: false };
+        const { rerender } = render(<BuilderDeepLink />);
+        expect(screen.getByRole('dialog', { name: 'Checking your session…' })).toBeInTheDocument();
+
+        authState = { ...authState, user: null, authChecked: true };
+        rerender(<BuilderDeepLink />);
+        expect(screen.queryByRole('dialog', { name: 'Checking your session…' })).not.toBeInTheDocument();
+        expect(screen.getByTestId('sign-in-wall')).toHaveAttribute('data-has-close', 'no');
+    });
+
+    it('lowers the checking wall only after a confirmed session', () => {
+        authState = { ...authState, authChecked: false };
+        const { rerender } = render(<BuilderDeepLink />);
+
+        authState = { ...authState, user: { id: 'skipper' }, authChecked: true };
+        rerender(<BuilderDeepLink />);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('sign-in-wall')).not.toBeInTheDocument();
+        expect(requestTracerOpen).not.toHaveBeenCalled();
+    });
+
+    it('renders the checked signed-out wall on the first render, without waiting for effects', () => {
+        // Server rendering runs no effects: the previous effect-latched gate
+        // returned an empty first frame here despite a confirmed missing user.
+        const markup = renderToStaticMarkup(<BuilderDeepLink />);
+        expect(markup).toContain('data-testid="sign-in-wall"');
+        expect(markup).toContain('data-has-close="no"');
+    });
+
+    it.each([false, true])('leaves non-builder/native browsing unchanged when authChecked is %s', (authChecked) => {
+        builderActive = false;
+        authState = { ...authState, authChecked };
+        render(<BuilderDeepLink />);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('sign-in-wall')).not.toBeInTheDocument();
+        expect(requestTracerOpen).not.toHaveBeenCalled();
     });
 
     it('is a wall, not a door — the sign-in offers no way to dismiss it', () => {

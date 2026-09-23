@@ -34,6 +34,7 @@ import { savePassagePlanToLogbook as _savePassagePlanToLogbook } from './shiplog
 import { getPlottingProfile, type PlottingProfile } from './shiplog/helpers';
 import { GpsTrackBuffer } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
+import { departureCaptureState } from './shiplog/voyageLifecycle';
 import {
     loadTrackingState,
     saveTrackingState as _saveTrackingState,
@@ -74,7 +75,6 @@ import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
     getOfflineEntries as _getOfflineEntries,
-    deleteVoyageFromOfflineQueue as _deleteVoyageFromOfflineQueue,
 } from './shiplog/OfflineQueue';
 import { setCachedVoyageTrack } from './shiplog/VoyageTrackCache';
 import {
@@ -92,7 +92,6 @@ import {
     getVoyageSummaries as _getVoyageSummaries,
     getCachedVoyageSummaries as _getCachedVoyageSummaries,
     getVoyageEntries as _getVoyageEntries,
-    EMPTY_TRACK_NM,
     type VoyageSummary,
 } from './shiplog/VoyageSummary';
 import {
@@ -149,42 +148,6 @@ const FAST_LOCK_MS = 65 * 1000;
 const FAST_LOCK_MAX_REARMS = 8;
 const CAPTURE_HANDOFF_KEY = 'ship_log_capture_handoff';
 const CAPTURE_HANDOFF_VERSION = 1;
-
-// ── Device-local stop record ────────────────────────────────────────
-// voyageId → when THIS DEVICE stopped it. The empty-track sweep holds
-// recently-active voyages for 15 min because another device might still be
-// recording into them — but a voyage this device just stopped has no such
-// ambiguity, and holding it anyway is why a nowhere-track's card lingered
-// after an end from the Vessel hub (Shane 2026-08-12: "taking too long to
-// show up"). Persisted so an app relaunch between stop and sweep still
-// knows; pruned at read so it cannot grow.
-const DEVICE_STOPS_KEY = 'thalassa.recent_device_stops';
-const DEVICE_STOPS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-
-function readDeviceStops(): Record<string, number> {
-    try {
-        const raw = localStorage.getItem(DEVICE_STOPS_KEY);
-        const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-        const cutoff = Date.now() - DEVICE_STOPS_MAX_AGE_MS;
-        return Object.fromEntries(Object.entries(parsed).filter(([, at]) => typeof at === 'number' && at >= cutoff));
-    } catch {
-        return {};
-    }
-}
-
-function recordDeviceStop(voyageId: string): void {
-    try {
-        localStorage.setItem(DEVICE_STOPS_KEY, JSON.stringify({ ...readDeviceStops(), [voyageId]: Date.now() }));
-    } catch {
-        // Quota/private mode: the sweep just falls back to the 15-min hold.
-    }
-}
-
-/** Voyages this device stopped in the last 24 h — the sweep may prune these
- *  without waiting out the cross-device recency hold. */
-export function getRecentDeviceStops(): Set<string> {
-    return new Set(Object.keys(readDeviceStops()));
-}
 
 interface CaptureHandoffBatch {
     id: string;
@@ -854,6 +817,7 @@ class ShipLogServiceClass {
                         // Preserve voyage info so autoStartIfEnabled can decide.
                         currentVoyageId: this.trackingState.currentVoyageId,
                         voyageStartTime: this.trackingState.voyageStartTime,
+                        voyageStartCapture: this.trackingState.voyageStartCapture,
                         voyageEndTime: this.trackingState.voyageEndTime || new Date().toISOString(),
                     };
                     this.trackingOwnerScope = null;
@@ -1199,6 +1163,10 @@ class ShipLogServiceClass {
                   currentVoyageId: attemptedVoyageId,
                   voyageStartTime:
                       previousState.currentVoyageId === attemptedVoyageId ? previousState.voyageStartTime : undefined,
+                  voyageStartCapture:
+                      this.trackingState.currentVoyageId === attemptedVoyageId
+                          ? this.trackingState.voyageStartCapture
+                          : undefined,
                   voyageEndTime: undefined,
               }
             : previousState;
@@ -1257,16 +1225,10 @@ class ShipLogServiceClass {
         continueVoyageId?: string,
         scope: AuthIdentityScope = getAuthIdentityScope(),
         /**
-         * "This voyage was just created — treat it as a cold departure."
-         *
-         * RETAINED FOR THE CALL SIGNATURE, no longer read. It existed to tell
-         * a mint apart from a resume so fast-lock could be armed only on the
-         * former; fast-lock is now armed on the first-fix GATE instead, which
-         * answers that question directly and stays correct for resumes and
-         * WebView reloads too. CastOffPanel still passes `true` and is welcome
-         * to — removing the parameter would be a signature change for no gain.
+         * This voyage was just cast off, even if its server-assigned ID is
+         * passed as continueVoyageId. GPS recovery alone is not a departure.
          */
-        _freshDeparture: boolean = false,
+        freshDeparture: boolean = false,
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const stopping = this.stopOperation;
@@ -1282,7 +1244,7 @@ class ShipLogServiceClass {
         if (inFlight && this.sameScope(inFlight.scope, scope)) return inFlight.promise;
 
         const requestedVoyageId = continueVoyageId ?? (resume ? this.trackingState.currentVoyageId : undefined);
-        const promise = this.performStartTracking(resume, continueVoyageId, scope, _freshDeparture);
+        const promise = this.performStartTracking(resume, continueVoyageId, scope, freshDeparture);
         this.startOperation = { scope, voyageId: requestedVoyageId, promise };
         try {
             await promise;
@@ -1295,7 +1257,7 @@ class ShipLogServiceClass {
         resume: boolean,
         continueVoyageId: string | undefined,
         scope: AuthIdentityScope,
-        _freshDeparture: boolean,
+        freshDeparture: boolean,
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const stateBeforeStart = this.trackingState;
@@ -1410,6 +1372,8 @@ class ShipLogServiceClass {
             // 2. If resume and currentVoyageId exists, use that
             // 3. Otherwise, generate new
             const voyageId = attemptedVoyageId;
+            const isFreshDeparture =
+                freshDeparture || (!continueVoyageId && !(resume && previousState.currentVoyageId));
             // WHY FAST-LOCK EXISTS AT ALL (kept from the 2026-07-28 work, because
             // the reasoning outlived the condition it was written for): at the dock
             // distanceFilter stays at 1 m, a stationary boat never travels 1 m, so
@@ -1485,7 +1449,12 @@ class ShipLogServiceClass {
                 boatId: boatId,
                 currentVoyageId: voyageId,
                 voyageStartTime:
-                    resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
+                    previousState.currentVoyageId === voyageId && previousState.voyageStartTime
+                        ? previousState.voyageStartTime
+                        : isFreshDeparture
+                          ? new Date().toISOString()
+                          : undefined,
+                voyageStartCapture: departureCaptureState(previousState, voyageId, isFreshDeparture),
                 lastMovementTime: new Date().toISOString(),
             };
             const sessionState = this.trackingState;
@@ -1689,9 +1658,18 @@ class ShipLogServiceClass {
             // now may the durable Voyage Start entry be launched; otherwise a
             // subscription/timer setup exception could leave an orphan start pin
             // for a voyage whose tracking transaction was rolled back.
-            this.captureImmediateEntry(undefined, 'Voyage Start', scope).catch((e) => {
-                log.warn(``, e);
-            });
+            // A crash may leave a departure pending before its marker saved.
+            // Recovery has only today's fix, not the original departure fix;
+            // leave that marker unknown rather than manufacture a new Start.
+            if (isFreshDeparture && sessionState.voyageStartCapture === 'pending') {
+                this.captureImmediateEntry(undefined, 'Voyage Start', scope)
+                    .then(async (entry) => {
+                        if (!entry || !this.ownerIsCurrent(scope, sessionState)) return;
+                        sessionState.voyageStartCapture = 'captured';
+                        await this.saveTrackingState(scope);
+                    })
+                    .catch((e) => log.warn('departure marker remains pending:', e));
+            }
         } catch (error) {
             await this.rollbackFailedTrackingStart({
                 scope,
@@ -1908,6 +1886,7 @@ class ShipLogServiceClass {
             isPrecisionMode: false,
             currentVoyageId: previousVoyageId,
             voyageStartTime: activeState.voyageStartTime,
+            voyageStartCapture: activeState.voyageStartCapture,
             voyageEndTime: new Date().toISOString(),
         };
         this.trackingState = stoppedState;
@@ -2199,51 +2178,20 @@ class ShipLogServiceClass {
         await _clearVoyageState(scope);
         assertStopCurrent(activeState);
 
-        // EMPTY-VOYAGE DISCARD + LOCAL TRACK CACHE. The voyage's points are
-        // still ONLY in the offline queue here (local-first capture never
-        // synced them). So this is the one safe place to bin an empty
-        // track — delete it from the queue NOW, before the upload below
-        // can ship it to the cloud. Doing it later (UI prune) races that
-        // upload: the queue snapshot is taken here, uploads in the
-        // background, and re-inserts the voyage after any delete. Killing
-        // it pre-upload means there's nothing to resurrect.
-        //
-        // "Empty" = never went anywhere (max cumulative < EMPTY_TRACK_NM,
-        // i.e. the card's "0.0 NM") AND no deliberate manual entry.
-        let voyageWasEmpty = false;
-        let voyageTrack: ShipLogEntry[] = [];
+        // The device may hold only a tail of a completed passage. Cache it
+        // for offline viewing, but never infer permission to delete from its
+        // distance or size. Every captured entry remains eligible for upload.
         if (previousVoyageId) {
             try {
-                voyageTrack = await _getOfflineEntries({ voyageId: previousVoyageId, expectedScope: scope });
+                const voyageTrack = await _getOfflineEntries({ voyageId: previousVoyageId, expectedScope: scope });
                 assertStopCurrent(activeState);
-                let maxCumNM = 0;
-                let hasManual = false;
-                for (const entry of voyageTrack) {
-                    maxCumNM = Math.max(maxCumNM, entry.cumulativeDistanceNM || 0);
-                    hasManual ||= entry.entryType === 'manual';
-                }
-                voyageWasEmpty = maxCumNM < EMPTY_TRACK_NM && !hasManual;
-
-                if (voyageWasEmpty) {
-                    await _deleteVoyageFromOfflineQueue(previousVoyageId);
-                    assertStopCurrent(activeState);
-                    // A discarded voyage never uploads to ship_logs, so any
-                    // dock points it trickled to live_track would linger as a
-                    // stale public "live" tail that nothing supersedes. Retire
-                    // this exact voyage (rather than every live row for the
-                    // account) so an immediately-started next voyage is safe.
-                    void retireLiveTrackVoyage(previousVoyageId, 'discarded', scope).catch(() => {
+                void setCachedVoyageTrack(previousVoyageId, voyageTrack, scope, { preserveExisting: true }).catch(
+                    () => {
                         /* best effort */
-                    });
-                    log.warn(`[ShipLog] empty voyage discarded at stop (${maxCumNM.toFixed(3)} NM) — not uploaded`);
-                } else {
-                    // Cache the real track so viewing it is instant/offline.
-                    void setCachedVoyageTrack(previousVoyageId, voyageTrack, scope).catch(() => {
-                        /* best effort */
-                    });
-                }
+                    },
+                );
             } catch (e) {
-                log.warn('empty-voyage check / track cache snapshot failed:', e);
+                log.warn('track cache snapshot failed:', e);
             }
         }
 
@@ -2273,10 +2221,6 @@ class ShipLogServiceClass {
             assertStopCurrent(activeState);
         }
 
-        // Reached only when native teardown verified — the stop is real.
-        // Recording it lets the Log page's empty-track sweep skip the 15-min
-        // cross-device hold for this voyage, whichever door stopped it.
-        if (previousVoyageId) recordDeviceStop(previousVoyageId);
         await this.finalizeStoppedTracking(scope, activeState, previousVoyageId, stopAttempt);
     }
 

@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { maxOf } from '../utils/extremes';
+import { voyageElapsedMs } from '../utils/voyageTiming';
 
 const log = createLogger('useLogPageState');
 
@@ -24,7 +25,7 @@ const log = createLogger('useLogPageState');
  */
 const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
-import { ShipLogService, getRecentDeviceStops } from '../services/ShipLogService';
+import { ShipLogService } from '../services/ShipLogService';
 import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
 import { voyageSummariesSessionReadable } from '../services/shiplog/VoyageSummary';
 import { withTimeout } from '../utils/deadline';
@@ -43,11 +44,8 @@ import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntr
 import {
     mergeSummariesWithLive,
     careerTotalsFromSummaries,
-    selectEmptyVoyagesToPrune,
     isMaritimeVoyage,
     type VoyageSummary,
-    isEmptyTrack,
-    trackSpanM,
 } from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
@@ -698,72 +696,10 @@ export function useLogPageState() {
         // Load archived voyages and career entries in parallel (non-blocking)
         reloadCareerData();
 
-        // Auto-prune empty (0.0 NM) tracks — runs on the NETWORK load only
-        // (not the cache instant-paint) so it acts on confirmed data. Feed
-        // it the MERGED summary list (cloud summaries overlaid with live/
-        // offline entries) — the SAME source the cards render from — so an
-        // offline-only empty voyage (still in the queue, not yet synced)
-        // is reachable. The cloud-only `summaries` would never include it,
-        // which is why the empties never deleted. Guards (active voyage,
-        // recent activity, planned/imported, manual) live in
-        // selectEmptyVoyagesToPrune.
-        void pruneEmptyTracks(mergeSummariesWithLive(summaries, merged), voyageId);
+        // Loading history is read-only. Local rows may be only an unsynced
+        // tail of a complete cloud voyage, never evidence that it is empty.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dispatch, identityScope]);
-
-    // How many empty (0.0 NM) tracks were just tidied away — drives the
-    // EmptyTrackRemovedModal announcement. null = nothing to show.
-    const [emptyPruneNotice, setEmptyPruneNotice] = useState<number | null>(null);
-    useEffect(() => {
-        setEmptyPruneNotice(null);
-    }, [identityScope]);
-
-    // Delete genuinely empty device tracks in the background. Idempotent:
-    // once a voyage is pruned it's gone from summaries, so subsequent
-    // loads find nothing. A guard ref prevents overlapping sweeps.
-    const pruningRef = useRef(false);
-    const pruneEmptyTracks = useCallback(
-        async (summaries: VoyageSummary[], activeVoyageId: string | null | undefined) => {
-            if (!isAuthIdentityScopeCurrent(identityScope)) return;
-            if (pruningRef.current) return;
-            const toPrune = selectEmptyVoyagesToPrune(summaries, {
-                activeVoyageId,
-                nowMs: Date.now(),
-                // Voyages THIS device stopped skip the cross-device recency
-                // hold — a nowhere-track ended from any door tidies away on
-                // the very next sweep instead of 15 minutes later.
-                deviceStoppedIds: getRecentDeviceStops(),
-            });
-            if (toPrune.length === 0) return;
-            pruningRef.current = true;
-            try {
-                let deleted = 0;
-                for (const voyageId of toPrune) {
-                    const ok = await ShipLogService.deleteVoyage(voyageId);
-                    if (!isAuthIdentityScopeCurrent(identityScope)) return;
-                    if (ok) {
-                        deleted += 1;
-                        dispatch({ type: 'REMOVE_VOYAGE', voyageId });
-                        loadedVoyagesRef.current.delete(voyageId);
-                        void clearCachedVoyageTrack(voyageId);
-                    }
-                }
-                if (deleted > 0) {
-                    if (!isAuthIdentityScopeCurrent(identityScope)) return;
-                    reloadCareerData();
-                    setEmptyPruneNotice(deleted);
-                }
-            } catch (e) {
-                log.warn('pruneEmptyTracks failed', e);
-            } finally {
-                // A stale A sweep must not unlock B's in-flight sweep after
-                // the shared guard ref has been reset and reused by B.
-                if (isAuthIdentityScopeCurrent(identityScope)) pruningRef.current = false;
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [toast, dispatch, identityScope],
-    );
 
     // Public loadData — in-flight guard so overlapping triggers can't stack
     // into a storm. But a load REQUESTED while one is running (e.g. the
@@ -774,7 +710,6 @@ export function useLogPageState() {
     const pendingReloadRef = useRef(false);
     useEffect(() => {
         pendingReloadRef.current = false;
-        pruningRef.current = false;
     }, [identityScope]);
     const loadData = useCallback(async () => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
@@ -1209,7 +1144,7 @@ export function useLogPageState() {
             stoppingRef.current = false;
             const status = ShipLogService.getTrackingStatus();
             dispatch({ type: 'SET_TRACKING', isTracking: status.isTracking, isPaused: status.isPaused });
-            // Do not prune/delete/reload as though stop completed. The service
+            // Do not reload as though stop completed. The service
             // retains a pending-stop lease and the same action retries it.
             toast.error(getErrorMessage(e) || 'Background GPS is still active. Retry End Voyage.');
             return;
@@ -1221,8 +1156,8 @@ export function useLogPageState() {
         // EVERYTHING BELOW IS TIDY-UP, AND MUST NOT BE ABLE TO KILL THE PAGE.
         //
         // The GPS track is already stopped by this point — the safety-critical
-        // half is done. What follows archives the row and prunes an empty
-        // voyage, and it used to run unguarded: a throw here escaped into the
+        // half is done. What follows completes the passage row, and it used
+        // to run unguarded: a throw here escaped into the
         // LogPage error boundary, which unmounted the page and dropped the
         // skipper back on The Glass, looking like the button had "not worked"
         // when in fact the track HAD stopped (Shane 2026-09-04).
@@ -1257,47 +1192,12 @@ export function useLogPageState() {
                 }
             }
 
-            // Immediately bin an empty (0.0 NM) just-stopped voyage. The
-            // summary-level auto-prune holds recently-active voyages for 15 min
-            // (they might be live on ANOTHER device) — but this is OUR voyage
-            // and we just stopped it, so there's no cross-device ambiguity:
-            // delete it now rather than making the user wait out that window.
-            if (stoppedVoyageId) {
-                crumb('stop:prune-in', `${entriesRef.current.length}entries`);
-                const ve = entriesRef.current.filter((e) => e.voyageId === stoppedVoyageId);
-                // maxOf, not Math.max(...): spreading every GPS entry of the
-                // voyage into arguments is what crashed the app on End Voyage —
-                // the longer the passage, the more certain the crash, on the one
-                // action that ends it. See utils/extremes.
-                const dist = maxOf(ve.map((e) => e.cumulativeDistanceNM || 0));
-                const hasManual = ve.some((e) => e.entryType === 'manual');
-                // Same verdict as the load-time sweep: 0.0 NM, OR a footprint
-                // no bigger than GPS jitter — the boat on the hard that accrued
-                // 0.1 NM and never went anywhere (Shane 2026-09-06).
-                const wentNowhere = isEmptyTrack({ totalDistanceNM: dist, spanM: trackSpanM(ve) });
-                if (wentNowhere && !hasManual) {
-                    // OPTIMISTIC (Shane 2026-08-12: the tidy-up "takes some time
-                    // to come"). The wait was the awaited cloud delete — a network
-                    // round trip standing between End Voyage and the announcement.
-                    // The verdict (empty, ours, just stopped) is already local
-                    // truth: remove the card and announce NOW, delete in the
-                    // background. ShipLogService has usually already binned the
-                    // queue copy pre-upload; if the cloud delete fails anyway, the
-                    // sweep retries it on the next load via the device-stops
-                    // bypass, so the card cannot silently resurrect for long.
-                    dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
-                    loadedVoyagesRef.current.delete(stoppedVoyageId);
-                    void clearCachedVoyageTrack(stoppedVoyageId);
-                    setEmptyPruneNotice(1);
-                    void ShipLogService.deleteVoyage(stoppedVoyageId).catch((e) => {
-                        log.warn('empty-voyage prune on stop failed (sweep will retry)', e);
-                    });
-                }
-            }
+            // End Voyage retains every recorded track. Only an explicit
+            // Delete action may remove it, even when local rows look empty.
         } catch (e) {
             // Never rethrow: the track is stopped, which is what the button
             // promised. Anything unfinished here is recoverable from the
-            // Vessel tab, and the sweep retries the prune on next load.
+            // Vessel tab.
             log.warn('post-stop tidy-up failed (track IS stopped)', e);
             toast.error('Track stopped. Some tidy-up did not finish — check the passage on the Vessel tab.');
         }
@@ -1701,7 +1601,7 @@ export function useLogPageState() {
             const onAccepted = () => {
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 accepted = true;
-                dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.voyageId !== voyageId) });
+                dispatch({ type: 'REMOVE_VOYAGE', voyageId });
                 // A deleted voyage's cached track must not resurrect it.
                 void clearCachedVoyageTrack(voyageId);
                 loadedVoyagesRef.current.delete(voyageId);
@@ -1993,9 +1893,7 @@ export function useLogPageState() {
         let totalMs = 0;
         for (const v of sailed) {
             totalNm += v.totalDistanceNM || 0;
-            const start = new Date(v.startedAt).getTime();
-            const end = new Date(v.endedAt).getTime();
-            if (isFinite(start) && isFinite(end) && end > start) totalMs += end - start;
+            totalMs += voyageElapsedMs(v);
         }
         return { totalNm, totalMs, voyageCount: sailed.length };
     }, [listVoyages]);
@@ -2147,11 +2045,5 @@ export function useLogPageState() {
         archivedVoyages: stateBelongsToCurrentIdentity ? archivedVoyages : [],
         handleArchiveVoyage,
         handleUnarchiveVoyage,
-
-        // Empty-track tidy announcement
-        emptyPruneNotice: stateBelongsToCurrentIdentity ? emptyPruneNotice : null,
-        clearEmptyPruneNotice: () => {
-            if (isAuthIdentityScopeCurrent(identityScope)) setEmptyPruneNotice(null);
-        },
     };
 }

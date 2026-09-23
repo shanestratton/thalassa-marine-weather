@@ -251,6 +251,8 @@ export interface NmeaSample {
     hdop: number | null;
     satellites: number | null;
     gpsFixQuality: number | null;
+    /** Original GGA receipt time, independent of later sentences in the aggregate window. */
+    gpsDiagnosticsAt?: number | null;
 }
 
 /** Single bucket in the Smart Polar grid */

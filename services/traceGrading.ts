@@ -57,6 +57,8 @@ export interface GradeLeg {
 export interface GradeLegsOptions {
     draftM: number;
     draftAssumed: boolean;
+    /** Trial proposals must never turn an OSM water outline into a sounding. */
+    chartedDepthOnly?: boolean;
     /** Build-cost ceiling for one window, in metres of tight-bbox span. */
     clusterSpanM: number;
     /** Reuse a held window that already covers these points. */
@@ -239,6 +241,7 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
             try {
                 const built = await buildTracerContext(traceBboxPadded(pts), opts.draftM, {
                     draftAssumed: opts.draftAssumed,
+                    ...(opts.chartedDepthOnly ? { chartedDepthOnly: true } : {}),
                 });
                 if (superseded()) return { status: 'ready', superseded: true };
                 if (built.status === 'ready') {
@@ -247,7 +250,8 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
                     // missing — holding a gate-less window would let one
                     // network blip strip gate checking from every later
                     // cluster that reuses it.
-                    if (!built.ctx.gateChecksUnavailable) opts.holdCtx?.(built.ctx);
+                    if (!built.ctx.gateChecksUnavailable && !built.ctx.supplementalChecksUnavailable)
+                        opts.holdCtx?.(built.ctx);
                 } else if (built.status === 'marksonly') {
                     // One genuinely long leg — grade marks with this ctx but
                     // DON'T hold it: a grid-less window must never shadow
@@ -292,7 +296,7 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
             // verdict is provisional in exactly the way a 'nochart' one is —
             // VOLATILE, so the next pass retries and a transient blip cannot
             // poison the session.
-            recordPiece(l.key, verdict, ctx.gateChecksUnavailable);
+            recordPiece(l.key, verdict, ctx.gateChecksUnavailable || !!ctx.supplementalChecksUnavailable);
         }
         foldReadyLegs();
         opts.onClusterDone?.();

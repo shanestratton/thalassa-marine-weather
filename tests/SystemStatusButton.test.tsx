@@ -2,11 +2,13 @@
  * SystemStatusButton — smoke tests (631 LOC component)
  */
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 import type { NmeaConnectionStatus } from '../services/NmeaListenerService';
 import type { NmeaStoreState } from '../services/NmeaStore';
+import type { GpsPosition } from '../services/GpsService';
+import { publishPassageHudInfo, setPassageSquallInfoVisible } from '../stores/passageHudInfoStore';
 
 const instruments = vi.hoisted(() => ({
     store: {} as NmeaStoreState,
@@ -18,6 +20,7 @@ const instruments = vi.hoisted(() => ({
     socketListeners: new Set<() => void>(),
     retain: vi.fn(),
     release: vi.fn(),
+    phoneCallback: null as null | ((position: GpsPosition) => void),
 }));
 
 vi.mock('../services/NmeaStore', () => ({
@@ -63,7 +66,16 @@ vi.mock('../services/n2kStatus', () => ({
         refresh: vi.fn().mockResolvedValue(undefined),
     },
 }));
-vi.mock('../services/GpsService', () => ({ GpsService: { watchPosition: () => () => {} } }));
+vi.mock('../services/GpsService', () => ({
+    GpsService: {
+        watchPosition: (callback: (position: GpsPosition) => void) => {
+            instruments.phoneCallback = callback;
+            return () => {
+                instruments.phoneCallback = null;
+            };
+        },
+    },
+}));
 vi.mock('../services/GpsReceiverStatusService', () => {
     const status = { active: false, kind: 'phone', label: 'Phone GPS', detail: 'No external receiver' };
     return { GpsReceiverStatusService: { getStatus: () => status, refresh: async () => status } };
@@ -126,6 +138,7 @@ describe('SystemStatusButton', () => {
         instruments.lastError = null;
         instruments.viaRemoteAccess = false;
         instruments.piReachable = false;
+        instruments.phoneCallback = null;
         instruments.store = emptyInstrumentState();
         setAuthIdentityScope(null);
         localStorage.clear();
@@ -138,6 +151,8 @@ describe('SystemStatusButton', () => {
 
     afterEach(() => {
         cleanup();
+        publishPassageHudInfo(null);
+        setPassageSquallInfoVisible(false);
         vi.useRealTimers();
         setAuthIdentityScope(null);
         localStorage.clear();
@@ -146,6 +161,87 @@ describe('SystemStatusButton', () => {
     it('renders without crashing', () => {
         const { container } = render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
         expect(container).toBeDefined();
+    });
+
+    it('shows boat satellites and fix quality separately from the phone’s reported metre accuracy', () => {
+        vi.useFakeTimers();
+        seedPi('lan');
+        const now = Date.now();
+        instruments.store.latitude = { value: -27.2, lastUpdated: now, freshness: 'live' };
+        instruments.store.longitude = { value: 153.1, lastUpdated: now, freshness: 'live' };
+        instruments.store.satellites = { value: 25, lastUpdated: now, freshness: 'live' };
+        instruments.store.hdop = { value: 0.7, lastUpdated: now, freshness: 'live' };
+        instruments.store.gpsFixQuality = 2;
+        instruments.store.gpsFixQualityUpdatedAt = now;
+        render(<SystemStatusButton currentView="map" onNavigateAnchor={vi.fn()} />);
+        act(() =>
+            instruments.phoneCallback?.({
+                latitude: -27.4,
+                longitude: 153.2,
+                accuracy: 4.2,
+                altitude: null,
+                heading: null,
+                speed: 0,
+                timestamp: now,
+            }),
+        );
+        fireEvent.click(screen.getByRole('button', { name: /System status:/ }));
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
+        expect(boat.getByText('Position just now')).toBeInTheDocument();
+        expect(boat.getByText('25')).toBeInTheDocument();
+        expect(boat.getByText('Differential GPS')).toBeInTheDocument();
+        expect(boat.getByText('Not reported')).toBeInTheDocument();
+        expect(boat.getByText('HDOP (geometry): 0.7')).toBeInTheDocument();
+        expect(boat.queryByText('±4.2 m')).toBeNull();
+        const phone = within(screen.getByRole('region', { name: 'Phone location' }));
+        expect(phone.getByText('±4.2 m')).toBeInTheDocument();
+        expect(phone.getByText('Not exposed')).toBeInTheDocument();
+    });
+
+    it('retires stale receiver metrics independently of fresh coordinates while the info page stays open', () => {
+        vi.useFakeTimers();
+        seedPi('lan');
+        const now = Date.now();
+        instruments.store.satellites = { value: 25, lastUpdated: now, freshness: 'live' };
+        instruments.store.gpsAccuracyM = { value: 1.2, lastUpdated: now, freshness: 'live' };
+        openStatus();
+        expect(screen.getByText('25')).toBeInTheDocument();
+        expect(screen.getByText('±1.2 m')).toBeInTheDocument();
+        act(() => {
+            vi.advanceTimersByTime(14_000);
+        });
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
+        expect(boat.queryByText('25')).toBeNull();
+        expect(boat.queryByText('±1.2 m')).toBeNull();
+        expect(boat.getAllByText('Stale')).toHaveLength(2);
+        fireEvent.click(screen.getByRole('button', { name: 'Close system status' }));
+        expect(instruments.storeListeners.size).toBe(1);
+    });
+
+    it('opens forecast details and the squall key from the existing blue info button, and closes normally', () => {
+        publishPassageHudInfo({
+            moment: 'Sun 15:25 · +4.7 h',
+            modelLabel: 'ECMWF',
+            note: 'Chart rain ends +3.4 h',
+            ownTime: ['squalls'],
+            joining: true,
+            credited: ['DWD', 'ECMWF', 'UK Met Office', 'JMA', 'Météo-France', 'Open-Meteo'],
+            windCoverageHours: 46,
+            rainCoverageHours: 3.4,
+        });
+        setPassageSquallInfoVisible(true);
+        render(<SystemStatusButton currentView="map" onNavigateAnchor={vi.fn()} />);
+        expect(screen.queryByTestId('passage-hud-info')).toBeNull();
+        const opener = screen.getByRole('button', { name: /System status: \d+ active/ });
+        fireEvent.click(opener);
+        expect(screen.getByTestId('route-scrub-credit')).toHaveTextContent('Météo-France, Open-Meteo');
+        expect(screen.getByTestId('route-scrub-note')).toHaveTextContent('Chart rain ends +3.4 h');
+        expect(screen.getByTestId('route-scrub-join')).toHaveTextContent('unchecked estimate');
+        expect(screen.getByRole('contentinfo', { name: 'Squall intensity legend' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Close system status' }));
+        expect(screen.queryByTestId('passage-hud-info')).toBeNull();
+        fireEvent.click(opener);
+        expect(screen.getByTestId('route-scrub-note')).toHaveTextContent('Chart rain ends +3.4 h');
     });
 
     it('renders when no systems active (hidden)', () => {
@@ -382,6 +478,9 @@ function emptyInstrumentState(): NmeaStoreState {
         depthReference: null,
         depthOffsetM: null,
         gpsFixQuality: null,
+        gpsFixQualityUpdatedAt: 0,
+        gpsSource: null,
+        gpsAccuracyM: metric(),
         connectionStatus: 'disconnected',
         remote: null,
         lastAnyUpdate: 0,
@@ -392,7 +491,14 @@ function seedPi(via: 'lan' | 'cloud') {
     const now = Date.now();
     instruments.store = emptyInstrumentState();
     instruments.store.connectionStatus = 'remote';
-    instruments.store.remote = { source: 'pi', via, deviceLabel: 'calypso', reportedAt: now, receivedAt: now };
+    instruments.store.remote = {
+        source: 'pi',
+        via,
+        deviceLabel: 'calypso',
+        reportedAt: now,
+        receivedAt: now,
+        positionSampleAt: now,
+    };
     // A vessel alongside is still connected: zero is a valid reading.
     instruments.store.sog = { value: 0, lastUpdated: now, freshness: 'live' };
     instruments.store.lastAnyUpdate = now;

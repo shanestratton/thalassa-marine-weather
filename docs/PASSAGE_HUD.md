@@ -15,19 +15,109 @@ instruments show dashes, the phone never stands in for SOG/COG; (3) the forecast
 
 ## Phase 1 — the live strip (built 2026-09-18)
 
-**Off by default.** Settings → Preferences → Chart → "Passage strip on the chart". Three review rounds each found
-new chart furniture in the strip's column, so it reaches nobody who did not ask until it has been seen on the water.
+### Departure planning, ETA and suggested windows — 2026-09-21
 
-| Piece                                                                          | File                                          |
-| ------------------------------------------------------------------------------ | --------------------------------------------- |
-| Enabled and open/closed switches, remembered on the device                     | `stores/passageHudStore.ts`                   |
-| Distance ALONG the followed route, off-track, which stretch of an out-and-back | `services/routeProgress.ts`                   |
-| The six instrument values, re-rendering only when one changes                  | `hooks/usePassageHudInstruments.ts`           |
-| Numbers and tags, tested against the real GPS status resolver                  | `components/passage/passageHudFormat.ts`      |
-| The strip and its closed tab                                                   | `components/passage/PassageHudPane.tsx`       |
-| The Preferences toggle                                                         | `components/settings/PassageStripSection.tsx` |
-| Mount, the strip's Back action, `data-passage-hud` on the chart `<main>`       | `App.tsx`                                     |
-| Geometry, neighbours stepping aside, surfaces that hide it                     | `index.css` (`.thalassa-passage-hud*`)        |
+**Ahead now opens a departure picker**, with Leave now or device-local date/time
+within the next rolling 120 hours. Confirmation starts the ghost at the actual
+position at elapsed zero; changing departure does not jump the boat along the
+route. Tap the scrubber clock to edit again. A fixed departure stays fixed as
+wall time advances; wind, rain, route weather, sea samples, apparent wind and
+the forecast plan all use departure + elapsed time. Missing weather remains
+missing. Cancel preserves the existing mode; route change, disabling the HUD,
+leaving OBS and MOB clear the preview. Dates are not persisted.
+
+**ETA sits below To go**, with local date/time and its speed basis. Preview ETA
+uses the same plan as the ghost (cruise or explicitly labelled by-wind estimate;
+uncovered portions disclose assumed cruise). LIVE uses profile cruising speed
+until at least three minutes of valid boat-motion history exist, then a bounded
+ten-minute, time-weighted minute-median average. Output updates once a minute,
+with a one-minute ETA deadband. Sustained stopping pauses arrival, while source,
+route, account, stale-data and lost-position transitions invalidate the learned
+estimate. Direct gateway SOG must carry its own fresh source timestamp. Pi LAN
+SOG currently has receipt time only, so the average is derived from original
+timestamped GPS positions over 30–60 seconds; cached SOG and phone/cloud speed
+never train it. This is an advisory average-speed ETA, not current correction or
+predicted future sailing performance.
+
+**Suggested forecast windows** compare hourly departures within five days at
+the explicit vessel-profile cruise speed, sampling along the remaining route
+at hourly travel positions, every corner and forecast station, and arrival.
+All wind samples must be covered by fresh data; configured wind/gust/wave limits
+are respected. Missing gusts/waves never improve a candidate's ranking: common
+available dimensions are compared, with a visible wind-only flag where needed.
+Adjacent checked hours within 10% of the best score can form a window of at most
+three hours; gaps and failed limits are not bridged. Displayed maxima cover the
+whole displayed window. Model disagreement is flagged. “Use this time” fills
+the picker without starting the preview. Forecast-comparison details are folded
+away below the summary, not added to the chart's scrubber.
+
+A near-route start up to 0.05 NM away is an explicitly approximate forecast
+comparison: unchecked joining time is included, but its geometry and weather
+are not validated. Larger off-route joins, insufficient coverage, stale data,
+missing explicit cruising speed or unmet limits produce no suggestion. A
+suggested window is not continuous coverage, tide/clearance analysis, a weather
+warning service or permission to depart; current charts and local conditions
+still need checking. The existing followed route is never modified.
+
+Implementation: `passageDeparture.ts`, `passageDepartureSuggestion.ts`,
+`passageEta.ts`, `usePassageEta.ts`, `PassageDepartureModal.tsx`, and the existing
+HUD/scrubber/weather synchronization. Responsive synthetic layout fixture:
+`/e2e/fixtures/passage-departure.html` (no real GPS or forecast request).
+
+### On-water corrections — 2026-09-20
+
+**Current entry: OBS → Layers → Passage HUD.** It is available only with a route
+being followed from Log; the Settings switch has been removed. Activation opens
+the HUD and Passage overlay, disables Inspect and enables wind plus available
+rain/squalls. These overlays do not take over the passage camera. Current squall
+snapshots are not future predictions and must retain their own-time warning.
+
+**Hide readings, keep the forecast.** Collapsing the HUD preserves the scrubber,
+playback, forecast boat and selected time. The scrubber has an explicit LIVE
+button. Disabling the layer, leaving the chart, changing/stopping the followed
+route, or a MOB clears the forecast. A route-less active recording alone does
+not make the layer available.
+
+**Start at actual GPS.** Even a small off-route position is retained exactly at
+NOW. A separate dashed amber line describes the unchecked, straight joining
+estimate to the projected route point; it is not obstacle-checked or a direction
+to steer. The original purple route is unchanged. Time is budgeted for joining
+at profile cruising speed before advancing along the route. Route-sampled HUD
+weather and the model spread band are withheld during joining rather than
+mislabelled as weather at the off-route vessel.
+
+The current pane is **9.5rem wide (double the original)**, with 28px instrument
+readings and a 32px distance. Labels sit beside readings. Both OBS Back buttons
+are removed; the bottom chevron still collapses the instruments. If weather
+credits overlap the wider column, the pane measures their bounds and starts
+below them without hiding attribution.
+
+The forecast hull's inline `position: relative` overrode Mapbox's absolute marker
+placement. Removing that override anchors it to its route coordinates again;
+the actual GPS boat remains at its measured position, never snapped onto a plan.
+
+Passage now draws the **exact route followed in Log**, solid purple, even before
+a named voyage is active. It no longer guesses by matching a saved route's name.
+The forecast uses the same follow-store geometry. The active sailed track stays
+amber and refreshes independently. Same-ID geometry changes repaint without
+refitting the chart; asynchronous overlays cannot steal the look-ahead framing.
+Style reloads restore the lines, and route/track layers share foreground priority
+without repeatedly promoting above each other.
+
+The older phase notes below describe the original layout and dashed-line design.
+
+**Off by default.** OBS → Layers → Passage HUD, while following a route from Log.
+
+| Piece                                                                          | File                                     |
+| ------------------------------------------------------------------------------ | ---------------------------------------- |
+| Enabled and open/closed switches, remembered on the device                     | `stores/passageHudStore.ts`              |
+| Distance ALONG the followed route, off-track, which stretch of an out-and-back | `services/routeProgress.ts`              |
+| The six instrument values, re-rendering only when one changes                  | `hooks/usePassageHudInstruments.ts`      |
+| Numbers and tags, tested against the real GPS status resolver                  | `components/passage/passageHudFormat.ts` |
+| The strip and its closed tab                                                   | `components/passage/PassageHudPane.tsx`  |
+| The route-gated OBS layer and weather setup                                    | `components/map/passageHudLayer.ts`      |
+| Mount, the strip's Back action, `data-passage-hud` on the chart `<main>`       | `App.tsx`                                |
+| Geometry, neighbours stepping aside, surfaces that hide it                     | `index.css` (`.thalassa-passage-hud*`)   |
 
 **Shape.** A 4.75rem strip down the left edge, like a chartplotter's data bar — not a card. Two review rounds measured
 a 176–200px card against the chart's real furniture: it covered the Copernicus licence credit (121px tall, not a 30px
@@ -75,8 +165,9 @@ small phones is older than this change.
 
 ### Re-test on the boat
 
-1. Settings → Preferences → Chart → turn on **Passage strip on the chart**. Obs → a small HUD tab on the left edge,
-   below the Back chevron. Tap: the strip opens and carries Back at its top; the chevron is gone. Hide: both return.
+1. Follow a route in Log, then OBS → Layers → **Passage HUD**. Inspect turns off;
+   wind and available rain/squalls appear. Hide the readings during look-ahead:
+   the scrubber and playback remain, and LIVE returns to current conditions.
 2. Under way with the Pi live: the six numbers match the Instrument Panel; VIA PI; GPS LIVE.
 3. Follow a route from the Log page: TO GO leads, tagged BOAT GPS. Tap the route button: the violet route, amber
    track and flag appear and the button lights; turn them off with Passage in the layer button.
@@ -471,6 +562,25 @@ Two reviewers, each finding separately verified; **all eight were real** and are
 5. The scrubber's credit now ends `… Météo-France, Open-Meteo`.
 
 ## Phase 5 — what is left
+
+### September 20 OBS overview update
+
+- Passage HUD now frames the complete followed Log route and actual GPS position,
+  including when the boat is off the line. The camera measures the open/collapsed
+  HUD and bottom scrubber rather than cropping the route behind them.
+- A deliberate pan, pinch or Locate action pauses overview. **Whole route** restores
+  it; playback and weather-layer updates do not hijack a deliberate inspection.
+- Small purple interior-waypoint dots remain on the route at overview scale;
+  original waypoint numbers appear from zoom 11 with collision avoidance. A/B
+  endpoint markers stay separate. This does not edit or simplify route geometry.
+- The scrubber keeps its time, model, play and LIVE controls without explanatory
+  paragraphs. Forecast coverage, source credits, unchecked-join explanation and
+  the squall colour key now appear in the existing large blue **i** panel.
+- The separate bottom-of-chart squall legend is removed. Provider map credits
+  and the amber forecast/unchecked-join visual distinction are retained.
+- Camera tests cover fresh GPS preference, off-route fixes, antimeridian bounds,
+  resize/collapse, repeated events, cleanup and deliberate inspection. The
+  overview must never take control from MOB, the planner or a storm focus.
 
 SPITFIRE as its own labelled band where the ghost is inside one of its sites; squall cells following the scrubber (the
 proxy already serves `forecast=600…14400`); a motoring-speed and motor-below setting in the vessel profile instead of the two constants;

@@ -3,9 +3,11 @@
  * track and the followed route's flag are OFF on the Obs page by default; the
  * punter turns them on from the layer FAB; clearing sticks.
  */
-import { act, renderHook } from '@testing-library/react';
+import { useState } from 'react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
 
 const chart = vi.hoisted(() => ({
     activeVoyage: null as null | { id: string; voyage_name: string; status: string },
@@ -28,16 +30,26 @@ import {
     usePassageOverlay,
 } from '../stores/chartPassageOverlay';
 import { useActiveVoyageChartSync } from '../components/map/mapHub/useActiveVoyageChartSync';
+import { useFollowRouteStore } from '../stores/followRouteStore';
+import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 
-const ROUTE = {
+const ROUTE: RouteOrTrack = {
     id: 'plan-1',
     label: 'Newport → Whitsundays',
+    sublabel: '',
     points: [
         { lat: 1, lon: 1 },
+        { lat: 1.2, lon: 1.8 },
         { lat: 2, lon: 2 },
     ],
+    bbox: [1, 1, 2, 2],
+    timestamp: 0,
+    distanceNm: 100,
+    isLocal: true,
+    kind: 'sea',
 };
-const TRACK = {
+const TRACK: RouteOrTrack = {
+    ...ROUTE,
     id: 'voyage-1',
     label: 'track',
     points: [
@@ -45,6 +57,13 @@ const TRACK = {
         { lat: 1.5, lon: 1.5 },
     ],
 };
+
+function useChartSelection(on: boolean) {
+    const [route, setRoute] = useState<RouteOrTrack | null>(null);
+    const [track, setTrack] = useState<RouteOrTrack | null>(null);
+    const voyage = useActiveVoyageChartSync(setRoute, setTrack, on);
+    return { route, track, ...voyage };
+}
 
 describe('passage overlay preference', () => {
     beforeEach(() => {
@@ -74,13 +93,16 @@ describe('active voyage chart sync — opt-in', () => {
         chart.activeVoyage = { id: 'voyage-1', voyage_name: 'Newport → Whitsundays', status: 'active' };
         chart.fetchRoutesAndTracks.mockResolvedValue({ routes: [ROUTE], tracks: [TRACK] });
         chart.fetchVoyageAsTrack.mockResolvedValue(TRACK);
+        useFollowRouteStore.getState().startFollowing(buildFollowRoutePlanFromRoute(ROUTE)!, ROUTE.id, ROUTE.points);
     });
-    afterEach(() => vi.useRealTimers());
+    afterEach(() => {
+        cleanup();
+        useFollowRouteStore.getState().stopFollowing();
+        vi.useRealTimers();
+    });
 
     it('with the overlay OFF an active voyage puts nothing on the chart', async () => {
-        const setRoute = vi.fn();
-        const setTrack = vi.fn();
-        const view = renderHook(({ on }) => useActiveVoyageChartSync(setRoute, setTrack, on), {
+        const view = renderHook(({ on }) => useChartSelection(on), {
             initialProps: { on: false },
         });
         await act(async () => {
@@ -88,43 +110,46 @@ describe('active voyage chart sync — opt-in', () => {
         });
         expect(view.result.current.activeVoyageMode).toBe(true);
         expect(chart.fetchRoutesAndTracks).not.toHaveBeenCalled();
-        expect(setRoute).not.toHaveBeenCalled();
-        expect(setTrack).not.toHaveBeenCalled();
+        expect(view.result.current.route).toBeNull();
+        expect(view.result.current.track).toBeNull();
         await act(async () => {
             vi.advanceTimersByTime(120_000);
             await Promise.resolve();
         });
         expect(chart.fetchVoyageAsTrack).not.toHaveBeenCalled();
+        expect(view.result.current.route).toBeNull();
+        expect(view.result.current.track).toBeNull();
     });
 
     it('turning it ON selects the passage; turning it OFF stops the re-apply for good', async () => {
-        const setRoute = vi.fn();
-        const setTrack = vi.fn();
-        const view = renderHook(({ on }) => useActiveVoyageChartSync(setRoute, setTrack, on), {
-            initialProps: { on: true },
+        const view = renderHook(({ on }) => useChartSelection(on), {
+            initialProps: { on: false },
         });
+        view.rerender({ on: true });
         await act(async () => {
             await Promise.resolve();
             await Promise.resolve();
         });
-        expect(chart.fetchRoutesAndTracks).toHaveBeenCalledTimes(1);
-        expect(setRoute).toHaveBeenCalled();
-        expect(setTrack).toHaveBeenCalled();
-        setRoute.mockClear();
-        setTrack.mockClear();
+        expect(chart.fetchRoutesAndTracks).not.toHaveBeenCalled();
+        expect(chart.fetchVoyageAsTrack).toHaveBeenCalledExactlyOnceWith('voyage-1');
+        expect(view.result.current.route?.points).toBe(useFollowRouteStore.getState().routeCoords);
+        expect(view.result.current.route?.points).toEqual(ROUTE.points);
+        expect(view.result.current.track).toBe(TRACK);
         view.rerender({ on: false });
+        expect(view.result.current.route).toBeNull();
+        expect(view.result.current.track).toBeNull();
         await act(async () => {
             vi.advanceTimersByTime(180_000);
             await Promise.resolve();
         });
-        window.dispatchEvent(new Event('thalassa:routes-and-tracks-changed'));
         await act(async () => {
+            window.dispatchEvent(new Event('thalassa:routes-and-tracks-changed'));
             await Promise.resolve();
         });
-        expect(chart.fetchVoyageAsTrack).not.toHaveBeenCalled();
-        expect(chart.fetchRoutesAndTracks).toHaveBeenCalledTimes(1);
-        expect(setRoute).not.toHaveBeenCalled();
-        expect(setTrack).not.toHaveBeenCalled();
+        expect(chart.fetchVoyageAsTrack).toHaveBeenCalledTimes(1);
+        expect(chart.fetchRoutesAndTracks).not.toHaveBeenCalled();
+        expect(view.result.current.route).toBeNull();
+        expect(view.result.current.track).toBeNull();
     });
 });
 

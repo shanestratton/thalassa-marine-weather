@@ -103,11 +103,11 @@ function fmtDistance(meters: number | null): string {
     return `${(meters / 1852).toFixed(2)} NM`;
 }
 
-function buildMobElement(): { el: HTMLDivElement; chip: HTMLDivElement } {
+export function buildMobElement(): { el: HTMLDivElement; chip: HTMLDivElement } {
     const el = document.createElement('div');
     el.className = 'mob-marker';
+    // Mapbox's absolute positioning must anchor the datum, never normal flow.
     el.style.cssText = `
-        position: relative;
         width: 44px; height: 44px;
         pointer-events: none;
     `;

@@ -16,6 +16,7 @@
  */
 
 import { ShipLogEntry } from '../../types';
+import { mergeVoyageDepartureTime, voyageDepartureTime, voyageElapsedMs } from '../../utils/voyageTiming';
 import { supabase, getCurrentUserId } from '../supabase';
 import { getCachedSummaries, setCachedSummaries } from './VoyageSummaryCache';
 import { createLogger } from '../../utils/createLogger';
@@ -38,6 +39,10 @@ export interface VoyageSummary {
     startedAt: string;
     /** ISO timestamp of the latest entry. */
     endedAt: string;
+    /** GPS-estimated push-off; null = awaiting movement, absent = older server/cache. */
+    departedAt?: string | null;
+    /** Explicit passage membership, never inferred from an overnight badge. */
+    passageGroupId?: string | null;
     /** Max cumulative distance across the voyage (NM). */
     totalDistanceNM: number;
     /** Mean speed across moving entries (kts); 0 if none recorded. */
@@ -171,6 +176,7 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
             voyageId,
             entryCount: list.length,
             startedAt: first?.timestamp ?? last?.timestamp ?? new Date(0).toISOString(),
+            departedAt: voyageDepartureTime(sorted),
             endedAt: last?.timestamp ?? first?.timestamp ?? new Date(0).toISOString(),
             totalDistanceNM,
             avgSpeedKts: speedCount > 0 ? speedSum / speedCount : 0,
@@ -200,10 +206,12 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
  *     state, some not yet synced to the cloud), and
  *   - any voyage the user EXPANDED (we lazy-loaded its full points).
  *
- * For every voyageId present in `entries`, recompute its summary from
- * those points and replace the server copy (or insert it if the server
- * hasn't seen the voyage yet — e.g. a brand-new active voyage). Voyages
- * with no local entries pass through untouched. Result stays newest-first.
+ * Locally held rows may be only an unsynced tail, even for a completed
+ * voyage. They can extend the cloud's time window, distance and footprint,
+ * but cannot replace its history. Counts use the larger known count (the
+ * overlap is unknown), and cloud averages/water fractions remain authoritative
+ * until refreshed because they cannot be recomputed from a partial tail.
+ * New local-only voyages still use their local summary. Result stays newest-first.
  *
  * Pure + testable.
  */
@@ -220,7 +228,29 @@ export function mergeSummariesWithLive(summaries: VoyageSummary[], entries: Ship
     for (const s of summaries) {
         const live = liveByVoyage.get(s.voyageId);
         if (live) {
-            out.push(live);
+            const extendsStart = Date.parse(live.startedAt) < Date.parse(s.startedAt);
+            const extendsEnd = Date.parse(live.endedAt) > Date.parse(s.endedAt);
+            out.push({
+                ...s,
+                entryCount: Math.max(s.entryCount, live.entryCount),
+                startedAt: extendsStart ? live.startedAt : s.startedAt,
+                endedAt: extendsEnd ? live.endedAt : s.endedAt,
+                // A resident tail cannot replace departure history. Only a
+                // complete local series may establish/reset the estimate.
+                departedAt: mergeVoyageDepartureTime(s, live),
+                totalDistanceNM: Math.max(s.totalDistanceNM, live.totalDistanceNM),
+                hasManual: s.hasManual || live.hasManual,
+                isPlannedRoute: s.isPlannedRoute || live.isPlannedRoute,
+                isImported: s.isImported || live.isImported,
+                firstLat: extendsStart ? live.firstLat : s.firstLat,
+                firstLon: extendsStart ? live.firstLon : s.firstLon,
+                firstIsOnWater: extendsStart ? live.firstIsOnWater : s.firstIsOnWater,
+                lastLat: extendsEnd ? live.lastLat : s.lastLat,
+                lastLon: extendsEnd ? live.lastLon : s.lastLon,
+                // An unknown cloud footprint cannot become a known tiny one
+                // just because the only local row is the arrival fix.
+                spanM: s.spanM == null ? null : Math.max(s.spanM, live.spanM ?? 0),
+            });
             usedLive.add(s.voyageId);
         } else {
             out.push(s);
@@ -246,7 +276,11 @@ function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
         entryCount: Number(row.entry_count ?? 0),
         startedAt: String(row.started_at ?? new Date(0).toISOString()),
         endedAt: String(row.ended_at ?? new Date(0).toISOString()),
+        ...(Object.prototype.hasOwnProperty.call(row, 'departed_at')
+            ? { departedAt: row.departed_at == null ? null : String(row.departed_at) }
+            : {}),
         totalDistanceNM: Number(row.total_distance_nm ?? 0),
+        passageGroupId: typeof row.passage_group_id === 'string' ? row.passage_group_id : null,
         avgSpeedKts: Number(row.avg_speed_kts ?? 0),
         hasManual: Boolean(row.has_manual),
         isPlannedRoute: Boolean(row.is_planned_route),
@@ -261,7 +295,7 @@ function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
         // (fail-open), same as "no water data".
         landFraction: row.land_fraction == null ? null : Number(row.land_fraction),
         // min/max lat/lon arrive with the 2026-09-06 RPC revision; an older
-        // deployed function omits them → null → the prune keys on distance alone.
+        // deployed function omits them → null → the full footprint is unknown.
         spanM:
             row.min_lat == null || row.max_lat == null || row.min_lon == null || row.max_lon == null
                 ? null
@@ -313,9 +347,7 @@ export function careerTotalsFromSummaries(summaries: VoyageSummary[]): CareerTot
 
         totalVoyages += 1;
         totalDistance += s.totalDistanceNM || 0;
-        const start = new Date(s.startedAt).getTime();
-        const end = new Date(s.endedAt).getTime();
-        if (isFinite(start) && isFinite(end) && end > start) timeMs += end - start;
+        timeMs += voyageElapsedMs(s);
     }
 
     return {
@@ -414,9 +446,7 @@ export function computePersonalRecords(summaries: VoyageSummary[]): PersonalReco
             rec.fastestAvgKts = s.avgSpeedKts || 0;
             rec.fastestVoyageId = s.voyageId;
         }
-        const start = new Date(s.startedAt).getTime();
-        const end = new Date(s.endedAt).getTime();
-        const dur = isFinite(start) && isFinite(end) && end > start ? end - start : 0;
+        const dur = voyageElapsedMs(s);
         if (dur > rec.longestDurationMs) {
             rec.longestDurationMs = dur;
             rec.longestDurationVoyageId = s.voyageId;
@@ -425,10 +455,9 @@ export function computePersonalRecords(summaries: VoyageSummary[]): PersonalReco
     return rec;
 }
 
-// ── Empty-track auto-prune ──────────────────────────────────────────
-// A voyage that recorded but never went anywhere — distance rounds to
-// "0.0 NM". Almost always an accidental start/stop or a cold-start that
-// never got a real fix; clutter the user asked to have swept away.
+// ── Track footprint classification ─────────────────────────────────
+// Descriptive only. A partial local snapshot cannot establish that a
+// voyage is disposable; deleting any track requires an explicit user action.
 /** Distance below which a track reads "0.0 NM" (rounds at 1 dp). */
 export const EMPTY_TRACK_NM = 0.05;
 /**
@@ -445,48 +474,6 @@ export const EMPTY_TRACK_SPAN_M = 150;
 export function isEmptyTrack(s: Pick<VoyageSummary, 'totalDistanceNM' | 'spanM'>): boolean {
     if (s.totalDistanceNM < EMPTY_TRACK_NM) return true;
     return s.spanM != null && s.spanM < EMPTY_TRACK_SPAN_M;
-}
-/** A voyage touched this recently might still be recording (this or another device). */
-export const RECENT_ACTIVE_MS = 15 * 60 * 1000;
-
-/**
- * Pick voyages safe to auto-delete: genuinely zero-distance device
- * tracks that nobody is still recording and that carry no deliberate
- * content. PURE + testable — the guards are the whole safety story:
- *
- *   - totalDistanceNM is max(cumulative), which is MONOTONIC, so an
- *     out-and-back passage (returns to the same dock) or a legacy
- *     resume-corrupted voyage still reads well above zero. Only a
- *     never-moved track reads < EMPTY_TRACK_NM. (This is why we key on
- *     distance, not first↔last displacement.)
- *   - never the active voyage on THIS device (activeVoyageId), nor one
- *     whose latest entry is within RECENT_ACTIVE_MS (might be live on
- *     ANOTHER device sharing the backend).
- *   - never planned routes or imported tracks (not sailed telemetry).
- *   - never a voyage with a manual entry — the user logged something
- *     deliberately, so it's not junk even if the boat didn't move.
- */
-export function selectEmptyVoyagesToPrune(
-    summaries: VoyageSummary[],
-    opts: { activeVoyageId?: string | null; nowMs: number; deviceStoppedIds?: ReadonlySet<string> },
-): string[] {
-    const { activeVoyageId, nowMs, deviceStoppedIds } = opts;
-    const out: string[] = [];
-    for (const s of summaries) {
-        if (!isEmptyTrack(s)) continue;
-        if (s.voyageId === activeVoyageId) continue;
-        if (s.isPlannedRoute || s.isImported) continue;
-        if (s.hasManual) continue;
-        const endedMs = Date.parse(s.endedAt);
-        // The recency hold exists for CROSS-DEVICE ambiguity ("might be live
-        // on another device"). A voyage THIS device stopped has none — making
-        // it wait out the hold is why a nowhere-track's card lingered for
-        // 15 min after an end from the Vessel hub (Shane 2026-08-12).
-        const holdForOtherDevices = !deviceStoppedIds?.has(s.voyageId);
-        if (holdForOtherDevices && Number.isFinite(endedMs) && nowMs - endedMs < RECENT_ACTIVE_MS) continue;
-        out.push(s.voyageId);
-    }
-    return out;
 }
 
 /**

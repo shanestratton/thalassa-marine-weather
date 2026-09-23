@@ -192,16 +192,30 @@ export function getCachedVoyageTrack(
     });
 }
 
-/** Persist one account's track and enforce its independent LRU cap. */
+/**
+ * Persist one account's track and enforce its independent LRU cap.
+ * Stop snapshots may contain only an unsynced tail, so they can populate
+ * a missing cache but must not replace an existing history. Full fetches
+ * keep the default replacement behavior, including explicit entry deletions.
+ */
 export function setCachedVoyageTrack(
     voyageId: string | null | undefined,
     entries: ShipLogEntry[],
     scope: AuthIdentityScope = getAuthIdentityScope(),
+    options: { preserveExisting?: boolean } = {},
 ): Promise<void> {
     if (!voyageId || entries.length < 2 || !isAuthIdentityScopeCurrent(scope)) return Promise.resolve();
 
     return withScopeLock(scope, undefined, async () => {
         try {
+            if (options.preserveExisting) {
+                // Read under the same lock as replacement and explicit clear.
+                // The existing payload is bounded by MAX_BYTES; do not clone,
+                // merge or traverse its entries during the stop path.
+                const existing = await loadLargeData(trackKey(voyageId, scope));
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (isOwnedTrack(existing, voyageId, scope)) return;
+            }
             const normalized: ShipLogEntry[] = [];
             const payload: CachedTrack = {
                 version: CACHE_VERSION,

@@ -32,7 +32,6 @@ import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
-import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
 import { useGpsHealth, gpsHealthMessage } from '../hooks/useGpsHealth';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -62,6 +61,7 @@ import { useUIStore } from '../stores/uiStore';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import { excludeSuggestedRoutes } from '../utils/voyageStats';
 import { VoyageCard } from './log/LogSubComponents';
+import { PassageLogList } from './log/PassageLogList';
 import { formatEndpointCoordinates } from './log/useEndpointNames';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -263,8 +263,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         handleArchiveVoyage,
         handleUnarchiveVoyage,
         // Empty-track tidy announcement
-        emptyPruneNotice,
-        clearEmptyPruneNotice,
     } = useLogPageState();
 
     // ── The passage the ACCOUNT is running on another device (2026-09-08) ──
@@ -1787,7 +1785,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // Live-recording card stats — memoised so the 1 Hz poll doesn't re-filter
     // and re-sort the whole active voyage in render, and so memo(LiveMiniMap)
     // sees the same `entries` array until the entries actually change.
-    const liveStats = React.useMemo(() => deriveLiveStats(entries, currentVoyageId), [entries, currentVoyageId]);
+    const liveStats = React.useMemo(
+        () =>
+            deriveLiveStats(
+                entries,
+                currentVoyageId,
+                listVoyages.find((s) => s.voyageId === currentVoyageId),
+            ),
+        [entries, currentVoyageId, listVoyages],
+    );
 
     // Voyage list — one pass over entries instead of one filter per card, and
     // id-taking callbacks so memo(VoyageCard) actually gets to skip renders.
@@ -2104,41 +2110,44 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 ) : loggedVoyages.length === 0 ? (
                                     <VoyageListEmptyState />
                                 ) : (
-                                    loggedVoyages.map((summary, voyageIdx) => (
-                                        <VoyageCard
-                                            showSwipeHint={voyageIdx === 0}
-                                            suppressMiniMap={showTrackMap || liveMapExpanded}
-                                            recordBadge={
-                                                records.voyageCount >= 2
-                                                    ? records.longestPassageVoyageId === summary.voyageId
-                                                        ? 'longest'
-                                                        : records.fastestVoyageId === summary.voyageId
-                                                          ? 'fastest'
-                                                          : records.longestDurationVoyageId === summary.voyageId
-                                                            ? 'longestTrip'
-                                                            : null
-                                                    : null
-                                            }
-                                            key={summary.voyageId}
-                                            summary={summary}
-                                            isLiveVoyage={
-                                                state.isTracking && state.currentVoyageId === summary.voyageId
-                                            }
-                                            entries={entriesByVoyage.get(summary.voyageId) ?? NO_ENTRIES}
-                                            isSelected={selectedVoyageId === summary.voyageId}
-                                            isExpanded={expandedVoyages.has(summary.voyageId)}
-                                            onToggle={toggleVoyage}
-                                            onSelect={handleSelectVoyage}
-                                            onDelete={handleDeleteVoyageRequest}
-                                            onArchive={handleArchiveVoyage}
-                                            onShowMap={handleShowVoyageMap}
-                                            onFollowPlannedRoute={followPlannedRouteLocally}
-                                            onNeedEntries={loadVoyageEntries}
-                                            filteredEntries={filteredEntries}
-                                            onDeleteEntry={handleDeleteEntry}
-                                            onEditEntry={handleEditEntry}
-                                        />
-                                    ))
+                                    <PassageLogList
+                                        voyages={loggedVoyages}
+                                        renderVoyage={(summary, first) => (
+                                            <VoyageCard
+                                                showSwipeHint={first}
+                                                suppressMiniMap={showTrackMap || liveMapExpanded}
+                                                recordBadge={
+                                                    records.voyageCount >= 2
+                                                        ? records.longestPassageVoyageId === summary.voyageId
+                                                            ? 'longest'
+                                                            : records.fastestVoyageId === summary.voyageId
+                                                              ? 'fastest'
+                                                              : records.longestDurationVoyageId === summary.voyageId
+                                                                ? 'longestTrip'
+                                                                : null
+                                                        : null
+                                                }
+                                                key={summary.voyageId}
+                                                summary={summary}
+                                                isLiveVoyage={
+                                                    state.isTracking && state.currentVoyageId === summary.voyageId
+                                                }
+                                                entries={entriesByVoyage.get(summary.voyageId) ?? NO_ENTRIES}
+                                                isSelected={selectedVoyageId === summary.voyageId}
+                                                isExpanded={expandedVoyages.has(summary.voyageId)}
+                                                onToggle={toggleVoyage}
+                                                onSelect={handleSelectVoyage}
+                                                onDelete={handleDeleteVoyageRequest}
+                                                onArchive={handleArchiveVoyage}
+                                                onShowMap={handleShowVoyageMap}
+                                                onFollowPlannedRoute={followPlannedRouteLocally}
+                                                onNeedEntries={loadVoyageEntries}
+                                                filteredEntries={filteredEntries}
+                                                onDeleteEntry={handleDeleteEntry}
+                                                onEditEntry={handleEditEntry}
+                                            />
+                                        )}
+                                    />
                                 )}
 
                                 {/* ── Archived Voyages ── */}
@@ -2179,10 +2188,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     setNudgeDismiss={setNudgeDismiss}
                 />
             )}
-
-            {/* Empty-track tidy announcement — big friendly modal with a
-                5 s countdown ring, replaces the plain toast. */}
-            <EmptyTrackRemovedModal count={emptyPruneNotice} onClose={clearEmptyPruneNotice} />
 
             {/* The share-live departure prompt renders globally from
                 <DeparturePrompts/> in App.tsx — see the note where its

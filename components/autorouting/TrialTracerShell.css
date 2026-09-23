@@ -1,0 +1,173 @@
+/* Matches the manual Tracer's 18rem left-rail card, amber header, rounded
+   material and one scrolling body. Positioning belongs to the map workspace;
+   these bounds use the parent pane, never the full device viewport. */
+.trial-tracer-shell {
+    --trial-tracer-surface: rgb(15 23 42 / 95%);
+    --trial-tracer-heading: rgb(255 255 255 / 10%);
+    --trial-tracer-border: rgb(245 158 11 / 30%);
+    --trial-tracer-divider: rgb(255 255 255 / 10%);
+    --trial-tracer-text: #f1f5f9;
+    --trial-tracer-muted: #cbd5e1;
+    --trial-tracer-amber: #fcd34d;
+    --trial-tracer-working: #7dd3fc;
+    --trial-tracer-danger: #fca5a5;
+    display: flex;
+    flex-direction: column;
+    width: min(18rem, 100%);
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    pointer-events: auto;
+    border: 1px solid var(--trial-tracer-border);
+    border-radius: 1rem;
+    background: var(--trial-tracer-surface);
+    color: var(--trial-tracer-text);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 35%);
+    text-align: left;
+}
+.trial-tracer-shell[data-expanded='true'] {
+    height: 100%;
+}
+.trial-tracer-heading {
+    flex-shrink: 0;
+    padding: 0.375rem 0.5rem;
+    border-bottom: 1px solid var(--trial-tracer-divider);
+    user-select: none;
+}
+.trial-tracer-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.5rem 0.625rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: var(--trial-tracer-heading);
+    color: var(--trial-tracer-amber);
+    text-align: left;
+    cursor: pointer;
+}
+.trial-tracer-toggle:focus-visible {
+    outline: 2px solid var(--trial-tracer-working);
+    outline-offset: -2px;
+}
+.trial-tracer-chevron {
+    flex-shrink: 0;
+    color: var(--trial-tracer-muted);
+    font-size: 1.125rem;
+    line-height: 1;
+}
+.trial-tracer-title {
+    font-size: 0.75rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+.trial-tracer-badge {
+    margin-left: auto;
+    color: var(--trial-tracer-muted);
+    font-size: 0.625rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.trial-tracer-status,
+.trial-tracer-warning {
+    flex-shrink: 0;
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid var(--trial-tracer-divider);
+    overflow-wrap: anywhere;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.trial-tracer-status {
+    color: var(--trial-tracer-muted);
+}
+.trial-tracer-warning {
+    color: var(--trial-tracer-amber);
+}
+.trial-tracer-shell[data-status-tone='working'] .trial-tracer-status {
+    color: var(--trial-tracer-working);
+}
+.trial-tracer-shell[data-status-tone='caution'] .trial-tracer-status {
+    color: var(--trial-tracer-amber);
+}
+.trial-tracer-shell[data-status-tone='danger'] .trial-tracer-status {
+    color: var(--trial-tracer-danger);
+}
+.trial-tracer-expanded {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+.trial-tracer-expanded[hidden] {
+    display: none;
+}
+.trial-tracer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+}
+.trial-tracer-footer,
+.trial-tracer-folded-controls {
+    flex-shrink: 0;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--trial-tracer-divider);
+}
+.trial-tracer-navigation {
+    flex-shrink: 0;
+    display: flex;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid var(--trial-tracer-divider);
+}
+.trial-tracer-navigation button {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 0.5rem;
+    color: var(--trial-tracer-muted);
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+.trial-tracer-navigation button[aria-pressed='true'] {
+    background: var(--trial-tracer-heading);
+    color: var(--trial-tracer-amber);
+    box-shadow: inset 0 -2px var(--trial-tracer-amber);
+}
+.trial-tracer-navigation button:focus-visible {
+    outline: 2px solid var(--trial-tracer-working);
+    outline-offset: -2px;
+}
+@media (max-height: 500px) {
+    .trial-tracer-expanded {
+        display: block;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+    .trial-tracer-body {
+        overflow: visible;
+    }
+}
+.display-light .trial-tracer-shell,
+.trial-tracer-shell.display-light {
+    --trial-tracer-surface: rgb(248 250 252 / 97%);
+    --trial-tracer-heading: rgb(15 23 42 / 7%);
+    --trial-tracer-border: rgb(180 83 9 / 40%);
+    --trial-tracer-divider: rgb(15 23 42 / 14%);
+    --trial-tracer-text: #0f172a;
+    --trial-tracer-muted: #334155;
+    --trial-tracer-amber: #92400e;
+    --trial-tracer-working: #075985;
+    --trial-tracer-danger: #991b1b;
+    box-shadow: 0 12px 30px rgb(15 23 42 / 20%);
+}
+/* The existing app-wide night-vision scrim remains authoritative. The shell
+   introduces no fixed/portal surface that could escape it or its pane. */
