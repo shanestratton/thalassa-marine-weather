@@ -4967,7 +4967,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     }
 }
 
-Short portrait phones (SE/8 class, 667 pt): the radar keeps a fixed height
+/* Short portrait phones (SE/8 class, 667 pt): the radar keeps a fixed height
    instead of collapsing to nothing under the controls, and the first-run
    guidance card sets tighter so the sliders and the arming bar fit. */
 @media (orientation: portrait) and (max-height: 700px) {

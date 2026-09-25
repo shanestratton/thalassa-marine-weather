@@ -213,6 +213,16 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         },
         [disabled, loading, onConfirm],
     );
+    // Assistive tech (VoiceOver double-tap, switch control) fires a synthesised
+    // click with detail 0 and cannot drag; treat that as the confirm, exactly as
+    // Enter/Space already are. A pointer click (detail >= 1) still has to slide.
+    const handleClick = useCallback(
+        (event: React.MouseEvent<HTMLElement>) => {
+            if (disabled || loading || event.detail !== 0) return;
+            onConfirm();
+        },
+        [disabled, loading, onConfirm],
+    );
 
     // Rotation, iPad multitasking, a lost pointer, or a loading-state change
     // invalidates the gesture. A stale full-width measurement must never drive
@@ -277,6 +287,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
             onPointerCancel={handlePointerCancel}
             onLostPointerCapture={handlePointerCancel}
             onKeyDown={handleKeyDown}
+            onClick={handleClick}
             role="button"
             tabIndex={disabled ? -1 : 0}
             aria-disabled={disabled}
