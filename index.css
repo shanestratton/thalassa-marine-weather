@@ -4112,12 +4112,16 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     .anchor-setup-scroll {
         display: grid !important;
         grid-template-columns: 200px minmax(0, 1fr);
+        grid-template-rows: auto 1fr;
         column-gap: 8px;
         align-content: start;
     }
+    /* The guidance shares the controls column: with it spanning the top the
+       radar started 90 px lower and its foot sat under the nav toggle. */
     .anchor-setup-guidance {
-        grid-column: 1 / -1;
-        margin-top: 4px !important;
+        grid-column: 2;
+        grid-row: 1;
+        margin: 4px 16px 4px 0 !important;
         padding: 6px 10px !important;
     }
     .anchor-setup-guidance p {
@@ -4130,10 +4134,12 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     }
     .anchor-setup-radar {
         grid-column: 1;
+        grid-row: 1 / span 2;
         align-self: start;
     }
     .anchor-setup-controls {
         grid-column: 2;
+        grid-row: 2;
     }
     /* Plan page: keep the header on the cards' column and drop the eyebrow
        line, so the fold lands on the cards rather than on chrome. */
@@ -5030,7 +5036,10 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 
 /* Daylight: white text stays white on the emerald action buttons (service log, saved profile). */
 .display-light .from-emerald-600.text-white,
-.display-light .bg-emerald-600 .text-white {
+.display-light .bg-emerald-600.text-white,
+.display-light .bg-emerald-500.text-white,
+.display-light .bg-emerald-600 .text-white,
+.display-light .bg-emerald-500 .text-white {
     color: #ffffff;
 }
 
