@@ -718,8 +718,8 @@ input[type='date']::-webkit-calendar-picker-indicator {
 .display-light .text-gray-300,
 .display-light .text-gray-400 {
     --tw-text-opacity: 1;
-    color: rgb(100 116 139 / var(--tw-text-opacity));
-    /* slate-500 */
+    color: rgb(71 85 105 / var(--tw-text-opacity));
+    /* slate-600 — slate-500 measured 4.06:1 on the light page (UX scorecard 2026-09-25) */
 }
 
 .display-light .text-gray-500 {
@@ -741,8 +741,8 @@ input[type='date']::-webkit-calendar-picker-indicator {
 
 .display-light .text-sky-200 {
     --tw-text-opacity: 1;
-    color: rgb(14 165 233 / var(--tw-text-opacity));
-    /* sky-500 — more visible on light bg */
+    color: rgb(3 105 161 / var(--tw-text-opacity));
+    /* sky-700 — sky-500 measured 2.8:1 on the log archive slab (UX scorecard 2026-09-25) */
 }
 
 /* Vessel Hub keeps rich glass surfaces in both themes. Its old inline dark
@@ -985,7 +985,7 @@ input[type='date']::-webkit-calendar-picker-indicator {
 
 /* cyan-600 */
 .display-light .text-cyan-300 {
-    color: #0891b2;
+    color: #155e75;
 }
 
 .display-light .text-blue-400 {
@@ -4464,7 +4464,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: #92400e;
 }
 .display-light .text-amber-300\/70 {
-    color: #92400e;
+    color: #78350f;
 }
 .display-light .text-amber-300\/80 {
     color: #92400e;
@@ -4500,7 +4500,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(14 116 144 / 0.9);
 }
 .display-light .text-cyan-300\/80 {
-    color: rgb(14 116 144 / 0.9);
+    color: #155e75;
 }
 .display-light .text-cyan-50\/80 {
     color: rgb(14 116 144 / 0.9);
@@ -4542,7 +4542,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(4 120 87 / 0.9);
 }
 .display-light .text-emerald-300\/70 {
-    color: rgb(4 120 87 / 0.9);
+    color: #065f46;
 }
 .display-light .text-emerald-300\/75 {
     color: rgb(4 120 87 / 0.9);
@@ -4634,7 +4634,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(190 18 60);
 }
 .display-light .text-sky-100 {
-    color: rgb(3 105 161);
+    color: #075985;
 }
 .display-light .text-sky-100\/50 {
     color: rgb(3 105 161 / 0.9);
@@ -4676,13 +4676,13 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(3 105 161 / 0.9);
 }
 .display-light .text-sky-300\/60 {
-    color: rgb(3 105 161 / 0.9);
+    color: #075985;
 }
 .display-light .text-sky-300\/70 {
-    color: rgb(3 105 161 / 0.9);
+    color: #075985;
 }
 .display-light .text-sky-300\/75 {
-    color: rgb(3 105 161 / 0.9);
+    color: #075985;
 }
 .display-light .text-sky-300\/80 {
     color: rgb(3 105 161 / 0.9);
@@ -4860,7 +4860,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(3 105 161 / 0.9);
 }
 .display-light .text-sky-400\/70 {
-    color: rgb(3 105 161 / 0.9);
+    color: #075985;
 }
 .display-light .text-sky-400\/80 {
     color: rgb(3 105 161 / 0.9);
@@ -4969,4 +4969,40 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 .display-light .anchor-setup-page input[type='range'].accent-amber-500::-webkit-slider-thumb {
     background: #b45309;
+}
+
+/* ── Daylight: text that sits ON a red control stays white ─────────────────
+   `.display-light .text-white` turns body text navy, which also caught the
+   swipe-to-delete panel and the MOB button — navy on red measured 2.9–3.7:1. */
+.display-light .bg-red-600 .text-white,
+.display-light .bg-red-600.text-white,
+.display-light .radial-helm-mob.text-white {
+    color: #ffffff;
+}
+
+/* Daylight: the beta badge in the brand row (amber-100 on its own tint read 3.8:1). */
+.display-light .thalassa-beta-badge {
+    color: #78350f;
+    border-color: rgba(120, 53, 15, 0.35);
+    background-color: rgba(217, 119, 6, 0.14);
+}
+.display-light .thalassa-beta-badge .text-amber-200\/70 {
+    color: #92400e;
+}
+
+/* Daylight: the two hard-coded slate slabs (log archive, device card) become a soft light surface. */
+.display-light .bg-slate-900\/35,
+.display-light .bg-slate-900\/40 {
+    background-color: var(--day-ui-surface-soft, #edf3f8);
+}
+
+/* Preferences selects: appearance-none so WebKit honours the 44 pt height, with our own chevron. */
+.thalassa-select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+}
+.display-light .thalassa-select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
 }

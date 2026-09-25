@@ -167,7 +167,7 @@ export function MapBaseSelector({
                                         {option.description}
                                     </span>
                                 </span>
-                                <span className={checked ? 'text-sky-300' : 'text-slate-600'} aria-hidden="true">
+                                <span className={checked ? 'text-sky-300' : 'text-slate-400'} aria-hidden="true">
                                     {checked ? '●' : '○'}
                                 </span>
                             </button>

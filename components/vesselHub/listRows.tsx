@@ -61,9 +61,12 @@ export const OfficeRow: React.FC<{
         <div className="p-1.5 rounded-lg" style={{ background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))' }}>
             {icon}
         </div>
-        {/* min-w-0 + truncate: the label yields, so a long status can never
-            make this row two lines tall. */}
-        <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-white tracking-wide">{label}</span>
+        {/* min-w-0 + line-clamp-2: a long label wraps to a second line rather
+            than losing its ending; the status truncates at half the row, so it
+            can never push the label out. */}
+        <span className="min-w-0 flex-1 line-clamp-2 text-[13px] font-bold leading-tight text-white tracking-wide">
+            {label}
+        </span>
         {badge !== undefined && (
             <span
                 className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${

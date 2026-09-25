@@ -36,6 +36,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 type="text"
                                 value={settings.defaultLocation || ''}
                                 onChange={(e) => onSave({ defaultLocation: e.target.value })}
+                                aria-label="Default port"
                                 className="min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm w-48"
                                 placeholder="City, Country"
                             />
@@ -63,7 +64,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.speed}
                             onChange={(e) => updateUnit('speed', e.target.value)}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="kts">Knots</option>
                             <option value="mph">mph</option>
@@ -77,7 +78,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.distance}
                             onChange={(e) => updateUnit('distance', e.target.value)}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="nm">Nautical Miles</option>
                             <option value="mi">Miles</option>
@@ -92,7 +93,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.waveHeight || 'm'}
                             onChange={(e) => updateUnit('waveHeight', e.target.value)}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="m">Meters</option>
                             <option value="ft">Feet</option>
@@ -113,7 +114,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                     },
                                 });
                             }}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="ft">Feet</option>
                             <option value="m">Meters</option>
@@ -125,7 +126,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.temp}
                             onChange={(e) => updateUnit('temp', e.target.value)}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="C">Celsius</option>
                             <option value="F">Fahrenheit</option>
@@ -137,7 +138,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.visibility || 'nm'}
                             onChange={(e) => updateUnit('visibility', e.target.value)}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="nm">Nautical Miles</option>
                             <option value="mi">Miles</option>
@@ -150,7 +151,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.volume || 'gal'}
                             onChange={(e) => updateUnit('volume', e.target.value)}
-                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="gal">Gallons</option>
                             <option value="l">Liters</option>
@@ -320,7 +321,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 dates the JavaScript actually running, so a stale install is
                 visible at a glance. If this does not match roughly when you
                 last pressed Run in Xcode, the phone is running old code. */}
-            <p className="pb-6 pt-1 text-center text-[10px] tracking-wide text-white/25">bundle {__BUILD_STAMP__}</p>
+            <p className="pb-6 pt-1 text-center text-[10px] tracking-wide text-white/50">bundle {__BUILD_STAMP__}</p>
         </div>
     );
 };
