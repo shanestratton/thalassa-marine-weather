@@ -43,12 +43,6 @@ const isMapboxConfigured = () => {
 
 const isOpenMeteoConfigured = () => isSupabaseConfigured();
 
-const getMapboxKeyPreview = () => {
-    const val = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
-    if (!val || val.length < 5 || val.includes('YOUR_')) return 'MISSING';
-    return `Ends in ...${val.slice(-4)}`;
-};
-
 // ── Status Row sub-component ──
 const StatusRow = ({
     label,
@@ -383,28 +377,32 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 </Section>
             )}
 
-            <Section title="API Services">
+            <Section title="Services">
                 <div className="p-3 space-y-2">
                     <StatusRow
-                        label="StormGlass"
+                        label="Marine forecast"
                         isConnected={isStormglassKeyPresent()}
                         status={sgStatus?.status}
                         details={sgStatus ? (sgStatus.status === 'OK' ? 'Working' : sgStatus.message) : undefined}
                         loading={sgStatus?.status === 'LOADING'}
                     />
                     <StatusRow
-                        label="Gemini AI"
+                        label="Assistant"
                         isConnected={isGeminiConfigured()}
                         details={isGeminiConfigured() ? 'Connected' : 'Not configured'}
                     />
-                    <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getMapboxKeyPreview()} />
                     <StatusRow
-                        label="Supabase"
+                        label="Charts"
+                        isConnected={isMapboxConfigured()}
+                        details={isMapboxConfigured() ? 'Connected' : 'Not configured'}
+                    />
+                    <StatusRow
+                        label="Cloud sync"
                         isConnected={isSupabaseConfigured()}
                         details={isSupabaseConfigured() ? 'Connected' : 'Not configured'}
                     />
                     <StatusRow
-                        label="Open-Meteo"
+                        label="Weather models"
                         isConnected={!!isOpenMeteoConfigured()}
                         details={isOpenMeteoConfigured() ? 'Connected' : 'Not configured'}
                     />

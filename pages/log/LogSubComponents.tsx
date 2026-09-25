@@ -53,7 +53,7 @@ export const MenuBtn: React.FC<{
         aria-disabled={disabled || undefined}
         className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
             disabled
-                ? 'text-slate-500 opacity-60 cursor-not-allowed'
+                ? 'text-slate-500 opacity-40 cursor-not-allowed'
                 : danger
                   ? 'text-red-400 hover:bg-red-500/10'
                   : accent

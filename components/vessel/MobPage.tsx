@@ -325,7 +325,10 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     // ── Render: idle or active ────────────────────────────────────────────
     if (!state.active) {
         return (
-            <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-y-auto">
+            <div
+                className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-y-auto"
+                style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
+            >
                 <PageHeader title="Man Overboard" subtitle="Mark & Track" onBack={onBack} />
                 <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8">
                     <div className="text-center max-w-sm">
@@ -379,9 +382,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             <span className="text-[22px] font-black tracking-widest uppercase">
                                 {activating ? 'Marking…' : 'MOB'}
                             </span>
-                            <span className="text-[10px] font-bold tracking-widest uppercase opacity-80">
-                                Tap to Mark
-                            </span>
+                            <span className="text-[10px] font-bold tracking-widest uppercase">Tap to Mark</span>
                         </div>
                     </button>
 

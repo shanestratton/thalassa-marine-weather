@@ -547,8 +547,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black"
                                     title="Overdue"
                                 >
-                                    {counts.red}
-                                    <span className="sr-only"> overdue</span>
+                                    {counts.red} overdue
                                 </span>
                             )}
                             {counts.yellow > 0 && (
@@ -556,16 +555,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black"
                                     title="Due soon"
                                 >
-                                    {counts.yellow}
-                                    <span className="sr-only"> due soon</span>
+                                    {counts.yellow} due
                                 </span>
                             )}
                             <span
                                 className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black"
                                 title="Up to date"
                             >
-                                {counts.green}
-                                <span className="sr-only"> up to date</span>
+                                {counts.green} ok
                             </span>
                         </>
                     }

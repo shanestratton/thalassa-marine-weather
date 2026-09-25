@@ -662,7 +662,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
                 <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
-                <div className="flex-1 flex items-center justify-center px-6">
+                <div className="flex-1 flex items-start justify-center px-6 pt-6">
                     <div
                         role="status"
                         className="w-full max-w-sm rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center"

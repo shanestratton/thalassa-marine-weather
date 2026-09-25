@@ -2,6 +2,7 @@ import React from 'react';
 
 export const SearchIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -20,6 +21,7 @@ export const SearchIcon = ({ className }: { className?: string }) => (
 
 export const EyeIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -38,6 +40,7 @@ export const EyeIcon = ({ className }: { className?: string }) => (
 
 export const BellIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -83,6 +86,7 @@ export const InfoIcon = ({ className }: { className?: string }) => (
 
 export const XIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -101,6 +105,7 @@ export const XIcon = ({ className }: { className?: string }) => (
 
 export const CheckIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -118,6 +123,7 @@ export const CheckIcon = ({ className }: { className?: string }) => (
 
 export const GearIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -136,6 +142,7 @@ export const GearIcon = ({ className }: { className?: string }) => (
 
 export const StarIcon = ({ className, filled }: { className?: string; filled?: boolean }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -153,6 +160,7 @@ export const StarIcon = ({ className, filled }: { className?: string; filled?: b
 
 export const ClockIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -171,6 +179,7 @@ export const ClockIcon = ({ className }: { className?: string }) => (
 
 export const TrashIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -190,6 +199,7 @@ export const TrashIcon = ({ className }: { className?: string }) => (
 
 export const MinusIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -207,6 +217,7 @@ export const MinusIcon = ({ className }: { className?: string }) => (
 
 export const PlusSquareIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -226,6 +237,7 @@ export const PlusSquareIcon = ({ className }: { className?: string }) => (
 
 export const AlertTriangleIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -245,6 +257,7 @@ export const AlertTriangleIcon = ({ className }: { className?: string }) => (
 
 export const QuoteIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -259,6 +272,7 @@ export const QuoteIcon = ({ className }: { className?: string }) => (
 
 export const LockIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -277,6 +291,7 @@ export const LockIcon = ({ className }: { className?: string }) => (
 
 export const DiamondIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -297,6 +312,7 @@ export const DiamondIcon = ({ className }: { className?: string }) => (
 /** Outbound link — arrow leaving a box. ShareIcon is the share sheet, not this. */
 export const ExternalLinkIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -316,6 +332,7 @@ export const ExternalLinkIcon = ({ className }: { className?: string }) => (
 
 export const ShareIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -335,6 +352,7 @@ export const ShareIcon = ({ className }: { className?: string }) => (
 
 export const BugIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -360,6 +378,7 @@ export const BugIcon = ({ className }: { className?: string }) => (
 
 export const PhoneIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -377,6 +396,7 @@ export const PhoneIcon = ({ className }: { className?: string }) => (
 
 export const GripIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -402,6 +422,7 @@ export const GripIcon = ({ className }: { className?: string }) => (
 // ✅ — Check inside a circle. Used for confirmation states / "done".
 export const CheckCircleIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -421,6 +442,7 @@ export const CheckCircleIcon = ({ className }: { className?: string }) => (
 // 🛒 — Shopping cart. Used in the Galley shopping list.
 export const CartIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -441,6 +463,7 @@ export const CartIcon = ({ className }: { className?: string }) => (
 // 📦 — Package / box. Used for stores and inventory.
 export const PackageIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -462,6 +485,7 @@ export const PackageIcon = ({ className }: { className?: string }) => (
 // 🔧 🛠 — Wrench. Used for maintenance, settings, tools.
 export const WrenchIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -480,6 +504,7 @@ export const WrenchIcon = ({ className }: { className?: string }) => (
 // 🔄 — Refresh / cycle arrows. Used for reload, sync.
 export const RefreshIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -501,6 +526,7 @@ export const RefreshIcon = ({ className }: { className?: string }) => (
 // 🔇 — Mute (volume off with slash). Used for sound off.
 export const MuteIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -523,6 +549,7 @@ export const MuteIcon = ({ className }: { className?: string }) => (
 // ✏️ 📝 — Pencil / edit. Used for compose, edit-in-place.
 export const EditIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -542,6 +569,7 @@ export const EditIcon = ({ className }: { className?: string }) => (
 // 📤 — Send / outbound tray. Used for share-out, export.
 export const SendIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -561,6 +589,7 @@ export const SendIcon = ({ className }: { className?: string }) => (
 // 📥 — Download / inbound tray. Used for downloads, GPX import.
 export const DownloadIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -581,6 +610,7 @@ export const DownloadIcon = ({ className }: { className?: string }) => (
 // 📋 — Clipboard. Used for copy actions, log entries.
 export const ClipboardIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -600,6 +630,7 @@ export const ClipboardIcon = ({ className }: { className?: string }) => (
 // 🚫 — Prohibited / no-entry circle. Used for blocked / unavailable.
 export const ProhibitedIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -619,6 +650,7 @@ export const ProhibitedIcon = ({ className }: { className?: string }) => (
 // 📻 — Radio. Used for VHF / DSC, radio comms.
 export const RadioIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -641,6 +673,7 @@ export const RadioIcon = ({ className }: { className?: string }) => (
 // 🆘 — SOS distress signal. Used in MOB, Mayday, emergency surfaces.
 export const SosIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -661,6 +694,7 @@ export const SosIcon = ({ className }: { className?: string }) => (
 // ✨ — Sparkles (multi-star). Used for "Clear All" / fresh-state semantics.
 export const SparklesIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -683,6 +717,7 @@ export const SparklesIcon = ({ className }: { className?: string }) => (
 // 🚗 — Car. Used for "Drive" transport mode in RoutePlanner.
 export const CarIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -704,6 +739,7 @@ export const CarIcon = ({ className }: { className?: string }) => (
 // 🚶 — Person walking. Used for "Walk" transport mode in RoutePlanner.
 export const WalkIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -727,6 +763,7 @@ export const WalkIcon = ({ className }: { className?: string }) => (
 // generic UI calendar.) Used for planning-window selection.
 export const CalendarGridIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -748,6 +785,7 @@ export const CalendarGridIcon = ({ className }: { className?: string }) => (
 // 👥 — Two people. Used for "Crew" entries, group surfaces.
 export const UsersIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -769,6 +807,7 @@ export const UsersIcon = ({ className }: { className?: string }) => (
 // 🛟 — Life buoy. Used for "Safety" entries, help indicators.
 export const LifeBuoyIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -792,6 +831,7 @@ export const LifeBuoyIcon = ({ className }: { className?: string }) => (
 // 📟 — Pager / device with screen. Used for distance-readout indicators.
 export const DeviceIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"

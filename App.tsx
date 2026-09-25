@@ -1178,6 +1178,7 @@ const App: React.FC = () => {
                             id="main-content"
                             className={`grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
                         >
+                            {currentView === 'dashboard' && <h1 className="sr-only">The Glass</h1>}
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense
                                     fallback={currentView === 'dashboard' ? <SkeletonDashboard /> : <SkeletonPage />}
@@ -1636,7 +1637,7 @@ const App: React.FC = () => {
                                     />
                                 }
                                 label="The Glass"
-                                active={currentView === 'dashboard' || splitActive}
+                                active={currentView === 'dashboard' || currentView === 'warnings' || splitActive}
                                 onClick={handleGlassTab}
                                 onLongPress={wideEnoughForSplit ? toggleSplitView : undefined}
                             />
@@ -1741,7 +1742,7 @@ const App: React.FC = () => {
                                     </div>
                                 }
                                 label="Vessel"
-                                active={isVesselView || currentView === 'chat'}
+                                active={isVesselView || ['chat', 'settings', 'voice', 'music'].includes(currentView)}
                                 onClick={() => setPage('vessel')}
                                 // chatUnread badge moves to Vessel — chat
                                 // now lives under Vessel → Wardroom →
