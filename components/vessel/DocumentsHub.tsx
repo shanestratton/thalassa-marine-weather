@@ -13,7 +13,7 @@ import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
 import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
 import { triggerHaptic } from '../../utils/system';
-import { SlideToAction } from '../ui/SlideToAction';
+import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -665,7 +665,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Slide below to file your first document.'
+                                    : 'Tap Add Document below to file your first one.'
                             }
                             className="py-16"
                         />
@@ -703,8 +703,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     className="shrink-0 px-4 pt-2 bg-slate-950"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <SlideToAction
-                        label="Slide to Add Document"
+                    <TapToAction
+                        label="Add Document"
                         thumbIcon={
                             <svg
                                 className="w-5 h-5 text-white"

@@ -12,7 +12,7 @@ import { reconcileDiaryEntries, reconcileDiaryRefresh } from '../services/diaryE
 import { triggerHaptic } from '../utils/system';
 import { haversineMeters } from '../services/shiplog/GpsTrackBuffer';
 import { extractPhotoExif } from '../utils/exifGps';
-import { SlideToAction } from './ui/SlideToAction';
+import { TapToAction } from './ui/TapToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useWeather } from '../context/WeatherContext';
@@ -1598,7 +1598,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         <EmptyState
                             icon={<CompassIcon className="w-10 h-10 text-sky-400/60" rotation={0} />}
                             title="Your Story Starts Here"
-                            description="Slide below to write your first entry. Add photos, a short video and your position."
+                            description="Tap Write Entry below to start your first. Add photos, a short video and your position."
                         />
                     ) : (
                         <div className="space-y-6 stagger-in">
@@ -1633,13 +1633,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         </div>
                     )}
                 </div>
-                {/* ── Bottom bar: slide-to-action ── */}
+                {/* ── Bottom bar: write-entry action ── */}
                 <div
                     className="shrink-0 px-4"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <SlideToAction
-                        label="Slide to Write Entry"
+                    <TapToAction
+                        label="Write Entry"
                         thumbIcon={
                             <svg
                                 className="w-5 h-5 text-white"

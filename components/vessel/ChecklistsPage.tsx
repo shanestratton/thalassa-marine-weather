@@ -19,7 +19,7 @@ import {
 } from '../../services/vessel/LocalChecklistService';
 import { LocalMaintenanceService } from '../../services/vessel/LocalMaintenanceService';
 import { triggerHaptic } from '../../utils/system';
-import { SlideToAction } from '../ui/SlideToAction';
+import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -540,7 +540,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Slide below to add your first section or item.'
+                                    : 'Tap below to add your first section or item.'
                             }
                             className="py-16"
                         />
@@ -578,8 +578,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     className="shrink-0 px-4 pt-2 bg-slate-950"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <SlideToAction
-                        label="Slide to Add"
+                    <TapToAction
+                        label="Add Section or Item"
                         thumbIcon={
                             <svg
                                 className="w-5 h-5 text-white"

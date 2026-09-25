@@ -24,7 +24,7 @@ import type {
 } from '../../types';
 import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
-import { SlideToAction } from '../ui/SlideToAction';
+import { TapToAction } from '../ui/TapToAction';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
@@ -748,7 +748,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </svg>
                             }
                             title="No Maintenance Tasks"
-                            subtitle="Set up service intervals for your engine, rigging, and safety gear. Slide below to create your first task."
+                            subtitle="Set up service intervals for your engine, rigging, and safety gear. Tap Add Task below to create your first."
                         />
                     ) : (
                         groupedTasks.map((group) => {
@@ -790,8 +790,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     className="shrink-0 px-4 pt-2 bg-slate-950"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <SlideToAction
-                        label="Slide to Add Task"
+                    <TapToAction
+                        label="Add Task"
                         thumbIcon={
                             <svg
                                 className="w-5 h-5 text-white"
