@@ -15,7 +15,7 @@ import type { EquipmentItem, EquipmentCategory } from '../../types';
 import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentService';
 import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
 import { triggerHaptic } from '../../utils/system';
-import { SlideToAction } from '../ui/SlideToAction';
+import { TapToAction } from '../ui/TapToAction';
 import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -581,7 +581,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Slide below to register your first item.'
+                                    : 'Tap Add Equipment below to register your first item.'
                             }
                             className="py-16"
                         />
@@ -622,13 +622,13 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ── SlideToAction CTA (fixed at bottom) ── */}
+                {/* ── Add CTA (fixed at bottom) ── */}
                 <div
                     className="shrink-0 px-4 pt-2 bg-slate-950"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <SlideToAction
-                        label="Slide to Add Equipment"
+                    <TapToAction
+                        label="Add Equipment"
                         thumbIcon={
                             <svg
                                 className="w-5 h-5 text-white"

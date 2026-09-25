@@ -161,7 +161,7 @@ describe('vessel office identity boundary', () => {
         render(<EquipmentList onBack={vi.fn()} />);
         expect(await screen.findByText('A private windlass')).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Slide to Add Equipment' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Add Equipment' }));
         fireEvent.change(screen.getByRole('textbox', { name: /^Equipment Name/ }), {
             target: { value: 'A pending radar' },
         });

@@ -14,7 +14,7 @@ import { LocalInventoryService as InventoryService } from '../../services/vessel
 import { InventoryScanner } from './InventoryScanner';
 import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
-import { SlideToAction } from '../ui/SlideToAction';
+import { TapToAction } from '../ui/TapToAction';
 import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
@@ -540,9 +540,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             }
                             title={searchQuery ? 'No Items Match' : 'Nothing in Stores Yet'}
                             subtitle={
-                                searchQuery
-                                    ? 'Try a different search term.'
-                                    : 'Slide below to add your first item, or scan a barcode.'
+                                searchQuery ? 'Try a different search term.' : 'Tap Add Item below, or scan a barcode.'
                             }
                             className="py-16"
                         />
@@ -576,13 +574,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ── SlideToAction CTA (8px above menu bar) ── */}
+                {/* ── Add CTA (8px above menu bar) ── */}
                 <div
                     className="shrink-0 px-4 pt-2 bg-slate-950"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <SlideToAction
-                        label="Slide to Add Item"
+                    <TapToAction
+                        label="Add Item"
                         thumbIcon={
                             <svg
                                 className="w-5 h-5 text-white"
