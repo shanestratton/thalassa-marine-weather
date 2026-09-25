@@ -12,6 +12,19 @@ const mocks = vi.hoisted(() => ({
     vessel: { name: 'Test Vessel', type: 'sail' } as Record<string, unknown> | undefined,
 }));
 
+vi.mock('../hooks/useRadioPosition', () => ({
+    useRadioPosition: () => ({
+        position: { lat: -27.4, lon: 153.1, timestamp: Date.now(), sourceLabel: 'Phone' },
+        ageMs: 1000,
+        isLive: true,
+        isFresh: true,
+        acquiring: false,
+        refreshing: false,
+        error: false,
+        refresh: async () => {},
+        requestGpsAccess: async () => {},
+    }),
+}));
 vi.mock('../services/MobService', () => ({
     MOB_PRECISE_FIX_ACCURACY_M: 100,
     MobService: {

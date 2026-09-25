@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState } from '../../services/MobService';
 import { useSettings } from '../../context/SettingsContext';
+import { useRadioPosition } from '../../hooks/useRadioPosition';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { prewarmSafetyMessage, speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
@@ -104,6 +105,18 @@ function buildMaydayText(
 
 export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const { settings } = useSettings();
+    // Shane 2026-09-26: the idle word must say what the fix is doing, like
+    // Radio and NMEA do — 'READY' with no position was a promise the mark
+    // could not keep.
+    const radio = useRadioPosition();
+    const fixWord =
+        radio.position && radio.isFresh && !radio.error ? 'Ready' : radio.acquiring ? 'Finding GPS…' : 'No fix';
+    const fixTone =
+        radio.position && radio.isFresh && !radio.error
+            ? 'text-emerald-400'
+            : radio.acquiring
+              ? 'text-amber-400'
+              : 'text-red-400';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const vessel = (settings as any)?.vessel;
     const vesselName = emergencyIdentity(vessel?.name);
@@ -332,8 +345,11 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 <PageHeader title="Man Overboard" subtitle="Mark & Track" onBack={onBack} />
                 <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8">
                     <div className="text-center max-w-sm">
-                        <div className="text-[11px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-2">
-                            Ready
+                        <div
+                            role="status"
+                            className={`text-[11px] font-extrabold tracking-[0.2em] uppercase mb-2 ${fixTone}`}
+                        >
+                            {fixWord}
                         </div>
                         <h2 className="text-2xl font-black text-white mb-3">Mark MOB Position</h2>
                         <p className="text-[13px] text-slate-400 leading-relaxed">

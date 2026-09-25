@@ -270,12 +270,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         <CoachMark
                             seenKey="thalassa_hero_pin_coach_v1"
                             visibleWhen={heroMetric === 'temp'}
-                            anchor="top-right"
+                            anchor="bottom-right"
                             arrow="up"
                             message="Tap to pin any metric here"
                             initialDelayMs={1500}
                             ttlMs={6000}
-                            className="-translate-y-8"
                         />
                     )}
                 </div>
@@ -318,7 +317,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 {/* RIGHT: Hi/Lo + Chevron */}
                 <div
                     onClick={onToggleExpand}
-                    className={`flex-1 flex items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
+                    className={`flex-1 flex min-h-11 items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                     role={onToggleExpand ? 'button' : undefined}
                     tabIndex={onToggleExpand ? 0 : undefined}

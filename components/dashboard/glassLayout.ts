@@ -46,6 +46,26 @@ const SHORT = {
     heroHeader: 56,
 };
 
+/**
+ * Mobile landscape (852x393). The full rhythm is 403 px before the hero even
+ * starts, so the fixed footer painted across the widget grid and four of the
+ * safety numbers were unreadable in the orientation a cockpit mount ends up
+ * in (UX scorecard 2026-09-25, the weakest screen at 5.1). Chrome is trimmed
+ * harder than SHORT; the 163 px grid is untouched; the gap stays 8 so every
+ * boundary is still on the Glass rhythm. Dashboard.tsx switches its layers
+ * from `fixed` to `absolute` in landscape so the whole column scrolls.
+ */
+const LANDSCAPE = {
+    gap: GLASS_TOP_CARD_GAP_PX,
+    brandRow: 40,
+    locationCard: GLASS_LANDSCAPE_LOCATION_CARD_HEIGHT_PX,
+    compactHeaderRow: 32,
+    heroHeader: 56,
+};
+
+/** Hero container (rain card + carousel) height in landscape, where it can no longer be bottom-anchored. */
+export const GLASS_LANDSCAPE_HERO_CONTAINER_HEIGHT_PX = 300;
+
 export interface GlassTopLayout {
     locationCardHeightPx: number;
     locationHeaderHeightPx: number;
@@ -58,6 +78,10 @@ export interface GlassTopLayout {
     isShortViewport: boolean;
     /** The gap actually used between cards, so callers stay in step. */
     cardGapPx: number;
+    /** The brand row height in use (App.tsx sizes the row from it). */
+    brandRowHeightPx: number;
+    compactHeaderRowHeightPx: number;
+    heroHeaderHeightPx: number;
 }
 
 /**
@@ -71,13 +95,25 @@ export const getGlassTopLayout = (isMobileLandscape = false, viewportHeightPx?: 
     // escape. It simply looked broken, in the default first-run mode.
     const isShortViewport = typeof viewportHeightPx === 'number' && viewportHeightPx < GLASS_SHORT_VIEWPORT_PX;
 
-    const gap = isShortViewport ? SHORT.gap : GLASS_TOP_CARD_GAP_PX;
-    const brandRow = isShortViewport ? SHORT.brandRow : GLASS_BRAND_ROW_HEIGHT_PX;
-    const compactHeaderRow = isShortViewport ? SHORT.compactHeaderRow : GLASS_COMPACT_HEADER_ROW_HEIGHT_PX;
-    const heroHeader = isShortViewport ? SHORT.heroHeader : GLASS_HERO_HEADER_OUTER_HEIGHT_PX;
+    const gap = isMobileLandscape ? LANDSCAPE.gap : isShortViewport ? SHORT.gap : GLASS_TOP_CARD_GAP_PX;
+    const brandRow = isMobileLandscape
+        ? LANDSCAPE.brandRow
+        : isShortViewport
+          ? SHORT.brandRow
+          : GLASS_BRAND_ROW_HEIGHT_PX;
+    const compactHeaderRow = isMobileLandscape
+        ? LANDSCAPE.compactHeaderRow
+        : isShortViewport
+          ? SHORT.compactHeaderRow
+          : GLASS_COMPACT_HEADER_ROW_HEIGHT_PX;
+    const heroHeader = isMobileLandscape
+        ? LANDSCAPE.heroHeader
+        : isShortViewport
+          ? SHORT.heroHeader
+          : GLASS_HERO_HEADER_OUTER_HEIGHT_PX;
 
     const locationCardHeightPx = isMobileLandscape
-        ? GLASS_LANDSCAPE_LOCATION_CARD_HEIGHT_PX
+        ? LANDSCAPE.locationCard
         : isShortViewport
           ? SHORT.locationCard
           : GLASS_LOCATION_CARD_HEIGHT_PX;
@@ -97,6 +133,9 @@ export const getGlassTopLayout = (isMobileLandscape = false, viewportHeightPx?: 
         heroContainerExpandedTopPx: primaryCardTopPx + GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX + gap,
         isShortViewport,
         cardGapPx: gap,
+        brandRowHeightPx: brandRow,
+        compactHeaderRowHeightPx: compactHeaderRow,
+        heroHeaderHeightPx: heroHeader,
     };
 };
 

@@ -12,7 +12,7 @@ import {
 describe('Glass top-card layout', () => {
     it.each([
         ['portrait', false, 48, 120, 128, 176, 256, 346, 427],
-        ['landscape', true, 32, 104, 112, 160, 240, 330, 411],
+        ['landscape', true, 32, 80, 88, 128, 192, 282, 363],
     ])(
         'keeps every card boundary on the same 8px rhythm in %s',
         (
@@ -38,10 +38,15 @@ describe('Glass top-card layout', () => {
                 heroContainerExpandedTopPx,
             });
             expect(layout.compactHeaderTopPx - layout.locationHeaderHeightPx).toBe(GLASS_TOP_CARD_GAP_PX);
-            expect(layout.heroHeaderTopPx - layout.compactHeaderTopPx - GLASS_COMPACT_HEADER_ROW_HEIGHT_PX).toBe(
+            // Landscape trims the compact header and hero header rows (32/56);
+            // portrait keeps the full constants — the layout reports whichever it used.
+            expect(layout.compactHeaderRowHeightPx).toBe(isMobileLandscape ? 32 : GLASS_COMPACT_HEADER_ROW_HEIGHT_PX);
+            expect(layout.heroHeaderHeightPx).toBe(isMobileLandscape ? 56 : GLASS_HERO_HEADER_OUTER_HEIGHT_PX);
+            expect(layout.brandRowHeightPx).toBe(isMobileLandscape ? 40 : 64);
+            expect(layout.heroHeaderTopPx - layout.compactHeaderTopPx - layout.compactHeaderRowHeightPx).toBe(
                 GLASS_TOP_CARD_GAP_PX,
             );
-            expect(layout.primaryCardTopPx - layout.heroHeaderTopPx - GLASS_HERO_HEADER_OUTER_HEIGHT_PX).toBe(
+            expect(layout.primaryCardTopPx - layout.heroHeaderTopPx - layout.heroHeaderHeightPx).toBe(
                 GLASS_TOP_CARD_GAP_PX,
             );
             expect(

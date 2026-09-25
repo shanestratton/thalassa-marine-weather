@@ -124,7 +124,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                     >
                         {label}
                     </p>
-                    <p className="text-[12px] text-slate-400 truncate">{helper}</p>
+                    <p className="text-[12px] leading-snug text-slate-400 line-clamp-2">{helper}</p>
                 </div>
                 {isActive && (
                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-sky-300">Active</span>
@@ -211,7 +211,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             onClose();
                         }}
                         aria-label="Refresh weather data now"
-                        className="w-full py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-colors"
+                        className="w-full min-h-11 py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-colors"
                     >
                         Refresh now
                     </button>
