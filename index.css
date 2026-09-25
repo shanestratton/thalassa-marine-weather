@@ -688,14 +688,28 @@ input[type='date']::-webkit-calendar-picker-indicator {
     background-color: rgb(255 255 255 / 0.75);
 }
 
-.display-light .bg-white\/5 {
+/* Every translucent-white alpha the components use (UX scorecard
+   2026-09-26: 419 bg-white/5 and 193 bg-white/10 had a remap, but /2 /3 /4
+   /6 /8 /12 /15 and the arbitrary [0.02–0.04] forms fell through to a 3–8 %
+   white over the light page, so those cards had no surface at all in daylight). */
+.display-light .bg-white\/2,
+.display-light .bg-white\/3,
+.display-light .bg-white\/4,
+.display-light .bg-white\/5,
+.display-light .bg-white\/\[0\.02\],
+.display-light .bg-white\/\[0\.03\],
+.display-light .bg-white\/\[0\.04\] {
     background-color: rgb(255 255 255 / 0.7);
 }
 
+.display-light .bg-white\/6,
+.display-light .bg-white\/8,
 .display-light .bg-white\/10 {
     background-color: rgb(255 255 255 / 0.8);
 }
 
+.display-light .bg-white\/12,
+.display-light .bg-white\/15,
 .display-light .bg-white\/20 {
     background-color: rgb(255 255 255 / 0.85);
 }
@@ -841,28 +855,41 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 /* ── Border inversions ── */
+/* Borders read as slate-300-ish lines in daylight; the 5–12 % navy they were
+   vanished on the light page (unselected Radio pills, Polars cards, GPX tiles
+   merged with their card — UX scorecard 2026-09-26). */
 .display-light .border-white\/5,
 .display-light .border-white\/\[0\.04\] {
-    border-color: rgb(15 23 42 / 0.05);
-}
-
-.display-light .border-white\/10,
-.display-light .border-white\/\[0\.06\],
-.display-light .border-white\/\[0\.08\] {
-    border-color: rgb(15 23 42 / 0.08);
-}
-
-.display-light .border-white\/15,
-.display-light .border-white\/\[0\.12\] {
-    border-color: rgb(15 23 42 / 0.1);
-}
-
-.display-light .border-white\/20 {
     border-color: rgb(15 23 42 / 0.12);
 }
 
+.display-light .border-white\/6,
+.display-light .border-white\/8,
+.display-light .border-white\/10,
+.display-light .border-white\/\[0\.06\],
+.display-light .border-white\/\[0\.08\] {
+    border-color: rgb(15 23 42 / 0.16);
+}
+
+.display-light .border-white\/12,
+.display-light .border-white\/15,
+.display-light .border-white\/\[0\.12\] {
+    border-color: rgb(15 23 42 / 0.2);
+}
+
+.display-light .border-white\/20,
+.display-light .border-white\/25 {
+    border-color: rgb(15 23 42 / 0.24);
+}
+
 .display-light .border-white\/30 {
-    border-color: rgb(15 23 42 / 0.15);
+    border-color: rgb(15 23 42 / 0.3);
+}
+
+/* An OFF switch track must still read as a track (Polars' measured 1.09:1). */
+.display-light [role='switch'].bg-slate-700 {
+    --tw-bg-opacity: 1;
+    background-color: #94a3b8;
 }
 
 /* ── Modal backdrop ── */
