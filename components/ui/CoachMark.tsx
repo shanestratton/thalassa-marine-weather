@@ -26,7 +26,7 @@
  */
 import React, { useEffect, useState } from 'react';
 
-type CoachMarkAnchor = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'center';
+type CoachMarkAnchor = 'top-right' | 'top-left' | 'top-center' | 'bottom-right' | 'bottom-left' | 'center';
 
 interface CoachMarkProps {
     /** localStorage key — set to '1' when dismissed so it never fires again. */
@@ -50,6 +50,9 @@ interface CoachMarkProps {
 const ANCHOR_CLASSES: Record<CoachMarkAnchor, string> = {
     'top-right': 'top-2 right-2 items-end',
     'top-left': 'top-2 left-2 items-start',
+    // Centred under a centred control: the arrow sits on the box's centre line
+    // (a top-left anchor with an items-center override lost to items-start).
+    'top-center': 'top-2 left-1/2 -translate-x-1/2 items-center',
     'bottom-right': 'bottom-2 right-2 items-end',
     'bottom-left': 'bottom-2 left-2 items-start',
     center: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 items-center',
@@ -58,6 +61,7 @@ const ANCHOR_CLASSES: Record<CoachMarkAnchor, string> = {
 const DEFAULT_ARROW: Record<CoachMarkAnchor, 'up' | 'down' | 'left' | 'right'> = {
     'top-right': 'up',
     'top-left': 'up',
+    'top-center': 'up',
     'bottom-right': 'down',
     'bottom-left': 'down',
     center: 'down',
