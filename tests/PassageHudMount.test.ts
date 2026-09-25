@@ -4,6 +4,7 @@
  * mounting, or quietly covers a licence credit, fails without a sound.
  */
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const app = readFileSync('App.tsx', 'utf8');
@@ -57,14 +58,16 @@ describe('the passage pane on the Obs chart', () => {
         expect(pane).not.toContain('requestMapFit');
     });
 
-    it('uses pixel clearances where its neighbours are pixel-anchored, and pays the insets in the split like they do', () => {
+    it('uses measured furniture clearance with safe-area and pixel clearances as its fallback', () => {
         const flat = css.replace(/\s+/g, ' ');
         expect(flat).toContain(
             '.thalassa-passage-hud { top: calc(env(safe-area-inset-top) + 60px + var(--passage-hud-credit-clearance, 0px));',
         );
         expect(flat).toMatch(
-            /max-height: calc\(\s*100% - env\(safe-area-inset-top\) - 60px - var\(--passage-hud-credit-clearance, 0px\) - 232px - env\(safe-area-inset-bottom\)\s*\);/,
+            /max-height: var\(\s*--passage-hud-available-height, calc\(\s*100% - env\(safe-area-inset-top\) - 60px - var\(--passage-hud-credit-clearance, 0px\) - 232px - env\(safe-area-inset-bottom\)\s*\)\s*\);/,
         );
+        expect(paneCode).toContain("pane.style.setProperty('--passage-hud-available-height', `${height}px`);");
+        expect(paneCode).toContain("pane.style.removeProperty('--passage-hud-available-height');");
         expect(css).not.toMatch(/\[data-split-pane='chart'\] \.thalassa-passage-hud \{/);
     });
 
@@ -424,13 +427,38 @@ describe('phase 3: spread, speed and rain', () => {
     });
 
     it('review: the two warnings are outside the scrolling cells', () => {
-        const scrollerAt = pane.indexOf('className="thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto"');
-        const warningsAt = pane.indexOf('THE WARNINGS STAND OUTSIDE THE SCROLLER');
-        const lookAheadButtonAt = pane.indexOf('data-testid="hud-look-ahead"');
-        expect(scrollerAt).toBeGreaterThan(-1);
-        expect(warningsAt).toBeGreaterThan(scrollerAt);
-        expect(lookAheadButtonAt).toBeGreaterThan(warningsAt);
-        expect(pane.indexOf('data-testid="hud-models-split"')).toBeGreaterThan(warningsAt);
+        // Parse the actual JSX boundaries: a comment before the warnings does
+        // not prove they are outside the scroller's closing tag.
+        const source = ts.createSourceFile('PassageHudPane.tsx', pane, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        const elementWith = (attribute: string, value: string): ts.JsxElement => {
+            const matches: ts.JsxElement[] = [];
+            const visit = (node: ts.Node) => {
+                if (
+                    ts.isJsxElement(node) &&
+                    node.openingElement.attributes.properties.some(
+                        (prop) =>
+                            ts.isJsxAttribute(prop) &&
+                            prop.name.getText(source) === attribute &&
+                            prop.initializer &&
+                            ts.isStringLiteral(prop.initializer) &&
+                            prop.initializer.text === value,
+                    )
+                ) {
+                    matches.push(node);
+                }
+                ts.forEachChild(node, visit);
+            };
+            visit(source);
+            expect(matches, `${attribute}=${value}`).toHaveLength(1);
+            return matches[0];
+        };
+        const scroller = elementWith('className', 'thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto');
+        const lookAhead = elementWith('data-testid', 'hud-look-ahead');
+        for (const id of ['hud-models-split', 'hud-forecast-note']) {
+            const warning = elementWith('data-testid', id);
+            expect(warning.getStart(source), id).toBeGreaterThan(scroller.getEnd());
+            expect(warning.getEnd(), id).toBeLessThan(lookAhead.getStart(source));
+        }
     });
 });
 

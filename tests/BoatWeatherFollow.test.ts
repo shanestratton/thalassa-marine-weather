@@ -61,13 +61,15 @@ describe('the weather is for the boat', () => {
         expect(service).toContain('export const PI_POLL_MS = 30_000;');
     });
 
-    it('which receiver the weather is for is a boat or a phone in the header — never a word on the page', () => {
+    it('the weather receiver choice is inside the unified GPS info card, never an extra header chip', () => {
         // Shane 2026-09-08: "just have a picture of a phone or a picture of a
         // little boat … remove all of the references to which gps we are using."
         // 2026-09-08 later: "lets move the phone or vessel gps icon into the i
         // section, rather than sticking yet another fab on the already jam
         // packed screen." The row lives in System Status; the header has no chip.
-        expect(status).toContain('<GpsSourceRow />');
+        expect(status).toContain('positionSource={<GpsSourceRow compact />}');
+        expect(status.match(/<GpsSourceRow\b/g)).toHaveLength(1);
+        expect(read('components/GpsDiagnosticsCards.tsx')).toContain('{positionSource}');
         expect(app).not.toContain('<GpsSourceGlyph />');
         expect(app).toContain('value={displayTitle}');
         expect(app).not.toContain('value={query}');

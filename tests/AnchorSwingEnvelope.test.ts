@@ -128,7 +128,7 @@ describe('the tracker wires it that way', () => {
     it('does not touch the alarm — no watchdog or drag logic in this file', () => {
         expect(code).not.toContain('anchorGpsWatchdog');
         expect(code).not.toContain('nextDragState');
-        // Read-only on the watch: a snapshot, never a command.
-        expect(code).not.toMatch(/AnchorWatchService\.(?!getSnapshot)/);
+        // Read-only on the watch: snapshots and subscriptions, never commands.
+        expect(code).not.toMatch(/AnchorWatchService\.(?!(?:getSnapshot|subscribe)\b)/);
     });
 });

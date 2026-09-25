@@ -48,9 +48,12 @@ describe('wind history cards', () => {
 
     it('the instrument page reads the shared clock-aged record, not a page-lifetime maximum', () => {
         const page = readFileSync('components/nmea/TheGlassPage.tsx', 'utf8');
+        const stats = readFileSync('components/nmea/WindHistoryStats.tsx', 'utf8');
         expect(page).toContain('NmeaStore.getWindHistory(nowMs)');
-        expect(page).toContain('windHistory?.gust10m?.kts ?? null');
         expect(page).toContain('history={windHistory}');
+        // The removed sail-plan pane formerly read gust10m a second time.
+        // The retained wind statistics still use the shared, aged record.
+        expect(stats).toContain('format(history?.gust10m?.kts)');
         expect(page).not.toContain('gustRef');
         expect(page).not.toContain('setTwsMax');
     });
