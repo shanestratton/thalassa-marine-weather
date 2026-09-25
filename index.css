@@ -5100,3 +5100,10 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
         display: none !important;
     }
 }
+
+/* Daylight: the slide/tap thumb disc is a saturated gradient in both
+   palettes, so its icon stays white (.display-light .text-white turns it
+   navy on the page). */
+.display-light .thalassa-action-thumb .text-white {
+    color: #ffffff;
+}
