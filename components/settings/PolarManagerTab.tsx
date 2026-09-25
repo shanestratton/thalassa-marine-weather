@@ -191,7 +191,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     };
 
     return (
-        <div className="w-full max-w-2xl mx-auto flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="w-full max-w-2xl mx-auto flex flex-col h-full overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))] animate-in fade-in slide-in-from-right-4 duration-300">
             {/* ═══════════════════════════════════════════ */}
             {/* SMART POLARS SECTION */}
             {/* ═══════════════════════════════════════════ */}
@@ -211,7 +211,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             </div>
 
             {/* Polar Chart Visualization */}
-            <div className="mt-4 flex-1 min-h-0 bg-white/2 border border-white/6 rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
+            <div className="mt-4 shrink-0 bg-white/2 border border-white/6 rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex flex-col items-start gap-1">
                         <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</span>
@@ -237,7 +237,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                         </svg>
                     </button>
                 </div>
-                <div className="flex-1 min-h-[220px] flex justify-center items-center">
+                <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
                     <PolarChart data={polarData} overlayData={smartPolarData} />
                 </div>
 
