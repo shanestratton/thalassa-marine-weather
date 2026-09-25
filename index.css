@@ -5087,3 +5087,16 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light nav[aria-label='Main'] .text-cyan-300 {
     color: #67e8f9;
 }
+
+/* ── Chart coach marks ──────────────────────────────────────────────────────
+   Off while any menu is open (they bled through the base picker and sat on
+   the radial fan's tiles) and in phone landscape (they sat on the own-ship
+   dot). UX scorecard run 5. */
+:root:has([role='menu']) .thalassa-chart-coachmark {
+    visibility: hidden;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+    .thalassa-chart-coachmark {
+        display: none !important;
+    }
+}

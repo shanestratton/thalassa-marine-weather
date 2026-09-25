@@ -4600,34 +4600,36 @@ export const MapHub: React.FC<MapHubProps> = ({
                         setTideDepthMode(true);
                     }}
                 />
-                {/* Chart modes — top-center one-tap layer presets so a
-                    new user can go from blank chart to "Day Sail" or
-                    "Storm Watch" in a single tap, instead of hunting
-                    through 20 layer toggles. Always visible while on
-                    the chart screen. */}
-
-                {/* First-run coach marks — fire once per device. Five
-                    one-sentence prompts covering the chart screen's
-                    main affordances. Each gated by its own seenKey so
-                    they fire independently as the user encounters them. */}
+                {/* First-run coach marks — fire once per device. Each is
+                    gated by its own seenKey so they fire independently as
+                    the user meets them. The .thalassa-chart-coachmark hook
+                    hides them while any menu is open and in phone
+                    landscape (index.css), where they sat on the own-ship
+                    dot. v2 keys (2026-09-26): the old copy described the
+                    removed chart-modes row and a 'radial menu' nobody could
+                    see, so the corrected hints show once more. */}
                 {!planningSurface && !embedded && !pickerMode && !isPinView && (
                     <>
                         <CoachMark
-                            seenKey="thalassa_coach_chart_modes"
+                            seenKey="thalassa_coach_base_chart_v2"
                             visibleWhen={mapReady}
-                            anchor="top-left"
+                            anchor="top-center"
                             arrow="up"
                             initialDelayMs={1200}
-                            className="top-[60px]! left-1/2! -translate-x-1/2! items-center"
-                            message="Tap a mode at the top to set up the chart for your situation in one go."
+                            className="thalassa-chart-coachmark top-[calc(env(safe-area-inset-top)+60px)]!"
+                            message="Tap here to change the base chart."
                         />
+                        {/* Beside the layers button (RadialHelmMenu sits at
+                            top 192px / right 16px in this same box), not in
+                            the bottom corner under the tab bar. */}
                         <CoachMark
-                            seenKey="thalassa_coach_radial_menu"
+                            seenKey="thalassa_coach_layers_v2"
                             visibleWhen={mapReady}
-                            anchor="bottom-right"
-                            arrow="down"
+                            anchor="top-right"
+                            arrow="right"
                             initialDelayMs={8000}
-                            message="Open the radial menu to fine-tune any individual layer."
+                            className="thalassa-chart-coachmark top-[196px]! right-[70px]! items-center!"
+                            message="Tap the layers button to add weather or fine-tune any layer."
                         />
                         <CoachMark
                             seenKey="thalassa_coach_squall_info"

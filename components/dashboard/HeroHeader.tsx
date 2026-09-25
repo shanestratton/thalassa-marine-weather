@@ -271,12 +271,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         <CoachMark
                             seenKey="thalassa_hero_pin_coach_v1"
                             visibleWhen={heroMetric === 'temp'}
-                            anchor="top-right"
-                            arrow="left"
+                            anchor="top-left"
+                            arrow="down"
                             message="Tap to pin"
                             initialDelayMs={1500}
                             ttlMs={6000}
-                            className="translate-x-[calc(100%+8px)] translate-y-1 whitespace-nowrap"
+                            className="-translate-y-[calc(100%+4px)] whitespace-nowrap"
                         />
                     )}
                 </div>
