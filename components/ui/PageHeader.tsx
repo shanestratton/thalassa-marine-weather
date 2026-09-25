@@ -61,7 +61,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
             {onBack && <BackButton onClick={onBack} />}
 
             <div className="flex-1 min-w-0">
-                <h1 className="ui-page-title line-clamp-2 break-words text-xl font-extrabold leading-tight text-white uppercase tracking-wider">
+                <h1 className="ui-page-title line-clamp-2 text-xl font-extrabold leading-tight text-white uppercase tracking-wider [overflow-wrap:normal]">
                     {title}
                 </h1>
                 {subtitle &&

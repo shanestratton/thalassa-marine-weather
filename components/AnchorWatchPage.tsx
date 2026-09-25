@@ -13,6 +13,7 @@
  * Replaces the old CompassPage in the navigation.
  */
 
+import { useRadioPosition } from '../hooks/useRadioPosition';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useWeather } from '../context/WeatherContext';
 import { t } from '../theme';
@@ -78,6 +79,16 @@ interface AnchorWatchPageProps {
 export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onBack }) => {
     const { weatherData } = useWeather();
     const authedUser = useAuthStore((state) => state.user);
+    // Same fix word MOB and Radio show, from the hook they read (Shane: consistency with MOB).
+    const radio = useRadioPosition();
+    const fixWord =
+        radio.position && radio.isFresh && !radio.error ? 'Ready' : radio.acquiring ? 'Finding GPS…' : 'No fix';
+    const fixTone =
+        radio.position && radio.isFresh && !radio.error
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+            : radio.acquiring
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+              : 'border-red-500/30 bg-red-500/10 text-red-400';
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
     const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -774,6 +785,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <PageHeader
                     title="Anchor Watch"
                     onBack={onBack}
+                    status={
+                        <span
+                            role="status"
+                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest ${fixTone}`}
+                        >
+                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                            {fixWord}
+                        </span>
+                    }
                     action={
                         <button
                             aria-label={authedUser ? 'Open Shore Watch join' : 'Sign in to use Shore Watch'}

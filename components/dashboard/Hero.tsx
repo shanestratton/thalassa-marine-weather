@@ -200,8 +200,23 @@ export const HeroSection = ({
                 const dayHourly: HourlyForecast[] = targetDate ? (hourlyByDay.get(targetDate) ?? []) : [];
 
                 // merge of WeatherMetrics + ForecastDay
+                // Observation-only fields start as null so a forecast day never
+                // wears today's pressure, humidity, visibility or sea state; the
+                // day's own values (spread after) win where the forecast has them.
                 const metrics: Record<string, unknown> = {
                     ...current,
+                    pressure: null,
+                    humidity: null,
+                    visibility: null,
+                    cloudCover: null,
+                    dewPoint: null,
+                    uvIndex: null,
+                    precipitation: null,
+                    swellPeriod: null,
+                    swellDirection: undefined,
+                    waterTemperature: null,
+                    currentSpeed: null,
+                    currentDirection: undefined,
                     ...f,
                     condition: f.condition,
                 };

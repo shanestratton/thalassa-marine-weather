@@ -157,7 +157,11 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
                         <label className="text-sm text-white font-medium block">Always On Display</label>
                         <p className="text-xs text-gray-400">Prevent screen from sleeping</p>
                     </div>
-                    <Toggle checked={settings.alwaysOn || false} onChange={(v) => onSave({ alwaysOn: v })} />
+                    <Toggle
+                        label="Always On Display"
+                        checked={settings.alwaysOn || false}
+                        onChange={(v) => onSave({ alwaysOn: v })}
+                    />
                 </Row>
                 <Row>
                     <div className="flex-1">
@@ -167,7 +171,11 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
                             full brightness.
                         </p>
                     </div>
-                    <Toggle checked={dim.enabled} onChange={(v) => updateDim({ ...dim, enabled: v })} />
+                    <Toggle
+                        label="Dim While Always On"
+                        checked={dim.enabled}
+                        onChange={(v) => updateDim({ ...dim, enabled: v })}
+                    />
                 </Row>
                 {dim.enabled && (
                     <div className="px-4 pb-4">

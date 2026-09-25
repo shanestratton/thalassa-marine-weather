@@ -4956,7 +4956,17 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 
 /* ── Anchor Watch setup ─────────────────────────────────────────────────────
-   Short portrait phones (SE/8 class, 667 pt): the radar keeps a fixed height
+   Tall portrait phones: the radar wrapper is flex-1 leftover space and was
+   rendering the dial at ~128 px, so the ratio, quality word and swing radius
+   inside the SVG came out at 7–9 px (UX scorecard run 4, the L cap). */
+@media (orientation: portrait) and (min-height: 700px) {
+    .anchor-setup-radar {
+        flex: 0 0 auto !important;
+        min-height: 224px !important;
+    }
+}
+
+Short portrait phones (SE/8 class, 667 pt): the radar keeps a fixed height
    instead of collapsing to nothing under the controls, and the first-run
    guidance card sets tighter so the sliders and the arming bar fit. */
 @media (orientation: portrait) and (max-height: 700px) {

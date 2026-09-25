@@ -12,9 +12,10 @@ import { PageHeader } from '../ui/PageHeader';
 interface PolarPageProps {
     onBack: () => void;
     onNavigateToNmea?: () => void;
+    onOpenVesselProfile?: () => void;
 }
 
-export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea }) => {
+export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea, onOpenVesselProfile }) => {
     const { settings, updateSettings } = useSettings();
 
     const handleSave = useCallback(
@@ -44,6 +45,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea }
                         settings={settings as any}
                         onSave={handleSave}
                         onNavigateToNmea={onNavigateToNmea}
+                        onOpenVesselProfile={onOpenVesselProfile}
                     />
                 </div>
             </div>

@@ -215,7 +215,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize="12"
-                    fill="var(--day-ui-muted, rgba(148,163,184,0.6))"
+                    fill="var(--day-ui-muted, rgba(203,213,225,0.9))"
                     fontFamily="system-ui"
                 >
                     {formatDistance(swingRadiusPreview)} swing radius
