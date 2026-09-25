@@ -73,7 +73,8 @@ export const HourlyWidget = ({
                             const windSpeedDisplay = convertSpeed(item.windSpeed, units.speed);
                             const cloudCover = item.cloudCover;
                             const tideStatus = getTideStatus(idx, hourly);
-                            const precipStr = convertPrecip(item.precipitation, units.temp);
+                            const precipStr =
+                                item.precipitation == null ? '--' : convertPrecip(item.precipitation, units.temp);
 
                             // --- ADAPTIVE INLAND UI ---
                             let tideCell;
@@ -263,12 +264,9 @@ export const HourlyWidget = ({
                                                 <span className="text-[11px] uppercase text-gray-400 font-bold">
                                                     Wind
                                                 </span>
-                                                {item.windDirection && (
+                                                {item.windDegree != null && (
                                                     <div className="flex items-center gap-1 text-[11px] text-sky-300">
-                                                        <CompassIcon
-                                                            rotation={item.windDegree || 0}
-                                                            className="w-3 h-3"
-                                                        />{' '}
+                                                        <CompassIcon rotation={item.windDegree} className="w-3 h-3" />{' '}
                                                         {item.windDirection}
                                                     </div>
                                                 )}
@@ -355,7 +353,7 @@ export const DailyWidget = ({
                     const scoreClass = getSailingScoreColor(score);
                     const condText = getSailingConditionText(score);
 
-                    const precipMm = day.precipitation || 0;
+                    const precipMm = day.precipitation ?? null; // null = never reported; renders '--'
                     const hasTideData = day.tideSummary && day.tideSummary !== 'N/A' && day.tideSummary !== 'No Data';
 
                     const scoreLabel =
@@ -519,13 +517,17 @@ export const DailyWidget = ({
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[11px] text-gray-400 uppercase font-bold">Precip</span>
                                         <span className="text-xs text-sky-300 font-bold">
-                                            {precipMm > 0 ? `${convertPrecip(precipMm, units.temp)}` : '0'}
+                                            {precipMm == null
+                                                ? '--'
+                                                : precipMm > 0
+                                                  ? `${convertPrecip(precipMm, units.temp)}`
+                                                  : '0'}
                                         </span>
                                     </div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2">
                                         <div
                                             className={`h-full rounded-full transition-all bg-sky-500`}
-                                            style={{ width: `${Math.min(precipMm * 10, 100)}%` }}
+                                            style={{ width: `${Math.min((precipMm ?? 0) * 10, 100)}%` }}
                                         ></div>
                                     </div>
                                     <div className="flex justify-between items-center pt-1 border-t border-white/5">
@@ -533,7 +535,7 @@ export const DailyWidget = ({
                                         <span
                                             className={`text-xs font-bold ${day.uvIndex && day.uvIndex > 5 ? 'text-amber-400' : 'text-emerald-400'}`}
                                         >
-                                            {day.uvIndex ? Math.round(day.uvIndex) : '--'}
+                                            {day.uvIndex != null ? Math.round(day.uvIndex) : '--'}
                                         </span>
                                     </div>
                                 </div>

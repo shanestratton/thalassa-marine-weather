@@ -336,7 +336,7 @@ export const mapStormGlassToReport = (
         // is already `number | null` and guards on it, so `?? 0` was fighting
         // its own signature. Same text either way (0 fails its `> 2` gate),
         // but it no longer claims a measurement it does not have.
-        description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(getVal(currentHour.windDirection as MultiSourceField) ?? 0), scale(getVal(currentHour.waveHeight as MultiSourceField), 3.28084))}  `,
+        description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(wDir), scale(getVal(currentHour.waveHeight as MultiSourceField), 3.28084))}  `,
         day: 'Today',
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
@@ -456,6 +456,7 @@ export const mapStormGlassToReport = (
                 _windDirCount = 0;
             let maxUV: number | null = null;
             let precipCount = 0;
+            let cloudCount = 0;
 
             dayHours.forEach((h) => {
                 const t = getVal(h.airTemperature as MultiSourceField);
@@ -487,7 +488,11 @@ export const mapStormGlassToReport = (
                     totalPrecip += hPrecip;
                     precipCount++;
                 }
-                totalCloud += getVal(h.cloudCover as MultiSourceField) ?? 0;
+                const hCloud = getVal(h.cloudCover as MultiSourceField);
+                if (hCloud != null) {
+                    totalCloud += hCloud;
+                    cloudCount++;
+                }
                 totalPress += getVal(h.pressure as MultiSourceField) ?? 0;
                 totalHum += getVal(h.humidity as MultiSourceField) ?? 0;
                 totalVis += (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957;
@@ -519,8 +524,10 @@ export const mapStormGlassToReport = (
             if ((maxUV == null || maxUV < 1.0) && dailyUV && dailyUV.time && dailyUV.uv_index_max) {
                 // Typed check for dailyUV
                 const uvIdx = dailyUV.time.findIndex((t: string) => t.startsWith(dayIso));
-                if (uvIdx !== -1 && dailyUV.uv_index_max[uvIdx]) {
-                    maxUV = dailyUV.uv_index_max[uvIdx];
+                const dUV = uvIdx !== -1 ? dailyUV.uv_index_max[uvIdx] : undefined;
+                // typeof, not truthiness: a reported UV 0 is a reading, not an absence
+                if (typeof dUV === 'number' && Number.isFinite(dUV)) {
+                    maxUV = dUV;
                 }
             }
 
@@ -552,13 +559,13 @@ export const mapStormGlassToReport = (
                 windSpeed: parseFloat(maxWind.toFixed(1)),
                 windGust: parseFloat(maxGust.toFixed(1)),
                 waveHeight: waveCount > 0 ? parseFloat(maxWave.toFixed(1)) : null,
-                condition: getCondition(avgCloud, precipCount > 0 ? totalPrecip : null, true),
+                condition: getCondition(cloudCount > 0 ? avgCloud : null, precipCount > 0 ? totalPrecip : null, true),
                 precipitation: precipCount > 0 ? parseFloat(totalPrecip.toFixed(1)) : undefined,
                 uvIndex: maxUV,
                 sunrise: sunTimesDay ? formatTimeInZone(sunTimesDay.sunrise, tz) : '06:00',
                 sunset: sunTimesDay ? formatTimeInZone(sunTimesDay.sunset, tz) : '18:00',
                 pressure: pressCount > 0 ? parseFloat((totalPress / count('pressure')).toFixed(1)) : undefined,
-                cloudCover: Math.round(avgCloud),
+                cloudCover: cloudCount > 0 ? Math.round(avgCloud) : undefined,
                 isEstimated: false,
                 humidity: Math.round(totalHum / count('humidity')),
                 visibility: parseFloat((totalVis / count('visibility')).toFixed(1)),

@@ -78,6 +78,9 @@ describe('StormGlass transformer — absent atmospheric fields stay absent', () 
         expect(d.pressure).toBeUndefined();
         expect(d.uvIndex).toBeNull();
         expect(d.precipLabel).toBe('--');
+        // No hour reported cloud cover: no invented 'Sunny'.
+        expect(d.condition).toBe('');
+        expect(d.cloudCover).toBeUndefined();
     });
 });
 
