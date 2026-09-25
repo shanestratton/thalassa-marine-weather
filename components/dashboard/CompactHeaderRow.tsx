@@ -72,7 +72,7 @@ export const CompactHeaderRow = ({
                     hasWarnings
                         ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
                         : 'bg-emerald-500/10 border-emerald-500/20'
-                } transition-all active:scale-[0.97] border rounded-xl px-3 h-[40px] flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
+                } transition-all active:scale-[0.97] border rounded-xl px-3 h-11 -my-0.5 flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
             >
                 {hasWarnings ? (
                     <>

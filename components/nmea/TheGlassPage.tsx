@@ -582,10 +582,10 @@ const BARO_SEVERITY: Record<TendencySeverity, { pill: string; text: string }> = 
 const ROSE_CELL_STYLE = WIND_CELL_STYLE;
 
 const SectionPlateComponent: React.FC<{ title: string }> = ({ title }) => (
-    <div className="flex items-center gap-3 py-1.5 shrink-0" aria-hidden="true">
-        <div className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
-        <p className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">{title}</p>
-        <div className="h-px flex-1 bg-linear-to-l from-transparent to-white/15" />
+    <div className="flex items-center gap-3 py-1.5 shrink-0">
+        <div aria-hidden="true" className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
+        <h2 className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">{title}</h2>
+        <div aria-hidden="true" className="h-px flex-1 bg-linear-to-l from-transparent to-white/15" />
     </div>
 );
 /* The panel ticks once a second for the clock. Everything below re-renders

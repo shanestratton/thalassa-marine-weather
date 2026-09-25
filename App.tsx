@@ -41,11 +41,7 @@ import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
 import { SafeImage } from './components/ui/SafeImage';
-import {
-    GLASS_BRAND_ROW_HEIGHT_PX,
-    GLASS_TOP_CARD_GAP_PX,
-    getGlassTopLayout,
-} from './components/dashboard/glassLayout';
+import { GLASS_TOP_CARD_GAP_PX, getGlassTopLayout } from './components/dashboard/glassLayout';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 import { useViewportHeight } from './hooks/useViewportHeight';
 import { getWeatherFollowTarget } from './services/weatherPosition';
@@ -951,7 +947,7 @@ const App: React.FC = () => {
                         {/* Logo row — same style on all pages */}
                         <div
                             className="flex items-start justify-between pointer-events-auto shrink-0"
-                            style={isDashboard ? { height: `${GLASS_BRAND_ROW_HEIGHT_PX}px` } : undefined}
+                            style={isDashboard ? { height: `${glassTopLayout.brandRowHeightPx}px` } : undefined}
                         >
                             <div className="flex min-w-0 items-center space-x-2">
                                 {/* Bumped 40 → 46 → 51 → 64 px (2026-05-19).
@@ -964,7 +960,7 @@ const App: React.FC = () => {
                                     alt=""
                                     width={64}
                                     height={64}
-                                    className="w-[64px] h-[64px] rounded-lg"
+                                    className={`${isDashboard && isMobileLandscape ? 'w-10 h-10' : 'w-[64px] h-[64px]'} rounded-lg`}
                                 />
                                 <div className="min-w-0">
                                     <div className="flex min-w-0 items-center gap-1">
@@ -1005,7 +1001,15 @@ const App: React.FC = () => {
                                             </span>
                                         ) : null}
                                     </div>
-                                    <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md">
+                                    <p
+                                        className={`flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md ${
+                                            // The trimmed Glass rows (landscape 40 px, short phones 52 px)
+                                            // have no room for a second line under the wordmark.
+                                            isDashboard && (isMobileLandscape || glassTopLayout.isShortViewport)
+                                                ? 'hidden'
+                                                : ''
+                                        }`}
+                                    >
                                         <span className="min-w-0 flex-1 truncate">The Sailor&apos;s Assistant</span>
                                         {/* Subtle offline indicator — tiny amber wifi-slash next
                                             to the tagline, matching the chip already inside the

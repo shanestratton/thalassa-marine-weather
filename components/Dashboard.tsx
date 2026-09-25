@@ -28,7 +28,11 @@ import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
-import { glassSafeTopOffset, getGlassTopLayout } from './dashboard/glassLayout';
+import {
+    GLASS_LANDSCAPE_HERO_CONTAINER_HEIGHT_PX,
+    glassSafeTopOffset,
+    getGlassTopLayout,
+} from './dashboard/glassLayout';
 import { useViewportHeight } from '../hooks/useViewportHeight';
 import { resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
 
@@ -160,6 +164,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
     const viewportHeightPx = useViewportHeight();
     const glassTopLayout = getGlassTopLayout(Boolean(props.isMobileLandscape), viewportHeightPx);
+    // Landscape: the stack is taller than the viewport, so the layers become
+    // `absolute` inside a column tall enough to hold them and the page scrolls
+    // (the referee's land-dashboard HIGH: footer and dot rail painted across
+    // the widget grid). Portrait keeps the fixed stack exactly as shipped.
+    const landscapeFlow = Boolean(props.isMobileLandscape);
+    const glassLayerPos = landscapeFlow ? 'absolute' : 'fixed';
+    const landscapeHeroHeightPx = GLASS_LANDSCAPE_HERO_CONTAINER_HEIGHT_PX;
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -947,7 +958,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     <GlassTutorial />
                 </Suspense>
 
-                <div className="h-dvh w-full flex flex-col overflow-hidden relative bg-black">
+                <div
+                    className={`${landscapeFlow ? 'min-h-dvh' : 'h-dvh overflow-hidden'} w-full flex flex-col relative bg-black`}
+                >
                     {' '}
                     {/* Flex Root */}
                     {/* ── REFRESH IN PROGRESS ──
@@ -1031,11 +1044,30 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     <div className="flex-1 relative w-full min-h-0">
                         {/* MAIN CAROUSEL / GRID */}
                         {!isDetailMode && (
-                            <div className="absolute inset-0">
+                            <div
+                                className={landscapeFlow ? 'relative w-full' : 'absolute inset-0'}
+                                style={
+                                    landscapeFlow
+                                        ? {
+                                              // badges top + badge row + a breath, so the column scrolls to the footer
+                                              minHeight: glassSafeTopOffset(
+                                                  (isExpanded
+                                                      ? glassTopLayout.heroContainerExpandedTopPx
+                                                      : glassTopLayout.heroContainerCollapsedTopPx) +
+                                                      landscapeHeroHeightPx +
+                                                      glassTopLayout.cardGapPx +
+                                                      12 +
+                                                      42 +
+                                                      24,
+                                              ),
+                                          }
+                                        : undefined
+                                }
+                            >
                                 {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall.
                                     It starts one shared Glass gap below the location card. */}
                                 <div
-                                    className="shrink-0 z-120 w-full bg-linear-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
+                                    className={`shrink-0 z-120 w-full bg-linear-to-b from-black/80 to-transparent px-4 pb-0 ${glassLayerPos} left-0 right-0 pointer-events-none`}
                                     style={{ top: glassSafeTopOffset(glassTopLayout.compactHeaderTopPx) }}
                                 >
                                     <div className="pointer-events-auto">
@@ -1052,7 +1084,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                                 {/* Covers the fixed card stack until the scrollable forecast deck. */}
                                 <div
-                                    className="fixed top-0 left-0 right-0 bg-black z-100 transition-all duration-300"
+                                    className={`${glassLayerPos} top-0 left-0 right-0 bg-black z-100 transition-all duration-300`}
                                     style={{
                                         height: isExpanded
                                             ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
@@ -1062,7 +1094,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                                 {/* Conditions header — held to the same 8px Glass rhythm. */}
                                 <div
-                                    className="fixed left-0 right-0 z-110 px-4"
+                                    className={`${glassLayerPos} left-0 right-0 z-110 px-4`}
                                     style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
                                 >
                                     <HeroHeader
@@ -1092,7 +1124,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                   functional hide; the element is invisible to screen-readers
                                   via opacity:0 and to clicks via pointer-events:none. */}
                                 <div
-                                    className="fixed left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    className={`${glassLayerPos} left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out`}
                                     aria-hidden={isExpanded}
                                     ref={(element) => {
                                         if (element)
@@ -1113,7 +1145,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Same transition semantics as CurrentConditionsCard above so the
                                 two layers cross-fade in sync. */}
                                 <div
-                                    className="fixed left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    className={`${glassLayerPos} left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out`}
                                     aria-hidden={!isExpanded}
                                     ref={(element) => {
                                         if (element)
@@ -1147,7 +1179,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     Its top is calculated from the rendered card heights so it
                                     preserves the same 8px gap in either dashboard mode. */}
                                 <div
-                                    className={`fixed left-0 right-0 z-120 bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0 ${
+                                    className={`${glassLayerPos} left-0 right-0 z-120 bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0 ${
                                         // Clipping is fine when there is room. On a short
                                         // viewport the hero would otherwise be a sliver with
                                         // no scroll escape, so let it scroll instead.
@@ -1157,7 +1189,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         top: isExpanded
                                             ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
                                             : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
-                                        bottom: 'calc(env(safe-area-inset-bottom) + 124px)',
+                                        ...(landscapeFlow
+                                            ? { height: `${landscapeHeroHeightPx}px` }
+                                            : { bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }),
                                     }}
                                 >
                                     {/* STATIC RAIN FORECAST — always visible */}
@@ -1200,17 +1234,28 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
                                 {isExpanded && (
                                     <div
-                                        className="fixed left-0 right-0 z-125 flex justify-center"
-                                        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}
+                                        className={`${glassLayerPos} left-0 right-0 z-125 flex justify-center`}
+                                        style={
+                                            landscapeFlow
+                                                ? {
+                                                      top: glassSafeTopOffset(
+                                                          (isExpanded
+                                                              ? glassTopLayout.heroContainerExpandedTopPx
+                                                              : glassTopLayout.heroContainerCollapsedTopPx) +
+                                                              landscapeHeroHeightPx,
+                                                      ),
+                                                  }
+                                                : { bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }
+                                        }
                                     >
                                         <div className="flex gap-[3px] px-4 py-1">
                                             {Array.from({ length: 24 }).map((_, i) => (
                                                 <div
                                                     key={i}
-                                                    className={`w-1 h-1 rounded-full transition-all duration-150 ${
+                                                    className={`w-1.5 h-1.5 rounded-full transition-all duration-150 ${
                                                         i === activeHour
                                                             ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
-                                                            : 'bg-white/20'
+                                                            : 'bg-white/40'
                                                     }`}
                                                 />
                                             ))}
@@ -1241,8 +1286,21 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
                                 <div
-                                    className="fixed left-0 right-0 z-125 px-4"
-                                    style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
+                                    className={`${glassLayerPos} left-0 right-0 z-125 px-4`}
+                                    style={
+                                        landscapeFlow
+                                            ? {
+                                                  top: glassSafeTopOffset(
+                                                      (isExpanded
+                                                          ? glassTopLayout.heroContainerExpandedTopPx
+                                                          : glassTopLayout.heroContainerCollapsedTopPx) +
+                                                          landscapeHeroHeightPx +
+                                                          glassTopLayout.cardGapPx +
+                                                          12,
+                                                  ),
+                                              }
+                                            : { bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }
+                                    }
                                 >
                                     <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                         <StatusBadges

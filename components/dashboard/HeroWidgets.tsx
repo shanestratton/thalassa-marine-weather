@@ -211,12 +211,14 @@ const InstrumentCell: React.FC<{
             <div className="flex items-baseline mt-auto mb-1 gap-0.5">
                 {dirDeg !== undefined && dirDeg !== null && <DirectionArrow degrees={dirDeg} size={12} />}
                 <span
-                    className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md"
+                    className={`text-[26px] font-mono font-medium tracking-tight drop-shadow-md ${
+                        value === '--' ? 'text-slate-500' : 'text-ivory'
+                    }`}
                     style={{ fontFeatureSettings: '"tnum"' }}
                 >
                     {value}
                 </span>
-                {unit && (
+                {unit && value !== '--' && (
                     <span className="text-[11px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">
                         {unit}
                     </span>
@@ -586,7 +588,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             />
                         ) : (
                             <InstrumentCell
-                                label="PER."
+                                label="PERIOD"
                                 icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
                                 value={wavePeriod}
                                 unit="s"
@@ -689,7 +691,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             />
                         ) : (
                             <InstrumentCell
-                                label="RAIN"
+                                label={isLive ? 'RAIN' : 'CHANCE'}
                                 icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                                 value={rainValue}
                                 unit={rainUnit}
