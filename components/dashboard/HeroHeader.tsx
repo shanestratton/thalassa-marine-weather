@@ -271,12 +271,16 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         <CoachMark
                             seenKey="thalassa_hero_pin_coach_v1"
                             visibleWhen={heroMetric === 'temp'}
-                            anchor="top-left"
-                            arrow="down"
+                            anchor="top-right"
+                            arrow="left"
                             message="Tap to pin"
                             initialDelayMs={1500}
                             ttlMs={6000}
-                            className="-translate-y-[calc(100%+4px)] whitespace-nowrap"
+                            // Beside the digits, inside the card: the card clips
+                            // anything outside it and the header rows above and
+                            // below paint over it, so 'above, pointing down' was
+                            // invisible (2026-09-26). Six seconds, first run only.
+                            className="translate-x-[calc(100%+8px)] translate-y-1 whitespace-nowrap"
                         />
                     )}
                 </div>

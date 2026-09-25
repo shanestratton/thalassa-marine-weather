@@ -61,7 +61,7 @@ export const TapToAction: React.FC<TapToActionProps> = ({
         >
             <span
                 aria-hidden="true"
-                className="absolute left-1 top-1 bottom-1 aspect-square rounded-full flex items-center justify-center"
+                className="thalassa-action-thumb absolute left-1 top-1 bottom-1 aspect-square rounded-full flex items-center justify-center"
                 style={{ background: colors.thumbBg, boxShadow: colors.thumbShadow }}
             >
                 {thumbIcon}

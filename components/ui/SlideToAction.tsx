@@ -273,7 +273,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
 
             {/* Draggable thumb */}
             <div
-                className="absolute top-1 left-1 w-12 h-12 rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing transition-shadow"
+                className="thalassa-action-thumb absolute top-1 left-1 w-12 h-12 rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing transition-shadow"
                 style={{
                     transform: `translateX(${slideX}px)`,
                     background: colors.thumbBg,
