@@ -55,9 +55,18 @@ vi.mock('../services/NmeaGpsProvider', () => ({
     },
 }));
 vi.mock('../services/NmeaListenerService', () => ({ NmeaListenerService: { getSavedConfig: () => null } }));
-vi.mock('../services/NmeaStore', () => ({ NmeaStore: { getState: () => mocks.nmea, start: vi.fn() } }));
+vi.mock('../services/NmeaStore', () => ({
+    NmeaStore: {
+        getState: () => mocks.nmea,
+        start: vi.fn(),
+        subscribe: vi.fn(() => () => undefined),
+    },
+}));
 vi.mock('../services/AnchorWatchService', () => ({
-    AnchorWatchService: { getSnapshot: () => ({ state: mocks.anchorState }) },
+    AnchorWatchService: {
+        getSnapshot: () => ({ state: mocks.anchorState }),
+        subscribe: vi.fn(() => () => undefined),
+    },
 }));
 vi.mock('../services/GpsReceiverStatusService', () => ({ formatAge: (ms: number) => `${Math.round(ms / 1000)}s` }));
 vi.mock('../utils/createLogger', () => ({ createLogger: () => mocks.logger }));

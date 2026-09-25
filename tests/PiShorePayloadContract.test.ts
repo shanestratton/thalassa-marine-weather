@@ -14,7 +14,11 @@
  * are built and tested separately, so nothing else looks at both ends at once.
  */
 import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { ShoreWatchReadings } from '../components/anchor-watch/ShoreWatchReadings';
+import type { PositionBroadcast } from '../services/AnchorWatchSyncService';
 
 const broadcaster = readFileSync('pi-cache/src/anchorBroadcaster.ts', 'utf8');
 const sync = readFileSync('services/AnchorWatchSyncService.ts', 'utf8');
@@ -37,15 +41,48 @@ describe('the Pi and the shore device speak the same language', () => {
         expect(sync).toMatch(/config\?: Partial<AnchorWatchConfig>;/);
     });
 
-    it('the shore view guards both reads that would have thrown', () => {
-        // The enforcement that matters is the TYPE: with `config?` optional,
-        // any unguarded shoreData.config.x is a compile error, which is
-        // stronger than any regex here could be. A first attempt at this
-        // assertion used a negative match and flagged the GUARDED read inside
-        // the ternary — so it asserts the guards themselves instead.
-        expect(page).toMatch(/shoreData\.config\?\.rodeLength !== undefined/);
-        expect(page).toMatch(/shoreData\.config\?\.waterDepth !== undefined/);
-    });
+    it.each([undefined, {}, { rodeLength: 30 }, { waterDepth: 5 }])(
+        'the extracted shore readings render a Pi payload with missing or partial config: %j',
+        (config) => {
+            // The page passes the Pi payload through without filling in
+            // invented setup values. Exercise both optional reads in the
+            // real presentation component, including one-field payloads.
+            expect(page).toMatch(/<ShoreWatchReadings\s+data=\{shoreData\}/);
+            const timestamp = Date.UTC(2026, 8, 25, 0, 0);
+            const data: PositionBroadcast = {
+                type: 'position',
+                vessel: { latitude: -20.25, longitude: 148.81, accuracy: 3, heading: 20, speed: 0, timestamp },
+                anchor: { latitude: -20.25, longitude: 148.81, timestamp },
+                distance: 10,
+                swingRadius: 35,
+                isAlarm: false,
+                timestamp,
+                ...(config === undefined ? {} : { config }),
+            };
+            const markup = renderToStaticMarkup(
+                createElement(ShoreWatchReadings, {
+                    data,
+                    fresh: true,
+                    isAlarm: false,
+                    statusLabel: 'Holding',
+                    showMute: false,
+                    muted: false,
+                    onMute: () => undefined,
+                }),
+            );
+            const container = document.createElement('div');
+            container.innerHTML = markup;
+            const metrics = Object.fromEntries(
+                [...container.querySelectorAll('dt')].map((label) => [
+                    label.textContent,
+                    label.nextElementSibling?.textContent,
+                ]),
+            );
+            expect(metrics.Rode).toBe(config && 'rodeLength' in config ? '30m' : '--');
+            expect(metrics.Depth).toBe(config && 'waterDepth' in config ? '5.0m' : '--');
+            expect(metrics['Swing Radius']).toBe('35m');
+        },
+    );
 
     it("the skipper's rode and depth reach the Pi, since only the phone knows them", () => {
         expect(handoff).toMatch(/rodeLength\?: number;/);

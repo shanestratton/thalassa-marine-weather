@@ -4497,7 +4497,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(126 34 206);
 }
 .display-light .text-purple-200\/70,
-.display-light .text-purple-200\/75 {
+.display-light .text-purple-200\/75,
+.display-light .text-purple-200\/80 {
     color: rgb(126 34 206 / 0.9);
 }
 .display-light .text-purple-300 {
