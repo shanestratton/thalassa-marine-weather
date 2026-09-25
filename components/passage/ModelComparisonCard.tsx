@@ -100,7 +100,7 @@ const Sparkline: React.FC<{
     height?: number;
 }> = ({ points, color, metric, maxVal, height = 32 }) => {
     const width = 120;
-    const sampled = samplePoints(points, 20);
+    const sampled = samplePoints(points, 20).filter((pt) => pt[metric] != null);
     if (sampled.length < 2) return null;
 
     const path = sampled

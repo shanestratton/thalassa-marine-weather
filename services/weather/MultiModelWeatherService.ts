@@ -355,9 +355,9 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
             windSpeedSpread: 0,
             windDirectionMean: 0,
             windDirectionSpread: 0,
-            waveHeightMean: 0,
-            waveHeightSpread: 0,
-            pressureMean: 1013,
+            waveHeightMean: null,
+            waveHeightSpread: null,
+            pressureMean: null,
             confidence: 'low',
         };
     }

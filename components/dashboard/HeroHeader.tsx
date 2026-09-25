@@ -181,7 +181,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     >
                                         {pinnedDisplay.value}
                                     </span>
-                                    {pinnedDisplay.unit && (
+                                    {pinnedDisplay.unit && pinnedDisplay.value !== '--' && (
                                         <span className="text-base font-bold text-white/60">{pinnedDisplay.unit}</span>
                                     )}
                                 </div>

@@ -247,7 +247,7 @@ const BarometerCell: React.FC<{
                 <span className="glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">
                     HPA
                 </span>
-                <TrendArrow trend={trend} improving={isRising} />
+                <TrendArrow trend={pressure === '--' ? undefined : trend} improving={isRising} />
             </div>
 
             {/* Value */}
@@ -332,10 +332,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             dayStart.setHours(0, 0, 0, 0);
             const start = dayStart.getTime();
             const end = start + 86_400_000;
+            // Sum only the hours that REPORTED a value; a day whose every hour
+            // carried null is '--', not a confident '0 mm' (review of 5b098bd8).
+            let reportedHours = 0;
             const todayTotal = hourly.reduce((sum, h) => {
                 const t = new Date(h.time).getTime();
-                return t >= start && t < end ? sum + (h.precipitation ?? 0) : sum;
+                if (t < start || t >= end || h.precipitation == null) return sum;
+                reportedHours++;
+                return sum + h.precipitation;
             }, 0);
+            if (reportedHours === 0) return '--';
             if (units.temp === 'F') {
                 // Imperial: convert mm → inches. convertPrecip returns a fully
                 // formatted string ('0.39"', '<0.01"', 'TRACE') with the inch

@@ -460,9 +460,11 @@ export const DetailedMetricsWidget = ({
                         <span className="text-[11px] text-gray-400">
                             {chance !== undefined
                                 ? `${chance}% chance this hour`
-                                : precipValue
-                                  ? 'Accumulating'
-                                  : 'Dry Conditions'}
+                                : precipValue === '--'
+                                  ? 'No rainfall data'
+                                  : precipValue !== '0'
+                                    ? 'Accumulating'
+                                    : 'Dry Conditions'}
                         </span>
                     }
                 />
