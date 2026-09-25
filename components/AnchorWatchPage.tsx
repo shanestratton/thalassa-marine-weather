@@ -966,15 +966,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             8px gap to the menu, so a second source of spacing
                             here would make the real distance the sum of two
                             numbers nobody could reason about. */}
-                        {/* Sticky at the scroller's clearance line, so the arming
+                        {/* Sticky at the scroller's bottom edge, so the arming
                             control is on screen on a 667 pt phone without a
                             scroll — the other slide-to-act pages already pin
-                            theirs. Same bottom as the scroller's padding, so it
-                            never sits under the tab bar. */}
-                        <div
-                            className="anchor-setup-arm sticky z-10 -mx-4 px-4 pt-1"
-                            style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
-                        >
+                            theirs. The scroller itself ends above the tab bar
+                            (measured 2026-09-25: a clearance here as well left
+                            a 72 px dead band under the bar), so the offset is 0
+                            and .anchor-setup-arm paints an opaque surface. */}
+                        <div className="anchor-setup-arm sticky bottom-0 z-10 -mx-4 px-4 pt-1">
                             {/* The VPN hairpin notice used to sit here. Removed
                                 2026-09-04 at Shane's call: "VPN's are for
                                 advanced users only, so they will not [need]

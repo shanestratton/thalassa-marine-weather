@@ -99,7 +99,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                             onTap();
                         }}
                         className="hit-target-44 p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
-                        aria-label="Task options"
+                        aria-label={`Options for ${task.title}`}
                     >
                         <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
                             <circle cx="12" cy="5" r="1.5" />

@@ -929,7 +929,9 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             // No entry animation here: `animate-in` leaves a transform on the wrapper,
             // which makes it the containing block for the FIXED Save bar below — the
             // bar then scrolled away with the form (UX scorecard 2026-09-25).
-            className="w-full max-w-2xl mx-auto"
+            // Bottom padding = save bar + its clearance, so the last field scrolls
+            // clear of the fixed bar.
+            className="w-full max-w-2xl mx-auto pb-[calc(152px+env(safe-area-inset-bottom))]"
             style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 120}px` : 120 }}
         >
             {/* Observer upgrade banner */}
@@ -1773,9 +1775,9 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const v = parseInt(e.target.value);
                                     updateComfortParams({ maxWindKts: v >= 60 ? undefined : v });
                                 }}
-                                className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'accent-slate-500' : 'accent-red-500'}`}
+                                className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'accent-slate-500' : 'accent-red-500'}`}
                                 style={{
-                                    background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%)`,
+                                    background: `linear-gradient(to right, ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? '#64748b' : '#ef4444'} 0%, ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? '#64748b' : '#ef4444'} ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%)`,
                                 }}
                             />
                             <div className="flex justify-between text-[11px] text-gray-500 mt-1">
@@ -1810,9 +1812,9 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const v = parseFloat(e.target.value);
                                     updateComfortParams({ maxWaveM: v >= 8 ? undefined : v });
                                 }}
-                                className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'accent-slate-500' : 'accent-red-500'}`}
+                                className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'accent-slate-500' : 'accent-red-500'}`}
                                 style={{
-                                    background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%)`,
+                                    background: `linear-gradient(to right, ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? '#64748b' : '#ef4444'} 0%, ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? '#64748b' : '#ef4444'} ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%)`,
                                 }}
                             />
                             <div className="flex justify-between text-[11px] text-gray-500 mt-1">
@@ -1847,9 +1849,9 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const v = parseInt(e.target.value);
                                     updateComfortParams({ maxGustKts: v >= 80 ? undefined : v });
                                 }}
-                                className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'accent-slate-500' : 'accent-red-500'}`}
+                                className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'accent-slate-500' : 'accent-red-500'}`}
                                 style={{
-                                    background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%)`,
+                                    background: `linear-gradient(to right, ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? '#64748b' : '#ef4444'} 0%, ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? '#64748b' : '#ef4444'} ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%)`,
                                 }}
                             />
                             <div className="flex justify-between text-[11px] text-gray-500 mt-1">
@@ -2085,9 +2087,13 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             {/* Save CTA — fixed 8px above the 72px tab bar. In fleet mode this
                 is a real cloud flush, not the old cosmetic green state. */}
             <div
-                className="fixed left-0 right-0 z-20 px-4"
+                className="fixed left-0 right-0 z-20 px-4 pt-2 pb-2"
                 style={{
                     bottom: 'calc(72px + 8px + env(safe-area-inset-bottom))',
+                    // Opaque: the Max Gust slider was showing through the bar
+                    // (UX scorecard 2026-09-25).
+                    background: 'var(--day-ui-surface, rgba(2, 6, 23, 0.96))',
+                    boxShadow: '0 -10px 18px -10px rgba(0, 0, 0, 0.45)',
                 }}
             >
                 <div className="max-w-2xl mx-auto">

@@ -95,7 +95,7 @@ export const ShipClockSection: React.FC = () => {
                     value={prefs.zone}
                     onChange={(e) => update({ zone: e.target.value })}
                     aria-label="Clock time zone"
-                    className="max-w-[55%] min-w-0 min-h-[44px] rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white"
+                    className="thalassa-select max-w-[55%] min-w-0 min-h-[44px] appearance-none rounded-xl border border-white/10 bg-black/40 pl-3 pr-9 text-sm text-white"
                 >
                     <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
                         {shipZone

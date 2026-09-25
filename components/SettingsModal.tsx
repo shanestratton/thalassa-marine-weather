@@ -109,7 +109,7 @@ const MENU_ITEMS: {
     {
         id: 'general',
         label: 'Preferences',
-        description: 'Units, location & AI personality',
+        description: 'Units, clock, display & feedback',
         icon: (c) => <GearIcon className={c} />,
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
@@ -147,7 +147,7 @@ const MENU_ITEMS: {
     {
         id: 'account',
         label: 'Account & Cloud',
-        description: 'Sign-in, cloud sync & API keys',
+        description: 'Sign-in, satellite mode & service status',
         icon: (c) => <ServerIcon className={c} />,
         iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10',
         iconHoverBg: 'group-hover:bg-purple-500/25',
@@ -156,7 +156,7 @@ const MENU_ITEMS: {
     {
         id: 'voyageLog',
         label: 'Voyage Log',
-        description: 'Public passage page & API',
+        description: 'Public passage page & sharing',
         icon: (c) => (
             <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path
@@ -298,7 +298,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             onChange={(e) => setTabQuery(e.target.value)}
                             placeholder="Search settings…"
                             className="w-full h-9 pl-9 pr-8 rounded-lg bg-white/4 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500/40 focus:bg-white/6 transition-colors"
-                            aria-label="Search settings tabs"
+                            aria-label="Search settings"
                         />
                         {tabQuery && (
                             <button
@@ -483,7 +483,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     onChange={(e) => setTabQuery(e.target.value)}
                                     placeholder="Search settings…"
                                     className="w-full h-11 pl-9 pr-9 rounded-xl bg-white/4 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500/40 focus:bg-white/6 transition-colors"
-                                    aria-label="Search settings tabs"
+                                    aria-label="Search settings"
                                 />
                                 {tabQuery && (
                                     <button

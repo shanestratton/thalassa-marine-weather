@@ -2,6 +2,7 @@ import React from 'react';
 
 export const WindIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -21,6 +22,7 @@ export const WindIcon = ({ className }: { className?: string }) => (
 
 export const WaveIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -40,6 +42,7 @@ export const WaveIcon = ({ className }: { className?: string }) => (
 
 export const TideCurveIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -58,6 +61,7 @@ export const TideCurveIcon = ({ className }: { className?: string }) => (
 
 export const SunIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -83,6 +87,7 @@ export const SunIcon = ({ className }: { className?: string }) => (
 
 export const MoonIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -100,6 +105,7 @@ export const MoonIcon = ({ className }: { className?: string }) => (
 
 export const CloudIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -117,6 +123,7 @@ export const CloudIcon = ({ className }: { className?: string }) => (
 
 export const RainIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -137,6 +144,7 @@ export const RainIcon = ({ className }: { className?: string }) => (
 
 export const DropletIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -154,6 +162,7 @@ export const DropletIcon = ({ className }: { className?: string }) => (
 
 export const ThermometerIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -171,6 +180,7 @@ export const ThermometerIcon = ({ className }: { className?: string }) => (
 
 export const SunriseIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -195,6 +205,7 @@ export const SunriseIcon = ({ className }: { className?: string }) => (
 
 export const SunsetIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -219,6 +230,7 @@ export const SunsetIcon = ({ className }: { className?: string }) => (
 
 export const WaterIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -237,6 +249,7 @@ export const WaterIcon = ({ className }: { className?: string }) => (
 // ⛈️ — Cloud with lightning bolt. Used in Storm Watch mode, alerts.
 export const ThunderstormIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -256,6 +269,7 @@ export const ThunderstormIcon = ({ className }: { className?: string }) => (
 // ⛅ 🌤️ — Sun peeking through cloud. Used for "partly cloudy" conditions.
 export const PartlyCloudyIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -279,6 +293,7 @@ export const PartlyCloudyIcon = ({ className }: { className?: string }) => (
 // 🌀 — Cyclone / hurricane symbol. Used in Cyclone tracker overlay.
 export const CycloneIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -299,6 +314,7 @@ export const CycloneIcon = ({ className }: { className?: string }) => (
 // ⚡ — Lightning bolt (no cloud). Used for energy / quick action / alerts.
 export const LightningBoltIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"

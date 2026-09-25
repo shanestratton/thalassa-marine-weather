@@ -2,6 +2,7 @@ import React from 'react';
 
 export const BoatIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -22,6 +23,7 @@ export const BoatIcon = ({ className }: { className?: string }) => (
 
 export const SailBoatIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -43,6 +45,7 @@ export const SailBoatIcon = ({ className }: { className?: string }) => (
 
 export const PowerBoatIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -64,6 +67,7 @@ export const PowerBoatIcon = ({ className }: { className?: string }) => (
 
 export const AnchorIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -83,6 +87,7 @@ export const AnchorIcon = ({ className }: { className?: string }) => (
 
 export const ShipWheelIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -117,6 +122,7 @@ export const ShipWheelIcon = ({ className }: { className?: string }) => (
 
 export const RadioTowerIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -137,6 +143,7 @@ export const RadioTowerIcon = ({ className }: { className?: string }) => (
 
 export const ServerIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -157,6 +164,7 @@ export const ServerIcon = ({ className }: { className?: string }) => (
 
 export const CalendarIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -177,6 +185,7 @@ export const CalendarIcon = ({ className }: { className?: string }) => (
 
 export const GaugeIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -195,6 +204,7 @@ export const GaugeIcon = ({ className }: { className?: string }) => (
 
 export const PlayIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -211,6 +221,7 @@ export const PlayIcon = ({ className }: { className?: string }) => (
    not stopped, and the set had no glyph that said so. */
 export const PauseIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -226,6 +237,7 @@ export const PauseIcon = ({ className }: { className?: string }) => (
 
 export const StopIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -240,6 +252,7 @@ export const StopIcon = ({ className }: { className?: string }) => (
 
 export const SpeakerWaveIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -259,6 +272,7 @@ export const SpeakerWaveIcon = ({ className }: { className?: string }) => (
 
 export const FuelIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -279,6 +293,7 @@ export const FuelIcon = ({ className }: { className?: string }) => (
 
 export const FoodIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -298,6 +313,7 @@ export const FoodIcon = ({ className }: { className?: string }) => (
 
 export const ChatIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"

@@ -135,8 +135,8 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                         </div>
                     ))
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full opacity-50 pb-20">
-                        <div className="bg-white/5 p-6 rounded-full mb-4">
+                    <div className="flex flex-col items-center justify-center h-full pb-20" role="status">
+                        <div className="bg-white/5 p-6 rounded-full mb-4 opacity-50">
                             <AlertTriangleIcon className="w-12 h-12 text-gray-400" />
                         </div>
                         <p className="text-gray-400 font-medium">No active warnings.</p>

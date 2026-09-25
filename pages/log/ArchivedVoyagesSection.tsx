@@ -135,7 +135,9 @@ export function ArchivedVoyagesSection({
                         />
                     </svg>
                     <span className="min-w-0">
-                        <span className="block text-sm font-extrabold text-slate-100">Archived voyages</span>
+                        <span className="block text-xs font-black uppercase tracking-widest text-sky-300">
+                            Archived voyages
+                        </span>
                         <span className="mt-1 block text-xs text-slate-400">
                             {loading && count === 0
                                 ? 'Loading archive…'
@@ -146,7 +148,7 @@ export function ArchivedVoyagesSection({
                     </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-sky-200">
-                    {showArchived ? 'Hide' : 'Show'}
+                    {showArchived ? 'Hide' : error && count === 0 ? 'Details' : 'Show'}
                     <svg
                         aria-hidden="true"
                         className={`h-4 w-4 transition-transform ${showArchived ? 'rotate-180' : ''}`}

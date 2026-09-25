@@ -87,7 +87,7 @@ export const OfficeRow: React.FC<{
             // …and it may not crush the label either: at most half the row,
             // then IT truncates. Measured 2026-09-25: "Pi cache, Signal K &
             // AvNav" had squeezed "Boat Network" to 36 px ("Boat N…").
-            className="min-w-0 max-w-[50%] shrink truncate whitespace-nowrap text-right text-[11px] font-bold uppercase tracking-widest"
+            className="min-w-0 max-w-[50%] shrink line-clamp-2 text-right text-[11px] font-bold uppercase leading-tight tracking-widest"
             style={{ color: daylightUiColor(statusColor) }}
         >
             {status}

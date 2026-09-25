@@ -237,7 +237,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                         </svg>
                     </button>
                 </div>
-                <div className="flex-1 min-h-0 flex justify-center items-center">
+                <div className="flex-1 min-h-[220px] flex justify-center items-center">
                     <PolarChart data={polarData} overlayData={smartPolarData} />
                 </div>
 

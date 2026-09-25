@@ -2,6 +2,7 @@ import React from 'react';
 
 export const CompassIcon = ({ className, rotation }: { className?: string; rotation: number }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -21,6 +22,7 @@ export const CompassIcon = ({ className, rotation }: { className?: string; rotat
 
 export const MapPinIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -39,6 +41,7 @@ export const MapPinIcon = ({ className }: { className?: string }) => (
 
 export const RouteIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -58,6 +61,7 @@ export const RouteIcon = ({ className }: { className?: string }) => (
 
 export const MapIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -77,6 +81,7 @@ export const MapIcon = ({ className }: { className?: string }) => (
 
 export const ArrowRightIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -95,6 +100,7 @@ export const ArrowRightIcon = ({ className }: { className?: string }) => (
 
 export const ArrowUpIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -113,6 +119,7 @@ export const ArrowUpIcon = ({ className }: { className?: string }) => (
 
 export const ArrowDownIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -131,6 +138,7 @@ export const ArrowDownIcon = ({ className }: { className?: string }) => (
 
 export const ChevronLeftIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -148,6 +156,7 @@ export const ChevronLeftIcon = ({ className }: { className?: string }) => (
 
 export const CrosshairIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"
@@ -169,6 +178,7 @@ export const CrosshairIcon = ({ className }: { className?: string }) => (
 
 export const FlagIcon = ({ className }: { className?: string }) => (
     <svg
+        aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         width="24"
         height="24"

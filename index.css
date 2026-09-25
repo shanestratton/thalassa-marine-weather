@@ -4086,16 +4086,20 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
        clear one: the credits and the Locate button came down 64–137px too high
        (UX scorecard 2026-09-25). Positional containers only — the attribution
        and logo elements are never named. */
+    /* 60 px: clear of the landscape nav toggle (bottom-left) and the Locate
+       FAB (bottom-right), so the Mapbox credit and the scale bar are never
+       covered (a covered credit is a licence problem, not a nit). */
     .thalassa-chart-map .mapboxgl-ctrl-bottom-left,
     .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
-        bottom: calc(env(safe-area-inset-bottom) + 12px);
+        bottom: calc(env(safe-area-inset-bottom) + 60px);
     }
     .thalassa-map-action-fabs {
         bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
     }
 
     .anchor-setup-scroll {
-        padding-bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;
+        /* room for the fixed nav toggle at bottom-left */
+        padding-bottom: calc(env(safe-area-inset-bottom) + 60px) !important;
         -webkit-overflow-scrolling: touch;
     }
 
@@ -4118,7 +4122,7 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     }
     .anchor-setup-guidance p {
         display: -webkit-box;
-        -webkit-line-clamp: 2;
+        -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
         font-size: 12px !important;
@@ -4126,6 +4130,7 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     }
     .anchor-setup-radar {
         grid-column: 1;
+        align-self: start;
     }
     .anchor-setup-controls {
         grid-column: 2;
@@ -4140,6 +4145,17 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     }
     .route-planner-page .ui-page-title + .ui-caption {
         display: none;
+    }
+    /* a fade at the foot says the cards continue below the fold */
+    .route-planner-page::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 28px;
+        pointer-events: none;
+        background: linear-gradient(to bottom, transparent, var(--day-ui-surface-soft, #020617));
     }
 
     .anchor-shore-watch-backdrop {
@@ -4646,7 +4662,7 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(3 105 161 / 0.9);
 }
 .display-light .text-sky-100\/80 {
-    color: rgb(3 105 161 / 0.9);
+    color: #075985;
 }
 .display-light .text-sky-100\/85 {
     color: rgb(3 105 161 / 0.9);
@@ -4926,7 +4942,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 /* The arming bar sticks at the scroller's clearance line; give it the page
    behind it so scrolled content never shows through. */
 .anchor-setup-arm {
-    background: var(--day-ui-surface, rgba(2, 6, 23, 0.92));
+    background: var(--day-ui-surface-soft, #020617);
+    box-shadow: 0 -10px 16px -10px rgba(0, 0, 0, 0.45);
 }
 
 /* Radius sliders: appearance-none had left WebKit's default thumb — a 28 pt
@@ -4935,11 +4952,13 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     -webkit-appearance: none;
     appearance: none;
 }
-.anchor-setup-page input[type='range']::-webkit-slider-runnable-track {
+.anchor-setup-page input[type='range']::-webkit-slider-runnable-track,
+.thalassa-range::-webkit-slider-runnable-track {
     height: 8px;
     border-radius: 9999px;
 }
-.anchor-setup-page input[type='range']::-webkit-slider-thumb {
+.anchor-setup-page input[type='range']::-webkit-slider-thumb,
+.thalassa-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 28px;
@@ -4953,7 +4972,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .anchor-setup-page input[type='range'].accent-amber-500::-webkit-slider-thumb {
     background: #f59e0b;
 }
-.anchor-setup-page input[type='range']::-moz-range-thumb {
+.anchor-setup-page input[type='range']::-moz-range-thumb,
+.thalassa-range::-moz-range-thumb {
     width: 28px;
     height: 28px;
     border-radius: 9999px;
@@ -4963,7 +4983,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .anchor-setup-page input[type='range'].accent-amber-500::-moz-range-thumb {
     background: #f59e0b;
 }
-.display-light .anchor-setup-page input[type='range']::-webkit-slider-thumb {
+.display-light .anchor-setup-page input[type='range']::-webkit-slider-thumb,
+.display-light .thalassa-range::-webkit-slider-thumb {
     background: #0369a1;
     border-color: #ffffff;
 }
@@ -5005,4 +5026,15 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 .display-light .thalassa-select {
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+}
+
+/* Daylight: white text stays white on the emerald action buttons (service log, saved profile). */
+.display-light .from-emerald-600.text-white,
+.display-light .bg-emerald-600 .text-white {
+    color: #ffffff;
+}
+
+/* Daylight: the tab bar keeps its night palette, so its selected icon keeps the light cyan. */
+.display-light nav[aria-label='Main'] .text-cyan-300 {
+    color: #67e8f9;
 }
