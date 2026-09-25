@@ -170,7 +170,7 @@ if (SECTIONS.includes('A')) {
         await capture(p, 'glass-model-picker');
         await dismiss(p);
     }
-    if (await tap(p, 'System status')) {
+    if (await tap(p, 'Systems and GPS source')) {
         await capture(p, 'glass-system-status');
         await dismiss(p);
     }
@@ -192,7 +192,7 @@ if (SECTIONS.includes('A')) {
     }
     // Log + Plan menus
     await go(p, 'details', 2500);
-    if (await tap(p, 'Open menu')) {
+    if (await tap(p, 'Page actions')) {
         await capture(p, 'log-menu');
         await dismiss(p);
     }
