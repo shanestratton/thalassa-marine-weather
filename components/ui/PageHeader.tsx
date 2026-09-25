@@ -30,7 +30,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
     <div className="shrink-0 px-4 pt-4 pb-3">
         {/* Breadcrumb trail */}
         {breadcrumbs && breadcrumbs.length > 0 && (
-            <div className="flex items-center gap-1.5 mb-2">
+            <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 mb-2">
                 {breadcrumbs.map((crumb, i) => (
                     <React.Fragment key={i}>
                         {i > 0 && (
@@ -45,6 +45,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                             </svg>
                         )}
                         <span
+                            aria-current={i === breadcrumbs.length - 1 ? 'page' : undefined}
                             className={`text-[11px] font-bold uppercase tracking-widest ${
                                 i === breadcrumbs.length - 1 ? 'text-sky-400' : 'text-gray-400'
                             }`}
@@ -53,14 +54,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                         </span>
                     </React.Fragment>
                 ))}
-            </div>
+            </nav>
         )}
 
         <div className="flex items-center gap-3">
             {onBack && <BackButton onClick={onBack} />}
 
             <div className="flex-1 min-w-0">
-                <h1 className="ui-page-title text-xl font-extrabold text-white uppercase tracking-wider truncate">
+                <h1 className="ui-page-title line-clamp-2 break-words text-xl font-extrabold leading-tight text-white uppercase tracking-wider">
                     {title}
                 </h1>
                 {subtitle &&

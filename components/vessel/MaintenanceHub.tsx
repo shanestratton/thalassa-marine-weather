@@ -546,26 +546,26 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <span
                                     className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black"
                                     title="Overdue"
-                                    aria-label={`${counts.red} overdue`}
                                 >
                                     {counts.red}
+                                    <span className="sr-only"> overdue</span>
                                 </span>
                             )}
                             {counts.yellow > 0 && (
                                 <span
                                     className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black"
                                     title="Due soon"
-                                    aria-label={`${counts.yellow} due soon`}
                                 >
                                     {counts.yellow}
+                                    <span className="sr-only"> due soon</span>
                                 </span>
                             )}
                             <span
                                 className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black"
                                 title="Up to date"
-                                aria-label={`${counts.green} up to date`}
                             >
                                 {counts.green}
+                                <span className="sr-only"> up to date</span>
                             </span>
                         </>
                     }
@@ -574,7 +574,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <button
                                 onClick={() => setMenuOpen(!menuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                aria-label="More options"
+                                aria-label="Page actions"
                             >
                                 <svg
                                     className="w-5 h-5 text-gray-400"

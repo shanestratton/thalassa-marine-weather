@@ -36,10 +36,10 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                     return (
                         <div
                             key={i}
-                            className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl group hover:bg-white/10 transition-colors"
+                            className="flex items-stretch justify-between bg-white/5 border border-white/5 rounded-xl group hover:bg-white/10 transition-colors"
                         >
                             <div
-                                className="flex items-center gap-4 flex-1 cursor-pointer min-w-0"
+                                className="flex items-center gap-4 flex-1 cursor-pointer min-w-0 p-4"
                                 onClick={() => onLocationSelect(loc)}
                                 role="button"
                                 tabIndex={0}
@@ -70,7 +70,7 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                                         ),
                                     );
                                 }}
-                                className="hit-target-44 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 ml-2"
+                                className="hit-target-44 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 self-center mr-2"
                                 aria-label={`Remove ${loc}`}
                             >
                                 <TrashIcon className="w-5 h-5" />
@@ -78,6 +78,12 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                         </div>
                     );
                 })}
+                {(settings.savedLocations || []).length > 0 && (
+                    <p className="px-2 pt-1 pb-1 text-xs leading-snug text-gray-400">
+                        Add more by searching a port on the weather page, or saving a departure or destination in the
+                        route planner.
+                    </p>
+                )}
             </div>
         </Section>
     </div>

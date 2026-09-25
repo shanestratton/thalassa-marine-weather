@@ -35,7 +35,9 @@ export const VoyageTotalsTiles: React.FC<{
                         <path d="M14.5 9.5L11 13l-1.5-1.5L13 8z" fill="currentColor" stroke="none" />
                         <path d="M9.5 14.5L13 11l1.5 1.5L11 16z" fill="currentColor" stroke="none" opacity="0.4" />
                     </svg>
-                    <div className="text-[10px] font-bold text-sky-300/70 uppercase tracking-widest mb-2">Distance</div>
+                    <div className="text-[10px] font-bold text-sky-300/70 uppercase tracking-widest mb-2 pr-6">
+                        Distance
+                    </div>
                     <div className="flex items-baseline gap-1">
                         <span className="text-2xl font-black text-white tabular-nums leading-none">
                             {totalNmRaw.toFixed(1)}
@@ -60,7 +62,7 @@ export const VoyageTotalsTiles: React.FC<{
                     </svg>
                     {/* "Sea Time", not "Time at Sea" — the longer label ran
                                             into the clock icon (Shane 2026-08-13). */}
-                    <div className="text-[10px] font-bold text-emerald-300/70 uppercase tracking-widest mb-2">
+                    <div className="text-[10px] font-bold text-emerald-300/70 uppercase tracking-widest mb-2 pr-6">
                         Sea Time
                     </div>
                     <div className="flex items-baseline gap-1">
@@ -84,7 +86,7 @@ export const VoyageTotalsTiles: React.FC<{
                         <path d="M8 11h8" strokeLinecap="round" />
                         <path d="M5 15a7 7 0 0014 0" strokeLinecap="round" />
                     </svg>
-                    <div className="text-[10px] font-bold text-amber-300/70 uppercase tracking-widest mb-2">
+                    <div className="text-[10px] font-bold text-amber-300/70 uppercase tracking-widest mb-2 pr-6">
                         Voyages
                     </div>
                     <div className="flex items-baseline gap-1">

@@ -630,7 +630,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 onNavigateToGlass();
                             }}
                             aria-label="Open Instrument Panel"
-                            className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 via-cyan-500 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 border border-sky-400/20 flex items-center justify-center gap-2"
+                            className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-linear-to-r from-sky-700 to-sky-800 text-white shadow-lg shadow-sky-500/20 hover:from-sky-600 hover:to-sky-700 border border-sky-400/20 flex items-center justify-center gap-2"
                         >
                             <span className="text-lg">🧭</span>
                             <span>Instrument Panel</span>

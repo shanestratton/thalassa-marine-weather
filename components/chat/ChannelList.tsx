@@ -201,7 +201,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                 )}
                             </div>
                             <p
-                                className={`${isSub ? 'text-[11px]' : 'text-sm'} text-white/60 truncate ${isSub ? '' : 'mt-0.5'}`}
+                                className={`${isSub ? 'text-[11px]' : 'text-sm'} text-white/60 line-clamp-2 ${isSub ? '' : 'mt-0.5'}`}
                             >
                                 {isPrivateLocked ? '🔒 Request access to join' : ch.description}
                             </p>

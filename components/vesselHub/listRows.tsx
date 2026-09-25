@@ -81,7 +81,10 @@ export const OfficeRow: React.FC<{
             disappears… enables it to grow first and then settle to the right
             size." A row's height must not depend on the text inside it. */}
         <span
-            className="shrink-0 whitespace-nowrap text-[11px] font-bold uppercase tracking-widest"
+            // …and it may not crush the label either: at most half the row,
+            // then IT truncates. Measured 2026-09-25: "Pi cache, Signal K &
+            // AvNav" had squeezed "Boat Network" to 36 px ("Boat N…").
+            className="min-w-0 max-w-[50%] shrink truncate whitespace-nowrap text-right text-[11px] font-bold uppercase tracking-widest"
             style={{ color: daylightUiColor(statusColor) }}
         >
             {status}

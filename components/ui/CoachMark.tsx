@@ -167,7 +167,7 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
                 <ArrowGlyph direction={arrowDir} />
             </span>
             <div
-                className="px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[11px] font-semibold uppercase tracking-wider text-sky-200 shadow-lg max-w-[220px] leading-tight text-center"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center"
                 style={{
                     boxShadow: '0 0 20px -4px rgba(56,189,248,0.4), 0 4px 12px rgba(0,0,0,0.4)',
                 }}

@@ -141,6 +141,8 @@ textarea,
 /* Enforce the documented legibility floor even where legacy Tailwind
    arbitrary sizes remain. This is particularly important in sunlight and on
    vibrating phone mounts, where 9–10px labels cease to be operational text. */
+[class~='text-[6px]'],
+[class~='text-[7px]'],
 [class~='text-[8px]'],
 [class~='text-[9px]'],
 [class~='text-[10px]'],
@@ -148,8 +150,20 @@ textarea,
 [class~='text-[11px]'] {
     /* text-[11px] joined the floor on 2026-09-02: it is the single most
        common size in the codebase (1,457 uses) and it sat one pixel OUTSIDE
-       the rule that existed to protect exactly this kind of text. */
+       the rule that existed to protect exactly this kind of text.
+       text-[6px] and text-[7px] joined on 2026-09-25 (UX scorecard).
+       text-[9.5px] is deliberately NOT here: it exists for one place, the
+       Vessel hub's safety-tile state words, where Shane (2026-09-05/06)
+       needs OVERBOARD whole in the narrowest tile — 10 px split it mid-word,
+       so 9.5 px is the largest size that keeps the word in one piece. */
     font-size: var(--text-micro) !important;
+}
+
+/* text-xs is 0.75rem, and the root font is fluid below 768px (clamp 13–17px):
+   on a 393px phone that is 11.8px — the most common caption size in the app,
+   sitting just under the floor on every phone. The floor applies here too. */
+.text-xs {
+    font-size: max(0.75rem, var(--text-micro));
 }
 
 /* Keep range tracks visually slim while giving every slider a reliable
@@ -1009,14 +1023,20 @@ input[type='date']::-webkit-calendar-picker-indicator {
     color: #0d9488;
 }
 
-/* Red — ensure readability */
+/* Red — ensure readability. red-700, not red-600: on the light page
+   red-600 measured 4.2:1 (the Radio page's NO FIX pill, a safety word, UX
+   scorecard 2026-09-25); red-700 is 5.7:1. */
 .display-light .text-red-400 {
-    color: #dc2626;
+    color: #b91c1c;
 }
 
-/* red-600 */
 .display-light .text-red-300 {
-    color: #dc2626;
+    color: #b91c1c;
+}
+
+.display-light .text-red-500,
+.display-light .text-red-600 {
+    color: #b91c1c;
 }
 
 /* Purple/Violet */
@@ -3577,6 +3597,14 @@ body,
     bottom: calc(4rem + 73px + env(safe-area-inset-bottom));
 }
 
+/* The scale bar's own text is 10px; the app's floor is 12. Sizing the scale
+   bar is themeing a control the licence lets us style — the attribution
+   pill and logo beside it are never touched. */
+.thalassa-chart-map .mapboxgl-ctrl-scale {
+    font-size: var(--text-micro);
+    line-height: 1.4;
+}
+
 /* Keep the coverage notice below the top/MOB/layer controls, not bottom-anchored
    to a full-bleed map that extends behind navigation. This also leaves the
    Locate/scale/attribution stack intact on narrow phones. */
@@ -4054,6 +4082,18 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
+    /* No tab bar in a landscape phone, so the chart's bottom furniture need not
+       clear one: the credits and the Locate button came down 64–137px too high
+       (UX scorecard 2026-09-25). Positional containers only — the attribution
+       and logo elements are never named. */
+    .thalassa-chart-map .mapboxgl-ctrl-bottom-left,
+    .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
+        bottom: calc(env(safe-area-inset-bottom) + 12px);
+    }
+    .thalassa-map-action-fabs {
+        bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
+    }
+
     .anchor-setup-scroll {
         padding-bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;
         -webkit-overflow-scrolling: touch;
@@ -4062,6 +4102,44 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     .anchor-setup-radar {
         flex: 0 0 180px !important;
         min-height: 180px !important;
+    }
+    /* Landscape phone: guidance across the top, radar beside the controls, so
+       the arming bar is on screen instead of a swipe below the radar. */
+    .anchor-setup-scroll {
+        display: grid !important;
+        grid-template-columns: 200px minmax(0, 1fr);
+        column-gap: 8px;
+        align-content: start;
+    }
+    .anchor-setup-guidance {
+        grid-column: 1 / -1;
+        margin-top: 4px !important;
+        padding: 6px 10px !important;
+    }
+    .anchor-setup-guidance p {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 12px !important;
+        line-height: 1.3 !important;
+    }
+    .anchor-setup-radar {
+        grid-column: 1;
+    }
+    .anchor-setup-controls {
+        grid-column: 2;
+    }
+    /* Plan page: keep the header on the cards' column and drop the eyebrow
+       line, so the fold lands on the cards rather than on chrome. */
+    .route-planner-page > .shrink-0 {
+        width: 100%;
+        max-width: 36rem;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .route-planner-page .ui-page-title + .ui-caption {
+        display: none;
     }
 
     .anchor-shore-watch-backdrop {
@@ -4338,61 +4416,61 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     color: rgb(180 83 9);
 }
 .display-light .text-amber-100\/55 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-100\/60 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-100\/70 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-100\/75 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-100\/80 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-100\/85 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-100\/90 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-200 {
     color: rgb(180 83 9);
 }
 .display-light .text-amber-200\/60 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-200\/70 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-200\/75 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-200\/80 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-200\/85 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-200\/90 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-300\/50 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-300\/60 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-300\/70 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-300\/80 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-300\/90 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-50 {
     color: rgb(180 83 9);
@@ -4653,40 +4731,40 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 /* Mid-tone chromatics — amber-400 is ~1.7:1 on white, so the -400/-500
    steps need the same hue-preserving darkening as the pale ones. */
 .display-light .text-amber-400\/30 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-400\/40 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-400\/50 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-400\/60 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-400\/70 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-400\/80 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-400\/90 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-500 {
     color: rgb(180 83 9);
 }
 .display-light .text-amber-500\/40 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-500\/50 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-500\/60 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-amber-500\/70 {
-    color: rgb(180 83 9 / 0.9);
+    color: #92400e;
 }
 .display-light .text-blue-400\/70 {
     color: rgb(29 78 216 / 0.9);
@@ -4824,4 +4902,71 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 .display-light .text-sky-100\/75 {
     color: rgb(3 105 161 / 0.9);
+}
+
+/* ── Anchor Watch setup ─────────────────────────────────────────────────────
+   Short portrait phones (SE/8 class, 667 pt): the radar keeps a fixed height
+   instead of collapsing to nothing under the controls, and the first-run
+   guidance card sets tighter so the sliders and the arming bar fit. */
+@media (orientation: portrait) and (max-height: 700px) {
+    .anchor-setup-radar {
+        flex: 0 0 160px !important;
+        min-height: 160px !important;
+    }
+    .anchor-setup-guidance {
+        margin-top: 4px !important;
+        padding: 6px 10px !important;
+    }
+    .anchor-setup-guidance p {
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+    }
+}
+
+/* The arming bar sticks at the scroller's clearance line; give it the page
+   behind it so scrolled content never shows through. */
+.anchor-setup-arm {
+    background: var(--day-ui-surface, rgba(2, 6, 23, 0.92));
+}
+
+/* Radius sliders: appearance-none had left WebKit's default thumb — a 28 pt
+   bordered thumb a wet thumb can find, in both palettes. */
+.anchor-setup-page input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+}
+.anchor-setup-page input[type='range']::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 9999px;
+}
+.anchor-setup-page input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 28px;
+    height: 28px;
+    margin-top: -10px;
+    border-radius: 9999px;
+    background: #0ea5e9;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.anchor-setup-page input[type='range'].accent-amber-500::-webkit-slider-thumb {
+    background: #f59e0b;
+}
+.anchor-setup-page input[type='range']::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    background: #0ea5e9;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+}
+.anchor-setup-page input[type='range'].accent-amber-500::-moz-range-thumb {
+    background: #f59e0b;
+}
+.display-light .anchor-setup-page input[type='range']::-webkit-slider-thumb {
+    background: #0369a1;
+    border-color: #ffffff;
+}
+.display-light .anchor-setup-page input[type='range'].accent-amber-500::-webkit-slider-thumb {
+    background: #b45309;
 }

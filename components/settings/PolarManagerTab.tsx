@@ -226,7 +226,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                     <button
                         type="button"
                         onClick={() => setShowAdvancedInput(true)}
-                        className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                        className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
                         title="Advanced polar input"
                         aria-label="Advanced polar input"
                     >

@@ -48,18 +48,20 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <input
+                                aria-label="High Wind threshold, kts"
                                 type="number"
                                 value={settings.notifications.wind.threshold}
                                 onChange={(e) => updateAlert('wind', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">kts</span>
                         </div>
                         <Toggle
+                            label="High Wind alert"
                             checked={settings.notifications.wind.enabled}
                             onChange={(v) => updateAlert('wind', 'enabled', v)}
                         />
@@ -79,18 +81,20 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <input
+                                aria-label="Gusts threshold, kts"
                                 type="number"
                                 value={settings.notifications.gusts.threshold}
                                 onChange={(e) => updateAlert('gusts', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">kts</span>
                         </div>
                         <Toggle
+                            label="Gusts alert"
                             checked={settings.notifications.gusts.enabled}
                             onChange={(v) => updateAlert('gusts', 'enabled', v)}
                         />
@@ -110,18 +114,20 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <input
+                                aria-label="High Seas threshold, ft"
                                 type="number"
                                 value={settings.notifications.waves.threshold}
                                 onChange={(e) => updateAlert('waves', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">ft</span>
                         </div>
                         <Toggle
+                            label="High Seas alert"
                             checked={settings.notifications.waves.enabled}
                             onChange={(v) => updateAlert('waves', 'enabled', v)}
                         />
@@ -141,18 +147,20 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <input
+                                aria-label="Long Period threshold, s"
                                 type="number"
                                 value={settings.notifications.swellPeriod.threshold}
                                 onChange={(e) => updateAlert('swellPeriod', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">s</span>
                         </div>
                         <Toggle
+                            label="Long Period alert"
                             checked={settings.notifications.swellPeriod.enabled}
                             onChange={(v) => updateAlert('swellPeriod', 'enabled', v)}
                         />
@@ -172,19 +180,21 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <span className="text-xs text-gray-400 mr-1">&lt;</span>
                             <input
+                                aria-label="Low Vis threshold, nm"
                                 type="number"
                                 value={settings.notifications.visibility.threshold}
                                 onChange={(e) => updateAlert('visibility', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">nm</span>
                         </div>
                         <Toggle
+                            label="Low Vis alert"
                             checked={settings.notifications.visibility.enabled}
                             onChange={(v) => updateAlert('visibility', 'enabled', v)}
                         />
@@ -204,18 +214,20 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <input
+                                aria-label="High UV threshold, idx"
                                 type="number"
                                 value={settings.notifications.uv.threshold}
                                 onChange={(e) => updateAlert('uv', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">idx</span>
                         </div>
                         <Toggle
+                            label="High UV alert"
                             checked={settings.notifications.uv.enabled}
                             onChange={(v) => updateAlert('uv', 'enabled', v)}
                         />
@@ -235,18 +247,20 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <input
+                                aria-label="Heat Alert threshold, °"
                                 type="number"
                                 value={settings.notifications.tempHigh.threshold}
                                 onChange={(e) => updateAlert('tempHigh', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">°</span>
                         </div>
                         <Toggle
+                            label="Heat Alert alert"
                             checked={settings.notifications.tempHigh.enabled}
                             onChange={(v) => updateAlert('tempHigh', 'enabled', v)}
                         />
@@ -266,19 +280,21 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <div
-                            className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
+                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <span className="text-xs text-gray-400 mr-1">&lt;</span>
                             <input
+                                aria-label="Freeze Alert threshold, °"
                                 type="number"
                                 value={settings.notifications.tempLow.threshold}
                                 onChange={(e) => updateAlert('tempLow', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                             <span className="text-xs text-gray-400">°</span>
                         </div>
                         <Toggle
+                            label="Freeze Alert alert"
                             checked={settings.notifications.tempLow.enabled}
                             onChange={(v) => updateAlert('tempLow', 'enabled', v)}
                         />
@@ -304,6 +320,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex items-center gap-4">
                         <Toggle
+                            label="Precipitation alert"
                             checked={settings.notifications.precipitation.enabled}
                             onChange={(v) => updateAlert('precipitation', 'enabled', v)}
                         />

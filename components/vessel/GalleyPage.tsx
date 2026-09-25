@@ -244,6 +244,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             <div className="border-b border-white/6">
                 <PageHeader
                     title="Galley"
+                    breadcrumbs={['Vessel', 'Galley']}
                     subtitle={
                         /* PageHeader's own subtitle weight and size — the 11px/60%
                            amber was the exact combination PageHeader bumped away from
@@ -256,8 +257,8 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     onBack={onBack}
                     action={
                         <div className="px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/15">
-                            <span className="text-[11px] font-bold text-amber-400/70 tracking-widest uppercase">
-                                Offline Ready
+                            <span className="text-[11px] font-bold text-amber-300 tracking-widest uppercase">
+                                Works offline
                             </span>
                         </div>
                     }

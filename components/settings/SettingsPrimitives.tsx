@@ -8,10 +8,10 @@ import { triggerHaptic } from '../../utils/system';
 // ── Section ──────────────────────────────────────────────────
 export const Section = React.memo(({ title, children }: { title: string; children?: React.ReactNode }) => (
     <div className="space-y-4 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <h3 className="ui-section-heading text-sky-300 uppercase tracking-[0.15em] px-1 flex items-center gap-2">
+        <h2 className="ui-section-heading text-sky-300 uppercase tracking-[0.15em] px-1 flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"></div>
             {title}
-        </h3>
+        </h2>
         <div className="bg-white/3 border border-white/6 rounded-2xl overflow-hidden shadow-lg shadow-black/10">
             {children}
         </div>

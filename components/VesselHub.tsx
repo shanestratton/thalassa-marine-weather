@@ -1499,12 +1499,12 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         </span>
                     ) : (
                         <span className="min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-widest text-cyan-300">
-                            Skipper device
+                            Primary device
                         </span>
                     )}
                     {vesselName && (
-                        <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-cyan-300/80">
-                            {piPrimary ? 'Primary: the Pi' : 'Skipper device'}
+                        <span className="shrink-0 text-[12px] font-black uppercase tracking-widest text-cyan-300/80">
+                            {piPrimary ? 'Primary: the Pi' : claimHeld ? 'Primary: this phone' : 'Primary device'}
                         </span>
                     )}
                 </div>

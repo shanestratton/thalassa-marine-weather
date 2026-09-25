@@ -36,7 +36,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 type="text"
                                 value={settings.defaultLocation || ''}
                                 onChange={(e) => onSave({ defaultLocation: e.target.value })}
-                                className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm w-48"
+                                className="min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm w-48"
                                 placeholder="City, Country"
                             />
                         </div>
@@ -63,7 +63,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.speed}
                             onChange={(e) => updateUnit('speed', e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="kts">Knots</option>
                             <option value="mph">mph</option>
@@ -77,7 +77,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.distance}
                             onChange={(e) => updateUnit('distance', e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="nm">Nautical Miles</option>
                             <option value="mi">Miles</option>
@@ -92,7 +92,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.waveHeight || 'm'}
                             onChange={(e) => updateUnit('waveHeight', e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="m">Meters</option>
                             <option value="ft">Feet</option>
@@ -113,7 +113,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                     },
                                 });
                             }}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="ft">Feet</option>
                             <option value="m">Meters</option>
@@ -125,7 +125,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.temp}
                             onChange={(e) => updateUnit('temp', e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="C">Celsius</option>
                             <option value="F">Fahrenheit</option>
@@ -137,7 +137,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.visibility || 'nm'}
                             onChange={(e) => updateUnit('visibility', e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="nm">Nautical Miles</option>
                             <option value="mi">Miles</option>
@@ -150,7 +150,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <select
                             value={settings.units.volume || 'gal'}
                             onChange={(e) => updateUnit('volume', e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            className="w-full min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                         >
                             <option value="gal">Gallons</option>
                             <option value="l">Liters</option>
@@ -310,7 +310,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <button
                         aria-label="Factory reset all settings and data"
                         onClick={onShowFactoryReset}
-                        className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"
+                        className="w-full min-h-11 py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"
                     >
                         <TrashIcon className="w-4 h-4" /> Factory Reset
                     </button>

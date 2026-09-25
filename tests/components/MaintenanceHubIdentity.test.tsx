@@ -284,7 +284,7 @@ describe('MaintenanceHub identity isolation', () => {
         render(<MaintenanceHub onBack={vi.fn()} />);
         await screen.findByText('Private A maintenance');
 
-        fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
         fireEvent.click(screen.getByRole('button', { name: 'Export blank maintenance checklist PDF' }));
         await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledWith(111, 'Account A Vessel'));
 
