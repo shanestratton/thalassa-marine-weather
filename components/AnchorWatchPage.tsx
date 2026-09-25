@@ -809,7 +809,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         slide-to-arm gesture. Hides permanently after
                         the user successfully arms once. */}
                     {!armedOnce && (
-                        <div className="shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
+                        <div className="anchor-setup-guidance shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
                             <p className="text-[12px] text-sky-200 leading-relaxed">
                                 <span className="font-bold text-sky-300">Drop anchor, then arm the watch.</span> Set
                                 your <span className="font-semibold text-white">water depth</span>,{' '}
@@ -833,7 +833,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </div>
 
                     {/* ── Controls Section ── */}
-                    <div className="shrink-0 px-4 space-y-3">
+                    <div className="anchor-setup-controls shrink-0 px-4 space-y-3">
                         {/* Tackle Type — compact segmented row */}
                         <div className="flex gap-1.5">
                             {(['chain', 'rope', 'mixed'] as const).map((type) => (
@@ -966,7 +966,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             8px gap to the menu, so a second source of spacing
                             here would make the real distance the sum of two
                             numbers nobody could reason about. */}
-                        <div className="pt-1">
+                        {/* Sticky at the scroller's clearance line, so the arming
+                            control is on screen on a 667 pt phone without a
+                            scroll — the other slide-to-act pages already pin
+                            theirs. Same bottom as the scroller's padding, so it
+                            never sits under the tab bar. */}
+                        <div
+                            className="anchor-setup-arm sticky z-10 -mx-4 px-4 pt-1"
+                            style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                        >
                             {/* The VPN hairpin notice used to sit here. Removed
                                 2026-09-04 at Shane's call: "VPN's are for
                                 advanced users only, so they will not [need]

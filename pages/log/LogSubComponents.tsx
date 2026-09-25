@@ -5,7 +5,6 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry } from '../../types';
 import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming';
 import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
@@ -51,9 +50,10 @@ export const MenuBtn: React.FC<{
         role="menuitem"
         onClick={onClick}
         disabled={disabled}
+        aria-disabled={disabled || undefined}
         className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
             disabled
-                ? 'text-slate-500 cursor-not-allowed'
+                ? 'text-slate-500 opacity-60 cursor-not-allowed'
                 : danger
                   ? 'text-red-400 hover:bg-red-500/10'
                   : accent

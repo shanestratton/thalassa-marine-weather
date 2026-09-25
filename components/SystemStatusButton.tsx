@@ -977,7 +977,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
         <>
             <button
                 onClick={() => setShowModal(true)}
-                aria-label={`System status: ${activeCount} active${systemState.shoreWatch.active ? ` · Shore Watch: ${systemState.shoreWatch.label}` : ''}`}
+                aria-label={`Systems and GPS source${activeCount > 0 ? `: ${activeCount} active` : ''}${systemState.shoreWatch.active ? ` · Shore Watch: ${systemState.shoreWatch.label}` : ''}`}
                 aria-haspopup="dialog"
                 aria-expanded={showModal}
                 data-shore-status={systemState.shoreWatch.active ? systemState.shoreWatch.tone : undefined}
@@ -996,9 +996,9 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 {/* Subtle inner highlight for depth — matches the glass aesthetic */}
                 <span className="absolute inset-0 rounded-2xl bg-linear-to-b from-white/25 via-transparent to-transparent pointer-events-none" />
 
-                {/* Proper SVG info icon — unicode ℹ rendered thin and inconsistent across
-                    iOS font variations. This Heroicons-style circle-i has real visual
-                    weight and scales crisply on retina displays. */}
+                {/* A pulse/signal glyph, not a circle-i: Mapbox's own (i) sits a
+                    few centimetres away on the chart and the two were being read
+                    as the same control. This one says "systems and fix". */}
                 <svg
                     className="relative w-6 h-6 text-white drop-shadow-xs"
                     viewBox="0 0 24 24"
@@ -1009,9 +1009,9 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                     strokeLinejoin="round"
                     aria-hidden="true"
                 >
-                    <circle cx="12" cy="12" r="9" />
-                    <line x1="12" y1="11" x2="12" y2="17" />
-                    <circle cx="12" cy="7.5" r="0.75" fill="currentColor" />
+                    <circle cx="12" cy="12" r="2.25" fill="currentColor" stroke="none" />
+                    <path d="M7.6 7.6a6.2 6.2 0 0 0 0 8.8M16.4 7.6a6.2 6.2 0 0 1 0 8.8" />
+                    <path d="M4.4 4.4a10.7 10.7 0 0 0 0 15.2M19.6 4.4a10.7 10.7 0 0 1 0 15.2" opacity="0.55" />
                 </svg>
 
                 {/* Active count badge */}

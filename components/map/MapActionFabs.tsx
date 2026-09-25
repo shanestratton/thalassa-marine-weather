@@ -24,7 +24,7 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
             // right-[16px] (= right-4) aligns with the right-rail FAB column
             // and the ConnectivityChip so every right-edge element on the
             // chart screen sits on the same vertical gridline.
-            className="absolute right-[16px] z-500 flex flex-row gap-2"
+            className="thalassa-map-action-fabs absolute right-[16px] z-500 flex flex-row gap-2"
             style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
         >
             {/* GPS Locate Me — fly to device position */}

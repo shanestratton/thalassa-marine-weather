@@ -16,6 +16,8 @@ import {
     AlertTriangleIcon,
     ClockIcon,
     CalendarGridIcon,
+    DownloadIcon,
+    RouteIcon,
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
 import { toast } from './Toast';
@@ -603,7 +605,9 @@ export const RoutePlanner: React.FC<{
                                 }}
                                 className="flex w-full items-center gap-3 rounded-2xl border border-cyan-500/25 bg-linear-to-br from-cyan-500/10 to-slate-900/40 p-3 text-left text-cyan-300 transition-transform active:scale-[0.98]"
                             >
-                                <span className="text-2xl leading-none">📥</span>
+                                <span aria-hidden="true" className="shrink-0">
+                                    <DownloadIcon className="h-6 w-6" />
+                                </span>
                                 <span className="min-w-0">
                                     <span className="block text-sm font-black uppercase tracking-wide">Import GPX</span>
                                     <span className="block truncate text-[11px] font-medium text-gray-400">
@@ -771,14 +775,14 @@ export const RoutePlanner: React.FC<{
                                     [
                                         {
                                             kind: 'voyage' as const,
-                                            icon: '🛥',
+                                            icon: <SailBoatIcon className="h-6 w-6" />,
                                             title: 'From a past voyage',
                                             sub: 'Sail it once, save it forever',
                                             accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
                                         },
                                         {
                                             kind: 'saved' as const,
-                                            icon: '💾',
+                                            icon: <RouteIcon className="h-6 w-6" />,
                                             title: 'Saved routes',
                                             sub: 'Open one, re-graded at today’s tide',
                                             accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
@@ -791,7 +795,9 @@ export const RoutePlanner: React.FC<{
                                         onClick={() => void openRoutePicker(b.kind)}
                                         className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
                                     >
-                                        <span className="text-2xl leading-none">{b.icon}</span>
+                                        <span aria-hidden="true" className="shrink-0">
+                                            {b.icon}
+                                        </span>
                                         <span className="min-w-0">
                                             <span className="block text-sm font-black uppercase tracking-wide">
                                                 {b.title}
@@ -1272,7 +1278,7 @@ export const RoutePlanner: React.FC<{
                                         id="route-picker-title"
                                         className="text-sm font-black uppercase tracking-widest text-sky-300"
                                     >
-                                        {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
+                                        {routePicker.kind === 'voyage' ? 'Past voyages' : 'Saved routes'}
                                     </span>
                                     {routePicker.kind === 'saved' && (
                                         <p className="mt-0.5 text-xs leading-snug text-gray-400">

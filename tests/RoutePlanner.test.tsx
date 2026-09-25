@@ -149,6 +149,11 @@ vi.mock('../components/Icons', () => ({
     CalendarIcon: () => <span>📅</span>,
     CalendarGridIcon: () => <span>🗓️</span>,
     ClockIcon: () => <span>🕐</span>,
+    SailBoatIcon: () => <span>⛵</span>,
+    PowerBoatIcon: () => <span>🚤</span>,
+    AlertTriangleIcon: () => <span>⚠</span>,
+    DownloadIcon: () => <span>⬇</span>,
+    RouteIcon: () => <span>↝</span>,
 }));
 
 import { RoutePlanner } from '../components/RoutePlanner';

@@ -443,10 +443,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             <div className="flex items-center gap-3">
                                 {onBack && <BackButton onClick={onBack} />}
                                 <div>
-                                    <h2 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
+                                    <h1 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
                                         <GearIcon className="w-6 h-6 text-sky-400" />
                                         SETTINGS
-                                    </h2>
+                                    </h1>
                                     <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
                                         Control Centre
                                     </p>
@@ -585,9 +585,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     {activeTab !== null && (
                         <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 border-b border-white/5">
                             <BackButton onClick={() => setActiveTab(null)} label="Back to settings menu" />
-                            <h3 className="text-lg font-black text-white uppercase tracking-wider">
+                            <h1 className="text-lg font-black text-white uppercase tracking-wider">
                                 {MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
-                            </h3>
+                            </h1>
                         </div>
                     )}
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-48">

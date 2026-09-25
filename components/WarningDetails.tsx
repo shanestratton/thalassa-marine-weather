@@ -3,7 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WarningDetails');
 import { AlertTriangleIcon } from './Icons';
-import { BackButton } from './ui/BackButton';
+import { PageHeader } from './ui/PageHeader';
 import { useUI } from '../context/UIContext';
 
 interface WarningDetailsProps {
@@ -62,28 +62,38 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
 
     return (
         <div className="flex flex-col h-full bg-slate-900 text-white animate-in fade-in slide-in-from-right-4 duration-300">
-            {/* Header */}
-            <div className="flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-slate-900 border-b border-white/10 shrink-0">
-                <BackButton onClick={() => setPage('dashboard')} label="Back to conditions" className="-ml-2" />
-                <div className="flex items-center gap-2 flex-1">
-                    <AlertTriangleIcon className="w-5 h-5 text-red-500" />
-                    <h2 className="text-lg font-bold uppercase tracking-wider">Active Warnings</h2>
-                </div>
-                {dismissableCount > 1 && (
-                    <button
-                        aria-label="Dismiss all dismissable weather warnings"
-                        onClick={dismissAll}
-                        // 2026-05-17: bumped to min-h-[44px] to clear the
-                        // Apple HIG tap-target floor (was py-1.5 ≈ 28 px).
-                        // A "Dismiss All" button on a warnings page is
-                        // exactly where you don't want mis-taps — could
-                        // accidentally clear a critical alert in heavy
-                        // weather. Aria-label rewritten to be specific.
-                        className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-xs px-3 py-2.5 min-h-[44px] rounded-lg transition-colors uppercase tracking-wider"
-                    >
-                        Dismiss All
-                    </button>
-                )}
+            {/* Header — the shared PageHeader (h1 + back), the same chrome as
+                every other sub-page. The triangle is decoration: red while
+                anything is active, quiet once the list is clear. */}
+            <div className="shrink-0 border-b border-white/10 bg-slate-900">
+                <PageHeader
+                    title="Active Warnings"
+                    onBack={() => setPage('dashboard')}
+                    status={
+                        <span aria-hidden="true" className="flex items-center">
+                            <AlertTriangleIcon
+                                className={`w-5 h-5 ${activeAlerts.length > 0 ? 'text-red-500' : 'text-slate-500'}`}
+                            />
+                        </span>
+                    }
+                    action={
+                        dismissableCount > 1 ? (
+                            <button
+                                aria-label="Dismiss all dismissable weather warnings"
+                                onClick={dismissAll}
+                                // 2026-05-17: bumped to min-h-[44px] to clear the
+                                // Apple HIG tap-target floor (was py-1.5 ≈ 28 px).
+                                // A "Dismiss All" button on a warnings page is
+                                // exactly where you don't want mis-taps — could
+                                // accidentally clear a critical alert in heavy
+                                // weather. Aria-label rewritten to be specific.
+                                className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-xs px-3 py-2.5 min-h-[44px] rounded-lg transition-colors uppercase tracking-wider"
+                            >
+                                Dismiss All
+                            </button>
+                        ) : undefined
+                    }
+                />
             </div>
 
             {/* Content */}

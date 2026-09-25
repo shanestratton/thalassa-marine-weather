@@ -98,12 +98,15 @@ const ICONS: Record<ToastType, string> = {
 
 const COLORS: Record<ToastType, { bg: string; border: string; glow: string }> = {
     success: {
-        bg: 'rgba(16, 185, 129, 0.95)',
+        // emerald-700, not -500: white on the lighter green measured 2.8:1
+        // (UX scorecard 2026-09-25). 5.5:1 here, in both display modes.
+        bg: 'rgba(4, 120, 87, 0.96)',
         border: 'rgba(52, 211, 153, 0.5)',
         glow: '0 8px 32px rgba(16, 185, 129, 0.3)',
     },
     error: {
-        bg: 'rgba(239, 68, 68, 0.95)',
+        // red-700 for the same reason: white on red-500 was 3.8:1.
+        bg: 'rgba(185, 28, 28, 0.96)',
         border: 'rgba(248, 113, 113, 0.5)',
         glow: '0 8px 32px rgba(239, 68, 68, 0.3)',
     },

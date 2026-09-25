@@ -968,9 +968,12 @@ const App: React.FC = () => {
                                 />
                                 <div className="min-w-0">
                                     <div className="flex min-w-0 items-center gap-1">
-                                        <h2 className="min-w-0 flex-1 truncate text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                                        {/* A wordmark, not a heading: as an h2 it sat above every
+                                            page's own h1 and inverted the outline on all 27 screens
+                                            (UX scorecard 2026-09-25). */}
+                                        <p className="min-w-0 flex-1 truncate text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
                                             Thalassa
-                                        </h2>
+                                        </p>
                                         {PUBLIC_BETA_ACCESS.enabled ? (
                                             /* SKIPPER is the headline word again, with the
                                                beta framing demoted to a 7px sub-line beneath
@@ -1563,7 +1566,7 @@ const App: React.FC = () => {
                         onClick={() => setLandscapeNavOpen((v) => !v)}
                         aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
                         aria-expanded={landscapeNavOpen}
-                        className="press fixed bottom-2 left-2 z-901 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm"
+                        className={`press fixed bottom-2 left-2 z-901 flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
                         style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
                     >
                         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1573,6 +1576,25 @@ const App: React.FC = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                             )}
                         </svg>
+                        {/* Which tab is under the menu — the bar is hidden in
+                            landscape, so nothing else on screen says where you are. */}
+                        {!landscapeNavOpen && (
+                            <span className="text-[12px] font-black uppercase tracking-wider">
+                                {currentView === 'dashboard' || splitActive
+                                    ? 'The Glass'
+                                    : currentView === 'map'
+                                      ? tracerActive
+                                          ? 'Plan'
+                                          : 'OBS'
+                                      : currentView === 'voyage'
+                                        ? 'Plan'
+                                        : currentView === 'details'
+                                          ? 'Log'
+                                          : isVesselView || currentView === 'chat'
+                                            ? 'Vessel'
+                                            : 'Menu'}
+                            </span>
+                        )}
                     </button>
                 )}
 
@@ -1593,7 +1615,7 @@ const App: React.FC = () => {
                     <nav
                         className="fixed bottom-0 left-0 right-0 z-900 border-t pb-[env(safe-area-inset-bottom)]"
                         style={{
-                            background: 'rgba(10, 15, 20, 0.95)',
+                            background: 'rgba(10, 15, 20, 0.985)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
                             borderColor: 'rgba(56, 189, 248, 0.12)',

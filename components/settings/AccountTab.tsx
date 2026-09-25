@@ -91,7 +91,7 @@ const StatusRow = ({
                 <span className="text-xs font-bold text-white uppercase tracking-wider">{label}</span>
             </div>
             <div className="flex items-center gap-3">
-                <span className={`text-[11px] font-mono font-medium ${textColor}`}>{displayText}</span>
+                <span className={`text-[11px] font-semibold ${textColor}`}>{displayText}</span>
                 {onTest && (
                     <button
                         aria-label="Test push notification delivery"
@@ -208,7 +208,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         <button
                             aria-label="Sign in"
                             onClick={() => setAuthOpen(true)}
-                            className="bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
+                            className="min-h-11 bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
                         >
                             Sign In
                         </button>
@@ -385,13 +385,13 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         label="StormGlass"
                         isConnected={isStormglassKeyPresent()}
                         status={sgStatus?.status}
-                        details={sgStatus ? `${sgStatus.status}: ${sgStatus.message}` : undefined}
+                        details={sgStatus ? (sgStatus.status === 'OK' ? 'Working' : sgStatus.message) : undefined}
                         loading={sgStatus?.status === 'LOADING'}
                     />
                     <StatusRow
                         label="Gemini AI"
                         isConnected={isGeminiConfigured()}
-                        details={isGeminiConfigured() ? 'Via Edge Function' : 'Not configured'}
+                        details={isGeminiConfigured() ? 'Connected' : 'Not configured'}
                     />
                     <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getMapboxKeyPreview()} />
                     <StatusRow
@@ -402,7 +402,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <StatusRow
                         label="Open-Meteo"
                         isConnected={!!isOpenMeteoConfigured()}
-                        details={isOpenMeteoConfigured() ? 'Via Edge Function' : 'Not configured'}
+                        details={isOpenMeteoConfigured() ? 'Connected' : 'Not configured'}
                     />
                 </div>
             </Section>

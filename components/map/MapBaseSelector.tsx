@@ -136,7 +136,7 @@ export function MapBaseSelector({
                     id={menuId}
                     role="menu"
                     aria-label="Map base"
-                    className="mt-2 w-[min(280px,calc(100vw-32px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl"
+                    className="mt-2 w-[min(280px,calc(100vw-152px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl"
                 >
                     {MAP_BASE_OPTIONS.map((option, index) => {
                         const checked = option.id === value;

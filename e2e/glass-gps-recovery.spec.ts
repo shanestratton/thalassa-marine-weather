@@ -163,7 +163,7 @@ for (const outcome of ['live', 'timeout'] as const) {
         await expect(page.getByTestId('weather-position-retry')).toHaveCount(0);
         await expect(metrics).toHaveCount(0);
 
-        await page.getByRole('button', { name: /^System status:/ }).click();
+        await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
         const source = page.getByTestId('gps-source-row');
         await expect(source).toContainText('finding this phone’s GPS location');
         await expect(source).toHaveAttribute('data-glyph', 'phone');
@@ -208,7 +208,7 @@ for (const outcome of ['live', 'timeout'] as const) {
             await expect(page.getByRole('button', { name: 'Retry loading weather data', exact: true })).toBeVisible();
             await expect(metrics).toHaveCount(0);
         }
-        await page.getByRole('button', { name: /^System status:/ }).click();
+        await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
         await expect(source).toHaveAttribute('data-glyph', 'phone');
         await expect(source).toHaveAttribute('data-tone', outcome === 'live' ? 'phone' : 'none');
         await expect(source).toContainText(outcome === 'live' ? 'this phone’s GPS' : 'this phone’s GPS unavailable');
@@ -331,7 +331,7 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
 
     // Verify the cache is not the only thing on screen: the real weather
     // context has accepted this phone as its selected, working receiver.
-    await page.getByRole('button', { name: /^System status:/ }).click();
+    await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
     await expect(page.getByTestId('gps-source-row')).toContainText('this phone’s GPS');
     await expect(page.getByTestId('gps-source-row')).not.toContainText('unavailable');
     await page.getByRole('button', { name: 'Close system status', exact: true }).click();

@@ -926,7 +926,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
 
     return (
         <div
-            className="w-full max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300"
+            // No entry animation here: `animate-in` leaves a transform on the wrapper,
+            // which makes it the containing block for the FIXED Save bar below — the
+            // bar then scrolled away with the form (UX scorecard 2026-09-25).
+            className="w-full max-w-2xl mx-auto"
             style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 120}px` : 120 }}
         >
             {/* Observer upgrade banner */}
@@ -1770,7 +1773,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const v = parseInt(e.target.value);
                                     updateComfortParams({ maxWindKts: v >= 60 ? undefined : v });
                                 }}
-                                className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-red-500"
+                                className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'accent-slate-500' : 'accent-red-500'}`}
                                 style={{
                                     background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%)`,
                                 }}
@@ -1807,7 +1810,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const v = parseFloat(e.target.value);
                                     updateComfortParams({ maxWaveM: v >= 8 ? undefined : v });
                                 }}
-                                className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-red-500"
+                                className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'accent-slate-500' : 'accent-red-500'}`}
                                 style={{
                                     background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%)`,
                                 }}
@@ -1844,7 +1847,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     const v = parseInt(e.target.value);
                                     updateComfortParams({ maxGustKts: v >= 80 ? undefined : v });
                                 }}
-                                className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-red-500"
+                                className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'accent-slate-500' : 'accent-red-500'}`}
                                 style={{
                                     background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%)`,
                                 }}
@@ -2105,9 +2108,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
                             fleetBusyAction === 'sync' || syncStatus.busy
                                 ? 'bg-linear-to-r from-sky-700 to-cyan-700 text-white shadow-lg shadow-sky-500/20'
-                                : saved && (!fleetAvailable || syncStatus.tone !== 'red')
-                                  ? 'bg-linear-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-                                  : 'bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                                : !fleetAvailable
+                                  ? 'border border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                                  : saved && syncStatus.tone !== 'red'
+                                    ? 'bg-linear-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                                    : 'bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                         }`}
                     >
                         {fleetBusyAction === 'sync' || syncStatus.busy ? (
@@ -2118,12 +2123,16 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         ) : saved ? (
                             <span className="inline-flex items-center gap-1.5 justify-center">
                                 <CheckIcon className="w-4 h-4" />
-                                <span>{fleetAvailable ? 'Cloud Check Complete' : 'Profile Saved Locally'}</span>
+                                <span>{fleetAvailable ? 'Cloud Check Complete' : 'Saved on this phone'}</span>
                             </span>
                         ) : (
                             <span className="inline-flex items-center gap-1.5 justify-center">
-                                {fleetAvailable && <RefreshIcon className="w-4 h-4" />}
-                                <span>{fleetAvailable ? 'Sync Vessel Fleet' : 'Profile Saved Locally'}</span>
+                                {fleetAvailable ? (
+                                    <RefreshIcon className="w-4 h-4" />
+                                ) : (
+                                    <CheckIcon className="w-4 h-4" />
+                                )}
+                                <span>{fleetAvailable ? 'Sync Vessel Fleet' : 'Saved on this phone'}</span>
                             </span>
                         )}
                     </button>
