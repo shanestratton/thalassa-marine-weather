@@ -719,6 +719,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 backgroundColor: 'var(--vessel-surface-bg, transparent)',
             }}
         >
+            <h1 className="sr-only">Vessel</h1>
             {/*
                 Fixed operational deck. This intentionally sits OUTSIDE the
                 scroll port below: Safari can lose `position: sticky` while a

@@ -1407,6 +1407,7 @@ const App: React.FC = () => {
                                         : { display: 'none' }
                             }
                         >
+                            {chartVisible && <h1 className="sr-only">Chart</h1>}
                             <ErrorBoundary boundaryName="MapView">
                                 <Suspense
                                     fallback={
@@ -1569,7 +1570,7 @@ const App: React.FC = () => {
                         onClick={() => setLandscapeNavOpen((v) => !v)}
                         aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
                         aria-expanded={landscapeNavOpen}
-                        className={`press fixed bottom-2 left-2 z-901 flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
+                        className={`press fixed bottom-2 left-2 z-901 flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${landscapeNavOpen || currentView === 'dashboard' ? '' : 'pl-2.5 pr-3'}`}
                         style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
                     >
                         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1581,7 +1582,7 @@ const App: React.FC = () => {
                         </svg>
                         {/* Which tab is under the menu — the bar is hidden in
                             landscape, so nothing else on screen says where you are. */}
-                        {!landscapeNavOpen && (
+                        {!landscapeNavOpen && currentView !== 'dashboard' && (
                             <span className="text-[12px] font-black uppercase tracking-wider">
                                 {currentView === 'dashboard' || splitActive
                                     ? 'The Glass'

@@ -13,6 +13,7 @@
  * in App.tsx.
  */
 import React from 'react';
+import { PageHeader } from './components/ui/PageHeader';
 import { lazyRetry } from './utils/lazyRetry';
 import type { Feature } from './services/SubscriptionService';
 import { authScopedStorageKey } from './services/authIdentityScope';
@@ -83,24 +84,27 @@ const LiveBosunConsolePage = lazyRetry(
  * as MAYDAY read-out being off too, and it is not.
  */
 const CalypsoParkedPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-    <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
-        <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-6 text-center">
-            <h2 className="text-lg font-bold text-white">Calypso is having a lie down</h2>
-            <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-sky-100/80">
-                The voice assistant is parked while its listening is rebuilt. It mishears often enough that a wrong
-                answer and a right one sound the same, which is not good enough to steer by.
-            </p>
-            <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-sky-100/80">
-                Calypso&rsquo;s voice still reads MAYDAY calls, DSC and radio position reports aloud — those are on the
-                Radio and MOB pages and are unaffected.
-            </p>
-            <button
-                type="button"
-                onClick={onBack}
-                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
-            >
-                Back
-            </button>
+    <div className="flex h-full flex-col">
+        <PageHeader title="Calypso" subtitle="Voice assistant" onBack={onBack} />
+        <div className="mx-auto w-full max-w-2xl p-5 pt-2 sm:p-8 sm:pt-2" role="status">
+            <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-6 text-center">
+                <h2 className="text-lg font-bold text-white">Calypso is having a lie down</h2>
+                <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-sky-100/80">
+                    The voice assistant is parked while its listening is rebuilt. It mishears often enough that a wrong
+                    answer and a right one sound the same, which is not good enough to steer by.
+                </p>
+                <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-sky-100/80">
+                    Calypso&rsquo;s voice still reads MAYDAY calls, DSC and radio position reports aloud — those are on
+                    the Radio and MOB pages and are unaffected.
+                </p>
+                <button
+                    type="button"
+                    onClick={onBack}
+                    className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
+                >
+                    Back
+                </button>
+            </div>
         </div>
     </div>
 );
