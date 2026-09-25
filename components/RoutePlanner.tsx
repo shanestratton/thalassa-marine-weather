@@ -610,7 +610,7 @@ export const RoutePlanner: React.FC<{
                                 </span>
                                 <span className="min-w-0">
                                     <span className="block text-sm font-black uppercase tracking-wide">Import GPX</span>
-                                    <span className="block truncate text-[11px] font-medium text-gray-400">
+                                    <span className="block text-[11px] font-medium leading-snug text-gray-400">
                                         OpenCPN · Navionics — bring routes aboard
                                     </span>
                                 </span>
@@ -802,7 +802,7 @@ export const RoutePlanner: React.FC<{
                                             <span className="block text-sm font-black uppercase tracking-wide">
                                                 {b.title}
                                             </span>
-                                            <span className="block truncate text-[11px] font-medium text-gray-400">
+                                            <span className="block text-[11px] font-medium leading-snug text-gray-400">
                                                 {b.sub}
                                             </span>
                                         </span>

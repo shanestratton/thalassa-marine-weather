@@ -469,7 +469,7 @@ const SmartPolarsCard: React.FC<{
                                     <button
                                         aria-label="Configure NMEA gateway connection"
                                         onClick={onNavigateToNmea}
-                                        className="text-sky-400 underline underline-offset-2 font-bold"
+                                        className="inline-flex min-h-11 items-center text-sky-400 underline underline-offset-2 font-bold"
                                     >
                                         Set up NMEA Gateway
                                     </button>

@@ -157,7 +157,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                         textAnchor="middle"
                         dominantBaseline="middle"
                         fill={color}
-                        fontSize="11"
+                        fontSize="12"
                         fontWeight="bold"
                         fontFamily="system-ui"
                     >
@@ -199,7 +199,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                     textAnchor="middle"
                     dominantBaseline="middle"
                     // 11 SVG units, not 6: at the dial's rendered size 6 was a 5 px smudge (UX scorecard 2026-09-25).
-                    fontSize="11"
+                    fontSize="12"
                     fontWeight="700"
                     fontFamily="system-ui"
                     fill={`var(--day-ui-${scopeQuality === 'excellent' ? 'success' : scopeQuality === 'adequate' ? 'amber' : 'danger'}, ${scopeColor})`}
@@ -214,7 +214,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                     y="135"
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fontSize="9.5"
+                    fontSize="12"
                     fill="var(--day-ui-muted, rgba(148,163,184,0.6))"
                     fontFamily="system-ui"
                 >

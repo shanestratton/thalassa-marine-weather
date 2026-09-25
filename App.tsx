@@ -987,12 +987,10 @@ const App: React.FC = () => {
                                                at ~26px — inside the text-xl wordmark's own
                                                line box, so the brand row height and the
                                                truncating h2 beside it are untouched. */
-                                            <span className="flex shrink-0 flex-col items-center whitespace-nowrap rounded-sm border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
-                                                <span className="text-[10px] font-bold uppercase leading-none tracking-wider">
+                                            <span className="thalassa-beta-badge flex shrink-0 items-center whitespace-nowrap rounded-sm border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
+                                                <span className="text-[11px] font-bold uppercase leading-none tracking-wider">
                                                     Skipper
-                                                </span>
-                                                <span className="mt-px text-[7px] font-semibold uppercase leading-none tracking-wide text-amber-200/70">
-                                                    Beta · Free
+                                                    <span className="font-semibold text-amber-200/70"> · Beta</span>
                                                 </span>
                                             </span>
                                         ) : settings.subscriptionTier && settings.subscriptionTier !== 'free' ? (

@@ -297,7 +297,11 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 </p>
                             </div>
                         </div>
-                        <Toggle checked={!!settings.satelliteMode} onChange={(v) => onSave({ satelliteMode: v })} />
+                        <Toggle
+                            label="Satellite Mode"
+                            checked={!!settings.satelliteMode}
+                            onChange={(v) => onSave({ satelliteMode: v })}
+                        />
                     </div>
                     {settings.satelliteMode && (
                         <div className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
