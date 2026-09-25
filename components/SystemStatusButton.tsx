@@ -1,16 +1,13 @@
 /**
  * SystemStatusButton — Single ℹ circle that replaces all individual header badges.
  *
- * When ANY system is active (GPS tracking, anchor watch, NMEA, ext GPS, FollowRoute),
- * this blue circle appears top-right in the header. Tapping it opens the
- * SystemStatusModal showing all systems in a consolidated view.
- *
- * When >0 systems active: solid blue circle with ℹ
- * When >1 systems active: pulsing glow ring
- * When 0 active: hidden
+ * Always available in the header, with a count of active systems. Tapping it
+ * opens the consolidated system panel. An active Shore Watch adds a gentle
+ * connection halo: blue for fresh data, amber while waiting, red for lost
+ * contact/GPS or a vessel drag alarm. Ordinary multi-system use does not pulse.
  */
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
@@ -32,9 +29,11 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 import { appBuildLabel } from '../services/externalLinks';
 import { PassageHudInfoCard } from './passage/PassageHudInfoCard';
 import { GpsDiagnosticsCards } from './GpsDiagnosticsCards';
+import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
+import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
+import { presentShoreWatchStatus, type ShoreWatchStatusPresentation } from './anchor-watch/shoreWatchStatus';
 import {
     boatGpsDiagnosticSource,
-    gpsReceiverConnectionDetail,
     presentGpsDiagnostics,
     type GpsDiagnosticsPresentation,
 } from './gpsDiagnosticsPresentation';
@@ -42,6 +41,7 @@ import {
 // ── Types ──
 
 interface SystemState {
+    shoreWatch: ShoreWatchStatusPresentation;
     gpsTracking: {
         active: boolean;
         isMoving: boolean;
@@ -99,10 +99,21 @@ function formatIntervalLabel(ms: number): string {
     return `${Math.round(ms / 3_600_000)}h`;
 }
 
-const GpsQualityPanel: React.FC<{ phoneFixRef: React.MutableRefObject<GpsPosition | null> }> = ({ phoneFixRef }) => {
+const GpsQualityPanel: React.FC<{
+    phoneFixRef: React.MutableRefObject<GpsPosition | null>;
+    receiver: GpsReceiverStatus;
+}> = ({ phoneFixRef, receiver }) => {
     const read = useCallback((): GpsDiagnosticsPresentation[] => {
         const now = Date.now();
-        const boat = boatGpsDiagnosticSource(NmeaStore.getState());
+        const boat =
+            boatGpsDiagnosticSource(NmeaStore.getState()) ??
+            (receiver.kind === 'vessel-nmea'
+                ? {
+                      label: 'Boat GPS',
+                      maxAgeMs: 13_000,
+                      positionAt: null,
+                  }
+                : null);
         const phone = phoneFixRef.current;
         return [
             ...(boat ? [presentGpsDiagnostics(boat, now)] : []),
@@ -117,7 +128,7 @@ const GpsQualityPanel: React.FC<{ phoneFixRef: React.MutableRefObject<GpsPositio
                 now,
             ),
         ];
-    }, [phoneFixRef]);
+    }, [phoneFixRef, receiver]);
     const [sources, setSources] = useState(read);
     useEffect(() => {
         const refresh = () => {
@@ -133,7 +144,7 @@ const GpsQualityPanel: React.FC<{ phoneFixRef: React.MutableRefObject<GpsPositio
             document.removeEventListener('visibilitychange', refresh);
         };
     }, [read]);
-    return <GpsDiagnosticsCards sources={sources} />;
+    return <GpsDiagnosticsCards sources={sources} receiver={receiver} positionSource={<GpsSourceRow compact />} />;
 };
 
 // ── SystemStatusModal ──
@@ -168,6 +179,7 @@ const SystemStatusModal: React.FC<{
         };
     }, []);
     const activeCount = [
+        state.shoreWatch.active,
         state.gpsTracking.active,
         state.anchorWatch.active,
         state.nmea.active,
@@ -224,13 +236,97 @@ const SystemStatusModal: React.FC<{
 
                 {/* Systems Grid */}
                 <div className="px-5 py-4 space-y-3">
+                    {state.shoreWatch.active && (
+                        <section aria-label="Shore Watch status" className="space-y-2">
+                            <SystemRow
+                                icon={<AnchorIcon className="w-4 h-4" />}
+                                label="Shore Watch"
+                                active
+                                detail={state.shoreWatch.label}
+                                dotColor={
+                                    state.shoreWatch.tone === 'red'
+                                        ? 'bg-red-400'
+                                        : state.shoreWatch.tone === 'yellow'
+                                          ? 'bg-amber-400'
+                                          : 'bg-sky-400'
+                                }
+                                pulse
+                                action={{ label: 'View', onClick: onNavigateAnchor }}
+                            />
+                            <p className="px-3 text-xs leading-relaxed text-slate-200" role="status">
+                                {state.shoreWatch.detail}
+                            </p>
+                            <p
+                                className={`px-3 text-xs leading-relaxed ${state.shoreWatch.notificationsReady ? 'text-slate-400' : 'text-amber-300'}`}
+                            >
+                                {state.shoreWatch.notificationDetail}
+                            </p>
+                            {!state.shoreWatch.notificationsReady && (
+                                <button
+                                    type="button"
+                                    disabled={state.shoreWatch.notificationsChecking}
+                                    onClick={() => void AnchorWatchSyncService.refreshPushReadiness()}
+                                    className="min-h-11 rounded-lg px-3 text-xs font-bold text-sky-300 hover:bg-white/5 disabled:opacity-50"
+                                >
+                                    {state.shoreWatch.notificationsChecking ? 'Checking…' : 'Retry notifications'}
+                                </button>
+                            )}
+                            {(state.shoreWatch.reminderError || state.shoreWatch.reminderPending) && (
+                                <div className="rounded-xl border border-amber-400/40 bg-amber-950/30 p-3">
+                                    <p
+                                        role={state.shoreWatch.reminderError ? 'alert' : 'status'}
+                                        className="text-sm text-amber-200"
+                                    >
+                                        {state.shoreWatch.reminderError ||
+                                            'Confirming that repeating notifications are stopped for this phone…'}
+                                    </p>
+                                    <button
+                                        className="mt-2 min-h-11 rounded-lg bg-amber-500/15 px-3 text-sm font-bold text-amber-200 disabled:opacity-50"
+                                        disabled={state.shoreWatch.reminderPending}
+                                        onClick={() => {
+                                            void ShoreWatchAlarmService.retryReminderAcknowledgement().catch(() => {
+                                                // The service retains the actionable error for this session.
+                                            });
+                                        }}
+                                    >
+                                        {state.shoreWatch.reminderPending
+                                            ? 'Confirming…'
+                                            : 'Retry stopping phone reminders'}
+                                    </button>
+                                </div>
+                            )}
+                            <details className="rounded-xl border border-white/10 bg-white/3 px-3 text-xs leading-relaxed text-slate-300">
+                                <summary
+                                    tabIndex={0}
+                                    className="min-h-11 cursor-pointer rounded-lg py-3 font-semibold text-sky-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300"
+                                >
+                                    Notifications &amp; safety
+                                </summary>
+                                <div className="space-y-2 pb-3">
+                                    <p>Notification registration does not confirm delivery.</p>
+                                    <p>
+                                        Ordinary notifications do not bypass Silent mode. Focus, volume and notification
+                                        settings also affect sound.
+                                    </p>
+                                    <p>
+                                        With the updated iPhone app, urgent notifications repeat roughly every 1–2
+                                        minutes until acknowledged or cleared. This is not an uninterrupted alarm. The
+                                        bundled 24-second siren may not play in full.
+                                    </p>
+                                    <p>
+                                        Both the boat and phone need power and internet. Each watch expires after 24
+                                        hours; start a new watch to continue.
+                                    </p>
+                                </div>
+                            </details>
+                        </section>
+                    )}
                     {/* Which GPS the app is reading — a boat or a phone with a
                         fix dot, and the sentence beside it. Shane 2026-09-08:
                         "lets move the phone or vessel gps icon into the i
                         section, rather than sticking yet another fab on the
                         already jam packed screen." */}
-                    <GpsSourceRow />
-                    <GpsQualityPanel phoneFixRef={phoneFixRef} />
+                    <GpsQualityPanel phoneFixRef={phoneFixRef} receiver={state.extGps} />
                     <PassageHudInfoCard />
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
@@ -320,38 +416,6 @@ const SystemStatusModal: React.FC<{
                                           ),
                                   }
                         }
-                    />
-
-                    {/* ── External GPS ── */}
-                    <SystemRow
-                        icon={
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788"
-                                />
-                            </svg>
-                        }
-                        label={state.extGps.label}
-                        active={state.extGps.active}
-                        detail={gpsReceiverConnectionDetail(state.extGps)}
-                        dotColor={
-                            state.extGps.active
-                                ? state.extGps.kind === 'vessel-nmea'
-                                    ? 'bg-sky-400'
-                                    : state.extGps.kind === 'precision-location'
-                                      ? 'bg-violet-400'
-                                      : 'bg-emerald-400'
-                                : 'bg-slate-600'
-                        }
-                        pulse={state.extGps.active}
                     />
 
                     {/* ── NMEA feed-rate diagnostic sparklines ──
@@ -512,7 +576,9 @@ const SystemRow: React.FC<{
         {/* Status dot */}
         <div className="relative shrink-0">
             <span className={`block w-2.5 h-2.5 rounded-full ${dotColor} transition-colors`} />
-            {pulse && <span className={`absolute inset-0 rounded-full ${dotColor} animate-ping opacity-50`} />}
+            {pulse && (
+                <span className={`absolute inset-0 rounded-full ${dotColor} motion-safe:animate-ping opacity-50`} />
+            )}
         </div>
 
         {/* Icon */}
@@ -580,6 +646,9 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     alwaysShow = false,
 }) => {
     const [showModal, setShowModal] = useState(false);
+    const shoreWatch = useSyncExternalStore(ShoreWatchAlarmService.subscribe, ShoreWatchAlarmService.getSnapshot);
+    const [shorePush, setShorePush] = useState(() => AnchorWatchSyncService.getPushReadiness());
+    useEffect(() => AnchorWatchSyncService.onPushReadinessChange(setShorePush), []);
     const phoneFixRef = useRef<GpsPosition | null>(null);
     // Stop-follow confirmation modal removed 2026-05-19 — the action
     // is reversible (just re-tap Follow on the voyage card) so a
@@ -788,6 +857,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // ── Build system state ──
     const systemState: SystemState = useMemo(
         () => ({
+            shoreWatch: presentShoreWatchStatus(shoreWatch, shorePush),
             gpsTracking: {
                 active: gpsTracking.isTracking,
                 isMoving,
@@ -845,6 +915,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             },
         }),
         [
+            shoreWatch,
+            shorePush,
             gpsTracking,
             isMoving,
             anchorSnapshot,
@@ -862,6 +934,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
 
     // ── Active count ──
     const activeCount = [
+        systemState.shoreWatch.active,
         systemState.gpsTracking.active,
         systemState.anchorWatch.active,
         systemState.nmea.active,
@@ -885,28 +958,39 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     const hasUrgent =
         (systemState.anchorWatch.active && systemState.anchorWatch.state !== 'holding') ||
         (systemState.followRoute.active && systemState.followRoute.routeChanged);
+    // Fresh boat data gets a gentle blue heartbeat, waiting is amber, and a
+    // lost link/GPS or drag alarm is red. Existing urgent systems still take
+    // precedence over an otherwise healthy blue Shore Watch connection.
+    const fabTone =
+        systemState.shoreWatch.active && systemState.shoreWatch.tone === 'red'
+            ? 'red'
+            : hasUrgent || (systemState.shoreWatch.active && systemState.shoreWatch.tone === 'yellow')
+              ? 'yellow'
+              : 'blue';
+    const toneClass = {
+        blue: 'bg-linear-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40',
+        yellow: 'bg-linear-to-br from-amber-400 to-amber-600 border-amber-300/50 shadow-amber-500/40',
+        red: 'bg-linear-to-br from-red-400 to-red-700 border-red-300/50 shadow-red-500/40',
+    }[fabTone];
 
     return (
         <>
             <button
                 onClick={() => setShowModal(true)}
-                aria-label={`System status: ${activeCount} active`}
-                className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto active:scale-[0.95] ${
-                    hasUrgent
-                        ? 'bg-linear-to-br from-amber-400 to-amber-600 border-amber-300/50 shadow-amber-500/40'
-                        : 'bg-linear-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40'
-                }`}
+                aria-label={`System status: ${activeCount} active${systemState.shoreWatch.active ? ` · Shore Watch: ${systemState.shoreWatch.label}` : ''}`}
+                aria-haspopup="dialog"
+                aria-expanded={showModal}
+                data-shore-status={systemState.shoreWatch.active ? systemState.shoreWatch.tone : undefined}
+                className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto active:scale-[0.95] ${toneClass}`}
             >
-                {/* URGENT ONLY. This used to also ping on `activeCount > 1`, which
-                    under way is the normal state — GPS plus anchor watch plus the
-                    Pi is three — so the badge pinged more or less permanently and
-                    became noise instead of a signal (Shane 2026-07-28: "very
-                    annoying"). An attention animation that never stops is not
-                    conveying attention; the button is already sky-blue and carries
-                    its count, which is the ambient read. Reserve motion for the one
-                    case that genuinely wants the eye. */}
-                {hasUrgent && (
-                    <span className="absolute inset-[-3px] rounded-2xl animate-ping opacity-30 pointer-events-none bg-amber-400" />
+                {/* Slow connection halo only for an active Shore Watch; no
+                    constant animation for ordinary multi-system activity. */}
+                {(hasUrgent || systemState.shoreWatch.active) && (
+                    <span
+                        aria-hidden="true"
+                        data-testid="system-status-halo"
+                        className={`absolute inset-[-4px] rounded-2xl opacity-40 pointer-events-none motion-safe:animate-pulse ${fabTone === 'red' ? 'bg-red-400' : fabTone === 'yellow' ? 'bg-amber-400' : 'bg-sky-400'}`}
+                    />
                 )}
 
                 {/* Subtle inner highlight for depth — matches the glass aesthetic */}

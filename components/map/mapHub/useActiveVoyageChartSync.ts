@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { createLogger } from '../../../utils/createLogger';
-import { getCachedActiveVoyage } from '../../../services/VoyageService';
+import { useHudRecording } from '../../../hooks/useHudRecording';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -22,6 +22,7 @@ export interface ActiveVoyageChartSync {
     activeVoyageMode: boolean;
     activeVoyageId: string | null;
     activeVoyageName: string | null;
+    hasRecording: boolean;
 }
 
 export function useActiveVoyageChartSync(
@@ -33,32 +34,21 @@ export function useActiveVoyageChartSync(
      */
     overlayEnabled = true,
 ): ActiveVoyageChartSync {
-    /** Mirror recording state for the vessel marker and sailed track.
-     *  Cast Off / End Voyage publishes this event immediately. The followed
-     *  route below has its own lifecycle and does not require a recording. */
-    const initialActiveVoyage = useMemo(() => getCachedActiveVoyage(), []);
-    const [activeVoyageMode, setActiveVoyageMode] = useState<boolean>(initialActiveVoyage?.status === 'active');
-    const [activeVoyageId, setActiveVoyageId] = useState<string | null>(
-        initialActiveVoyage?.status === 'active' ? initialActiveVoyage.id : null,
-    );
-    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(
-        initialActiveVoyage?.status === 'active' ? initialActiveVoyage.voyage_name : null,
-    );
+    // The recorder owns the actual trail. A cached named passage can be absent
+    // for casual recording, or refer to a completely different voyage.
+    const recording = useHudRecording();
+    const hasRecording = Boolean(recording.currentVoyageId && (recording.isTracking || recording.isPaused));
+    const activeVoyageMode = hasRecording && recording.isTracking && !recording.isPaused;
+    const activeVoyageId = hasRecording ? recording.currentVoyageId! : null;
     const [identityScope, setIdentityScope] = useState(getAuthIdentityScope);
     useEffect(() => {
         const sync = () => {
             setIdentityScope(getAuthIdentityScope());
-            const activeVoyage = getCachedActiveVoyage();
-            const isActive = activeVoyage?.status === 'active';
-            setActiveVoyageMode(isActive);
-            setActiveVoyageId(isActive ? activeVoyage.id : null);
-            setActiveVoyageName(isActive ? activeVoyage.voyage_name : null);
         };
         const unsubscribeIdentity = subscribeAuthIdentityScope(sync);
-        window.addEventListener('thalassa:active-voyage-changed', sync);
+        sync();
         return () => {
             unsubscribeIdentity();
-            window.removeEventListener('thalassa:active-voyage-changed', sync);
         };
     }, []);
 
@@ -113,7 +103,7 @@ export function useActiveVoyageChartSync(
         const previous = autoTrackRef.current;
         autoTrackRef.current = null;
         setActiveChartTrack((current) => (current === previous ? null : current));
-        if (!overlayEnabled || !activeVoyageMode || !activeVoyageId) return;
+        if (!overlayEnabled || !activeVoyageId) return;
         let cancelled = false;
         let requestGeneration = 0;
         // Only the sailed track needs a fetch. Keep it bounded to the active
@@ -158,7 +148,7 @@ export function useActiveVoyageChartSync(
             window.removeEventListener('thalassa:routes-and-tracks-changed', onRefresh);
             clearInterval(t);
         };
-    }, [overlayEnabled, activeVoyageMode, activeVoyageId, identityScope, setActiveChartTrack]);
+    }, [overlayEnabled, activeVoyageId, identityScope, setActiveChartTrack]);
 
-    return { activeVoyageMode, activeVoyageId, activeVoyageName };
+    return { activeVoyageMode, activeVoyageId, activeVoyageName: null, hasRecording };
 }

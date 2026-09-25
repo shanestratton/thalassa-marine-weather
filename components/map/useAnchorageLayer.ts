@@ -21,8 +21,10 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AnchorageService, type AnchorageData, type AnchorageProps } from '../../services/anchorages/AnchorageService';
-import { scoreAnchorage, type AnchorageForVerdict } from '../../services/anchorages/anchorageVerdict';
-import { getStayWindowCached } from '../../services/anchorages/anchorageForecast';
+import { cachedPlaceConditions, loadPlaceConditions } from '../../services/anchorages/PlaceConditionsService';
+import { CONDITION_COLOURS, type ConditionsPlace } from '../../services/anchorages/placeConditions';
+import { placeConditionsHtml } from './placeConditionsPresentation';
+import { watchPlaceConditions } from './watchPlaceConditions';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('AnchorageLayer');
@@ -122,6 +124,7 @@ export function useAnchorageLayer(
     mapReady: boolean,
     visible: boolean,
     centre: { lat: number; lon: number } | null,
+    supplement?: AnchorageData['points'],
 ): AnchorageLayerHandle {
     const popupRef = useRef<mapboxgl.Popup | null>(null);
     /** Set inside the layer effect (needs its popup helpers); null while
@@ -131,8 +134,11 @@ export function useAnchorageLayer(
      *  fetch tables from HERE by id, because Mapbox stringifies nested
      *  arrays in queryRenderedFeatures properties. */
     const dataRef = useRef<AnchorageData | null>(null);
-    const centreRef = useRef(centre);
-    centreRef.current = centre;
+    const regionalRef = useRef<AnchorageData | null>(null);
+    const supplementRef = useRef(supplement);
+    supplementRef.current = supplement;
+    const weatherRefresh = useRef<(() => void) | null>(null);
+    const popupId = useRef<string | null>(null);
     const handleRef = useRef<AnchorageLayerHandle>({
         showAnchorage: (id) => showImplRef.current?.(id) ?? false,
     });
@@ -152,6 +158,7 @@ export function useAnchorageLayer(
         const closePopup = () => {
             popupRef.current?.remove();
             popupRef.current = null;
+            popupId.current = null;
         };
 
         const removeAll = () => {
@@ -167,140 +174,185 @@ export function useAnchorageLayer(
             return;
         }
 
-        // ── Sources (empty first; filled after async load) ──
-        if (!map.getSource(SRC_ZONE)) map.addSource(SRC_ZONE, { type: 'geojson', data: EMPTY });
-        if (!map.getSource(SRC_NA)) map.addSource(SRC_NA, { type: 'geojson', data: EMPTY });
-        if (!map.getSource(SRC_PTS)) map.addSource(SRC_PTS, { type: 'geojson', data: EMPTY });
+        const install = () => {
+            removeAll();
+            // ── Sources (empty first; filled after async load) ──
+            if (!map.getSource(SRC_ZONE)) map.addSource(SRC_ZONE, { type: 'geojson', data: EMPTY });
+            if (!map.getSource(SRC_NA)) map.addSource(SRC_NA, { type: 'geojson', data: EMPTY });
+            if (!map.getSource(SRC_PTS))
+                map.addSource(SRC_PTS, {
+                    type: 'geojson',
+                    data: EMPTY,
+                    attribution: 'Anchorages: © OpenStreetMap contributors (ODbL) · GBRMPA',
+                });
 
-        // ── Layers, bottom → top: zoning, no-anchoring, points ──
-        if (!map.getLayer(L_ZONE_FILL)) {
-            map.addLayer({
-                id: L_ZONE_FILL,
-                type: 'fill',
-                source: SRC_ZONE,
-                paint: { 'fill-color': ['coalesce', ['get', 'color'], '#9aa7ad'], 'fill-opacity': 0.12 },
-            });
-        }
-        if (!map.getLayer(L_ZONE_LINE)) {
-            map.addLayer({
-                id: L_ZONE_LINE,
-                type: 'line',
-                source: SRC_ZONE,
-                paint: {
-                    'line-color': ['coalesce', ['get', 'color'], '#9aa7ad'],
-                    'line-width': 0.6,
-                    'line-opacity': 0.4,
-                },
-            });
-        }
-        if (!map.getLayer(L_NA_FILL)) {
-            map.addLayer({
-                id: L_NA_FILL,
-                type: 'fill',
-                source: SRC_NA,
-                paint: { 'fill-color': '#c0392b', 'fill-opacity': 0.16 },
-            });
-        }
-        if (!map.getLayer(L_NA_LINE)) {
-            map.addLayer({
-                id: L_NA_LINE,
-                type: 'line',
-                source: SRC_NA,
-                paint: { 'line-color': '#c0392b', 'line-width': 1.4, 'line-dasharray': [2, 1.5], 'line-opacity': 0.85 },
-            });
-        }
-        if (!map.getLayer(L_PTS)) {
-            map.addLayer({
-                id: L_PTS,
-                type: 'circle',
-                source: SRC_PTS,
-                minzoom: MIN_ZOOM,
-                paint: {
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 5.5, 16, 8],
-                    'circle-color': [
-                        'match',
-                        ['get', 'kind'],
-                        'designated_anchorage',
-                        '#d9a441',
-                        'marina',
-                        '#2a9d8f',
-                        /* default: anchorage */ '#1f5e80',
-                    ],
-                    'circle-stroke-color': ['case', ['==', ['get', 'noAnchoring'], true], '#c0392b', '#ffffff'],
-                    'circle-stroke-width': ['case', ['==', ['get', 'noAnchoring'], true], 2.4, 1.2],
-                    'circle-opacity': ['case', ['==', ['get', 'likelyAnchorage'], false], 0.5, 0.95],
-                },
-            });
-        }
+            // ── Layers, bottom → top: zoning, no-anchoring, points ──
+            if (!map.getLayer(L_ZONE_FILL)) {
+                map.addLayer({
+                    id: L_ZONE_FILL,
+                    type: 'fill',
+                    source: SRC_ZONE,
+                    paint: { 'fill-color': ['coalesce', ['get', 'color'], '#9aa7ad'], 'fill-opacity': 0.12 },
+                });
+            }
+            if (!map.getLayer(L_ZONE_LINE)) {
+                map.addLayer({
+                    id: L_ZONE_LINE,
+                    type: 'line',
+                    source: SRC_ZONE,
+                    paint: {
+                        'line-color': ['coalesce', ['get', 'color'], '#9aa7ad'],
+                        'line-width': 0.6,
+                        'line-opacity': 0.4,
+                    },
+                });
+            }
+            if (!map.getLayer(L_NA_FILL)) {
+                map.addLayer({
+                    id: L_NA_FILL,
+                    type: 'fill',
+                    source: SRC_NA,
+                    paint: { 'fill-color': '#c0392b', 'fill-opacity': 0.16 },
+                });
+            }
+            if (!map.getLayer(L_NA_LINE)) {
+                map.addLayer({
+                    id: L_NA_LINE,
+                    type: 'line',
+                    source: SRC_NA,
+                    paint: {
+                        'line-color': '#c0392b',
+                        'line-width': 1.4,
+                        'line-dasharray': [2, 1.5],
+                        'line-opacity': 0.85,
+                    },
+                });
+            }
+            if (!map.getLayer(L_PTS)) {
+                map.addLayer({
+                    id: L_PTS,
+                    type: 'circle',
+                    source: SRC_PTS,
+                    minzoom: MIN_ZOOM,
+                    paint: {
+                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 5.5, 16, 8],
+                        'circle-color': [
+                            'match',
+                            ['get', 'kind'],
+                            'designated_anchorage',
+                            '#d9a441',
+                            'marina',
+                            '#2a9d8f',
+                            /* default: anchorage */ '#1f5e80',
+                        ],
+                        'circle-stroke-color': ['coalesce', ['get', 'conditionsColour'], CONDITION_COLOURS.unknown],
+                        'circle-stroke-width': 3,
+                        'circle-opacity': ['case', ['==', ['get', 'likelyAnchorage'], false], 0.5, 0.95],
+                    },
+                });
+            }
 
-        // ── Interactions (priority: point > no-anchor area > zone) ──
-        const popupAt = (lngLat: mapboxgl.LngLat, html: string, offset: number) => {
-            closePopup();
-            popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '260px', offset })
-                .setLngLat(lngLat)
-                .setHTML(html)
-                .addTo(map);
-        };
-        const hitElsewhere = (e: mapboxgl.MapLayerMouseEvent, layers: string[]) =>
-            map.queryRenderedFeatures(e.point, { layers: layers.filter((l) => map.getLayer(l)) }).length > 0;
+            // ── Interactions (priority: point > no-anchor area > zone) ──
+            const popupAt = (lngLat: mapboxgl.LngLat, html: string, offset: number) => {
+                closePopup();
+                popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '260px', offset })
+                    .setLngLat(lngLat)
+                    .setHTML(`<div style="max-height:40dvh;overflow-y:auto">${html}</div>`)
+                    .addTo(map);
+            };
+            const hitElsewhere = (e: mapboxgl.MapLayerMouseEvent, layers: string[]) =>
+                map.queryRenderedFeatures(e.point, { layers: layers.filter((l) => map.getLayer(l)) }).length > 0;
 
-        const onPointClick = (e: mapboxgl.MapLayerMouseEvent) => {
-            const f = e.features?.[0];
-            if (!f) return;
-            const p = f.properties as unknown as AnchorageProps;
-            popupAt(e.lngLat, pointPopupHtml(p) + verdictShellHtml(), 10);
-            void fillVerdict(popupRef, p.id, dataRef.current, centreRef.current);
-        };
-        const onAreaClick = (e: mapboxgl.MapLayerMouseEvent) => {
-            if (hitElsewhere(e, [L_PTS])) return;
-            const f = e.features?.[0];
-            if (f) popupAt(e.lngLat, areaPopupHtml((f.properties ?? {}) as Record<string, unknown>), 6);
-        };
-        const onZoneClick = (e: mapboxgl.MapLayerMouseEvent) => {
-            if (hitElsewhere(e, [L_PTS, L_NA_FILL])) return;
-            const f = e.features?.[0];
-            if (f) popupAt(e.lngLat, zonePopupHtml((f.properties ?? {}) as Record<string, unknown>), 2);
-        };
-        const enter = () => {
-            map.getCanvas().style.cursor = 'pointer';
-        };
-        const leave = () => {
-            map.getCanvas().style.cursor = '';
-        };
+            const onPointClick = (e: mapboxgl.MapLayerMouseEvent) => {
+                if (hitElsewhere(e, ['cruising-mooring-symbols'])) return;
+                const f = e.features?.[0];
+                if (!f) return;
+                const p = f.properties as unknown as AnchorageProps;
+                popupAt(e.lngLat, pointPopupHtml(p) + verdictShellHtml(), 10);
+                popupId.current = p.id;
+                void fillVerdict(popupRef, p.id, dataRef.current);
+            };
+            const onAreaClick = (e: mapboxgl.MapLayerMouseEvent) => {
+                if (hitElsewhere(e, ['cruising-mooring-symbols', L_PTS])) return;
+                const f = e.features?.[0];
+                if (f) popupAt(e.lngLat, areaPopupHtml((f.properties ?? {}) as Record<string, unknown>), 6);
+            };
+            const onZoneClick = (e: mapboxgl.MapLayerMouseEvent) => {
+                if (hitElsewhere(e, ['cruising-mooring-symbols', L_PTS, L_NA_FILL])) return;
+                const f = e.features?.[0];
+                if (f) popupAt(e.lngLat, zonePopupHtml((f.properties ?? {}) as Record<string, unknown>), 2);
+            };
+            const enter = () => {
+                map.getCanvas().style.cursor = 'pointer';
+            };
+            const leave = () => {
+                map.getCanvas().style.cursor = '';
+            };
 
-        const reg = (
-            event: 'click' | 'mouseenter' | 'mouseleave',
-            layer: string,
-            fn: (e: mapboxgl.MapLayerMouseEvent) => void,
-        ) => {
-            map.on(event, layer, fn);
-            handlersRef.current.push({ event, layer, fn });
-        };
-        reg('click', L_PTS, onPointClick);
-        reg('click', L_NA_FILL, onAreaClick);
-        reg('click', L_ZONE_FILL, onZoneClick);
-        reg('mouseenter', L_PTS, enter as (e: mapboxgl.MapLayerMouseEvent) => void);
-        reg('mouseleave', L_PTS, leave as (e: mapboxgl.MapLayerMouseEvent) => void);
+            const reg = (
+                event: 'click' | 'mouseenter' | 'mouseleave',
+                layer: string,
+                fn: (e: mapboxgl.MapLayerMouseEvent) => void,
+            ) => {
+                map.on(event, layer, fn);
+                handlersRef.current.push({ event, layer, fn });
+            };
+            reg('click', L_PTS, onPointClick);
+            reg('click', L_NA_FILL, onAreaClick);
+            reg('click', L_ZONE_FILL, onZoneClick);
+            reg('mouseenter', L_PTS, enter as (e: mapboxgl.MapLayerMouseEvent) => void);
+            reg('mouseleave', L_PTS, leave as (e: mapboxgl.MapLayerMouseEvent) => void);
 
-        // The Tonight? sheet's "show me" — same popup a pin tap opens, with
-        // a flight so the bay fills the screen instead of being a dot at z9.
-        showImplRef.current = (id: string): boolean => {
-            const data = dataRef.current;
-            const f = data?.points.features.find((x) => x.properties?.id === id);
-            if (!f) return false;
-            const [lon, lat] = f.geometry.coordinates;
-            map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 12.2), duration: 1200 });
-            popupAt(new mapboxgl.LngLat(lon, lat), pointPopupHtml(f.properties) + verdictShellHtml(), 10);
-            void fillVerdict(popupRef, id, data, centreRef.current);
-            return true;
-        };
+            // The Tonight? sheet's "show me" — same popup a pin tap opens, with
+            // a flight so the bay fills the screen instead of being a dot at z9.
+            showImplRef.current = (id: string): boolean => {
+                const data = dataRef.current;
+                const f = data?.points.features.find((x) => x.properties?.id === id);
+                if (!f) return false;
+                const [lon, lat] = f.geometry.coordinates;
+                map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 12.2), duration: 1200 });
+                popupAt(new mapboxgl.LngLat(lon, lat), pointPopupHtml(f.properties) + verdictShellHtml(), 10);
+                popupId.current = id;
+                void fillVerdict(popupRef, id, data);
+                return true;
+            };
 
-        // Data arrives from the tile effect below (tiles follow the centre,
-        // not the layer lifecycle). Re-showing the layer repaints whatever
-        // that effect last held.
-        if (dataRef.current) applyData(map, dataRef.current);
+            // Data arrives from the tile effect below (tiles follow the centre,
+            // not the layer lifecycle). Re-showing the layer repaints whatever
+            // that effect last held.
+            if (dataRef.current) applyData(map, dataRef.current);
+        };
+        install();
+        const weather = watchPlaceConditions(
+            map,
+            () => dataRef.current?.points.features.map(conditionsPlaceForAnchorage) ?? [],
+            () => {
+                if (dataRef.current) applyData(map, dataRef.current);
+                const f = dataRef.current?.points.features.find((p) => p.properties.id === popupId.current);
+                const el = popupRef.current?.getElement()?.querySelector('.anch-verdict');
+                if (f && el) el.innerHTML = placeConditionsHtml(cachedPlaceConditions(conditionsPlaceForAnchorage(f)));
+            },
+        );
+        weatherRefresh.current = weather.changed;
+        map.on('style.load', install);
+        let styleTimer: ReturnType<typeof setTimeout> | null = null;
+        const checkStyle = () => {
+            if (styleTimer) return;
+            styleTimer = setTimeout(() => {
+                styleTimer = null;
+                if (map.isStyleLoaded() && ALL_LAYERS.some((id) => !map.getLayer(id))) install();
+            }, 0);
+        };
+        map.on('styledata', checkStyle);
+        map.on('idle', checkStyle);
 
         return () => {
+            weather.dispose();
+            weatherRefresh.current = null;
+            if (styleTimer) clearTimeout(styleTimer);
+            map.off('styledata', checkStyle);
+            map.off('idle', checkStyle);
+            map.off('style.load', install);
             showImplRef.current = null;
             removeAll();
         };
@@ -322,10 +374,12 @@ export function useAnchorageLayer(
         AnchorageService.loadNear(centre.lat, centre.lon, LOAD_RADIUS_NM)
             .then((data) => {
                 if (cancelled) return;
-                dataRef.current = data;
+                regionalRef.current = data;
+                dataRef.current = mergeAnchorageReferences(data, supplementRef.current);
                 loadedAtRef.current = { lat: centre.lat, lon: centre.lon };
                 const m = mapRef.current;
-                if (m && m.getSource(SRC_PTS)) applyData(m, data);
+                if (m && m.getSource(SRC_PTS)) applyData(m, dataRef.current);
+                weatherRefresh.current?.();
             })
             .catch((err) => log.warn('anchorage tile load failed', err));
         return () => {
@@ -333,28 +387,53 @@ export function useAnchorageLayer(
         };
     }, [mapRef, mapReady, visible, centre]);
 
+    useEffect(() => {
+        dataRef.current = mergeAnchorageReferences(regionalRef.current, supplement);
+        const map = mapRef.current;
+        if (visible && map?.getSource(SRC_PTS)) applyData(map, dataRef.current);
+        weatherRefresh.current?.();
+    }, [mapRef, visible, supplement]);
+
     return handleRef.current;
+}
+
+/** Keep regional shelter/no-anchoring annotations on duplicate OSM ids. */
+export function mergeAnchorageReferences(
+    regional: AnchorageData | null,
+    supplement?: AnchorageData['points'],
+): AnchorageData {
+    const points = new Map((supplement?.features ?? []).map((f) => [f.properties.id, f]));
+    for (const f of regional?.points.features ?? []) points.set(f.properties.id, f);
+    return {
+        points: { type: 'FeatureCollection', features: [...points.values()] },
+        noAnchor: regional?.noAnchor ?? { type: 'FeatureCollection', features: [] },
+        zoning: regional?.zoning ?? { type: 'FeatureCollection', features: [] },
+        tiles: regional?.tiles ?? [],
+    };
 }
 
 function applyData(map: mapboxgl.Map, data: AnchorageData): void {
     (map.getSource(SRC_ZONE) as mapboxgl.GeoJSONSource | undefined)?.setData(data.zoning as GeoJSON.FeatureCollection);
     (map.getSource(SRC_NA) as mapboxgl.GeoJSONSource | undefined)?.setData(data.noAnchor as GeoJSON.FeatureCollection);
-    (map.getSource(SRC_PTS) as mapboxgl.GeoJSONSource | undefined)?.setData(data.points as GeoJSON.FeatureCollection);
+    (map.getSource(SRC_PTS) as mapboxgl.GeoJSONSource | undefined)?.setData({
+        ...data.points,
+        features: data.points.features.map((f) => ({
+            ...f,
+            properties: {
+                ...f.properties,
+                conditionsColour: CONDITION_COLOURS[cachedPlaceConditions(conditionsPlaceForAnchorage(f)).light],
+            },
+        })),
+    });
     log.info(`anchorage overlay populated (${data.tiles.join('+') || 'no tiles'})`);
 }
 
-// ── The popup verdict: shelter tables × tonight's forecast ──
-
-const GRADE_STYLE: Record<string, { label: string; color: string }> = {
-    bombproof: { label: 'BOMBPROOF TONIGHT', color: '#1d7a46' },
-    good: { label: 'GOOD TONIGHT', color: '#2a9d8f' },
-    tenable: { label: 'TENABLE — WATCH IT', color: '#c98a1b' },
-    poor: { label: 'POOR TONIGHT', color: '#c0392b' },
-    'no-anchoring': { label: 'NO ANCHORING', color: '#c0392b' },
-};
+export function conditionsPlaceForAnchorage(f: GeoJSON.Feature<GeoJSON.Point, AnchorageProps>): ConditionsPlace {
+    return { ...f.properties, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+}
 
 function verdictShellHtml(): string {
-    return `<div class="anch-verdict" style="margin-top:8px;padding-top:7px;border-top:1px solid #d5dde2;font-size:11px;color:#5a6a73">Reading tonight's conditions…</div>`;
+    return `<div class="anch-verdict">Checking the next 12 hours…</div>`;
 }
 
 /** Fill the verdict block of the OPEN popup once forecast + tables agree.
@@ -363,7 +442,6 @@ async function fillVerdict(
     popupRef: MutableRefObject<mapboxgl.Popup | null>,
     id: string,
     data: AnchorageData | null,
-    centre: { lat: number; lon: number } | null,
 ): Promise<void> {
     // Capture the popup at entry; after the await, popupRef.current may be a
     // different bay's popup, and this verdict must not land in it (audit
@@ -371,33 +449,13 @@ async function fillVerdict(
     const popup = popupRef.current;
     const el = () => popup?.getElement()?.querySelector('.anch-verdict') as HTMLElement | null | undefined;
     const feature = data?.points.features.find((f) => f.properties?.id === id);
-    const p = feature?.properties;
-    if (!feature || !p?.fetchLandNM || !p.fetchReefNM) {
-        const node = el();
-        if (node) node.innerHTML = `<span style="color:#8a969d">No shelter data for this point.</span>`;
-        return;
-    }
-    const hours = centre ? await getStayWindowCached(centre.lat, centre.lon) : null;
+    if (!feature) return;
+    const place = conditionsPlaceForAnchorage(feature);
+    const initial = el();
+    if (initial) initial.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
+    await loadPlaceConditions([place]);
     if (popupRef.current !== popup) return; // a different popup is open now — not ours to write
     const node = el();
     if (!node) return; // popup gone — nobody is reading
-    const anchorage: AnchorageForVerdict = {
-        id: p.id,
-        name: p.name,
-        kind: p.kind,
-        lat: feature.geometry.coordinates[1],
-        lon: feature.geometry.coordinates[0],
-        fetchLandNM: p.fetchLandNM,
-        fetchReefNM: p.fetchReefNM,
-        noAnchoring: p.noAnchoring,
-        noAnchoringName: p.noAnchoringName,
-    };
-    const v = scoreAnchorage({ anchorage, hours: hours ?? [] });
-    const g = GRADE_STYLE[v.grade];
-    node.innerHTML =
-        `<div style="font-weight:800;font-size:10.5px;letter-spacing:0.06em;color:${g.color}">${g.label}` +
-        (hours ? ` · ${v.score}/100` : '') +
-        `</div>` +
-        v.reasons.map((r) => `<div style="margin-top:3px;line-height:1.35">${esc(r)}</div>`).join('') +
-        `<div style="margin-top:5px;font-size:9px;color:#8a969d">Advisory only — verify against charts and your own eyes. Forecast: Open-Meteo · Shelter: OSM/GBRMPA open data.</div>`;
+    node.innerHTML = placeConditionsHtml(cachedPlaceConditions(place));
 }

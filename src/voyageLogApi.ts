@@ -55,7 +55,7 @@ export interface VoyageLogEntry {
     created_at: string;
     /** The sailed voyage this entry belongs to. Null means it is an
      *  intentionally unassigned diary note, visible in the public page's
-     *  "All diary entries" view. */
+     *  "All trips & diary" view. */
     voyage_id: string | null;
     /** Byline. Present only on combined-scope logs; null on personal logs. */
     author: VoyageLogAuthor | null;
@@ -190,7 +190,8 @@ export interface VoyageLogData {
     /** 'personal' = one author, no bylines. 'combined' = boat-wide, entries carry author. */
     scope: 'personal' | 'combined';
     destination: VoyageLogDestination | null;
-    /** Started tracks plus the permanent catch-all diary view. */
+    /** Started tracks plus the permanent whole-journey tracks + diary view.
+     * The all-diary wire identifier is retained for compatibility. */
     trips: PublicVoyageTrip[];
     /** The trip the server resolved for this response. null only for the
      *  backward-compatible, unscoped API request. */
@@ -214,6 +215,7 @@ export interface VoyageLogData {
 }
 
 export interface VoyageLogWaypoint {
+    voyage_id?: string | null;
     lat: number;
     lon: number;
     name: string;

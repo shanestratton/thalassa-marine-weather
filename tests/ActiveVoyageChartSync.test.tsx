@@ -3,13 +3,26 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VoyagePlan } from '../types';
 import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
+import type { TrackingState } from '../services/shiplog/TrackingStateStore';
 
 const world = vi.hoisted(() => ({
     activeVoyage: null as { id: string; status: string; voyage_name: string } | null,
+    recording: { isTracking: false, isPaused: false, isRapidMode: false } as TrackingState,
+    recordingListeners: new Set<() => void>(),
     fetchRoutesAndTracks: vi.fn(),
     fetchVoyageAsTrack: vi.fn(),
 }));
 vi.mock('../services/VoyageService', () => ({ getCachedActiveVoyage: () => world.activeVoyage }));
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        getPublishedTrackingStatus: () => ({ ...world.recording }),
+        onTrackingStateChange: (listener: () => void) => {
+            world.recordingListeners.add(listener);
+            listener();
+            return () => world.recordingListeners.delete(listener);
+        },
+    },
+}));
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchRoutesAndTracks: world.fetchRoutesAndTracks,
     fetchVoyageAsTrack: world.fetchVoyageAsTrack,
@@ -49,8 +62,8 @@ function item(id: string, points = POINTS): RouteOrTrack {
     };
 }
 function setVoyage(id: string | null) {
-    world.activeVoyage = id ? { id, status: 'active', voyage_name: 'Newport → Coral Sea' } : null;
-    window.dispatchEvent(new Event('thalassa:active-voyage-changed'));
+    world.recording = { isTracking: !!id, isPaused: false, isRapidMode: false, currentVoyageId: id ?? undefined };
+    world.recordingListeners.forEach((listener) => listener());
 }
 function renderSync(
     enabled = true,
@@ -80,6 +93,7 @@ beforeEach(() => {
     setAuthIdentityScope('chart-skipper');
     useFollowRouteStore.getState().stopFollowing();
     world.activeVoyage = null;
+    setVoyage(null);
     world.fetchRoutesAndTracks.mockReset().mockResolvedValue({ routes: [item('stale-same-name')], tracks: [] });
     world.fetchVoyageAsTrack.mockReset().mockResolvedValue(null);
 });
@@ -187,6 +201,48 @@ describe('Passage chart route authority', () => {
 });
 
 describe('Passage chart sailed track', () => {
+    it('uses the actual casual recording without falling back to a cached named passage or route', async () => {
+        world.activeVoyage = { id: 'old-named-passage', status: 'active', voyage_name: 'Old passage' };
+        setVoyage('just-recording');
+        world.fetchVoyageAsTrack.mockResolvedValue(item('just-recording'));
+        const { result } = renderSync();
+        await waitFor(() => expect(result.current.track?.id).toBe('just-recording'));
+        expect(result.current.route).toBeNull();
+        expect(result.current.activeVoyageId).toBe('just-recording');
+        expect(world.fetchVoyageAsTrack).toHaveBeenCalledExactlyOnceWith('just-recording');
+    });
+
+    it('keeps same-recording trail through pause and resume while fresh data is unavailable', async () => {
+        setVoyage('recording-a');
+        const original = item('recording-a');
+        world.fetchVoyageAsTrack.mockResolvedValue(original);
+        const { result } = renderSync();
+        await waitFor(() => expect(result.current.track).toBe(original));
+        world.fetchVoyageAsTrack.mockResolvedValue(null);
+        act(() => {
+            world.recording = { ...world.recording, isTracking: false, isPaused: true };
+            world.recordingListeners.forEach((listener) => listener());
+        });
+        expect(result.current.track).toBe(original);
+        expect(result.current.activeVoyageMode).toBe(false);
+        expect(result.current.hasRecording).toBe(true);
+        act(() => setVoyage('recording-a'));
+        expect(result.current.track).toBe(original);
+        expect(result.current.activeVoyageMode).toBe(true);
+        expect(world.fetchVoyageAsTrack).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains the current recording trail when a refresh fails', async () => {
+        setVoyage('recording-a');
+        const original = item('recording-a');
+        world.fetchVoyageAsTrack.mockResolvedValue(original);
+        const { result } = renderSync();
+        await waitFor(() => expect(result.current.track).toBe(original));
+        world.fetchVoyageAsTrack.mockRejectedValueOnce(new Error('Temporarily offline'));
+        await act(async () => window.dispatchEvent(new Event('thalassa:routes-and-tracks-changed')));
+        expect(result.current.track).toBe(original);
+    });
+
     it('refreshes only the active recording on the minute and log changes, preserving unchanged selections', async () => {
         vi.useFakeTimers();
         setVoyage('recording-a');

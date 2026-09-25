@@ -20,6 +20,7 @@ import { fetchWindGrid, type WindSample } from '../windField';
 import { classifyNearbyVesselFreshness, formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
 import { shipTypeLabel, vesselColor } from '../aisShipType';
 import { publicVoyageWaypoints } from '../publicVoyageWaypoints';
+import { publicTrackSegments } from '../publicTrackSegments';
 
 // Wind barbs are a skipper's tool, not a viewer's — the public page is for
 // following a boat, and the control was competing with the base-map switcher in
@@ -62,6 +63,8 @@ interface MapContainerProps {
      *  change (Shane 2026-07-15: "when I close the side card, can the
      *  map fill the void left behind"). */
     resizeSignal?: number;
+    /** Whole-yacht history: frame every shared track and positioned story. */
+    allTrips?: boolean;
 }
 
 const STYLES = {
@@ -134,6 +137,7 @@ function MapContainer({
     selectedEntryId,
     focusKey,
     resizeSignal,
+    allTrips = false,
 }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
     const [destinationDetail, setDestinationDetail] = useState(false);
@@ -205,33 +209,8 @@ function MapContainer({
         [nightFeature],
     );
 
-    // Split the track into per-voyage segments so separate passages never
-    // join up: the point list is time-ordered and a voyage's fixes are
-    // contiguous, so a new segment starts whenever voyage_id changes (a
-    // legacy null run stays its own segment). Each segment is simplified
-    // independently — no line is ever drawn across a voyage boundary.
-    const trackSegments = useMemo<[number, number][][]>(() => {
-        const segs: [number, number][][] = [];
-        let cur: [number, number][] = [];
-        let curVoyage: string | null | undefined = undefined;
-        for (const p of track) {
-            const vid = p.voyage_id ?? null;
-            // PLANNED routes (voyage_id 'planned_…') are saved passage plans
-            // that leak into the track — they used to each draw as their own
-            // line, cluttering the map with every route the boat ever saved
-            // (Shane 2026-07-17). The ONE route being followed is drawn from
-            // `passageLine` instead, so drop every planned_ fix here.
-            if (typeof vid === 'string' && vid.startsWith('planned_')) continue;
-            if (vid !== curVoyage) {
-                if (cur.length) segs.push(cur);
-                cur = [];
-                curVoyage = vid;
-            }
-            cur.push([p.lon, p.lat]);
-        }
-        if (cur.length) segs.push(cur);
-        return segs.map(simplifyTrack).filter((s) => s.length >= 2);
-    }, [track]);
+    // Simplify each voyage independently; never invent a line between trips.
+    const trackSegments = useMemo(() => publicTrackSegments(track).map(simplifyTrack), [track]);
 
     // The one followed route as a GeoJSON line (Shane 2026-07-17). Distinct
     // from the cyan live track — dashed violet, matching the in-app planned style.
@@ -296,6 +275,23 @@ function MapContainer({
     );
 
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
+    const latestTrackPoint = useMemo(() => {
+        let latest: VoyageLogTrackPoint | undefined;
+        for (const point of track) {
+            if (
+                point.voyage_id?.startsWith('planned_') ||
+                !Number.isFinite(point.lat) ||
+                !Number.isFinite(point.lon) ||
+                Math.abs(point.lat) > 90 ||
+                Math.abs(point.lon) > 180 ||
+                (point.lat === 0 && point.lon === 0) ||
+                !Number.isFinite(Date.parse(point.timestamp))
+            )
+                continue;
+            if (!latest || Date.parse(point.timestamp) >= Date.parse(latest.timestamp)) latest = point;
+        }
+        return latest;
+    }, [track]);
 
     // Major course changes along the SAILED track (owner ask 2026-08-03):
     // one dot wherever the boat altered course ≥30° with a solid leg
@@ -544,8 +540,8 @@ function MapContainer({
     // track is already framed, and viewers want to keep the overview.
 
     const nowMs = now.getTime();
-    const lastFix = trackCoords[trackCoords.length - 1] ?? telemetryFix;
-    const lastFixUpdatedAt = telemetry?.updated_at ?? track.at(-1)?.timestamp ?? null;
+    const lastFix = latestTrackPoint ? [latestTrackPoint.lon, latestTrackPoint.lat] : telemetryFix;
+    const lastFixUpdatedAt = telemetry?.updated_at ?? latestTrackPoint?.timestamp ?? null;
     const positionIsLive =
         lastFix !== undefined &&
         !connectionLost &&
@@ -1108,8 +1104,12 @@ function MapContainer({
                 <button
                     type="button"
                     onClick={frameWholeVoyage}
-                    aria-label="Show the whole voyage — centre on the boat's last known position with the full route in view"
-                    title="Show the whole voyage"
+                    aria-label={
+                        allTrips
+                            ? 'Show all trips and diary locations'
+                            : "Show the whole voyage — centre on the boat's last known position with the full route in view"
+                    }
+                    title={allTrips ? 'Show all trips and diary locations' : 'Show the whole voyage'}
                     className="absolute bottom-9 right-3 flex h-12 w-12 items-center justify-center rounded-full border border-teal-300/30 bg-slate-900/80 text-teal-300 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:bg-slate-800/90 hover:text-teal-200 active:scale-95"
                 >
                     <svg
@@ -1179,7 +1179,7 @@ function MapContainer({
                     {trackCoords.length >= 2 && (
                         <div className="flex items-center gap-2">
                             <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#5eead4' }} />
-                            <span>Track sailed</span>
+                            <span>{allTrips ? 'Trips sailed' : 'Track sailed'}</span>
                         </div>
                     )}
                     {courseChangeGeojson && (

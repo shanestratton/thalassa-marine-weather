@@ -64,6 +64,22 @@ vi.mock('../services/GpsService', () => ({
 const voyage = vi.hoisted(() => ({ active: null as null | { id: string } }));
 vi.mock('../services/VoyageService', () => ({ getCachedActiveVoyage: () => voyage.active }));
 
+const recording = vi.hoisted(() => ({
+    state: {
+        isTracking: false,
+        isPaused: false,
+        isRapidMode: false,
+    } as import('../services/shiplog/TrackingStateStore').TrackingState,
+    metrics: {
+        distanceNm: 12.4 as number | null,
+        recordedAt: Date.now() as number | null,
+        departedAt: (Date.now() - 3_600_000) as number | null,
+        nowMs: Date.now(),
+    },
+}));
+vi.mock('../hooks/useHudRecording', () => ({ useHudRecording: () => recording.state }));
+vi.mock('../hooks/usePassageRecordingMetrics', () => ({ usePassageRecordingMetrics: () => recording.metrics }));
+
 import { PassageHudPane, __forgetReckoningForTests } from '../components/passage/PassageHudPane';
 import { NmeaStore, type RemoteInstrumentSnapshot } from '../services/NmeaStore';
 import { useFollowRouteStore } from '../stores/followRouteStore';
@@ -117,6 +133,13 @@ beforeEach(() => {
     __resetPassageHudForTests();
     __resetPassageOverlayForTests();
     setPassageHudEnabled(true);
+    recording.state = { isTracking: false, isPaused: false, isRapidMode: false };
+    recording.metrics = {
+        distanceNm: 12.4,
+        recordedAt: Date.now(),
+        departedAt: Date.now() - 3_600_000,
+        nowMs: Date.now(),
+    };
     voyage.active = null;
     NmeaStore.clearRemote();
     useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
@@ -458,18 +481,98 @@ describe('the chart’s Passage overlay stays the skipper’s switch', () => {
         expect(button.getAttribute('aria-label')).toContain('Turn them off with Passage in the layer button');
     });
 
-    it('keeps the HUD unavailable without a followed route, even during an active voyage', () => {
+    it('does not confuse an active voyage record with actual recording', () => {
         act(() => useFollowRouteStore.getState().stopFollowing());
         setPassageHudOpen(true);
         const view = render(<PassageHudPane />);
         expect(view.container).toBeEmptyDOMElement();
         view.unmount();
-        // The recording can still have its separate Passage overlay; it does
-        // not supply the route geometry required by this HUD.
+        // A voyage card alone does not establish an active recorder.
         voyage.active = { id: 'v1' };
         setPassageHudEnabled(true);
         const recording = render(<PassageHudPane />);
         expect(recording.container).toBeEmptyDOMElement();
         expect(isPassageHudEnabled()).toBe(false);
+    });
+});
+
+describe('just recording without a followed route', () => {
+    beforeEach(() => {
+        useFollowRouteStore.getState().stopFollowing();
+        recording.state = { isTracking: true, isPaused: false, isRapidMode: false, currentVoyageId: 'recording-1' };
+        setPassageHudOpen(true);
+    });
+
+    it('shows LIVE instruments, saved sailed distance and confirmed elapsed time without destination or ETA', () => {
+        NmeaStore.ingestRemote(snapshot());
+        render(<PassageHudPane />);
+        expect(screen.getByTestId('passage-hud')).toHaveAttribute('data-mode', 'live');
+        expect(text('hud-recorded-distance')).toContain('Sailed12NM');
+        expect(text('hud-recording-elapsed')).toContain('1h 0m');
+        expect(text('hud-sog')).toContain('6.1');
+        expect(text('hud-recording-status')).toBe('Recording');
+        expect(screen.queryByTestId('hud-route')).toBeNull();
+        expect(screen.queryByTestId('hud-eta')).toBeNull();
+        expect(screen.queryByTestId('hud-look-ahead')).toBeNull();
+        expect(screen.queryByTestId('route-time-scrubber')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Show recorded track on the chart' })).toBeEnabled();
+        expect(gps.callbacks.size).toBe(0);
+    });
+
+    it('waits for departure evidence and labels the age of the saved distance', () => {
+        recording.metrics.departedAt = null;
+        recording.metrics.recordedAt = recording.metrics.nowMs - 5 * 60_000;
+        render(<PassageHudPane />);
+        expect(text('hud-recording-elapsed')).toContain('Awaiting departure');
+        expect(text('hud-recording-elapsed')).not.toContain('1h');
+        expect(screen.getByTestId('hud-recorded-distance')).toHaveAttribute('data-freshness', 'stale');
+        expect(text('hud-recorded-distance')).toContain('Saved 5m ago');
+    });
+
+    it('keeps readings available while paused, then removes the route-free HUD at Stop', () => {
+        const view = render(<PassageHudPane />);
+        recording.state = { ...recording.state, isTracking: false, isPaused: true };
+        view.rerender(<PassageHudPane />);
+        expect(text('hud-recording-status')).toBe('Recording paused');
+        fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
+        expect(screen.getByTestId('passage-hud')).not.toBeVisible();
+        fireEvent.click(screen.getByRole('button', { name: 'Show passage instruments' }));
+        expect(screen.getByTestId('passage-hud')).toBeVisible();
+        recording.state = { isTracking: false, isPaused: false, isRapidMode: false };
+        view.rerender(<PassageHudPane />);
+        expect(view.container).toBeEmptyDOMElement();
+        expect(isPassageHudEnabled()).toBe(false);
+    });
+
+    it('retires the previous route metrics immediately when following ends during recording', () => {
+        NmeaStore.ingestRemote(snapshot());
+        useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
+        render(<PassageHudPane />);
+        expect(screen.getByTestId('hud-route')).toBeVisible();
+        expect(screen.queryByTestId('hud-recorded-distance')).toBeNull();
+        act(() => useFollowRouteStore.getState().stopFollowing());
+        expect(screen.queryByTestId('hud-route')).toBeNull();
+        expect(screen.queryByTestId('hud-eta')).toBeNull();
+        expect(screen.getByTestId('hud-recorded-distance')).toBeVisible();
+        expect(screen.getByTestId('passage-hud')).toHaveAttribute('data-mode', 'live');
+    });
+
+    it('labels stale boat instruments and never substitutes phone readings when instruments die', () => {
+        NmeaStore.ingestRemote(snapshot());
+        const raw = NmeaStore.getState();
+        const reading = vi
+            .spyOn(NmeaStore, 'getState')
+            .mockReturnValue({ ...raw, sog: { ...raw.sog, freshness: 'stale' } });
+        render(<PassageHudPane />);
+        expect(screen.getByTestId('hud-sog')).toHaveAttribute('data-freshness', 'stale');
+        expect(text('hud-sog')).toContain('OLD');
+        expect(label('hud-sog')).toContain('stale reading');
+        cleanup();
+        reading.mockReturnValue({ ...raw, sog: { ...raw.sog, freshness: 'dead' } });
+        gps.last = phoneFix();
+        render(<PassageHudPane />);
+        expect(text('hud-sog')).toContain('—');
+        expect(text('hud-cog')).toContain('—');
+        reading.mockRestore();
     });
 });

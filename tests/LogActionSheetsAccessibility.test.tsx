@@ -6,6 +6,7 @@ import { ImportSheet } from '../pages/log/ImportSheet';
 import { ShareFormSheet } from '../pages/log/ShareFormSheet';
 import { ShareSheet } from '../pages/log/ShareSheet';
 import { StatsSheet } from '../pages/log/StatsSheet';
+import { lifetimeVoyageStats } from '../utils/lifetimeVoyageStats';
 
 interface SheetCase {
     name: string;
@@ -79,6 +80,7 @@ const sheetCases: SheetCase[] = [
                 selectedVoyageId={null}
                 currentVoyageId={null}
                 voyageGroups={[]}
+                lifetimeStats={lifetimeVoyageStats([], [])}
             />
         ),
     },

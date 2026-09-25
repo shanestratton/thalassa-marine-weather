@@ -53,6 +53,7 @@ import {
     archiveVoyage,
     deleteEntry,
     deleteVoyage,
+    deleteVoyageLogOnly,
     getLogEntries,
     importGPXVoyage,
 } from '../services/shiplog/EntryCrud';
@@ -117,6 +118,29 @@ function mutationQuery(result: Promise<{ data?: unknown[]; error: null }> | { da
 }
 
 describe('EntryCrud identity boundary', () => {
+    it('requires durable acceptance before reporting automatic cleanup success', async () => {
+        expect(await deleteVoyageLogOnly('stationary-track', () => true, { deferCloud: true })).toBe(false);
+        expect(mocks.attemptVoyageCloudDeletion).not.toHaveBeenCalled();
+        expect(mocks.invalidateRoutes).not.toHaveBeenCalled();
+    });
+
+    it('queues automatic deletion without linked-plan cascade or waiting for the network', async () => {
+        mocks.deleteVoyageOffline.mockResolvedValue(true);
+        const canDelete = () => true;
+        expect(await deleteVoyageLogOnly('stationary-track', canDelete, { deferCloud: true })).toBe(true);
+        expect(mocks.deleteVoyageOffline).toHaveBeenCalledWith('stationary-track', {
+            cascadeLinkedPlan: false,
+            canDelete,
+        });
+        expect(mocks.attemptVoyageCloudDeletion).not.toHaveBeenCalled();
+        expect(mocks.invalidateRoutes).toHaveBeenCalled();
+    });
+
+    it('leaves a resumed recording alone before deletion is queued', async () => {
+        expect(await deleteVoyageLogOnly('stationary-track', () => false)).toBe(false);
+        expect(mocks.deleteVoyageOffline).not.toHaveBeenCalled();
+    });
+
     beforeEach(() => {
         setAuthIdentityScope(null);
         vi.clearAllMocks();

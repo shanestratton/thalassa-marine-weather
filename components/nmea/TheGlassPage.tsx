@@ -47,8 +47,6 @@ import {
     zoneColorFor,
     type WindHeroId,
 } from './windHeroSlots';
-import { SailPlanDiagram } from './gauges/SailPlanDiagram';
-import { SailPartsDiagram } from './gauges/SailPartsDiagram';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { describeArc, polarToCart } from './gauges/gaugeGeometry';
 import { LightningBoltIcon } from '../Icons';
@@ -68,14 +66,9 @@ import {
     DEPTH_FALLBACK_OFFSET,
     helmBalance,
     helmVerdict,
-    kiteAdvice,
-    reefDescribe,
-    stabiliseSailPlan,
-    type SailPlanHold,
     shoalRate,
     type SailingWind,
 } from '../../services/sailing/sereneSailing';
-import { closeHauledDegFor, pointOfSail } from '../../services/sailing/pointOfSail';
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { CloudTelemetryService } from '../../services/CloudTelemetryService';
 import { WindHistoryStats } from './WindHistoryStats';
@@ -713,13 +706,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // The 30-60s helm window the serene advice demands — null while it fills.
     const helmWindow = NmeaStore.helmWindow();
 
-    // The serene sailing brain encodes Serene Summer specifically (Tayana 55,
-    // Leisure Furl, runners). Her advice must never reach another hull, so
-    // the sail-plan sections gate on the vessel profile.
-    const vesselProfile = useSettingsStore((store) => store.settings.vessel);
-    const isSereneSummer =
-        /tayana\s*55/i.test(vesselProfile?.model ?? '') || /serene\s*summer/i.test(vesselProfile?.name ?? '');
-
     // Depth track with real timestamps for the shoaling trend — the sparkline
     // history has no clock, and shoalRate least-squares against minutes.
     const depthTrackRef = useRef<Array<{ t: number; d: number }>>([]);
@@ -736,9 +722,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // Recorded by the feed/Pi, not by this page. The Pi's preceding hour can
     // arrive on first open; direct gateways keep a bounded app-wide record.
     // Recompute on the clock too, so an old peak expires even during silence.
-    // Sail advice still uses the existing ten-minute sampled-wind peak.
     const windHistory = NmeaStore.getWindHistory(nowMs);
-    const recentGust = windHistory?.gust10m?.kts ?? null;
 
     const awaUnsigned = awa.value !== null ? ((awa.value % 360) + 360) % 360 : null;
     const twaUnsigned = twaSigned.value !== null ? ((twaSigned.value % 360) + 360) % 360 : null;
@@ -754,36 +738,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     };
     const helm = helmBalance(sailingWind);
     const helmWords = helmWindow ? helmVerdict(helmWindow.mean) : null;
-    /*
-     * The sail plan is HELD, not recomputed from scratch every tick.
-     *
-     * sailPlanFor is pure and has hard edges, and she yaws several degrees on
-     * every wave — so the recommendation flipped constantly while nothing
-     * about the sailing had changed (Shane 2026-08-28: "we need to make it so
-     * that we dont need to change the sail layout every 5 seconds"). The
-     * stabiliser adds hysteresis at the edges and an asymmetric dwell: quick
-     * to call for less sail, slow to call for more, slowest of all for a
-     * change that moves no sail at all.
-     *
-     * Re-evaluated on every reading AND on a slow tick, because a dwell can
-     * expire while the numbers sit perfectly still.
-     */
-    const [sailHold, setSailHold] = useState<SailPlanHold | null>(null);
-    const [holdTick, setHoldTick] = useState(0);
-    useEffect(() => {
-        if (!isSereneSummer) return;
-        const id = setInterval(() => setHoldTick((t) => t + 1), 5_000);
-        return () => clearInterval(id);
-    }, [isSereneSummer]);
-    useEffect(() => {
-        if (!isSereneSummer) return;
-        setSailHold((prev) => stabiliseSailPlan(prev, recentGust, twaUnsigned, Date.now()));
-        // holdTick is a deliberate dependency: it is what lets a dwell expire
-        // on a boat holding a steady course in a steady breeze.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isSereneSummer, recentGust, twaUnsigned, holdTick]);
-    const plan = sailHold?.plan ?? null;
-    const kite = isSereneSummer ? kiteAdvice(recentGust, twaUnsigned, false) : null;
 
     // ── This device's own watches, or none ──
     //
@@ -1013,21 +967,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const roseTrueAngle =
         normaliseBowAngle(twaSigned.value) ??
         (twd.value !== null && heading.value !== null ? normaliseBowAngle(twd.value - heading.value) : null);
-
-    // "In irons / Pinching / Running square" — generic geometry off the true
-    // wind angle and her own closest-to-the-wind number (profile, default by
-    // rig). Shane 2026-09-06: "so we know when to tack".
-    const closeHauledDeg = closeHauledDegFor(vesselProfile);
-    const pointing = useMemo(
-        () => pointOfSail({ windFromDeg: roseTrueAngle, sogKts: sog.value, closeHauledDeg }),
-        [roseTrueAngle, sog.value, closeHauledDeg],
-    );
-    const pointingShown = pointing !== null && (pointing.level !== 'good' || pointing.wingAndWing);
-    // Running: square wing-and-wing, or come up and gybe down. The brain's own
-    // rule (TRIM.Running) is the pole comes down above 20 kn gusts; that is the
-    // default, and the skipper can pick either for the session.
-    const [downwindPick, setDownwindPick] = useState<'wing' | 'gybe' | null>(null);
-    const downwind: 'wing' | 'gybe' = downwindPick ?? (recentGust != null && recentGust >= 20 ? 'gybe' : 'wing');
 
     const windMetrics = [state.tws, state.twa, state.aws, state.awa, state.twd];
     const windAvailable = windMetrics.some(metricIsAvailable);
@@ -1260,12 +1199,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                 {/* ═══ INSTRUMENT PANEL — one instrument per screen, snap-scrolled ═══
                     Rebuilt 2026-08-26 (Shane: "make the instruments page really
-                    pop… scrolls up and down, but snaps to each instrument…
-                    sail plans etc go to the bottom"). Each section owns the
+                    pop… scrolls up and down, but snaps to each instrument"). Each section owns the
                     viewport; the punter scrolls. The dot rail down the right
                     went on 2026-09-09 (Shane: "not necessary as a punter will
-                    keep scrolling until he gets to the end"). Serene Summer's
-                    sail-plan brain renders only for her hull. */}
+                    keep scrolling until he gets to the end"). */}
                 <div className="relative flex-1 min-h-0">
                     <div className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar">
                         {/* ── SECTION: CLOCK ──
@@ -2070,219 +2007,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 )}
                             </div>
                         </section>
-
-                        {/* ── SECTION: SAIL PLAN (Serene Summer only — her rig, her advice) ── */}
-                        {isSereneSummer && (
-                            <section
-                                className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
-                            >
-                                <SectionPlate title="Sail Plan" />
-                                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-2 pb-2">
-                                    {plan ? (
-                                        <>
-                                            <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                                    {plan.band.band} · {Math.round(plan.off)}° off ·{' '}
-                                                    {fmt(recentGust, 0)} kts gusts (10 min)
-                                                </p>
-                                                {pointingShown && pointing && (
-                                                    <div
-                                                        data-testid="point-of-sail-strip"
-                                                        className={`mt-2 flex items-start gap-2 rounded-xl border px-2.5 py-2 ${
-                                                            pointing.level === 'serious'
-                                                                ? 'border-red-400/35 bg-red-500/10'
-                                                                : pointing.level === 'warning'
-                                                                  ? 'border-amber-400/30 bg-amber-500/10'
-                                                                  : 'border-emerald-400/25 bg-emerald-500/8'
-                                                        }`}
-                                                    >
-                                                        <span
-                                                            className={`shrink-0 text-[11px] font-black uppercase tracking-widest ${
-                                                                pointing.level === 'serious'
-                                                                    ? 'text-red-300'
-                                                                    : pointing.level === 'warning'
-                                                                      ? 'text-amber-300'
-                                                                      : 'text-emerald-300'
-                                                            }`}
-                                                        >
-                                                            {pointing.label}
-                                                        </span>
-                                                        <span className="min-w-0 text-[12px] leading-snug text-slate-200">
-                                                            {pointing.detail}{' '}
-                                                            <span className="text-gray-500">
-                                                                {Math.round(pointing.offBow)}° off · she holds{' '}
-                                                                {pointing.closeHauledDeg}°
-                                                            </span>
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                <p className="mt-1 text-xl font-black text-white">
-                                                    {reefDescribe(plan.row, plan.row.main === 'Down').m}
-                                                </p>
-                                                <p className="text-[13px] text-gray-300">
-                                                    {reefDescribe(plan.row, plan.row.main === 'Down').rest}
-                                                </p>
-                                                {(plan.row.stay === true || plan.row.stay === 'storm') && (
-                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/8 p-2.5 text-[12px] font-semibold text-amber-200">
-                                                        Runners on BEFORE the staysail loads the inner forestay.
-                                                    </p>
-                                                )}
-                                                {plan.row.prevent && (
-                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/8 p-2.5 text-[12px] font-semibold text-amber-200">
-                                                        Preventer on — led aft, releasable under load.
-                                                    </p>
-                                                )}
-                                                <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
-                                                    {plan.row.note}
-                                                </p>
-                                            </div>
-                                            {plan.trim && (
-                                                <details className="rounded-2xl border border-white/6 bg-white/3 p-3">
-                                                    <summary className="cursor-pointer text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 [&::-webkit-details-marker]:hidden">
-                                                        Where everything goes
-                                                    </summary>
-                                                    {/* The picture first, the prose under it. A
-                                                        position is read from a diagram in one
-                                                        glance and rebuilt from a sentence only
-                                                        with effort — but the words carry the
-                                                        seamanship the drawing cannot (why the
-                                                        traveller is the one you play in a gust),
-                                                        so they stay. Every mark in the diagram
-                                                        comes from this same plan; if the two ever
-                                                        disagree, the diagram is the bug. */}
-                                                    {plan.band.band === 'Running' && (
-                                                        <>
-                                                            <div
-                                                                className="mt-2 flex gap-2"
-                                                                role="group"
-                                                                aria-label="How to sail downwind"
-                                                            >
-                                                                <button
-                                                                    type="button"
-                                                                    aria-pressed={downwind === 'wing'}
-                                                                    onClick={() => setDownwindPick('wing')}
-                                                                    className={`flex-1 rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                                                                        downwind === 'wing'
-                                                                            ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
-                                                                            : 'border-white/8 bg-white/3 text-gray-400'
-                                                                    }`}
-                                                                >
-                                                                    Square · wing and wing
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    aria-pressed={downwind === 'gybe'}
-                                                                    onClick={() => setDownwindPick('gybe')}
-                                                                    className={`flex-1 rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                                                                        downwind === 'gybe'
-                                                                            ? 'border-sky-400/40 bg-sky-500/15 text-sky-300'
-                                                                            : 'border-white/8 bg-white/3 text-gray-400'
-                                                                    }`}
-                                                                >
-                                                                    Gybe down · 145–165°
-                                                                </button>
-                                                            </div>
-                                                            <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
-                                                                {downwind === 'wing'
-                                                                    ? 'Yankee poled out to windward, staysail set on the other side, preventer on. Under 20 kn gusts this is her happy place; if she starts to roll, come up and gybe your way down.'
-                                                                    : 'Pole down and it stays down. Come up to 145–165°, sail the broad reach and gybe your way downwind — steadier, and faster once the gusts pass 20 kn.'}
-                                                            </p>
-                                                        </>
-                                                    )}
-                                                    <SailPlanDiagram
-                                                        adviceBand={plan.band.band}
-                                                        band={
-                                                            plan.band.band === 'Running' && downwind === 'gybe'
-                                                                ? 'Broad reach'
-                                                                : plan.band.band
-                                                        }
-                                                        windAngle={roseTrueAngle}
-                                                        main={plan.row.main}
-                                                        yankee={plan.row.yankee}
-                                                        stay={plan.row.stay}
-                                                        runners={plan.row.runners}
-                                                        prevent={plan.row.prevent}
-                                                        /* 420, not 260. The container measures 340
-                                                           CSS px on a 390pt phone, so the old cap threw
-                                                           away 24% of the width available and shrank
-                                                           every mark by the same fraction. 420 never
-                                                           binds on a phone and only caps a tablet, where
-                                                           it stops the type ballooning. */
-                                                        className="mx-auto mt-2 block h-auto w-full max-w-[420px]"
-                                                    />
-                                                    {/* A reference, deliberately static: it reads
-                                                        nothing from the boat, so it cannot be wrong
-                                                        about the boat. The trim prose below leans on
-                                                        these words — leech telltale, luff breathing,
-                                                        the clew rising — and they are only useful if
-                                                        you can point at them. */}
-                                                    <details className="mt-2 rounded-xl border border-white/6 bg-white/2 p-2">
-                                                        <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 [&::-webkit-details-marker]:hidden">
-                                                            Parts of a sail
-                                                        </summary>
-                                                        {/* SEPARATE BUG, same cause, found while
-                                                            fixing the one above: this diagram's viewBox
-                                                            is 640 wide in the same 260px box — a 0.41
-                                                            scale, so its fontSize 9 labels rendered at
-                                                            3.7px. It was the least legible thing on the
-                                                            page, sitting directly under the sail plan. */}
-                                                        <SailPartsDiagram className="mx-auto mt-2 block h-auto w-full max-w-[420px]" />
-                                                    </details>
-                                                    <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-gray-300">
-                                                        <p>
-                                                            <b className="text-white">Traveller.</b>{' '}
-                                                            {plan.trim.traveller}
-                                                        </p>
-                                                        <p>
-                                                            <b className="text-white">Mainsheet.</b>{' '}
-                                                            {plan.trim.mainsheet}
-                                                        </p>
-                                                        <p>
-                                                            <b className="text-white">Yankee.</b> {plan.trim.yankee}
-                                                        </p>
-                                                        <p>
-                                                            <b className="text-white">Staysail.</b> {plan.trim.staysail}
-                                                        </p>
-                                                    </div>
-                                                </details>
-                                            )}
-                                            {kite && (
-                                                <div
-                                                    className={`rounded-2xl border p-3 ${
-                                                        kite.ok
-                                                            ? 'border-emerald-500/20 bg-emerald-500/5'
-                                                            : 'border-white/6 bg-white/3'
-                                                    }`}
-                                                >
-                                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                                        Asymmetric
-                                                    </p>
-                                                    <p className="mt-1 text-[12px] leading-relaxed text-gray-300">
-                                                        {kite.why}
-                                                    </p>
-                                                    {kite.down && (
-                                                        <p className="mt-1.5 text-[12px] leading-relaxed font-semibold text-amber-200">
-                                                            {kite.down}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
-                                            <p className="text-sm font-bold text-gray-300">No wind data yet</p>
-                                            <p className="mt-1 text-[12px] text-gray-400">
-                                                The sail plan reads true wind and ten minutes of gusts from the
-                                                backbone.
-                                            </p>
-                                        </div>
-                                    )}
-                                    <p className="text-center text-[10px] text-gray-600">
-                                        Tuned for Serene Summer — Tayana 55, in-boom furling, runners.
-                                    </p>
-                                </div>
-                            </section>
-                        )}
                     </div>
                 </div>
             </div>

@@ -68,41 +68,24 @@ const PARTICLE_LINE_WIDTH = 1;
 // protects the third-party renderer from the old delayed-start zoom race.
 const MIN_PARTICLE_ZOOM = 3;
 
-/**
- * The z3 synoptic look Shane signed off on. The library multiplies this by
- * pow(viewRadianArea, 0.4), and that area shrinks 4× per zoom level — so a
- * fixed base made particles crawl at ~0.4% of their z3 speed by z12, which
- * read as "the wind died" whenever you zoomed in.
- */
+/** Preserve the existing z3 synoptic pace as the reference. */
 const BASE_VELOCITY_SCALE = 0.015;
 const VELOCITY_SCALE_REF_ZOOM = 3;
 
-/**
- * Soften the library's pow(area, 0.4) zoom collapse: area ∝ 4^−z, so the
- * plugin loses 2^0.8 of apparent speed per zoom level and particles were
- * near-motionless by z10. Handing back the FULL 2^0.8 (first attempt) held
- * the z3 apparent speed at every zoom — which turned a 5 kt sea-breeze curl
- * over the bay into a glowing cyclone at z7.6 (Shane 2026-08-04: "looks like
- * a cyclone but there is almost no wind"). 0.45 restores roughly a third of
- * the collapse per level: motion stays alive when zoomed in, but apparent
- * speed eases down with zoom so light air reads as light air.
- */
-function zoomCompensatedVelocityScale(mapboxZoom: number): number {
-    const z = Math.min(12, Math.max(VELOCITY_SCALE_REF_ZOOM, mapboxZoom));
-    return BASE_VELOCITY_SCALE * Math.pow(2, VELOCITY_ZOOM_COMPENSATION * (z - VELOCITY_SCALE_REF_ZOOM));
+/** Smooth screen-speed taper, including the renderer's projection term. */
+export function zoomCompensatedVelocityScale(mapboxZoom: number): number {
+    const z = Number.isFinite(mapboxZoom)
+        ? Math.min(22, Math.max(VELOCITY_SCALE_REF_ZOOM, mapboxZoom))
+        : VELOCITY_SCALE_REF_ZOOM;
+    return BASE_VELOCITY_SCALE * Math.pow(2, -VELOCITY_ZOOM_COMPENSATION * (z - VELOCITY_SCALE_REF_ZOOM));
 }
 
-/**
- * How much of the library's zoom collapse to hand back, per level.
- *
- * 0.45 gave 6.5x the base scale by z9, which is why the tight end still read
- * as fast however much the count came down (Shane 2026-08-28: the pre-jump
- * frame — the uncompensated one — "starts out right"). 0.22 gives ~2.3x at
- * z9 and ~3.9x at z12: the "wind died when I zoomed in" failure this
- * compensation exists to prevent stays fixed, but zooming in no longer turns
- * a sea breeze into a gale.
- */
-const VELOCITY_ZOOM_COMPENSATION = 0.22;
+// The renderer also projects degrees to pixels (×2 per zoom level). Combined
+// with its area^0.4 term (×2^-0.8), apparent speed grows ×2^0.2 without a
+// correction. The former POSITIVE compensation accelerated it further.
+// A negative 0.4 exponent cancels that growth and slows screen motion smoothly
+// ×2^-0.2 per level, retaining visible motion at z22 instead of freezing.
+const VELOCITY_ZOOM_COMPENSATION = 0.4;
 
 /**
  * PARTICLE COUNT, the ramp that never existed.
@@ -124,6 +107,15 @@ const PARTICLE_MIN_DENSITY = 0.25;
 
 export function zoomScaledParticleMultiplier(mapboxZoom: number): number {
     if (!Number.isFinite(mapboxZoom)) return BASE_PARTICLE_MULTIPLIER;
+    if (mapboxZoom > PARTICLE_ZOOM_TIGHT) {
+        // Continue thinning beyond the old z9 ceiling. At z22 a phone retains
+        // dozens of particles, not thousands; no reallocations per pinch frame.
+        return (
+            BASE_PARTICLE_MULTIPLIER *
+            PARTICLE_MIN_DENSITY *
+            Math.pow(2, -(Math.min(22, mapboxZoom) - PARTICLE_ZOOM_TIGHT) / 4)
+        );
+    }
     const span = PARTICLE_ZOOM_TIGHT - VELOCITY_SCALE_REF_ZOOM;
     const t = Math.min(1, Math.max(0, (mapboxZoom - VELOCITY_SCALE_REF_ZOOM) / span));
     return BASE_PARTICLE_MULTIPLIER * (1 - (1 - PARTICLE_MIN_DENSITY) * t);

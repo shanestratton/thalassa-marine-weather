@@ -224,6 +224,9 @@ interface RawAccumulator {
     awa: number[];
     stw: number[];
     heading: number[];
+    /** Explicit T-tagged heading only. Never mix HDG/HDM magnetic headings into this list. */
+    headingTrue: number[];
+    headingTrueAt: number | null;
     rpm: number[];
     /** $xxRSA rudder angle (°, + = helm to starboard). Raw per-sentence
      *  values — the 5s sample carries mean AND swing because helm-balance
@@ -1519,12 +1522,26 @@ class NmeaListenerServiceClass {
 
         const heading = parseNmeaNumber(parts[1]);
         if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
+        this.accumulateTrueHeading(heading, parts[2]);
     }
 
     /** $xxHDT — True Heading */
     private parseHDT(parts: string[]) {
         const heading = parseNmeaNumber(parts[1]);
         if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
+        this.accumulateTrueHeading(heading, parts[2]);
+    }
+
+    private accumulateTrueHeading(heading: number | null, reference: string | undefined): void {
+        // Keep the sentence's own clock even if newer GPS/depth sentences
+        // arrive before the 5-second aggregate is published. An invalid true
+        // heading explicitly clears an earlier value from this window.
+        this.accumulator.headingTrueAt = Date.now();
+        if (reference === 'T' && heading !== null && isPlausibleBearing(heading)) {
+            this.accumulator.headingTrue.push(heading === 360 ? 0 : heading);
+        } else {
+            this.accumulator.headingTrue = [];
+        }
     }
 
     /** $xxHDG — Magnetic Heading */
@@ -1768,6 +1785,8 @@ class NmeaListenerServiceClass {
             awa: avgSigned(this.accumulator.awa),
             stw: avg(this.accumulator.stw),
             heading: circularMean(this.accumulator.heading),
+            headingTrue: circularMean(this.accumulator.headingTrue),
+            ...(this.accumulator.headingTrueAt !== null ? { headingTrueAt: this.accumulator.headingTrueAt } : {}),
             rpm: avg(this.accumulator.rpm),
             // Signed mean like heel — a ±displacement, not a bearing. Swing
             // (max-min in the 5s window) survives separately because helm
@@ -1830,7 +1849,7 @@ class NmeaListenerServiceClass {
         // A receiver losing its fix may now send only GGA quality=0. Publish
         // that evidence even without coordinates or another live instrument.
         const hasGpsDiagnostics = sample.gpsFixQuality !== null;
-        if (hasInstruments || hasGps || hasGpsDiagnostics) {
+        if (hasInstruments || hasGps || hasGpsDiagnostics || sample.headingTrueAt !== undefined) {
             for (const cb of this.listeners) cb(sample);
         }
     }
@@ -1847,6 +1866,8 @@ class NmeaListenerServiceClass {
             awa: [],
             stw: [],
             heading: [],
+            headingTrue: [],
+            headingTrueAt: null,
             rpm: [],
             rudder: [],
             voltage: [],

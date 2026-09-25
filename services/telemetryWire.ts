@@ -44,6 +44,15 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
     const windSampleSource = boundedText(extra.wind_tws_source);
     const gnss = source === 'pi' ? readGnssDiagnostics(extra) : undefined;
     const positionSampleAt = wireNumber(extra.position_at);
+    const headingTrue = wireNumber(extra.heading_true_deg);
+    const headingTrueAt = wireNumber(extra.heading_true_at_ms);
+    const qualifiedHeadingTrue =
+        headingTrue !== null &&
+        headingTrue >= 0 &&
+        headingTrue < 360 &&
+        headingTrueAt !== null &&
+        headingTrueAt > 0 &&
+        headingTrueAt <= Date.now() + 1_000;
     const lat = wireNumber(wire.lat);
     const lon = wireNumber(wire.lon);
     const hasPositionTime =
@@ -72,6 +81,10 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             sogKts: wireNumber(wire.sog_kts),
             cogDeg: wireNumber(wire.cog_deg),
             headingDeg: wireNumber(wire.heading_deg),
+            // Never relabel legacy heading_deg as true or invent a fresh clock
+            // from reported_at. NmeaStore applies the sensor-age budget.
+            headingTrueDeg: qualifiedHeadingTrue ? headingTrue : null,
+            ...(qualifiedHeadingTrue ? { headingTrueAt } : {}),
             stwKts: wireNumber(wire.stw_kts),
             twsKts: wireNumber(wire.tws_kts),
             twaDeg: wireNumber(wire.twa_deg),

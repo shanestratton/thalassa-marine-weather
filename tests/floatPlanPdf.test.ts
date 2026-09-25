@@ -23,6 +23,21 @@ function plan(overrides: Partial<FloatPlanInput> = {}): FloatPlanInput {
 }
 
 describe('float plan PDF', () => {
+    it('prints litre-entered fuel and water with their correct litre values', () => {
+        const { html } = buildHtml(
+            plan({
+                vessel: {
+                    name: 'Serene Summer',
+                    fuelCapacity: 1000 / 3.78541,
+                    waterCapacity: 600 / 3.78541,
+                },
+            }),
+        );
+        expect(html).toContain('Fuel 1000 L');
+        expect(html).toContain('water 600 L');
+        expect(html).not.toContain('Fuel 264 L');
+    });
+
     it('carries the overdue time and the number to ring', () => {
         // These two are the entire reason a float plan exists. Everything else is
         // reference; without either of them the document is decoration.

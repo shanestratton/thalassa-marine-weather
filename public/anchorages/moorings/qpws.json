@@ -1,0 +1,4256 @@
+{
+    "source": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Environment/ParksMarineMoorings/FeatureServer/20",
+    "attribution": "© State of Queensland (Department of Environment and Science) 2024",
+    "retrievedAt": "2026-09-23T03:58:25.153Z",
+    "data": {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": 1,
+                "geometry": { "type": "Point", "coordinates": [146.07382466044848, -17.209253759477274] },
+                "properties": {
+                    "objectid": 1,
+                    "site": "Normanby Island",
+                    "site_and_mooring_reference_numb": "Normanby Island (22)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 2,
+                "geometry": { "type": "Point", "coordinates": [145.66477487744544, -14.663053708565828] },
+                "properties": {
+                    "objectid": 2,
+                    "site": "Cod Hole (East)",
+                    "site_and_mooring_reference_numb": "Cod Hole (East)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 3,
+                "geometry": { "type": "Point", "coordinates": [145.66320787742112, -14.66450370746859] },
+                "properties": {
+                    "objectid": 3,
+                    "site": "Cod Hole (West)",
+                    "site_and_mooring_reference_numb": "Cod Hole (West)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 4,
+                "geometry": { "type": "Point", "coordinates": [145.45654081022295, -15.728953703246551] },
+                "properties": {
+                    "objectid": 4,
+                    "site": "East Hope Island (northern)",
+                    "site_and_mooring_reference_numb": "East Hope Island (PM1 - Northern)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 5,
+                "geometry": { "type": "Point", "coordinates": [145.45634081010417, -15.730719703247834] },
+                "properties": {
+                    "objectid": 5,
+                    "site": "East Hope Island (southern)",
+                    "site_and_mooring_reference_numb": "East Hope Island (PM2 - Southern)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 6,
+                "geometry": { "type": "Point", "coordinates": [145.9921576878004, -16.923203751178743] },
+                "properties": {
+                    "objectid": 6,
+                    "site": "Fitzroy Island (PM2)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM2)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 7,
+                "geometry": { "type": "Point", "coordinates": [145.9936476876819, -16.923526751288097] },
+                "properties": {
+                    "objectid": 7,
+                    "site": "Fitzroy Island (PM3)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM3)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 8,
+                "geometry": { "type": "Point", "coordinates": [145.99637468755643, -16.9229367514782] },
+                "properties": {
+                    "objectid": 8,
+                    "site": "Fitzroy Island (PM4)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM4)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 9,
+                "geometry": { "type": "Point", "coordinates": [146.0052376870729, -16.921996752104594] },
+                "properties": {
+                    "objectid": 9,
+                    "site": "Fitzroy Island (PM5 Little Fitzroy)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM5 - Little Fitzroy)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 10,
+                "geometry": { "type": "Point", "coordinates": [145.98600768751618, -16.93188675081292] },
+                "properties": {
+                    "objectid": 10,
+                    "site": "Fitzroy Island (PM6)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM6)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 11,
+                "geometry": { "type": "Point", "coordinates": [145.98534068752326, -16.93233675076907] },
+                "properties": {
+                    "objectid": 11,
+                    "site": "Fitzroy Island (PM7)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM7)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 12,
+                "geometry": { "type": "Point", "coordinates": [145.9829906875358, -16.934086750615975] },
+                "properties": {
+                    "objectid": 12,
+                    "site": "Fitzroy Island (PM8 Nudey Beach)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM8 - Nudey Beach)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 13,
+                "geometry": { "type": "Point", "coordinates": [145.98827768754185, -16.92970675095673] },
+                "properties": {
+                    "objectid": 13,
+                    "site": "Fitzroy Island (PM9 Welcome Bay)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM9 - Welcome Bay)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 14,
+                "geometry": { "type": "Point", "coordinates": [145.9876976876709, -16.92850675090495] },
+                "properties": {
+                    "objectid": 14,
+                    "site": "Fitzroy Island (PM1 Welcome Bay)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM1 - Welcome Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 15,
+                "geometry": { "type": "Point", "coordinates": [145.98828768758523, -16.929136750952537] },
+                "properties": {
+                    "objectid": 15,
+                    "site": "Fitzroy Island (PM10 Welcome Bay)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM10 - Welcome Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 16,
+                "geometry": { "type": "Point", "coordinates": [145.98843768762373, -16.928516750958] },
+                "properties": {
+                    "objectid": 16,
+                    "site": "Fitzroy Island (PM11 Welcome Bay)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM11 - Welcome Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 17,
+                "geometry": { "type": "Point", "coordinates": [145.9876476876154, -16.929266750907868] },
+                "properties": {
+                    "objectid": 17,
+                    "site": "Fitzroy Island (PM12 Welcome Bay)",
+                    "site_and_mooring_reference_numb": "Fitzroy Island (PM12 - Welcome Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 18,
+                "geometry": { "type": "Point", "coordinates": [146.2651276854951, -16.734196769244594] },
+                "properties": {
+                    "objectid": 18,
+                    "site": "Flynn Reef",
+                    "site_and_mooring_reference_numb": "Flynn Reef",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 19,
+                "geometry": { "type": "Point", "coordinates": [145.9727577021796, -16.75238674833193] },
+                "properties": {
+                    "objectid": 19,
+                    "site": "Green Island (west)",
+                    "site_and_mooring_reference_numb": "Green Island (315 - West)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 20,
+                "geometry": { "type": "Point", "coordinates": [145.97202770222336, -16.752406748279952] },
+                "properties": {
+                    "objectid": 20,
+                    "site": "Green Island (east)",
+                    "site_and_mooring_reference_numb": "Green Island (316 - East)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 21,
+                "geometry": { "type": "Point", "coordinates": [145.96635770235403, -16.755276747899387] },
+                "properties": {
+                    "objectid": 21,
+                    "site": "Green Island (Cairns)",
+                    "site_and_mooring_reference_numb": "Green Island (PM3 - Cairns)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 22,
+                "geometry": { "type": "Point", "coordinates": [146.00407766927165, -17.153016753993057] },
+                "properties": {
+                    "objectid": 22,
+                    "site": "High Island",
+                    "site_and_mooring_reference_numb": "High Island (23)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 23,
+                "geometry": { "type": "Point", "coordinates": [145.4509378887827, -14.662786693678393] },
+                "properties": {
+                    "objectid": 23,
+                    "site": "Lizard Island (Watsons Bay)",
+                    "site_and_mooring_reference_numb": "Lizard Island (Watsons Bay - Clam Garden)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 24,
+                "geometry": { "type": "Point", "coordinates": [145.45422788973022, -14.647416693773144] },
+                "properties": {
+                    "objectid": 24,
+                    "site": "Lizard Island (Mermaid inner)",
+                    "site_and_mooring_reference_numb": "Lizard Island (Mermaid Inner)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 25,
+                "geometry": { "type": "Point", "coordinates": [145.45364788986672, -14.645966693720524] },
+                "properties": {
+                    "objectid": 25,
+                    "site": "Lizard Island (Mermaid outer)",
+                    "site_and_mooring_reference_numb": "Lizard Island (Mermaid Outer)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 26,
+                "geometry": { "type": "Point", "coordinates": [145.56413775539724, -16.38105671630948] },
+                "properties": {
+                    "objectid": 26,
+                    "site": "Low  Isles (extra Northern)",
+                    "site_and_mooring_reference_numb": "Low Isles (Extra Northern)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 27,
+                "geometry": { "type": "Point", "coordinates": [145.56400775535266, -16.381756716306388] },
+                "properties": {
+                    "objectid": 27,
+                    "site": "Low  Isles (PM1) middle",
+                    "site_and_mooring_reference_numb": "Low Isles (PM1 - Middle)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 28,
+                "geometry": { "type": "Point", "coordinates": [145.5639407553183, -16.382269716306116] },
+                "properties": {
+                    "objectid": 28,
+                    "site": "Low  Isles (PM2) southern",
+                    "site_and_mooring_reference_numb": "Low Isles (PM2 - Southern)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 29,
+                "geometry": { "type": "Point", "coordinates": [145.9738877134608, -16.604806747150157] },
+                "properties": {
+                    "objectid": 29,
+                    "site": "Michaelmas Cay (inner)",
+                    "site_and_mooring_reference_numb": "Michaelmas Cay (PM2 - Inner)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 30,
+                "geometry": { "type": "Point", "coordinates": [145.97369771349557, -16.604506747134035] },
+                "properties": {
+                    "objectid": 30,
+                    "site": "Michaelmas Cay (outer)",
+                    "site_and_mooring_reference_numb": "Michaelmas Cay (PM1 - Outer)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 31,
+                "geometry": { "type": "Point", "coordinates": [146.2660246811892, -16.788486769774828] },
+                "properties": {
+                    "objectid": 31,
+                    "site": "Milln Reef",
+                    "site_and_mooring_reference_numb": "Milln Reef",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 32,
+                "geometry": { "type": "Point", "coordinates": [145.98697772597032, -16.431546746601747] },
+                "properties": {
+                    "objectid": 32,
+                    "site": "Norman Reef",
+                    "site_and_mooring_reference_numb": "Norman Reef",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 33,
+                "geometry": { "type": "Point", "coordinates": [146.0739076608524, -17.203996759438436] },
+                "properties": {
+                    "objectid": 33,
+                    "site": "Normanby Island",
+                    "site_and_mooring_reference_numb": "Normanby Island (1)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 34,
+                "geometry": { "type": "Point", "coordinates": [146.0907076583201, -17.222703427806433] },
+                "properties": {
+                    "objectid": 34,
+                    "site": "Russell Island (northern) MISSING",
+                    "site_and_mooring_reference_numb": "Russell Island (PM1 - Northern - MISSING)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 35,
+                "geometry": { "type": "Point", "coordinates": [146.08997765812427, -17.225816760780475] },
+                "properties": {
+                    "objectid": 35,
+                    "site": "Russell Island (southern)",
+                    "site_and_mooring_reference_numb": "Russell Island (PM4 - Southern)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 36,
+                "geometry": { "type": "Point", "coordinates": [146.0895776582738, -17.22422676073812] },
+                "properties": {
+                    "objectid": 36,
+                    "site": "Russell Island (middle) - new northern",
+                    "site_and_mooring_reference_numb": "Russell Island (PM3 - Middle - New Northern)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 37,
+                "geometry": { "type": "Point", "coordinates": [145.4910777664277, -16.29232671046702] },
+                "properties": {
+                    "objectid": 37,
+                    "site": "Snapper Island",
+                    "site_and_mooring_reference_numb": "Snapper Island",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 38,
+                "geometry": { "type": "Point", "coordinates": [146.1492076758841, -16.949716762692738] },
+                "properties": {
+                    "objectid": 38,
+                    "site": "Sudbury Cay (north east)",
+                    "site_and_mooring_reference_numb": "Sudbury Cay (PM1 - North-East)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 39,
+                "geometry": { "type": "Point", "coordinates": [146.14775767589805, -16.950706762596518] },
+                "properties": {
+                    "objectid": 39,
+                    "site": "Sudbury Cay (south west)",
+                    "site_and_mooring_reference_numb": "Sudbury Cay (PM2 - South-West)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 40,
+                "geometry": { "type": "Point", "coordinates": [145.9336577110041, -16.669016744828323] },
+                "properties": {
+                    "objectid": 40,
+                    "site": "Upolu Cay",
+                    "site_and_mooring_reference_numb": "Upolu Cay",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 41,
+                "geometry": { "type": "Point", "coordinates": [145.990290708686, -16.653786748741936] },
+                "properties": {
+                    "objectid": 41,
+                    "site": "Vlasoff Cay (inner)",
+                    "site_and_mooring_reference_numb": "Vlasoff Cay (PM1 - Inner)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 42,
+                "geometry": { "type": "Point", "coordinates": [145.9855777089006, -16.6547667484133] },
+                "properties": {
+                    "objectid": 42,
+                    "site": "Vlasoff Cay (south west)",
+                    "site_and_mooring_reference_numb": "Vlasoff Cay (314 - South-West)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 43,
+                "geometry": { "type": "Point", "coordinates": [145.98945770901676, -16.650153748651277] },
+                "properties": {
+                    "objectid": 43,
+                    "site": "Vlasoff Cay (outer)",
+                    "site_and_mooring_reference_numb": "Vlasoff Cay (PM2 - Outer)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 44,
+                "geometry": { "type": "Point", "coordinates": [145.98700770904117, -16.65179674849013] },
+                "properties": {
+                    "objectid": 44,
+                    "site": "Vlasoff Cay (north west)",
+                    "site_and_mooring_reference_numb": "Vlasoff Cay (313 - North-West)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 45,
+                "geometry": { "type": "Point", "coordinates": [147.52132343332175, -18.79520288144227] },
+                "properties": {
+                    "objectid": 45,
+                    "site": "Wheeler Reef",
+                    "site_and_mooring_reference_numb": "Wheeler Reef (26)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 46,
+                "geometry": { "type": "Point", "coordinates": [148.93037721575314, -20.072507006218135] },
+                "properties": {
+                    "objectid": 46,
+                    "site": "East Butterfly Bay",
+                    "site_and_mooring_reference_numb": "East Butterfly Bay (886)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 47,
+                "geometry": { "type": "Point", "coordinates": [148.92612719364254, -20.31123700788144] },
+                "properties": {
+                    "objectid": 47,
+                    "site": "Henning Island",
+                    "site_and_mooring_reference_numb": "Henning Island (889)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 48,
+                "geometry": { "type": "Point", "coordinates": [149.0072672005736, -20.172037013513513] },
+                "properties": {
+                    "objectid": 48,
+                    "site": "Dumbell Island",
+                    "site_and_mooring_reference_numb": "Dumbell Island (890)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 49,
+                "geometry": { "type": "Point", "coordinates": [148.8872402147384, -20.118097002994478] },
+                "properties": {
+                    "objectid": 49,
+                    "site": "Caves Cove",
+                    "site_and_mooring_reference_numb": "Caves Cove (896)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 50,
+                "geometry": { "type": "Point", "coordinates": [149.03882419232178, -20.234037016693552] },
+                "properties": {
+                    "objectid": 50,
+                    "site": "Esk Island",
+                    "site_and_mooring_reference_numb": "Esk Island (894)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 51,
+                "geometry": { "type": "Point", "coordinates": [149.00785720050683, -20.17227001356508] },
+                "properties": {
+                    "objectid": 51,
+                    "site": "Dumbell Island",
+                    "site_and_mooring_reference_numb": "Dumbell Island (751)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 52,
+                "geometry": { "type": "Point", "coordinates": [148.88770721482024, -20.116847003022965] },
+                "properties": {
+                    "objectid": 52,
+                    "site": "Caves Cove",
+                    "site_and_mooring_reference_numb": "Caves Cove (891)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 53,
+                "geometry": { "type": "Point", "coordinates": [148.92693719349023, -20.312197007957344] },
+                "properties": {
+                    "objectid": 53,
+                    "site": "Henning Island",
+                    "site_and_mooring_reference_numb": "Henning Island (898)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 54,
+                "geometry": { "type": "Point", "coordinates": [148.8775672190684, -20.079667001860834] },
+                "properties": {
+                    "objectid": 54,
+                    "site": "Langford Reef",
+                    "site_and_mooring_reference_numb": "Langford Reef (899)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 55,
+                "geometry": { "type": "Point", "coordinates": [148.88068722226944, -20.042947001810642] },
+                "properties": {
+                    "objectid": 55,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (901)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 56,
+                "geometry": { "type": "Point", "coordinates": [149.03924019238622, -20.23302001671999] },
+                "properties": {
+                    "objectid": 56,
+                    "site": "Esk Island",
+                    "site_and_mooring_reference_numb": "Esk Island (907)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 57,
+                "geometry": { "type": "Point", "coordinates": [148.87688721916936, -20.079137001799563] },
+                "properties": {
+                    "objectid": 57,
+                    "site": "Langford Reef",
+                    "site_and_mooring_reference_numb": "Langford Reef (902)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 58,
+                "geometry": { "type": "Point", "coordinates": [148.90614721499816, -20.100067004423035] },
+                "properties": {
+                    "objectid": 58,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (903)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 59,
+                "geometry": { "type": "Point", "coordinates": [148.90633721553593, -20.094177004389103] },
+                "properties": {
+                    "objectid": 59,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (904)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 60,
+                "geometry": { "type": "Point", "coordinates": [148.94830721515189, -20.064504007652914] },
+                "properties": {
+                    "objectid": 60,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (787)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 61,
+                "geometry": { "type": "Point", "coordinates": [148.89009021773862, -20.08377000294222] },
+                "properties": {
+                    "objectid": 61,
+                    "site": "Black Island ",
+                    "site_and_mooring_reference_numb": "Black Island  (812)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 62,
+                "geometry": { "type": "Point", "coordinates": [148.88042722216363, -20.044287001800278] },
+                "properties": {
+                    "objectid": 62,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (906)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 63,
+                "geometry": { "type": "Point", "coordinates": [148.95677021487347, -20.060675008330147] },
+                "properties": {
+                    "objectid": 63,
+                    "site": "Mantaray Bay",
+                    "site_and_mooring_reference_numb": "Mantaray Bay (781)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 64,
+                "geometry": { "type": "Point", "coordinates": [148.95662021487382, -20.06079200831854] },
+                "properties": {
+                    "objectid": 64,
+                    "site": "Mantaray Bay",
+                    "site_and_mooring_reference_numb": "Mantaray Bay (782)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 65,
+                "geometry": { "type": "Point", "coordinates": [148.94989021500447, -20.06480400778816] },
+                "properties": {
+                    "objectid": 65,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (785)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 66,
+                "geometry": { "type": "Point", "coordinates": [148.93807421552, -20.06880400683165] },
+                "properties": {
+                    "objectid": 66,
+                    "site": "Maureens Cove",
+                    "site_and_mooring_reference_numb": "Maureens Cove (792)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 67,
+                "geometry": { "type": "Point", "coordinates": [148.88004022195724, -20.046804001789276] },
+                "properties": {
+                    "objectid": 67,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (805)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 68,
+                "geometry": { "type": "Point", "coordinates": [148.95635021489886, -20.06074200829549] },
+                "properties": {
+                    "objectid": 68,
+                    "site": "Mantaray Bay",
+                    "site_and_mooring_reference_numb": "Mantaray Bay (877)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 69,
+                "geometry": { "type": "Point", "coordinates": [148.93745721559935, -20.068454006776953] },
+                "properties": {
+                    "objectid": 69,
+                    "site": "Maureens Cove",
+                    "site_and_mooring_reference_numb": "Maureens Cove (793)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 70,
+                "geometry": { "type": "Point", "coordinates": [148.93944021553128, -20.067587006935813] },
+                "properties": {
+                    "objectid": 70,
+                    "site": "Maureens Cove",
+                    "site_and_mooring_reference_numb": "Maureens Cove (790)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 71,
+                "geometry": { "type": "Point", "coordinates": [148.94680721527763, -20.064370007526026] },
+                "properties": {
+                    "objectid": 71,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (789)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 72,
+                "geometry": { "type": "Point", "coordinates": [148.95729021492085, -20.059754008365942] },
+                "properties": {
+                    "objectid": 72,
+                    "site": "Mantaray Bay",
+                    "site_and_mooring_reference_numb": "Mantaray Bay (779)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 73,
+                "geometry": { "type": "Point", "coordinates": [148.9502242150012, -20.064570007814204] },
+                "properties": {
+                    "objectid": 73,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (784)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 74,
+                "geometry": { "type": "Point", "coordinates": [149.06517423041427, -19.8091700153119] },
+                "properties": {
+                    "objectid": 74,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (829)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 75,
+                "geometry": { "type": "Point", "coordinates": [148.94789021516308, -20.064720007619744] },
+                "properties": {
+                    "objectid": 75,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (788)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 76,
+                "geometry": { "type": "Point", "coordinates": [148.9238072159487, -20.075707005694976] },
+                "properties": {
+                    "objectid": 76,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (887)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 77,
+                "geometry": { "type": "Point", "coordinates": [148.92429721599896, -20.074777005728155] },
+                "properties": {
+                    "objectid": 77,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (884)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 78,
+                "geometry": { "type": "Point", "coordinates": [148.90250721484492, -20.104637004157205] },
+                "properties": {
+                    "objectid": 78,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (822)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 79,
+                "geometry": { "type": "Point", "coordinates": [148.90324021480362, -20.104487004217283] },
+                "properties": {
+                    "objectid": 79,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (821)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 80,
+                "geometry": { "type": "Point", "coordinates": [148.90434021485632, -20.103037004296993] },
+                "properties": {
+                    "objectid": 80,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (820)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 81,
+                "geometry": { "type": "Point", "coordinates": [148.90752421489532, -20.10005400453817] },
+                "properties": {
+                    "objectid": 81,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (819)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 82,
+                "geometry": { "type": "Point", "coordinates": [148.90629021605108, -20.088720004338946] },
+                "properties": {
+                    "objectid": 82,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (818)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 83,
+                "geometry": { "type": "Point", "coordinates": [148.90667421596117, -20.089370004376573] },
+                "properties": {
+                    "objectid": 83,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (817)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 84,
+                "geometry": { "type": "Point", "coordinates": [148.90672421586675, -20.090337004388953] },
+                "properties": {
+                    "objectid": 84,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (815)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 85,
+                "geometry": { "type": "Point", "coordinates": [148.90689021567303, -20.09227000441921] },
+                "properties": {
+                    "objectid": 85,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (814)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 86,
+                "geometry": { "type": "Point", "coordinates": [148.90699021558726, -20.093104004434647] },
+                "properties": {
+                    "objectid": 86,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (813)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 87,
+                "geometry": { "type": "Point", "coordinates": [148.92524021604882, -20.07348700579621] },
+                "properties": {
+                    "objectid": 87,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (801)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 88,
+                "geometry": { "type": "Point", "coordinates": [148.92465721602557, -20.07420400575347] },
+                "properties": {
+                    "objectid": 88,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (800)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 89,
+                "geometry": { "type": "Point", "coordinates": [148.92550721589578, -20.074904005830582] },
+                "properties": {
+                    "objectid": 89,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (799)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 90,
+                "geometry": { "type": "Point", "coordinates": [148.9245572158112, -20.076570005765127] },
+                "properties": {
+                    "objectid": 90,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (798)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 91,
+                "geometry": { "type": "Point", "coordinates": [148.925240215758, -20.07658700582242] },
+                "properties": {
+                    "objectid": 91,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (797)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 92,
+                "geometry": { "type": "Point", "coordinates": [148.92517421571924, -20.077054005820862] },
+                "properties": {
+                    "objectid": 92,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (796)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 93,
+                "geometry": { "type": "Point", "coordinates": [148.92522421562794, -20.077987005832995] },
+                "properties": {
+                    "objectid": 93,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (795)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 94,
+                "geometry": { "type": "Point", "coordinates": [148.94940721506595, -20.06453700774539] },
+                "properties": {
+                    "objectid": 94,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (786)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 95,
+                "geometry": { "type": "Point", "coordinates": [148.9511242150006, -20.063854007883585] },
+                "properties": {
+                    "objectid": 95,
+                    "site": "Luncheon Bay",
+                    "site_and_mooring_reference_numb": "Luncheon Bay (783)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 96,
+                "geometry": { "type": "Point", "coordinates": [148.8807742224432, -20.041020001801627] },
+                "properties": {
+                    "objectid": 96,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (803)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 97,
+                "geometry": { "type": "Point", "coordinates": [148.9604072146248, -20.060404008632904] },
+                "properties": {
+                    "objectid": 97,
+                    "site": "Pinnacles Bay",
+                    "site_and_mooring_reference_numb": "Pinnacles Bay (778)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 98,
+                "geometry": { "type": "Point", "coordinates": [148.9613742145003, -20.060954008718664] },
+                "properties": {
+                    "objectid": 98,
+                    "site": "Pinnacles Bay",
+                    "site_and_mooring_reference_numb": "Pinnacles Bay (777)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 99,
+                "geometry": { "type": "Point", "coordinates": [148.81254020786966, -20.25213699789473] },
+                "properties": {
+                    "objectid": 99,
+                    "site": "Sunlovers (Daydream)",
+                    "site_and_mooring_reference_numb": "Sunlovers (776 - Daydream)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 100,
+                "geometry": { "type": "Point", "coordinates": [149.03315720007012, -20.156570015560792] },
+                "properties": {
+                    "objectid": 100,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (773)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 101,
+                "geometry": { "type": "Point", "coordinates": [149.06395723032577, -19.811070015225425] },
+                "properties": {
+                    "objectid": 101,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (827)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 102,
+                "geometry": { "type": "Point", "coordinates": [149.06445723022276, -19.811770015273517] },
+                "properties": {
+                    "objectid": 102,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (826)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 103,
+                "geometry": { "type": "Point", "coordinates": [148.87835721895232, -20.08027000193195] },
+                "properties": {
+                    "objectid": 103,
+                    "site": "Langford Reef",
+                    "site_and_mooring_reference_numb": "Langford Reef (806)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 104,
+                "geometry": { "type": "Point", "coordinates": [149.02586720074737, -20.155247014935977] },
+                "properties": {
+                    "objectid": 104,
+                    "site": "Border Island (north west point)",
+                    "site_and_mooring_reference_numb": "Border Island (879 - North-West Point)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 105,
+                "geometry": { "type": "Point", "coordinates": [149.02487720081294, -20.155347014853547] },
+                "properties": {
+                    "objectid": 105,
+                    "site": "Border Island (north west point)",
+                    "site_and_mooring_reference_numb": "Border Island (878 - North-West Point)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 106,
+                "geometry": { "type": "Point", "coordinates": [148.938674215481, -20.068737006881364] },
+                "properties": {
+                    "objectid": 106,
+                    "site": "Maureens Cove",
+                    "site_and_mooring_reference_numb": "Maureens Cove (791)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 107,
+                "geometry": { "type": "Point", "coordinates": [149.03384019997898, -20.156987015621855] },
+                "properties": {
+                    "objectid": 107,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (775)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 108,
+                "geometry": { "type": "Point", "coordinates": [149.0320572002006, -20.156070015463968] },
+                "properties": {
+                    "objectid": 108,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (774)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 109,
+                "geometry": { "type": "Point", "coordinates": [148.90657421592658, -20.089820004372026] },
+                "properties": {
+                    "objectid": 109,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (816)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 110,
+                "geometry": { "type": "Point", "coordinates": [148.88022422196207, -20.04660400180294] },
+                "properties": {
+                    "objectid": 110,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (804)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 111,
+                "geometry": { "type": "Point", "coordinates": [148.89055721798425, -20.080770002955823] },
+                "properties": {
+                    "objectid": 111,
+                    "site": "Black Island",
+                    "site_and_mooring_reference_numb": "Black Island (810)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 112,
+                "geometry": { "type": "Point", "coordinates": [149.06410723048077, -19.809304015223088] },
+                "properties": {
+                    "objectid": 112,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (828)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 113,
+                "geometry": { "type": "Point", "coordinates": [148.8797072187318, -20.081537002055473] },
+                "properties": {
+                    "objectid": 113,
+                    "site": "Langford Reef",
+                    "site_and_mooring_reference_numb": "Langford Reef (808)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 114,
+                "geometry": { "type": "Point", "coordinates": [148.87899021883743, -20.080987001990934] },
+                "properties": {
+                    "objectid": 114,
+                    "site": "Langford Reef",
+                    "site_and_mooring_reference_numb": "Langford Reef (807)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 115,
+                "geometry": { "type": "Point", "coordinates": [149.06574023039727, -19.80890401535734] },
+                "properties": {
+                    "objectid": 115,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (830)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 116,
+                "geometry": { "type": "Point", "coordinates": [148.89017421783518, -20.082670002939924] },
+                "properties": {
+                    "objectid": 116,
+                    "site": "Black Island",
+                    "site_and_mooring_reference_numb": "Black Island (811)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 117,
+                "geometry": { "type": "Point", "coordinates": [148.88655721021294, -20.16693700335058] },
+                "properties": {
+                    "objectid": 117,
+                    "site": "False Nara",
+                    "site_and_mooring_reference_numb": "False Nara (823)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 118,
+                "geometry": { "type": "Point", "coordinates": [148.88562421034464, -20.16628700326713] },
+                "properties": {
+                    "objectid": 118,
+                    "site": "False Nara (Western)",
+                    "site_and_mooring_reference_numb": "False Nara (824 - Western)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 119,
+                "geometry": { "type": "Point", "coordinates": [149.0692572289926, -19.821054015757078] },
+                "properties": {
+                    "objectid": 119,
+                    "site": "Bait Reef (Drop off)",
+                    "site_and_mooring_reference_numb": "Bait Reef (825 - Drop Off)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 120,
+                "geometry": { "type": "Point", "coordinates": [149.01685319359635, -20.23825201487996] },
+                "properties": {
+                    "objectid": 120,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (759)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 121,
+                "geometry": { "type": "Point", "coordinates": [148.88040722250656, -20.040637001767713] },
+                "properties": {
+                    "objectid": 121,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (802)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 122,
+                "geometry": { "type": "Point", "coordinates": [148.88075722235112, -20.04201700180863] },
+                "properties": {
+                    "objectid": 122,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (892)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 123,
+                "geometry": { "type": "Point", "coordinates": [149.0173371934834, -20.239057014927504] },
+                "properties": {
+                    "objectid": 123,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (893)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 124,
+                "geometry": { "type": "Point", "coordinates": [149.01833719354616, -20.237587014999153] },
+                "properties": {
+                    "objectid": 124,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (897)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 125,
+                "geometry": { "type": "Point", "coordinates": [148.92944021575696, -20.0732200061457] },
+                "properties": {
+                    "objectid": 125,
+                    "site": "East Butterfly Bay",
+                    "site_and_mooring_reference_numb": "East Butterfly Bay (794)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 126,
+                "geometry": { "type": "Point", "coordinates": [148.92860721589798, -20.07238700606887] },
+                "properties": {
+                    "objectid": 126,
+                    "site": "East Butterfly Bay",
+                    "site_and_mooring_reference_numb": "East Butterfly Bay (885)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 127,
+                "geometry": { "type": "Point", "coordinates": [148.87995722206531, -20.04571700177309] },
+                "properties": {
+                    "objectid": 127,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (905)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 128,
+                "geometry": { "type": "Point", "coordinates": [151.90987662310897, -23.445987302184875] },
+                "properties": {
+                    "objectid": 128,
+                    "site": "Heron Island",
+                    "site_and_mooring_reference_numb": "Heron Island (248)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 129,
+                "geometry": { "type": "Point", "coordinates": [146.27720757401403, -18.136536782075567] },
+                "properties": {
+                    "objectid": 129,
+                    "site": "Brook Island",
+                    "site_and_mooring_reference_numb": "Brook Island (PM1)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 130,
+                "geometry": { "type": "Point", "coordinates": [146.486827518371, -18.64847680176193] },
+                "properties": {
+                    "objectid": 130,
+                    "site": "Orpheus (South Hazard)",
+                    "site_and_mooring_reference_numb": "Orpheus (805 - South Hazard)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 131,
+                "geometry": { "type": "Point", "coordinates": [146.86855744949756, -19.154836834472377] },
+                "properties": {
+                    "objectid": 131,
+                    "site": "Magnetic Island (Motlke/ Geoffrey Bay)",
+                    "site_and_mooring_reference_numb": "Magnetic Island (Motlke / Geoffrey Bay)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 132,
+                "geometry": { "type": "Point", "coordinates": [146.13490759969324, -17.933886770041195] },
+                "properties": {
+                    "objectid": 132,
+                    "site": "Dunk (West)",
+                    "site_and_mooring_reference_numb": "Dunk (22 - West)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 133,
+                "geometry": { "type": "Point", "coordinates": [145.7764978179612, -15.380496722616991] },
+                "properties": {
+                    "objectid": 133,
+                    "site": "Ribbon #5",
+                    "site_and_mooring_reference_numb": "Ribbon #5 (Inner)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 134,
+                "geometry": { "type": "Point", "coordinates": [145.77480781816297, -15.379066722485394] },
+                "properties": {
+                    "objectid": 134,
+                    "site": "Ribbon #5",
+                    "site_and_mooring_reference_numb": "Ribbon #5 (Outer)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 135,
+                "geometry": { "type": "Point", "coordinates": [145.79782780720703, -15.507786725219962] },
+                "properties": {
+                    "objectid": 135,
+                    "site": "Ribbon #3",
+                    "site_and_mooring_reference_numb": "Ribbon #3 (PM 1)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 136,
+                "geometry": { "type": "Point", "coordinates": [145.79921780735305, -15.50479672529242] },
+                "properties": {
+                    "objectid": 136,
+                    "site": "Ribbon #3",
+                    "site_and_mooring_reference_numb": "Ribbon #3 (PM 2)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 137,
+                "geometry": { "type": "Point", "coordinates": [145.45569781019978, -15.729926703196513] },
+                "properties": {
+                    "objectid": 137,
+                    "site": "East Hope",
+                    "site_and_mooring_reference_numb": "East Hope (30)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 138,
+                "geometry": { "type": "Point", "coordinates": [145.4556078102744, -15.728986703182196] },
+                "properties": {
+                    "objectid": 138,
+                    "site": "East Hope",
+                    "site_and_mooring_reference_numb": "East Hope (31)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 139,
+                "geometry": { "type": "Point", "coordinates": [145.64488777584552, -16.043506719063696] },
+                "properties": {
+                    "objectid": 139,
+                    "site": "Mackay",
+                    "site_and_mooring_reference_numb": "Mackay (2)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 140,
+                "geometry": { "type": "Point", "coordinates": [145.64386777591537, -16.04337671899112] },
+                "properties": {
+                    "objectid": 140,
+                    "site": "Mackay",
+                    "site_and_mooring_reference_numb": "Mackay (3)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 141,
+                "geometry": { "type": "Point", "coordinates": [145.55965775564437, -16.38137671599981] },
+                "properties": {
+                    "objectid": 141,
+                    "site": "Low Isles",
+                    "site_and_mooring_reference_numb": "Low Isles (PM3)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 142,
+                "geometry": { "type": "Point", "coordinates": [145.55887775568036, -16.381526715946727] },
+                "properties": {
+                    "objectid": 142,
+                    "site": "Low Isles",
+                    "site_and_mooring_reference_numb": "Low Isles (PM4)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 143,
+                "geometry": { "type": "Point", "coordinates": [149.0635272304887, -19.809677015177343] },
+                "properties": {
+                    "objectid": 143,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (208)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 144,
+                "geometry": { "type": "Point", "coordinates": [149.06562423008594, -19.812304015376444] },
+                "properties": {
+                    "objectid": 144,
+                    "site": "Bait Reef (Banjora Lagoon)",
+                    "site_and_mooring_reference_numb": "Bait Reef (BR001 - Banjora Lagoon)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 145,
+                "geometry": { "type": "Point", "coordinates": [148.88133722234485, -20.04161700185369] },
+                "properties": {
+                    "objectid": 145,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (941)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 147,
+                "geometry": { "type": "Point", "coordinates": [149.03551720013132, -20.15402701573795] },
+                "properties": {
+                    "objectid": 147,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (975)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 148,
+                "geometry": { "type": "Point", "coordinates": [149.07352318514563, -20.28191702002306] },
+                "properties": {
+                    "objectid": 148,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (944)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 149,
+                "geometry": { "type": "Point", "coordinates": [148.9014172171148, -20.081297003868485] },
+                "properties": {
+                    "objectid": 149,
+                    "site": "Cockatoo Point",
+                    "site_and_mooring_reference_numb": "Cockatoo Point (10)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 150,
+                "geometry": { "type": "Point", "coordinates": [148.95332921220734, -20.0918190083053] },
+                "properties": {
+                    "objectid": 150,
+                    "site": "Crayfish Beach",
+                    "site_and_mooring_reference_numb": "Crayfish Beach (939)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 151,
+                "geometry": { "type": "Point", "coordinates": [148.93097021575332, -20.072028006263768] },
+                "properties": {
+                    "objectid": 151,
+                    "site": "East Butterfly",
+                    "site_and_mooring_reference_numb": "East Butterfly (932)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 152,
+                "geometry": { "type": "Point", "coordinates": [148.95662421491937, -20.06030400831473] },
+                "properties": {
+                    "objectid": 152,
+                    "site": "Mantaray Bay",
+                    "site_and_mooring_reference_numb": "Mantaray Bay (780)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 153,
+                "geometry": { "type": "Point", "coordinates": [148.90627621581763, -20.09122200435895] },
+                "properties": {
+                    "objectid": 153,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (935)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 154,
+                "geometry": { "type": "Point", "coordinates": [148.9784172002465, -20.19874701131546] },
+                "properties": {
+                    "objectid": 154,
+                    "site": "Peter Bay",
+                    "site_and_mooring_reference_numb": "Peter Bay (966)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 155,
+                "geometry": { "type": "Point", "coordinates": [148.940817211742, -20.10683700738353] },
+                "properties": {
+                    "objectid": 155,
+                    "site": "Saba Bay",
+                    "site_and_mooring_reference_numb": "Saba Bay (976)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 156,
+                "geometry": { "type": "Point", "coordinates": [148.8274572040502, -20.280776999379608] },
+                "properties": {
+                    "objectid": 156,
+                    "site": "Sandy Bay",
+                    "site_and_mooring_reference_numb": "Sandy Bay (964)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 157,
+                "geometry": { "type": "Point", "coordinates": [148.90585721486636, -20.101707004412663] },
+                "properties": {
+                    "objectid": 157,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (936)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 158,
+                "geometry": { "type": "Point", "coordinates": [149.01866719344824, -20.23835701503346] },
+                "properties": {
+                    "objectid": 158,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (967)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 159,
+                "geometry": { "type": "Point", "coordinates": [148.9250272163013, -20.070967005757037] },
+                "properties": {
+                    "objectid": 159,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (990)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 160,
+                "geometry": { "type": "Point", "coordinates": [149.4264470953004, -20.932297055539863] },
+                "properties": {
+                    "objectid": 160,
+                    "site": "St Bees (Homestead Bay)",
+                    "site_and_mooring_reference_numb": "St Bees (989 - Homestead Bay)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 161,
+                "geometry": { "type": "Point", "coordinates": [149.60022708828544, -20.863727069935486] },
+                "properties": {
+                    "objectid": 161,
+                    "site": "Scawfell (Refuge Bay)",
+                    "site_and_mooring_reference_numb": "Scawfell (985 - Refuge Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 162,
+                "geometry": { "type": "Point", "coordinates": [149.59314708874936, -20.864677069331062] },
+                "properties": {
+                    "objectid": 162,
+                    "site": "Scawfell (West Refuge Bay)",
+                    "site_and_mooring_reference_numb": "Scawfell (983 - West Refuge Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 163,
+                "geometry": { "type": "Point", "coordinates": [149.14925714217256, -20.67201702971767] },
+                "properties": {
+                    "objectid": 163,
+                    "site": "Goldsmith (Roylen Bay)",
+                    "site_and_mooring_reference_numb": "Goldsmith (981 - Roylen Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 164,
+                "geometry": { "type": "Point", "coordinates": [146.0895476582063, -17.225116760743564] },
+                "properties": {
+                    "objectid": 164,
+                    "site": "Russell - new middle",
+                    "site_and_mooring_reference_numb": "Russell (Middle)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 165,
+                "geometry": { "type": "Point", "coordinates": [146.13751759959422, -17.93291677022141] },
+                "properties": {
+                    "objectid": 165,
+                    "site": "Dunk (East)",
+                    "site_and_mooring_reference_numb": "Dunk (21 - East)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 166,
+                "geometry": { "type": "Point", "coordinates": [146.48682752267496, -18.59538680131302] },
+                "properties": {
+                    "objectid": 166,
+                    "site": "Orpheus Pioneer (northern outer)",
+                    "site_and_mooring_reference_numb": "Orpheus Pioneer (801 - Northern Outer)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 167,
+                "geometry": { "type": "Point", "coordinates": [146.48778752260927, -18.59536680138363] },
+                "properties": {
+                    "objectid": 167,
+                    "site": "Orpheus Pioneer (middle inner)",
+                    "site_and_mooring_reference_numb": "Orpheus Pioneer (802 - Middle Inner)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 168,
+                "geometry": { "type": "Point", "coordinates": [146.48737752257398, -18.5961568013601] },
+                "properties": {
+                    "objectid": 168,
+                    "site": "Orpheus Pioneer (middle outer)",
+                    "site_and_mooring_reference_numb": "Orpheus Pioneer (803 - Middle Outer)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 169,
+                "geometry": { "type": "Point", "coordinates": [146.48892752216148, -18.599906801506012] },
+                "properties": {
+                    "objectid": 169,
+                    "site": "Orpheus Pioneer (southern)",
+                    "site_and_mooring_reference_numb": "Orpheus Pioneer (804 - Southern)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 170,
+                "geometry": { "type": "Point", "coordinates": [147.05249748088684, -18.62217684388098] },
+                "properties": {
+                    "objectid": 170,
+                    "site": "John Brewer Reef",
+                    "site_and_mooring_reference_numb": "John Brewer Reef (27)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 171,
+                "geometry": { "type": "Point", "coordinates": [147.096287472295, -18.688136847773364] },
+                "properties": {
+                    "objectid": 171,
+                    "site": "Lodestone Reef",
+                    "site_and_mooring_reference_numb": "Lodestone Reef (19)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 172,
+                "geometry": { "type": "Point", "coordinates": [147.2665774556558, -18.743596861279837] },
+                "properties": {
+                    "objectid": 172,
+                    "site": "Keeper Reef",
+                    "site_and_mooring_reference_numb": "Keeper Reef (20)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 173,
+                "geometry": { "type": "Point", "coordinates": [146.87810745091264, -19.129576834978415] },
+                "properties": {
+                    "objectid": 173,
+                    "site": "Magnetic Island (Arthur Bay)",
+                    "site_and_mooring_reference_numb": "Magnetic Island (952 - Arthur Bay)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 174,
+                "geometry": { "type": "Point", "coordinates": [146.88229745123277, -19.122106835231012] },
+                "properties": {
+                    "objectid": 174,
+                    "site": "Magnetic Island (Florence Bay outside)",
+                    "site_and_mooring_reference_numb": "Magnetic Island (951 - Florence Bay outside)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 175,
+                "geometry": { "type": "Point", "coordinates": [146.88017745131756, -19.122926835078246] },
+                "properties": {
+                    "objectid": 175,
+                    "site": "Magnetic Island (Florence Bay inside)",
+                    "site_and_mooring_reference_numb": "Magnetic Island (950 - Florence Bay inside)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 176,
+                "geometry": { "type": "Point", "coordinates": [146.88112745127057, -19.1226668351476] },
+                "properties": {
+                    "objectid": 176,
+                    "site": "Magnetic Island (Florence Bay middle)",
+                    "site_and_mooring_reference_numb": "Magnetic Island (949 - Florence Bay middle)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 177,
+                "geometry": { "type": "Point", "coordinates": [150.93375673815729, -23.187857208372566] },
+                "properties": {
+                    "objectid": 177,
+                    "site": "Shelving Beach (GKI)",
+                    "site_and_mooring_reference_numb": "Shelving Beach (232 - GKI)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 178,
+                "geometry": { "type": "Point", "coordinates": [150.9364367372281, -23.19428720867225] },
+                "properties": {
+                    "objectid": 178,
+                    "site": "Monkey Beach (GKI)",
+                    "site_and_mooring_reference_numb": "Monkey Beach (229 - GKI)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 179,
+                "geometry": { "type": "Point", "coordinates": [150.97365673873244, -23.149757211729664] },
+                "properties": {
+                    "objectid": 179,
+                    "site": "Big Peninsula (GKI)",
+                    "site_and_mooring_reference_numb": "Big Peninsula (231 - GKI)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 180,
+                "geometry": { "type": "Point", "coordinates": [151.0715067292641, -23.157447220826867] },
+                "properties": {
+                    "objectid": 180,
+                    "site": "Barren Island (one bum beach)",
+                    "site_and_mooring_reference_numb": "Barren Island (235 - One Bum Beach)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 181,
+                "geometry": { "type": "Point", "coordinates": [150.99159674076495, -23.11620721310507] },
+                "properties": {
+                    "objectid": 181,
+                    "site": "Man and Wife Rocks",
+                    "site_and_mooring_reference_numb": "Man and Wife Rocks (233)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 182,
+                "geometry": { "type": "Point", "coordinates": [150.99268673485238, -23.170157213652452] },
+                "properties": {
+                    "objectid": 182,
+                    "site": "Bald Rock",
+                    "site_and_mooring_reference_numb": "Bald Rock (234)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 183,
+                "geometry": { "type": "Point", "coordinates": [151.074746729253, -23.15490722110559] },
+                "properties": {
+                    "objectid": 183,
+                    "site": "Barren Island (hole in the wall)",
+                    "site_and_mooring_reference_numb": "Barren Island (236 - Hole In The Wall)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 184,
+                "geometry": { "type": "Point", "coordinates": [150.8981367510014, -23.097597204351896] },
+                "properties": {
+                    "objectid": 184,
+                    "site": "Sloping Island",
+                    "site_and_mooring_reference_numb": "Sloping Island (227)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 185,
+                "geometry": { "type": "Point", "coordinates": [150.95198675002095, -23.0625972090121] },
+                "properties": {
+                    "objectid": 185,
+                    "site": "Outer Rock",
+                    "site_and_mooring_reference_numb": "Outer Rock (228)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 186,
+                "geometry": { "type": "Point", "coordinates": [151.69868665934584, -23.289667280732623] },
+                "properties": {
+                    "objectid": 186,
+                    "site": "North West Island",
+                    "site_and_mooring_reference_numb": "North West Island (243)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 187,
+                "geometry": { "type": "Point", "coordinates": [151.72302663011155, -23.532167285055273] },
+                "properties": {
+                    "objectid": 187,
+                    "site": "Mast Head Island",
+                    "site_and_mooring_reference_numb": "Mast Head Island (245)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 188,
+                "geometry": { "type": "Point", "coordinates": [151.91331663895605, -23.3024073013239] },
+                "properties": {
+                    "objectid": 188,
+                    "site": "Wilson Island",
+                    "site_and_mooring_reference_numb": "Wilson Island (246)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 189,
+                "geometry": { "type": "Point", "coordinates": [151.98100661775086, -23.437407308942593] },
+                "properties": {
+                    "objectid": 189,
+                    "site": "Heron Island (Big Bay)",
+                    "site_and_mooring_reference_numb": "Heron Island (247 - Big Bay)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 191,
+                "geometry": { "type": "Point", "coordinates": [152.16101658150703, -23.61520732778731] },
+                "properties": {
+                    "objectid": 191,
+                    "site": "Fitzroy Reef",
+                    "site_and_mooring_reference_numb": "Fitzroy Reef (256)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 192,
+                "geometry": { "type": "Point", "coordinates": [152.39885652683878, -23.90436735332919] },
+                "properties": {
+                    "objectid": 192,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (616)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 193,
+                "geometry": { "type": "Point", "coordinates": [152.70886647401647, -24.115077385582175] },
+                "properties": {
+                    "objectid": 193,
+                    "site": "Lady Elliot Island (South)",
+                    "site_and_mooring_reference_numb": "Lady Elliot Island (501 - South)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 194,
+                "geometry": { "type": "Point", "coordinates": [152.71236647458642, -24.107507385866455] },
+                "properties": {
+                    "objectid": 194,
+                    "site": "Lady Elliot Island (North)",
+                    "site_and_mooring_reference_numb": "Lady Elliot Island (502 - North)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 195,
+                "geometry": { "type": "Point", "coordinates": [151.74316657250958, -24.02847729106529] },
+                "properties": {
+                    "objectid": 195,
+                    "site": "Pancake Creek B1",
+                    "site_and_mooring_reference_numb": "Pancake Creek (250)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 196,
+                "geometry": { "type": "Point", "coordinates": [151.74312657240375, -24.029447291069445] },
+                "properties": {
+                    "objectid": 196,
+                    "site": "Pancake Creek B2",
+                    "site_and_mooring_reference_numb": "Pancake Creek (251)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 197,
+                "geometry": { "type": "Point", "coordinates": [151.7430965723094, -24.03030729107365] },
+                "properties": {
+                    "objectid": 197,
+                    "site": "Pancake Creek B3",
+                    "site_and_mooring_reference_numb": "Pancake Creek (252)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 198,
+                "geometry": { "type": "Point", "coordinates": [151.74303657219755, -24.031347291076475] },
+                "properties": {
+                    "objectid": 198,
+                    "site": "Pancake Creek B4",
+                    "site_and_mooring_reference_numb": "Pancake Creek (253)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 199,
+                "geometry": { "type": "Point", "coordinates": [151.73758657508236, -24.010217290383842] },
+                "properties": {
+                    "objectid": 199,
+                    "site": "Pancake Creek S1",
+                    "site_and_mooring_reference_numb": "Pancake Creek (254)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 200,
+                "geometry": { "type": "Point", "coordinates": [151.7371615750343, -24.010988290349736] },
+                "properties": {
+                    "objectid": 200,
+                    "site": "Pancake Creek S2",
+                    "site_and_mooring_reference_numb": "Pancake Creek (255)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 201,
+                "geometry": { "type": "Point", "coordinates": [149.0638672304127, -19.81021701521059] },
+                "properties": {
+                    "objectid": 201,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (207)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 202,
+                "geometry": { "type": "Point", "coordinates": [149.06361723059683, -19.80845701517457] },
+                "properties": {
+                    "objectid": 202,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (206)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 203,
+                "geometry": { "type": "Point", "coordinates": [149.06329723034295, -19.811407015172655] },
+                "properties": {
+                    "objectid": 203,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (209)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 204,
+                "geometry": { "type": "Point", "coordinates": [149.06351723021658, -19.812577015201136] },
+                "properties": {
+                    "objectid": 204,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (210)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 205,
+                "geometry": { "type": "Point", "coordinates": [148.8814772222978, -20.042007001868726] },
+                "properties": {
+                    "objectid": 205,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (942)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 206,
+                "geometry": { "type": "Point", "coordinates": [148.8812772222624, -20.042547001856594] },
+                "properties": {
+                    "objectid": 206,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (943)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 207,
+                "geometry": { "type": "Point", "coordinates": [148.95604720547854, -20.161207009120602] },
+                "properties": {
+                    "objectid": 207,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (953)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 208,
+                "geometry": { "type": "Point", "coordinates": [148.9562272052655, -20.163327009153626] },
+                "properties": {
+                    "objectid": 208,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (993)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 209,
+                "geometry": { "type": "Point", "coordinates": [148.95613720515192, -20.164607009156917] },
+                "properties": {
+                    "objectid": 209,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (994)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 210,
+                "geometry": { "type": "Point", "coordinates": [148.95622720503974, -20.165727009173956] },
+                "properties": {
+                    "objectid": 210,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (995)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 211,
+                "geometry": { "type": "Point", "coordinates": [148.95667720441952, -20.171957009264382] },
+                "properties": {
+                    "objectid": 211,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (996)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 212,
+                "geometry": { "type": "Point", "coordinates": [148.95676720437038, -20.172407009275734] },
+                "properties": {
+                    "objectid": 212,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (997)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 213,
+                "geometry": { "type": "Point", "coordinates": [148.956097205534, -20.16057700911946] },
+                "properties": {
+                    "objectid": 213,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (952)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 214,
+                "geometry": { "type": "Point", "coordinates": [148.95586720559098, -20.16015700909659] },
+                "properties": {
+                    "objectid": 214,
+                    "site": "Cairn Beach",
+                    "site_and_mooring_reference_numb": "Cairn Beach (963)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 215,
+                "geometry": { "type": "Point", "coordinates": [149.03391120005188, -20.1561580156208] },
+                "properties": {
+                    "objectid": 215,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (946)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 216,
+                "geometry": { "type": "Point", "coordinates": [149.03506720009744, -20.15474701570616] },
+                "properties": {
+                    "objectid": 216,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (962)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 217,
+                "geometry": { "type": "Point", "coordinates": [149.07355718568365, -20.276211019977698] },
+                "properties": {
+                    "objectid": 217,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (950)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 218,
+                "geometry": { "type": "Point", "coordinates": [149.0737791855932, -20.276987020002952] },
+                "properties": {
+                    "objectid": 218,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (951)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 219,
+                "geometry": { "type": "Point", "coordinates": [149.07428718522752, -20.28043702007503] },
+                "properties": {
+                    "objectid": 219,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (949)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 220,
+                "geometry": { "type": "Point", "coordinates": [149.07455718530358, -20.27941702008915] },
+                "properties": {
+                    "objectid": 220,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (948)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 221,
+                "geometry": { "type": "Point", "coordinates": [149.07445718538798, -20.27860702007385] },
+                "properties": {
+                    "objectid": 221,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (947)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 222,
+                "geometry": { "type": "Point", "coordinates": [149.07426718548115, -20.277777020050856] },
+                "properties": {
+                    "objectid": 222,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (972)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 223,
+                "geometry": { "type": "Point", "coordinates": [149.07368718574426, -20.27546701998236] },
+                "properties": {
+                    "objectid": 223,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (973)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 224,
+                "geometry": { "type": "Point", "coordinates": [149.073617185849, -20.274417019967565] },
+                "properties": {
+                    "objectid": 224,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (974)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 225,
+                "geometry": { "type": "Point", "coordinates": [149.07302318515195, -20.282253019983724] },
+                "properties": {
+                    "objectid": 225,
+                    "site": "Chalkies Beach",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (945)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 226,
+                "geometry": { "type": "Point", "coordinates": [148.95411521214385, -20.091862008371574] },
+                "properties": {
+                    "objectid": 226,
+                    "site": "Crayfish Beach",
+                    "site_and_mooring_reference_numb": "Crayfish Beach (940)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 227,
+                "geometry": { "type": "Point", "coordinates": [148.93147921579984, -20.07112400629875] },
+                "properties": {
+                    "objectid": 227,
+                    "site": "East Butterfly",
+                    "site_and_mooring_reference_numb": "East Butterfly (933)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 228,
+                "geometry": { "type": "Point", "coordinates": [148.9318462158583, -20.070206006321715] },
+                "properties": {
+                    "objectid": 228,
+                    "site": "East Butterfly",
+                    "site_and_mooring_reference_numb": "East Butterfly (934)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 229,
+                "geometry": { "type": "Point", "coordinates": [148.93922721547878, -20.06831700692413] },
+                "properties": {
+                    "objectid": 229,
+                    "site": "Maureens Cove",
+                    "site_and_mooring_reference_numb": "Maureens Cove (959)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 230,
+                "geometry": { "type": "Point", "coordinates": [148.93889721543695, -20.06902700690251] },
+                "properties": {
+                    "objectid": 230,
+                    "site": "Maureens Cove",
+                    "site_and_mooring_reference_numb": "Maureens Cove (960)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 231,
+                "geometry": { "type": "Point", "coordinates": [148.9781572003256, -20.198117011288304] },
+                "properties": {
+                    "objectid": 231,
+                    "site": "Peter Bay",
+                    "site_and_mooring_reference_numb": "Peter Bay (965)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 232,
+                "geometry": { "type": "Point", "coordinates": [148.94157721165635, -20.10713700744974] },
+                "properties": {
+                    "objectid": 232,
+                    "site": "Saba Bay",
+                    "site_and_mooring_reference_numb": "Saba Bay (930)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 233,
+                "geometry": { "type": "Point", "coordinates": [148.9399972118378, -20.106477007311764] },
+                "properties": {
+                    "objectid": 233,
+                    "site": "Saba Bay",
+                    "site_and_mooring_reference_numb": "Saba Bay (977)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 234,
+                "geometry": { "type": "Point", "coordinates": [148.94254721155394, -20.10744700753368] },
+                "properties": {
+                    "objectid": 234,
+                    "site": "Saba Bay",
+                    "site_and_mooring_reference_numb": "Saba Bay (931)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 235,
+                "geometry": { "type": "Point", "coordinates": [148.82768720418235, -20.27917699938527] },
+                "properties": {
+                    "objectid": 235,
+                    "site": "Sandy Bay",
+                    "site_and_mooring_reference_numb": "Sandy Bay (957)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 236,
+                "geometry": { "type": "Point", "coordinates": [148.82755720411834, -20.279966999381106] },
+                "properties": {
+                    "objectid": 236,
+                    "site": "Sandy Bay",
+                    "site_and_mooring_reference_numb": "Sandy Bay (958)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 237,
+                "geometry": { "type": "Point", "coordinates": [148.82779720427783, -20.278066999385032] },
+                "properties": {
+                    "objectid": 237,
+                    "site": "Sandy Bay",
+                    "site_and_mooring_reference_numb": "Sandy Bay (955)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 238,
+                "geometry": { "type": "Point", "coordinates": [148.8280672042132, -20.278536999411507] },
+                "properties": {
+                    "objectid": 238,
+                    "site": "Sandy Bay",
+                    "site_and_mooring_reference_numb": "Sandy Bay (956)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 239,
+                "geometry": { "type": "Point", "coordinates": [148.90644521488557, -20.10102800445612] },
+                "properties": {
+                    "objectid": 239,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (938)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 240,
+                "geometry": { "type": "Point", "coordinates": [148.90489421489775, -20.102148004335852] },
+                "properties": {
+                    "objectid": 240,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (937)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 241,
+                "geometry": { "type": "Point", "coordinates": [149.01811719342123, -20.239087014993352] },
+                "properties": {
+                    "objectid": 241,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (968)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 242,
+                "geometry": { "type": "Point", "coordinates": [149.01784719337948, -20.2397470149762] },
+                "properties": {
+                    "objectid": 242,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (969)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 243,
+                "geometry": { "type": "Point", "coordinates": [149.0161671934271, -20.240597014842077] },
+                "properties": {
+                    "objectid": 243,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (970)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 244,
+                "geometry": { "type": "Point", "coordinates": [149.01602719350385, -20.239897014824397] },
+                "properties": {
+                    "objectid": 244,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (971)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 245,
+                "geometry": { "type": "Point", "coordinates": [149.0162771935595, -20.239107014838737] },
+                "properties": {
+                    "objectid": 245,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (761)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 246,
+                "geometry": { "type": "Point", "coordinates": [149.01690119342754, -20.24000101489881] },
+                "properties": {
+                    "objectid": 246,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (760)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 247,
+                "geometry": { "type": "Point", "coordinates": [149.01736719363225, -20.2374570149165] },
+                "properties": {
+                    "objectid": 247,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (758)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 248,
+                "geometry": { "type": "Point", "coordinates": [149.01520919365683, -20.23893701474744] },
+                "properties": {
+                    "objectid": 248,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (762)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 249,
+                "geometry": { "type": "Point", "coordinates": [149.01590119368362, -20.238096014798547] },
+                "properties": {
+                    "objectid": 249,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (763)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 250,
+                "geometry": { "type": "Point", "coordinates": [148.92419721615946, -20.07314700570599] },
+                "properties": {
+                    "objectid": 250,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (961)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 251,
+                "geometry": { "type": "Point", "coordinates": [148.9247472162183, -20.072077005742965] },
+                "properties": {
+                    "objectid": 251,
+                    "site": "West Butterfly Bay",
+                    "site_and_mooring_reference_numb": "West Butterfly Bay (929)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 252,
+                "geometry": { "type": "Point", "coordinates": [149.42670709536057, -20.93146705555518] },
+                "properties": {
+                    "objectid": 252,
+                    "site": "St Bees (Homestead Bay)",
+                    "site_and_mooring_reference_numb": "St Bees (988 - Homestead Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 253,
+                "geometry": { "type": "Point", "coordinates": [149.4267970954429, -20.930547055555138] },
+                "properties": {
+                    "objectid": 253,
+                    "site": "St Bees (Homestead Bay)",
+                    "site_and_mooring_reference_numb": "St Bees (987 - Homestead Bay)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 254,
+                "geometry": { "type": "Point", "coordinates": [149.42714709550685, -20.92960505557724] },
+                "properties": {
+                    "objectid": 254,
+                    "site": "St Bees (Homestead Bay)",
+                    "site_and_mooring_reference_numb": "St Bees (986 - Homestead Bay)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 255,
+                "geometry": { "type": "Point", "coordinates": [149.60173708831263, -20.862237070053556] },
+                "properties": {
+                    "objectid": 255,
+                    "site": "Scawfell (Refuge Bay)",
+                    "site_and_mooring_reference_numb": "Scawfell (984 - Refuge Bay)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 256,
+                "geometry": { "type": "Point", "coordinates": [149.5922770888531, -20.864317069252788] },
+                "properties": {
+                    "objectid": 256,
+                    "site": "Scawfell (West Refuge Bay)",
+                    "site_and_mooring_reference_numb": "Scawfell (982 - West Refuge Bay)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 257,
+                "geometry": { "type": "Point", "coordinates": [149.15085714230298, -20.669347029830643] },
+                "properties": {
+                    "objectid": 257,
+                    "site": "Goldsmith (Roylen Bay)",
+                    "site_and_mooring_reference_numb": "Goldsmith (980 - Roylen Bay)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 258,
+                "geometry": { "type": "Point", "coordinates": [147.05614748085677, -18.61948684413568] },
+                "properties": {
+                    "objectid": 258,
+                    "site": "John Brewer Reef",
+                    "site_and_mooring_reference_numb": "John Brewer Reef (25)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 259,
+                "geometry": { "type": "Point", "coordinates": [150.93619673718578, -23.194877208655036] },
+                "properties": {
+                    "objectid": 259,
+                    "site": "Monkey Beach (GKI)",
+                    "site_and_mooring_reference_numb": "Monkey Beach (230 - GKI)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 260,
+                "geometry": { "type": "Point", "coordinates": [151.7184666583717, -23.282717282555218] },
+                "properties": {
+                    "objectid": 260,
+                    "site": "North West Island",
+                    "site_and_mooring_reference_numb": "North West Island (244)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 261,
+                "geometry": { "type": "Point", "coordinates": [152.15988658166185, -23.614737327673957] },
+                "properties": {
+                    "objectid": 261,
+                    "site": "Fitzroy Reef",
+                    "site_and_mooring_reference_numb": "Fitzroy Reef (257)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 262,
+                "geometry": { "type": "Point", "coordinates": [152.1617365814026, -23.61555732785992] },
+                "properties": {
+                    "objectid": 262,
+                    "site": "Fitzroy Reef",
+                    "site_and_mooring_reference_numb": "Fitzroy Reef (258)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 263,
+                "geometry": { "type": "Point", "coordinates": [152.39899652675086, -23.90501735334826] },
+                "properties": {
+                    "objectid": 263,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (617)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 264,
+                "geometry": { "type": "Point", "coordinates": [152.40216652648758, -23.904807353656647] },
+                "properties": {
+                    "objectid": 264,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (618)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 265,
+                "geometry": { "type": "Point", "coordinates": [152.40149652650206, -23.905207353594363] },
+                "properties": {
+                    "objectid": 265,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (619)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 266,
+                "geometry": { "type": "Point", "coordinates": [152.40080652659594, -23.904937353524623] },
+                "properties": {
+                    "objectid": 266,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (620)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 267,
+                "geometry": { "type": "Point", "coordinates": [152.40800652766612, -23.89004735410613] },
+                "properties": {
+                    "objectid": 267,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (621)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 268,
+                "geometry": { "type": "Point", "coordinates": [152.40157652661173, -23.904197353593897] },
+                "properties": {
+                    "objectid": 268,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (622)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 269,
+                "geometry": { "type": "Point", "coordinates": [152.40373252651705, -23.903325353797598] },
+                "properties": {
+                    "objectid": 269,
+                    "site": "Lady Musgrave",
+                    "site_and_mooring_reference_numb": "Lady Musgrave (623)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 270,
+                "geometry": { "type": "Point", "coordinates": [147.6225073820395, -19.304653893672437] },
+                "properties": {
+                    "objectid": 270,
+                    "site": "Yongala",
+                    "site_and_mooring_reference_numb": "Yongala (901)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 271,
+                "geometry": { "type": "Point", "coordinates": [147.6219273820718, -19.30476689362792] },
+                "properties": {
+                    "objectid": 271,
+                    "site": "Yongala",
+                    "site_and_mooring_reference_numb": "Yongala (902)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 272,
+                "geometry": { "type": "Point", "coordinates": [147.62152438213997, -19.304319893592535] },
+                "properties": {
+                    "objectid": 272,
+                    "site": "Yongala",
+                    "site_and_mooring_reference_numb": "Yongala (903)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 273,
+                "geometry": { "type": "Point", "coordinates": [147.62142438223557, -19.30330389357611] },
+                "properties": {
+                    "objectid": 273,
+                    "site": "Yongala",
+                    "site_and_mooring_reference_numb": "Yongala (904)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 274,
+                "geometry": { "type": "Point", "coordinates": [147.62189038215246, -19.30386989361742] },
+                "properties": {
+                    "objectid": 274,
+                    "site": "Yongala",
+                    "site_and_mooring_reference_numb": "Yongala (905)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 275,
+                "geometry": { "type": "Point", "coordinates": [148.92184721673448, -20.068907005473278] },
+                "properties": {
+                    "objectid": 275,
+                    "site": "West Butterfly Keyhole North",
+                    "site_and_mooring_reference_numb": "West Butterfly Keyhole North (128)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 276,
+                "geometry": { "type": "Point", "coordinates": [148.92159721672138, -20.069247005455228] },
+                "properties": {
+                    "objectid": 276,
+                    "site": "West Butterfly Keyhole South",
+                    "site_and_mooring_reference_numb": "West Butterfly Keyhole South (129)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 277,
+                "geometry": { "type": "Point", "coordinates": [149.01756719334227, -20.240367014957915] },
+                "properties": {
+                    "objectid": 277,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (36)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 278,
+                "geometry": { "type": "Point", "coordinates": [149.0182571932991, -20.240267015015085] },
+                "properties": {
+                    "objectid": 278,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (37)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 279,
+                "geometry": { "type": "Point", "coordinates": [149.01849719334123, -20.23962701502989] },
+                "properties": {
+                    "objectid": 279,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (38)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 280,
+                "geometry": { "type": "Point", "coordinates": [149.01876719338114, -20.238987015047226] },
+                "properties": {
+                    "objectid": 280,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (39)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 281,
+                "geometry": { "type": "Point", "coordinates": [148.95708721490763, -20.060057008351464] },
+                "properties": {
+                    "objectid": 281,
+                    "site": "Mantaray Bay",
+                    "site_and_mooring_reference_numb": "Mantaray Bay (26)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 282,
+                "geometry": { "type": "Point", "coordinates": [148.9006872174764, -20.07802700377969] },
+                "properties": {
+                    "objectid": 282,
+                    "site": "Cockatoo Point Nth",
+                    "site_and_mooring_reference_numb": "Cockatoo Point Nth (17)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 283,
+                "geometry": { "type": "Point", "coordinates": [148.90076721754346, -20.077247003779828] },
+                "properties": {
+                    "objectid": 283,
+                    "site": "Cockatoo Point Nth",
+                    "site_and_mooring_reference_numb": "Cockatoo Point Nth (18)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 284,
+                "geometry": { "type": "Point", "coordinates": [148.9021372169227, -20.08276700394113] },
+                "properties": {
+                    "objectid": 284,
+                    "site": "Cockatoo Point Sth",
+                    "site_and_mooring_reference_numb": "Cockatoo Point Sth (19)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 285,
+                "geometry": { "type": "Point", "coordinates": [148.9026272168192, -20.083477003988108] },
+                "properties": {
+                    "objectid": 285,
+                    "site": "Cockatoo Point Sth",
+                    "site_and_mooring_reference_numb": "Cockatoo Point Sth (20)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 286,
+                "geometry": { "type": "Point", "coordinates": [148.8816572184216, -20.083277002233185] },
+                "properties": {
+                    "objectid": 286,
+                    "site": "Langford",
+                    "site_and_mooring_reference_numb": "Langford (21)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 287,
+                "geometry": { "type": "Point", "coordinates": [148.88193721837516, -20.08354700225887] },
+                "properties": {
+                    "objectid": 287,
+                    "site": "Langford",
+                    "site_and_mooring_reference_numb": "Langford (22)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 288,
+                "geometry": { "type": "Point", "coordinates": [148.87682721910372, -20.079887001800888] },
+                "properties": {
+                    "objectid": 288,
+                    "site": "Langford",
+                    "site_and_mooring_reference_numb": "Langford (23)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 289,
+                "geometry": { "type": "Point", "coordinates": [148.83035720626629, -20.25473699940136] },
+                "properties": {
+                    "objectid": 289,
+                    "site": "South Mole - Paddle Bay North",
+                    "site_and_mooring_reference_numb": "South Mole - Paddle Bay North (41)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 290,
+                "geometry": { "type": "Point", "coordinates": [148.83000720624995, -20.2551969993761] },
+                "properties": {
+                    "objectid": 290,
+                    "site": "South Mole - Paddle Bay South",
+                    "site_and_mooring_reference_numb": "South Mole - Paddle Bay South (42)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 291,
+                "geometry": { "type": "Point", "coordinates": [148.85017720360264, -20.267017001158255] },
+                "properties": {
+                    "objectid": 291,
+                    "site": "Planton Island",
+                    "site_and_mooring_reference_numb": "Planton Island (28)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 292,
+                "geometry": { "type": "Point", "coordinates": [149.07051718369993, -20.29959701991907] },
+                "properties": {
+                    "objectid": 292,
+                    "site": "Teague Island",
+                    "site_and_mooring_reference_numb": "Teague Island (34)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 293,
+                "geometry": { "type": "Point", "coordinates": [149.06964718372188, -20.300067019849667] },
+                "properties": {
+                    "objectid": 293,
+                    "site": "Teague Island",
+                    "site_and_mooring_reference_numb": "Teague Island (35)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 294,
+                "geometry": { "type": "Point", "coordinates": [148.9507372131059, -20.08433700802463] },
+                "properties": {
+                    "objectid": 294,
+                    "site": "Mackeral Keyhole North",
+                    "site_and_mooring_reference_numb": "Mackeral Keyhole North (24)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 295,
+                "geometry": { "type": "Point", "coordinates": [148.95093721276584, -20.087797008070638] },
+                "properties": {
+                    "objectid": 295,
+                    "site": "Mackeral Keyhole South",
+                    "site_and_mooring_reference_numb": "Mackeral Keyhole South (25)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 296,
+                "geometry": { "type": "Point", "coordinates": [148.8948172178971, -20.078267003290826] },
+                "properties": {
+                    "objectid": 296,
+                    "site": "Black Island east",
+                    "site_and_mooring_reference_numb": "Black Island East (12)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 297,
+                "geometry": { "type": "Point", "coordinates": [148.8950872175994, -20.081227003338494] },
+                "properties": {
+                    "objectid": 297,
+                    "site": "Black Island east",
+                    "site_and_mooring_reference_numb": "Black Island East (13)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 298,
+                "geometry": { "type": "Point", "coordinates": [148.8946772172668, -20.08510700333704] },
+                "properties": {
+                    "objectid": 298,
+                    "site": "Black Island east",
+                    "site_and_mooring_reference_numb": "Black Island East (14)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 299,
+                "geometry": { "type": "Point", "coordinates": [149.0726671851437, -20.282627019956887] },
+                "properties": {
+                    "objectid": 299,
+                    "site": "Chalkies Beach ",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (16)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 300,
+                "geometry": { "type": "Point", "coordinates": [148.9423772112202, -20.111137007550678] },
+                "properties": {
+                    "objectid": 300,
+                    "site": "Saba Keyhole 1 South",
+                    "site_and_mooring_reference_numb": "Saba Keyhole 1 South (29)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 301,
+                "geometry": { "type": "Point", "coordinates": [148.941487211294, -20.111067007475494] },
+                "properties": {
+                    "objectid": 301,
+                    "site": "Saba Keyhole 2 South",
+                    "site_and_mooring_reference_numb": "Saba Keyhole 2 South (30)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 302,
+                "geometry": { "type": "Point", "coordinates": [148.94145721160433, -20.107787007445197] },
+                "properties": {
+                    "objectid": 302,
+                    "site": "Saba Keyhole 1 North",
+                    "site_and_mooring_reference_numb": "Saba Keyhole 1 North (31)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 303,
+                "geometry": { "type": "Point", "coordinates": [148.9408972116702, -20.107537007396157] },
+                "properties": {
+                    "objectid": 303,
+                    "site": "Saba Keyhole 2 North",
+                    "site_and_mooring_reference_numb": "Saba Keyhole 2 North (32)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 304,
+                "geometry": { "type": "Point", "coordinates": [148.94020721177876, -20.10693700733323] },
+                "properties": {
+                    "objectid": 304,
+                    "site": "Saba Keyhole 3 North",
+                    "site_and_mooring_reference_numb": "Saba Keyhole 3 North (33)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 305,
+                "geometry": { "type": "Point", "coordinates": [149.01768719302046, -20.243677014996006] },
+                "properties": {
+                    "objectid": 305,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (40)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 306,
+                "geometry": { "type": "Point", "coordinates": [146.49039751859124, -18.642666801975846] },
+                "properties": {
+                    "objectid": 306,
+                    "site": "Orpheus (South Hazard)",
+                    "site_and_mooring_reference_numb": "Orpheus (806 - South Hazard)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 307,
+                "geometry": { "type": "Point", "coordinates": [146.48584751815602, -18.65197680171928] },
+                "properties": {
+                    "objectid": 307,
+                    "site": "Orpheus (Yanks Jetty)",
+                    "site_and_mooring_reference_numb": "Orpheus (807 - Yanks Jetty)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 308,
+                "geometry": { "type": "Point", "coordinates": [146.48634751802112, -18.653206801766537] },
+                "properties": {
+                    "objectid": 308,
+                    "site": "Orpheus (Yanks Jetty)",
+                    "site_and_mooring_reference_numb": "Orpheus (808 - Yanks Jetty)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 309,
+                "geometry": { "type": "Point", "coordinates": [149.01784719351076, -20.23835701496448] },
+                "properties": {
+                    "objectid": 309,
+                    "site": "Tongue Bay",
+                    "site_and_mooring_reference_numb": "Tongue Bay (900)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 310,
+                "geometry": { "type": "Point", "coordinates": [146.49309752694086, -18.537326801284017] },
+                "properties": {
+                    "objectid": 310,
+                    "site": "Pelorus Island",
+                    "site_and_mooring_reference_numb": "Pelorus Island (809)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 311,
+                "geometry": { "type": "Point", "coordinates": [146.48817752673028, -18.54416680097925] },
+                "properties": {
+                    "objectid": 311,
+                    "site": "Pelorus Island",
+                    "site_and_mooring_reference_numb": "Pelorus Island (812)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 312,
+                "geometry": { "type": "Point", "coordinates": [146.4878375259456, -18.554146801038666] },
+                "properties": {
+                    "objectid": 312,
+                    "site": "Pelorus Island",
+                    "site_and_mooring_reference_numb": "Pelorus Island (815)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 313,
+                "geometry": { "type": "Point", "coordinates": [146.48798752229786, -18.599036801429406] },
+                "properties": {
+                    "objectid": 313,
+                    "site": "Orpheus Pioneer",
+                    "site_and_mooring_reference_numb": "Orpheus Pioneer (811)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 314,
+                "geometry": { "type": "Point", "coordinates": [146.48726751855256, -18.645856801772158] },
+                "properties": {
+                    "objectid": 314,
+                    "site": "Orpheus (South Hazard)",
+                    "site_and_mooring_reference_numb": "Orpheus (813 - South Hazard)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 315,
+                "geometry": { "type": "Point", "coordinates": [146.5089975159056, -18.659646803491015] },
+                "properties": {
+                    "objectid": 315,
+                    "site": "Fantome Island",
+                    "site_and_mooring_reference_numb": "Fantome Island (810)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 316,
+                "geometry": { "type": "Point", "coordinates": [146.54111751357436, -18.660536805870446] },
+                "properties": {
+                    "objectid": 316,
+                    "site": "Curacao Island",
+                    "site_and_mooring_reference_numb": "Curacao Island (814)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 317,
+                "geometry": { "type": "Point", "coordinates": [147.06998748030156, -18.614566845146552] },
+                "properties": {
+                    "objectid": 317,
+                    "site": "John Brewer Reef",
+                    "site_and_mooring_reference_numb": "John Brewer Reef (23)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 318,
+                "geometry": { "type": "Point", "coordinates": [147.06898748035127, -18.61480684507254] },
+                "properties": {
+                    "objectid": 318,
+                    "site": "John Brewer Reef",
+                    "site_and_mooring_reference_numb": "John Brewer Reef (24)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 319,
+                "geometry": { "type": "Point", "coordinates": [147.1063774718439, -18.68507684851647] },
+                "properties": {
+                    "objectid": 319,
+                    "site": "Lodestone Reef",
+                    "site_and_mooring_reference_numb": "Lodestone Reef (18)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 320,
+                "geometry": { "type": "Point", "coordinates": [147.26443745565967, -18.745326861129964] },
+                "properties": {
+                    "objectid": 320,
+                    "site": "Keeper Reef",
+                    "site_and_mooring_reference_numb": "Keeper Reef (17)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 321,
+                "geometry": { "type": "Point", "coordinates": [147.63490742227626, -18.830456890622315] },
+                "properties": {
+                    "objectid": 321,
+                    "site": "Davies Reef",
+                    "site_and_mooring_reference_numb": "Davies Reef (16)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 322,
+                "geometry": { "type": "Point", "coordinates": [147.63734742224005, -18.82888689080037] },
+                "properties": {
+                    "objectid": 322,
+                    "site": "Davies Reef",
+                    "site_and_mooring_reference_numb": "Davies Reef (15)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 323,
+                "geometry": { "type": "Point", "coordinates": [148.89413721505983, -20.109097003494917] },
+                "properties": {
+                    "objectid": 323,
+                    "site": "Baird Point",
+                    "site_and_mooring_reference_numb": "Baird Point (43)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 324,
+                "geometry": { "type": "Point", "coordinates": [148.89551721502016, -20.10840700360451] },
+                "properties": {
+                    "objectid": 324,
+                    "site": "Baird Point",
+                    "site_and_mooring_reference_numb": "Baird Point (44)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 325,
+                "geometry": { "type": "Point", "coordinates": [148.8966972150265, -20.10738700369452] },
+                "properties": {
+                    "objectid": 325,
+                    "site": "Baird Point",
+                    "site_and_mooring_reference_numb": "Baird Point (45)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 326,
+                "geometry": { "type": "Point", "coordinates": [148.89781721503178, -20.106427003780084] },
+                "properties": {
+                    "objectid": 326,
+                    "site": "Baird Point",
+                    "site_and_mooring_reference_numb": "Baird Point (46)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 327,
+                "geometry": { "type": "Point", "coordinates": [148.88962721806035, -20.080707002877535] },
+                "properties": {
+                    "objectid": 327,
+                    "site": "Black Island",
+                    "site_and_mooring_reference_numb": "Black Island (47)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 328,
+                "geometry": { "type": "Point", "coordinates": [148.8788372220318, -20.046977001690188] },
+                "properties": {
+                    "objectid": 328,
+                    "site": "Blue Pearl Bay",
+                    "site_and_mooring_reference_numb": "Blue Pearl Bay (48)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 329,
+                "geometry": { "type": "Point", "coordinates": [149.03486720002203, -20.155707015697477] },
+                "properties": {
+                    "objectid": 329,
+                    "site": "Cateran Bay",
+                    "site_and_mooring_reference_numb": "Cateran Bay (49)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 330,
+                "geometry": { "type": "Point", "coordinates": [149.07279718604326, -20.273027019886673] },
+                "properties": {
+                    "objectid": 330,
+                    "site": "Chalkies Beach ",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (50)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 331,
+                "geometry": { "type": "Point", "coordinates": [149.0728391859659, -20.273810019896796] },
+                "properties": {
+                    "objectid": 331,
+                    "site": "Chalkies Beach ",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (51)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 332,
+                "geometry": { "type": "Point", "coordinates": [149.07269718613335, -20.272157019870864] },
+                "properties": {
+                    "objectid": 332,
+                    "site": "Chalkies Beach ",
+                    "site_and_mooring_reference_numb": "Chalkies Beach (52)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 333,
+                "geometry": { "type": "Point", "coordinates": [148.90045721735322, -20.07952700377318] },
+                "properties": {
+                    "objectid": 333,
+                    "site": "Cockatoo Point",
+                    "site_and_mooring_reference_numb": "Cockatoo Point (53)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 334,
+                "geometry": { "type": "Point", "coordinates": [148.9007872172758, -20.080087003805524] },
+                "properties": {
+                    "objectid": 334,
+                    "site": "Cockatoo Point",
+                    "site_and_mooring_reference_numb": "Cockatoo Point (54)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 335,
+                "geometry": { "type": "Point", "coordinates": [148.90215721679476, -20.08411700395424] },
+                "properties": {
+                    "objectid": 335,
+                    "site": "Cockatoo Point",
+                    "site_and_mooring_reference_numb": "Cockatoo Point (55)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 336,
+                "geometry": { "type": "Point", "coordinates": [148.92981721587418, -20.071668006164135] },
+                "properties": {
+                    "objectid": 336,
+                    "site": "East Butterfly Bay",
+                    "site_and_mooring_reference_numb": "East Butterfly Bay (56)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 337,
+                "geometry": { "type": "Point", "coordinates": [148.9303772158779, -20.07117700620688] },
+                "properties": {
+                    "objectid": 337,
+                    "site": "East Butterfly Bay",
+                    "site_and_mooring_reference_numb": "East Butterfly Bay (57)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 338,
+                "geometry": { "type": "Point", "coordinates": [148.93849721560426, -20.067567006856628] },
+                "properties": {
+                    "objectid": 338,
+                    "site": "Maureens Cove ",
+                    "site_and_mooring_reference_numb": "Maureens Cove (58)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 339,
+                "geometry": { "type": "Point", "coordinates": [148.90380721646667, -20.086287004110616] },
+                "properties": {
+                    "objectid": 339,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (59)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 340,
+                "geometry": { "type": "Point", "coordinates": [148.90462721629788, -20.087427004188882] },
+                "properties": {
+                    "objectid": 340,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (60)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 341,
+                "geometry": { "type": "Point", "coordinates": [148.90498721613102, -20.088917004231615] },
+                "properties": {
+                    "objectid": 341,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (61)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 342,
+                "geometry": { "type": "Point", "coordinates": [148.9050672160669, -20.089537004243578] },
+                "properties": {
+                    "objectid": 342,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (62)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 343,
+                "geometry": { "type": "Point", "coordinates": [148.90539721617034, -20.08816700425959] },
+                "properties": {
+                    "objectid": 343,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (63)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 344,
+                "geometry": { "type": "Point", "coordinates": [148.9054172158605, -20.091457004289094] },
+                "properties": {
+                    "objectid": 344,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (65)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 345,
+                "geometry": { "type": "Point", "coordinates": [148.9053072157872, -20.092327004287284] },
+                "properties": {
+                    "objectid": 345,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (66)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 346,
+                "geometry": { "type": "Point", "coordinates": [148.9061272156878, -20.092727004359222] },
+                "properties": {
+                    "objectid": 346,
+                    "site": "Northern Stonehaven",
+                    "site_and_mooring_reference_numb": "Northern Stonehaven (64)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 347,
+                "geometry": { "type": "Point", "coordinates": [148.82704720400184, -20.28162699935263] },
+                "properties": {
+                    "objectid": 347,
+                    "site": "Sandy Bay",
+                    "site_and_mooring_reference_numb": "Sandy Bay (67)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 348,
+                "geometry": { "type": "Point", "coordinates": [148.90325721505258, -20.101817004196086] },
+                "properties": {
+                    "objectid": 348,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (68)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 349,
+                "geometry": { "type": "Point", "coordinates": [148.90349721497478, -20.10245300422153] },
+                "properties": {
+                    "objectid": 349,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (69)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 350,
+                "geometry": { "type": "Point", "coordinates": [148.90410721502394, -20.101437004263975] },
+                "properties": {
+                    "objectid": 350,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (70)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 351,
+                "geometry": { "type": "Point", "coordinates": [148.9047432150246, -20.100917004312777] },
+                "properties": {
+                    "objectid": 351,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (71)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 352,
+                "geometry": { "type": "Point", "coordinates": [148.9050872150474, -20.100397004337157] },
+                "properties": {
+                    "objectid": 352,
+                    "site": "Southern Stonehaven",
+                    "site_and_mooring_reference_numb": "Southern Stonehaven (72)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 353,
+                "geometry": { "type": "Point", "coordinates": [150.91943974221684, -23.1618872068413] },
+                "properties": {
+                    "objectid": 353,
+                    "site": "Middle Island-Olive Point",
+                    "site_and_mooring_reference_numb": "Middle Island-Olive Point (278)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 354,
+                "geometry": { "type": "Point", "coordinates": [150.9650867327788, -23.21203721145598] },
+                "properties": {
+                    "objectid": 354,
+                    "site": "Humpy Island",
+                    "site_and_mooring_reference_numb": "Humpy Island (277)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 355,
+                "geometry": { "type": "Point", "coordinates": [151.774273657677, -23.24478728755375] },
+                "properties": {
+                    "objectid": 355,
+                    "site": "Tryon Island",
+                    "site_and_mooring_reference_numb": "Tryon Island (308)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 356,
+                "geometry": { "type": "Point", "coordinates": [151.92733964249868, -23.2598753023156] },
+                "properties": {
+                    "objectid": 356,
+                    "site": "Broomfield Reef ",
+                    "site_and_mooring_reference_numb": "Broomfield Reef (305)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 357,
+                "geometry": { "type": "Point", "coordinates": [151.72206663019475, -23.532192284964157] },
+                "properties": {
+                    "objectid": 357,
+                    "site": "Mast Head Island ",
+                    "site_and_mooring_reference_numb": "Mast Head Island (307)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 358,
+                "geometry": { "type": "Point", "coordinates": [151.9797826178117, -23.43783130882838] },
+                "properties": {
+                    "objectid": 358,
+                    "site": "Heron Island-Big Bay",
+                    "site_and_mooring_reference_numb": "Heron Island-Big Bay (306)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 359,
+                "geometry": { "type": "Point", "coordinates": [151.89561462394718, -23.449815300849796] },
+                "properties": {
+                    "objectid": 359,
+                    "site": "Wistari Reef",
+                    "site_and_mooring_reference_numb": "Wistari Reef (309)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 360,
+                "geometry": { "type": "Point", "coordinates": [151.89783962378255, -23.449519301060523] },
+                "properties": {
+                    "objectid": 360,
+                    "site": "Wistari Reef",
+                    "site_and_mooring_reference_numb": "Wistari Reef (310)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 361,
+                "geometry": { "type": "Point", "coordinates": [151.89718362387657, -23.449202300995047] },
+                "properties": {
+                    "objectid": 361,
+                    "site": "Wistari Reef",
+                    "site_and_mooring_reference_numb": "Wistari Reef (311)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 362,
+                "geometry": { "type": "Point", "coordinates": [152.4027295266296, -23.90313835369796] },
+                "properties": {
+                    "objectid": 362,
+                    "site": "Lady Musgrave Island",
+                    "site_and_mooring_reference_numb": "Lady Musgrave Island (624)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 363,
+                "geometry": { "type": "Point", "coordinates": [152.39955652672094, -23.90483735340154] },
+                "properties": {
+                    "objectid": 363,
+                    "site": "Lady Musgrave Island",
+                    "site_and_mooring_reference_numb": "Lady Musgrave Island (625)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 364,
+                "geometry": { "type": "Point", "coordinates": [152.4026735263686, -23.905437353711445] },
+                "properties": {
+                    "objectid": 364,
+                    "site": "Lady Musgrave Island",
+                    "site_and_mooring_reference_numb": "Lady Musgrave Island (626)",
+                    "mooring_class": "B"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 365,
+                "geometry": { "type": "Point", "coordinates": [152.40305852646023, -23.90434435374006] },
+                "properties": {
+                    "objectid": 365,
+                    "site": "Lady Musgrave Island",
+                    "site_and_mooring_reference_numb": "Lady Musgrave Island (627)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 366,
+                "geometry": { "type": "Point", "coordinates": [152.40432352633272, -23.90445435386474] },
+                "properties": {
+                    "objectid": 366,
+                    "site": "Lady Musgrave Island",
+                    "site_and_mooring_reference_numb": "Lady Musgrave Island (628)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 367,
+                "geometry": { "type": "Point", "coordinates": [152.3912185277691, -23.90231735256527] },
+                "properties": {
+                    "objectid": 367,
+                    "site": "Lady Musgrave Island",
+                    "site_and_mooring_reference_numb": "Lady Musgrave Island (629)",
+                    "mooring_class": "D"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 781,
+                "geometry": { "type": "Point", "coordinates": [149.06315723048888, -19.809967015148622] },
+                "properties": {
+                    "objectid": 781,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (211)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 782,
+                "geometry": { "type": "Point", "coordinates": [149.0643272300774, -19.81341701527659] },
+                "properties": {
+                    "objectid": 782,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (213)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 784,
+                "geometry": { "type": "Point", "coordinates": [153.55480598757163, -27.39158749729242] },
+                "properties": {
+                    "objectid": 784,
+                    "site": "Flat Rock",
+                    "site_and_mooring_reference_numb": "Flat Rock (4)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 785,
+                "geometry": { "type": "Point", "coordinates": [153.48800604707245, -26.98158748720543] },
+                "properties": {
+                    "objectid": 785,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (5)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 786,
+                "geometry": { "type": "Point", "coordinates": [153.49040604735637, -26.977387487417246] },
+                "properties": {
+                    "objectid": 786,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (7)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 787,
+                "geometry": { "type": "Point", "coordinates": [153.48400604798672, -26.977687486765724] },
+                "properties": {
+                    "objectid": 787,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (9)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 788,
+                "geometry": { "type": "Point", "coordinates": [153.4835060480135, -26.97788748671624] },
+                "properties": {
+                    "objectid": 788,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (11)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 789,
+                "geometry": { "type": "Point", "coordinates": [153.48650604805658, -26.97508748700044] },
+                "properties": {
+                    "objectid": 789,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (13)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 790,
+                "geometry": { "type": "Point", "coordinates": [153.486006048007, -26.975887486955745] },
+                "properties": {
+                    "objectid": 790,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (15)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 791,
+                "geometry": { "type": "Point", "coordinates": [152.8125063727789, -24.887487402208155] },
+                "properties": {
+                    "objectid": 791,
+                    "site": "Ex HMAS Tobruk",
+                    "site_and_mooring_reference_numb": "Ex HMAS Tobruk (21)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 792,
+                "geometry": { "type": "Point", "coordinates": [146.17738761734716, -17.673811770902727] },
+                "properties": {
+                    "objectid": 792,
+                    "site": "Kent Island",
+                    "site_and_mooring_reference_numb": "Kent Island",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1181,
+                "geometry": { "type": "Point", "coordinates": [149.06330723041654, -19.810617015166788] },
+                "properties": {
+                    "objectid": 1181,
+                    "site": "Bait Reef",
+                    "site_and_mooring_reference_numb": "Bait Reef (212)",
+                    "mooring_class": "T"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1182,
+                "geometry": { "type": "Point", "coordinates": [153.55060598805707, -27.391287496859754] },
+                "properties": {
+                    "objectid": 1182,
+                    "site": "Flat Rock",
+                    "site_and_mooring_reference_numb": "Flat Rock (2)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1183,
+                "geometry": { "type": "Point", "coordinates": [153.55470598746643, -27.392487497289245] },
+                "properties": {
+                    "objectid": 1183,
+                    "site": "Flat Rock",
+                    "site_and_mooring_reference_numb": "Flat Rock (3)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1184,
+                "geometry": { "type": "Point", "coordinates": [153.48820604726802, -26.97988748721233] },
+                "properties": {
+                    "objectid": 1184,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (6)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1185,
+                "geometry": { "type": "Point", "coordinates": [153.49090604715138, -26.978587487477938] },
+                "properties": {
+                    "objectid": 1185,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (8)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1186,
+                "geometry": { "type": "Point", "coordinates": [153.4852060479887, -26.976687486880344] },
+                "properties": {
+                    "objectid": 1186,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (10)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1187,
+                "geometry": { "type": "Point", "coordinates": [153.4850060480732, -26.976187486855938] },
+                "properties": {
+                    "objectid": 1187,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (12)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1188,
+                "geometry": { "type": "Point", "coordinates": [153.48410604805264, -26.97708748677115] },
+                "properties": {
+                    "objectid": 1188,
+                    "site": "Flinders Reef",
+                    "site_and_mooring_reference_numb": "Flinders Reef (14)",
+                    "mooring_class": "A"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1189,
+                "geometry": { "type": "Point", "coordinates": [153.16970612624408, -26.615607451962944] },
+                "properties": {
+                    "objectid": 1189,
+                    "site": "Ex HMAS Brisbane",
+                    "site_and_mooring_reference_numb": "Ex HMAS Brisbane (20)",
+                    "mooring_class": "C"
+                }
+            },
+            {
+                "type": "Feature",
+                "id": 1191,
+                "geometry": { "type": "Point", "coordinates": [153.55050598841487, -27.38858749682814] },
+                "properties": {
+                    "objectid": 1191,
+                    "site": "Flat Rock",
+                    "site_and_mooring_reference_numb": "Flat Rock (1)",
+                    "mooring_class": "C"
+                }
+            }
+        ]
+    }
+}

@@ -1,11 +1,13 @@
 /**
- * routeAutoName — locality-vs-coords naming + the ~1 km cache (geocoder
+ * routeAutoName — locality-vs-coords naming + the ~11 m cache (geocoder
  * mocked; no network).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 let geocodeResult: string | null = null;
 let geocodeCalls = 0;
+let marineResult: string | null = null;
+vi.mock('../services/marineEndpointName', () => ({ marineEndpointName: async () => marineResult }));
 vi.mock('../services/weather', () => ({
     reverseGeocode: async () => {
         geocodeCalls++;
@@ -18,6 +20,7 @@ import { autoRouteName, coordsLabel, looksAutoNamed, placeLabelFor } from '../se
 describe('routeAutoName', () => {
     beforeEach(() => {
         geocodeCalls = 0;
+        marineResult = null;
     });
 
     it('coordsLabel is compact with hemispheres', () => {
@@ -35,7 +38,7 @@ describe('routeAutoName', () => {
         expect(await placeLabelFor({ lat: -26.5, lon: 153.9 })).toBe('26.50S 153.90E');
     });
 
-    it('builds "A - B" and caches per ~1 km grid cell', async () => {
+    it('builds "A - B" and caches per ~11 m grid cell', async () => {
         geocodeResult = 'Scarborough, QLD, AU';
         const name = await autoRouteName({ lat: -27.19, lon: 153.11 }, { lat: -27.192, lon: 153.111 });
         expect(name).toBe('Scarborough - Scarborough');
@@ -43,6 +46,13 @@ describe('routeAutoName', () => {
         // Same grid cells again → pure cache, no new geocoder calls.
         await autoRouteName({ lat: -27.19, lon: 153.11 }, { lat: -27.192, lon: 153.111 });
         expect(geocodeCalls).toBe(callsAfterFirst);
+    });
+
+    it('prefers marine place names over the broad weather region', async () => {
+        marineResult = 'Daydream Island';
+        geocodeResult = 'Whitsundays, QLD, AU';
+        expect(await placeLabelFor({ lat: -20.25432, lon: 148.81502 })).toBe('Daydream Island');
+        expect(geocodeCalls).toBe(0);
     });
 });
 

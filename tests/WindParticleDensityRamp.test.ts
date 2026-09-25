@@ -22,7 +22,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { zoomScaledParticleMultiplier } from '../components/map/MapboxVelocityOverlay';
+import { zoomScaledParticleMultiplier, zoomCompensatedVelocityScale } from '../components/map/MapboxVelocityOverlay';
 
 const BASE = 1 / 150;
 const overlay = readFileSync('components/map/MapboxVelocityOverlay.tsx', 'utf8');
@@ -44,9 +44,15 @@ describe('particle density ramp (the real layer)', () => {
         for (let i = 1; i < values.length; i++) expect(values[i]).toBeLessThan(values[i - 1]);
     });
 
-    it('clamps past z9 rather than emptying the field', () => {
-        expect(zoomScaledParticleMultiplier(12)).toBeCloseTo(BASE * 0.25, 12);
-        expect(zoomScaledParticleMultiplier(22)).toBeCloseTo(BASE * 0.25, 12);
+    it('continues thinning smoothly through harbour zoom without emptying the field', () => {
+        let previous = zoomScaledParticleMultiplier(9);
+        for (let z = 9.1; z <= 22; z += 0.1) {
+            const next = zoomScaledParticleMultiplier(z);
+            expect(next).toBeLessThan(previous);
+            expect(next * 390 * 844).toBeGreaterThan(40);
+            previous = next;
+        }
+        expect(zoomScaledParticleMultiplier(9.001)).toBeCloseTo(zoomScaledParticleMultiplier(9), 5);
     });
 
     it('degrades to the shipped density on a nonsense zoom', () => {
@@ -77,10 +83,16 @@ describe('the ramp is actually wired into the renderer', () => {
         expect(sync).toContain('windy.particleMultiplier = zoomScaledParticleMultiplier(zRaw)');
     });
 
-    it('eases the speed compensation instead of handing back 6.5x at z9', () => {
-        // 0.45 per level gave 2^2.7 at z9 — why the tight end still read as
-        // fast however far the count came down.
-        expect(overlay).toContain('const VELOCITY_ZOOM_COMPENSATION = 0.22');
-        expect(overlay).not.toMatch(/Math\.pow\(2,\s*0\.45\s*\*/);
+    it('slows apparent pixel speed at every zoom, including projection magnification', () => {
+        const pixels = (z: number) => zoomCompensatedVelocityScale(z) * Math.pow(2, 0.2 * (z - 3));
+        for (let z = 4; z <= 22; z++) expect(pixels(z)).toBeLessThan(pixels(z - 1));
+        expect(pixels(22)).toBeGreaterThan(pixels(3) * 0.05);
+        expect(zoomCompensatedVelocityScale(NaN)).toBe(zoomCompensatedVelocityScale(3));
+    });
+    it('normal Wind no longer imposes a zoom-in ceiling at 9', () => {
+        const weather = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
+        const wind = weather.slice(weather.indexOf('} else if (hasWind) {'), weather.indexOf('// No weather layer'));
+        expect(wind).toContain('map.setMaxZoom(22)');
+        expect(wind).not.toContain('map.setMaxZoom(9)');
     });
 });

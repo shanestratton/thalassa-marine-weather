@@ -59,6 +59,9 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         subscribe: vi.fn().mockReturnValue(vi.fn()),
         getState: vi.fn().mockReturnValue({ connected: false }),
         getLastSessionCode: vi.fn().mockReturnValue(null),
+        getLatestPosition: vi.fn().mockReturnValue(null),
+        getPushReadiness: vi.fn().mockReturnValue({ status: 'inactive', reason: null, checkedAt: null }),
+        onPushReadinessChange: vi.fn().mockReturnValue(vi.fn()),
         onStateChange: vi.fn().mockReturnValue(vi.fn()),
         onPosition: vi.fn().mockReturnValue(vi.fn()),
         onBroadcast: vi.fn().mockReturnValue(vi.fn()),
@@ -66,6 +69,15 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         leaveSession: vi.fn().mockResolvedValue(undefined),
         createSession: vi.fn().mockResolvedValue('CODE12345678'),
         joinSession: vi.fn().mockResolvedValue(true),
+    },
+}));
+
+vi.mock('../services/ShoreWatchAlarmService', () => ({
+    ShoreWatchAlarmService: {
+        getSnapshot: vi.fn().mockReturnValue({ cause: null, muted: false }),
+        start: vi.fn(),
+        subscribe: vi.fn().mockReturnValue(vi.fn()),
+        mute: vi.fn().mockResolvedValue(undefined),
     },
 }));
 

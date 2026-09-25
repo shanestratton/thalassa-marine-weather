@@ -24,17 +24,18 @@ import {
     type SyncBroadcast,
     type PositionBroadcast,
 } from '../services/AnchorWatchSyncService';
-import { AlarmAudioService } from '../services/AlarmAudioService';
+import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { triggerHaptic } from '../utils/system';
 import { SwingCircleCanvas } from './anchor-watch/SwingCircleCanvas';
 import { ScopeRadar } from './anchor-watch/ScopeRadar';
 import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
+import { ShoreWatchReadings } from './anchor-watch/ShoreWatchReadings';
 import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
-import { AnchorIcon, AlertTriangleIcon, MuteIcon, CheckIcon, PhoneIcon, PowerBoatIcon } from './Icons';
+import { AnchorIcon, AlertTriangleIcon, CheckIcon, PhoneIcon, PowerBoatIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
@@ -54,6 +55,16 @@ const log = createLogger('AnchorWatch');
  */
 export const SHORE_DATA_STALE_MS = 35_000;
 
+/** Reopening a page must not make an old boat fix look newly received. */
+function shoreObservationTime(data: PositionBroadcast | null): number | null {
+    if (!data) return null;
+    const times = [data.timestamp, data.vessel?.timestamp];
+    const now = Date.now();
+    return times.every((time) => Number.isFinite(time) && time > 0 && time <= now + 30_000)
+        ? Math.min(now, ...times)
+        : null;
+}
+
 // ------- TYPES -------
 
 type ViewMode = 'setup' | 'watching' | 'shore';
@@ -69,7 +80,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const authedUser = useAuthStore((state) => state.user);
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
-    const [viewMode, setViewMode] = useState<ViewMode>('setup');
+    const [viewMode, setViewMode] = useState<ViewMode>(() => {
+        const state = AnchorWatchSyncService.getState();
+        return state.role === 'shore' && state.sessionCode ? 'shore' : 'setup';
+    });
     /** Offer to let the boat's Pi keep the watch, asked once per anchor set. */
     const [showPiWatchOffer, setShowPiWatchOffer] = useState(false);
     const [piHandoffBusy, setPiHandoffBusy] = useState(false);
@@ -83,10 +97,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     /** Whether the Pi HAS it. Mirrored into state because the keeper is not reactive. */
     const [piKeepingWatch, setPiKeepingWatch] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
-    const [syncState, setSyncState] = useState<SyncState | null>(null);
-    const [shoreData, setShoreData] = useState<PositionBroadcast | null>(null);
-    const [shoreDataReceivedAt, setShoreDataReceivedAt] = useState<number | null>(null);
-    const [shoreAlarmMutedLocally, setShoreAlarmMutedLocally] = useState(false);
+    const [syncState, setSyncState] = useState<SyncState>(() => AnchorWatchSyncService.getState());
+    const [shoreData, setShoreData] = useState<PositionBroadcast | null>(() =>
+        AnchorWatchSyncService.getLatestPosition(),
+    );
+    const [shoreDataReceivedAt, setShoreDataReceivedAt] = useState<number | null>(() =>
+        shoreObservationTime(AnchorWatchSyncService.getLatestPosition()),
+    );
+    const [shoreAlarm, setShoreAlarm] = useState(ShoreWatchAlarmService.getSnapshot);
+    const [pushReadiness, setPushReadiness] = useState(() => AnchorWatchSyncService.getPushReadiness());
 
     // Setup form state
     const [rodeLength, setRodeLength] = useState(30);
@@ -154,11 +173,23 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // Subscribe to sync state and restore persisted sessions on mount
     useEffect(() => {
-        const unsubState = AnchorWatchSyncService.onStateChange(setSyncState);
+        let mounted = true;
+        let observedSession = AnchorWatchSyncService.getState().sessionCode;
+        const unsubState = AnchorWatchSyncService.onStateChange((state) => {
+            setSyncState(state);
+            if (state.sessionCode !== observedSession || state.role !== 'shore') {
+                observedSession = state.sessionCode;
+                const latest = state.role === 'shore' ? AnchorWatchSyncService.getLatestPosition() : null;
+                setShoreData(latest);
+                setShoreDataReceivedAt(shoreObservationTime(latest));
+            }
+            if (state.role === 'shore' && state.sessionCode) setViewMode('shore');
+            else setViewMode((current) => (current === 'shore' ? 'setup' : current));
+        });
         const unsubBroadcast = AnchorWatchSyncService.onBroadcast((data: SyncBroadcast) => {
             if (data.type === 'position') {
                 setShoreData(data);
-                setShoreDataReceivedAt(Date.now());
+                setShoreDataReceivedAt(shoreObservationTime(data));
             }
         });
 
@@ -168,12 +199,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const restore = async () => {
             // First restore anchor watch — this re-establishes geofence + GPS
             const watchRestored = await AnchorWatchService.restoreWatchState();
-            if (watchRestored) {
+            if (!mounted) return;
+            const existing = AnchorWatchSyncService.getState();
+            if (watchRestored && !(existing.role === 'shore' && existing.sessionCode)) {
                 setViewMode('watching');
             }
 
             // Then restore sync session — reconnect to Supabase channel
             const syncRestored = await AnchorWatchSyncService.restoreSession();
+            if (!mounted) return;
             if (syncRestored) {
                 const state = AnchorWatchSyncService.getState();
                 if (state.role === 'shore') {
@@ -195,9 +229,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 }
             }
         };
-        restore();
+        void restore().catch((error) => log.warn('Anchor watch restore deferred', error));
 
         return () => {
+            mounted = false;
             unsubState();
             unsubBroadcast();
         };
@@ -224,70 +259,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         return () => clearTimeout(timeout);
     }, [viewMode, shoreData]);
 
-    // Shore alarm — trigger full alarm on shore watcher's phone when vessel drags
-    const shoreAlarmLeaseRef = useRef<string | null>(null);
-    const shoreAlarmAttemptRef = useRef(0);
-
-    const releaseShoreAlarmLease = useCallback(async () => {
-        shoreAlarmAttemptRef.current += 1;
-        const lease = shoreAlarmLeaseRef.current;
-        if (!lease) return;
-        try {
-            await AlarmAudioService.release(lease);
-            if (shoreAlarmLeaseRef.current === lease) shoreAlarmLeaseRef.current = null;
-        } catch (error) {
-            log.error('Failed to release Shore Watch alarm audio', error);
-            throw error;
-        }
-    }, []);
-
+    // Shore alarm ownership belongs to the app, never this page's lifetime.
     useEffect(() => {
-        if (viewMode !== 'shore') {
-            void releaseShoreAlarmLease().catch(() => undefined);
-            setShoreAlarmMutedLocally(false);
-            return;
-        }
-
-        if (shoreData?.isAlarm && !shoreAlarmLeaseRef.current && !shoreAlarmMutedLocally) {
-            // Vessel is dragging — sound the alarm on shore phone
-            const attempt = ++shoreAlarmAttemptRef.current;
-            void AlarmAudioService.acquire('shore-watch')
-                .then((lease) => {
-                    if (shoreAlarmAttemptRef.current !== attempt) {
-                        AlarmAudioService.releaseEventually(lease);
-                        return;
-                    }
-                    shoreAlarmLeaseRef.current = lease;
-                })
-                .catch((error) => {
-                    log.error('Failed to start Shore Watch alarm audio', error);
-                    toast.error('The Shore Watch alarm could not sound on this device. Check audio and volume now.');
-                });
-            triggerHaptic('heavy');
-
-            // Repeat haptic every 2s while alarming
-            const hapticInterval = setInterval(() => {
-                triggerHaptic('heavy');
-            }, 2000);
-
-            return () => clearInterval(hapticInterval);
-        } else if (!shoreData?.isAlarm) {
-            // Vessel back inside swing circle — silence
-            void releaseShoreAlarmLease().catch(() => undefined);
-            setShoreAlarmMutedLocally(false);
-        }
-    }, [releaseShoreAlarmLease, viewMode, shoreData?.isAlarm, shoreAlarmMutedLocally]);
-
-    // Cleanup alarm on unmount
-    useEffect(() => {
+        ShoreWatchAlarmService.start();
+        const unsubscribe = ShoreWatchAlarmService.subscribe(setShoreAlarm);
+        const unsubscribeReadiness = AnchorWatchSyncService.onPushReadinessChange(setPushReadiness);
         return () => {
-            // The page is gone, so there is no mounted retry control left. Hand
-            // this exact owner's token to detached cleanup; never force-stop or
-            // risk silencing another active alarm owner.
-            shoreAlarmAttemptRef.current += 1;
-            const lease = shoreAlarmLeaseRef.current;
-            shoreAlarmLeaseRef.current = null;
-            if (lease) AlarmAudioService.releaseEventually(lease);
+            unsubscribe();
+            unsubscribeReadiness();
         };
     }, []);
 
@@ -301,39 +280,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             if (tickRef.current) clearInterval(tickRef.current);
         };
     }, [viewMode]);
-
-    // Keep a ref to the latest snapshot so the broadcast interval always has fresh data
-    const snapshotRef = useRef(snapshot);
-    useEffect(() => {
-        snapshotRef.current = snapshot;
-    }, [snapshot]);
-
-    // Broadcast position to shore devices when watching — every 5 seconds
-    useEffect(() => {
-        if (viewMode !== 'watching' || !syncState?.connected) return;
-
-        const broadcastNow = () => {
-            const snap = snapshotRef.current;
-            if (!snap?.anchorPosition || !snap?.vesselPosition) {
-                return;
-            }
-            AnchorWatchSyncService.broadcastPosition({
-                vessel: snap.vesselPosition,
-                anchor: snap.anchorPosition,
-                distance: snap.distanceFromAnchor,
-                swingRadius: snap.swingRadius,
-                isAlarm: snap.state === 'alarm',
-                config: snap.config,
-            });
-        };
-
-        // Send immediately on connect
-        broadcastNow();
-
-        // Then every 5 seconds
-        const interval = setInterval(broadcastNow, 5000);
-        return () => clearInterval(interval);
-    }, [viewMode, syncState?.connected]);
 
     /**
      * Offer the Pi the watch whenever it can genuinely take it.
@@ -561,13 +507,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     const handleMuteShoreAlarm = useCallback(async () => {
         try {
-            await releaseShoreAlarmLease();
-            setShoreAlarmMutedLocally(true);
+            await ShoreWatchAlarmService.mute();
             triggerHaptic('medium');
         } catch {
             toast.error('The Shore Watch alarm could not be silenced on this device. Try again.');
         }
-    }, [releaseShoreAlarmLease]);
+    }, []);
 
     const handleRetryMonitoring = useCallback(async () => {
         if (isRetryingMonitoring) return;
@@ -668,7 +613,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             setViewMode('shore');
             setShowPiWatchOffer(false);
             setPiKeepingWatch(true);
-            toast.success('The Pi is keeping the watch. This phone is now your shore monitor.');
+            // The shore screen and live-data indicator confirm the handover;
+            // a long success toast was obscuring the header and info control.
+            void triggerHaptic('light');
         } catch (e) {
             log.error('Pi watch handoff failed', e);
             toast.error('Could not hand the watch to the Pi — this phone is still keeping it.');
@@ -1198,17 +1145,20 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         // "there was never a peer", and reading the first as the second is
         // what made every Pi-kept watch read as offline.
         const peerDropped = syncState?.peerConnected !== true && !!syncState?.peerDisconnectedAt;
-        const shoreDataFresh = shoreData !== null && vesselHeardRecently && !peerDropped;
+        const shoreGpsLost = shoreAlarm.cause === 'gps-lost';
+        const shoreDataFresh = shoreData !== null && vesselHeardRecently && !peerDropped && !shoreGpsLost;
         const shoreDataAgeLabel =
             shoreDataAgeMs === null ? 'no update received' : `${Math.floor(shoreDataAgeMs / 1000)}s ago`;
-        const shoreStatusLabel = shoreDataFresh
-            ? shoreData?.isAlarm
-                ? 'Drag Alarm'
-                : 'Holding'
-            : shoreData?.isAlarm
-              ? 'Last-known drag alarm'
-              : 'Last-known data';
-        const shoreStatusIsAlarm = shoreData?.isAlarm === true;
+        const shoreStatusIsAlarm = shoreAlarm.cause === 'drag' || shoreData?.isAlarm === true;
+        const shoreStatusLabel = shoreGpsLost
+            ? 'Vessel GPS lost'
+            : shoreDataFresh
+              ? shoreStatusIsAlarm
+                  ? 'Drag Alarm'
+                  : 'Holding'
+              : shoreStatusIsAlarm
+                ? 'Last-known drag alarm'
+                : 'Last-known data';
         const shoreDisconnectedWithKnownData = shoreData !== null && peerDropped;
         const shoreDataAgedOut = shoreData !== null && !vesselHeardRecently;
         // One expression for "the link is lost", rather than the same two-part
@@ -1219,7 +1169,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             (shoreData === null && !!syncState?.peerDisconnectedAt);
 
         return (
-            <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
+            <div
+                className={`h-full min-h-0 ${t.colors.bg.base} flex flex-col overflow-hidden`}
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                data-testid="shore-watch-page"
+            >
                 <PageHeader
                     title="Shore Watch"
                     subtitle={
@@ -1255,6 +1209,32 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         </button>
                     }
                 />
+
+                {pushReadiness.status !== 'ready' && (
+                    <section
+                        aria-label="Background notification readiness"
+                        className="shrink-0 mx-4 mb-2 rounded-xl border border-amber-400/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-200"
+                    >
+                        <div className="flex items-center justify-between gap-3">
+                            <p role="status" aria-live="polite" className="font-bold">
+                                {pushReadiness.status === 'checking'
+                                    ? 'Checking background notifications…'
+                                    : 'Background notifications not verified'}
+                            </p>
+                            <button
+                                type="button"
+                                disabled={pushReadiness.status === 'checking'}
+                                onClick={() => void AnchorWatchSyncService.refreshPushReadiness()}
+                                className="min-h-11 shrink-0 px-2 font-bold text-sky-300 disabled:opacity-50"
+                            >
+                                Retry notifications
+                            </button>
+                        </div>
+                        <p className="mt-1">
+                            {pushReadiness.reason || 'Keep this app open until notification setup is verified.'}
+                        </p>
+                    </section>
+                )}
 
                 {/* Connection/freshness banner. Retained vessel values are useful,
                     but must be unmistakably last-known whenever the peer is gone
@@ -1305,146 +1285,31 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </div>
                 )}
 
-                {/* Remote Data Display */}
-                <div className="flex-1 p-4 flex flex-col items-center justify-center">
-                    {shoreData ? (
-                        <>
-                            {/* Status circle with glow */}
-                            <div
-                                className={`w-36 h-36 rounded-full flex items-center justify-center mb-6 relative ${
-                                    shoreData.isAlarm && shoreDataFresh ? 'animate-pulse' : ''
-                                }`}
-                                style={{
-                                    background: shoreStatusIsAlarm
-                                        ? 'radial-gradient(circle, rgba(127,29,29,0.5) 0%, rgba(69,10,10,0.3) 70%, transparent 100%)'
-                                        : !shoreDataFresh
-                                          ? 'radial-gradient(circle, rgba(120,53,15,0.35) 0%, rgba(69,26,3,0.15) 70%, transparent 100%)'
-                                          : 'radial-gradient(circle, rgba(6,78,59,0.3) 0%, rgba(6,78,59,0.1) 70%, transparent 100%)',
-                                    border: `3px solid ${
-                                        shoreStatusIsAlarm
-                                            ? 'rgba(239,68,68,0.5)'
-                                            : shoreDataFresh
-                                              ? 'rgba(16,185,129,0.3)'
-                                              : 'rgba(245,158,11,0.35)'
-                                    }`,
-                                    boxShadow: shoreStatusIsAlarm
-                                        ? '0 0 40px rgba(239,68,68,0.2), inset 0 0 30px rgba(239,68,68,0.1)'
-                                        : !shoreDataFresh
-                                          ? '0 0 30px rgba(245,158,11,0.08), inset 0 0 20px rgba(245,158,11,0.04)'
-                                          : '0 0 30px rgba(16,185,129,0.1), inset 0 0 20px rgba(16,185,129,0.05)',
-                                }}
-                            >
-                                <div className="text-center">
-                                    <div
-                                        className={`text-3xl font-black font-mono ${shoreStatusIsAlarm ? 'text-red-400' : 'text-white'}`}
-                                    >
-                                        {shoreData.distance.toFixed(0)}m
-                                    </div>
-                                    <div className="text-sm text-slate-400">
-                                        {shoreDataFresh ? 'from anchor' : 'last-known from anchor'}
-                                    </div>
-                                </div>
+                {/* This region, not the whole page, can scroll on small or
+                    enlarged-text screens. The tab bar has its own clearance. */}
+                <div
+                    data-testid="shore-readings-scroll"
+                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4"
+                >
+                    <div className="flex min-h-full flex-col justify-center py-2">
+                        {shoreData ? (
+                            <ShoreWatchReadings
+                                data={shoreData}
+                                fresh={shoreDataFresh}
+                                isAlarm={shoreStatusIsAlarm}
+                                statusLabel={shoreStatusLabel}
+                                showMute={!!shoreAlarm.cause}
+                                muted={shoreAlarm.muted}
+                                onMute={() => void handleMuteShoreAlarm()}
+                            />
+                        ) : (
+                            <div className="text-center">
+                                <div className="mx-auto mb-4 h-12 w-12 rounded-full border-2 border-sky-500 border-t-transparent motion-safe:animate-spin" />
+                                <div className="text-slate-400">Waiting for vessel data…</div>
+                                <div className="mt-2 text-sm text-slate-400">Session: {syncState?.sessionCode}</div>
                             </div>
-
-                            {/* Status badge */}
-                            <div
-                                role="status"
-                                aria-live="polite"
-                                aria-atomic="true"
-                                className={`px-5 py-2 rounded-full text-sm font-black tracking-wider uppercase mb-6 flex items-center gap-2 ${
-                                    shoreStatusIsAlarm
-                                        ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                                        : shoreDataFresh
-                                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'
-                                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
-                                }`}
-                            >
-                                <span
-                                    className={`w-1.5 h-1.5 rounded-full ${
-                                        shoreStatusIsAlarm
-                                            ? 'bg-red-400'
-                                            : shoreDataFresh
-                                              ? 'bg-emerald-400'
-                                              : 'bg-amber-400'
-                                    }`}
-                                />
-                                {shoreStatusLabel}
-                            </div>
-
-                            {/* Shore silence button — only shown during alarm */}
-                            {shoreData.isAlarm && (
-                                <button
-                                    type="button"
-                                    aria-label="Mute alarm on this device only"
-                                    disabled={shoreAlarmMutedLocally}
-                                    onClick={() => void handleMuteShoreAlarm()}
-                                    className="px-8 py-3 rounded-2xl text-white text-base font-black mb-6 transition-all active:scale-95 disabled:opacity-70"
-                                    style={{
-                                        background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
-                                        boxShadow: '0 6px 24px rgba(220, 38, 38, 0.4)',
-                                    }}
-                                >
-                                    <span className="inline-flex items-center gap-2 justify-center">
-                                        <MuteIcon className="w-4 h-4" />
-                                        <span>
-                                            {shoreAlarmMutedLocally
-                                                ? 'Muted on this device only'
-                                                : 'Mute this device only'}
-                                        </span>
-                                    </span>
-                                    <span className="block mt-1 text-sm font-semibold normal-case tracking-normal text-red-100">
-                                        This only silences this device; it does not acknowledge or change the vessel
-                                        alarm.
-                                    </span>
-                                </button>
-                            )}
-
-                            {/* Data cards — glassmorphism */}
-                            <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
-                                <div
-                                    className={`${t.colors.bg.inset} rounded-xl p-3 text-center ${t.colors.border.glass}`}
-                                >
-                                    <div className={t.typography.label}>Swing Radius</div>
-                                    <div className="text-lg font-bold text-white">
-                                        {formatDistance(shoreData.swingRadius)}
-                                    </div>
-                                </div>
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
-                                    <div className={t.typography.label}>Rode</div>
-                                    <div className="text-lg font-bold text-amber-400">
-                                        {shoreData.config?.rodeLength !== undefined
-                                            ? `${Math.round(shoreData.config.rodeLength)}m`
-                                            : '--'}
-                                    </div>
-                                </div>
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
-                                    <div className={t.typography.label}>Depth</div>
-                                    <div className="text-lg font-bold text-sky-400">
-                                        {shoreData.config?.waterDepth !== undefined
-                                            ? `${shoreData.config.waterDepth.toFixed(1)}m`
-                                            : '--'}
-                                    </div>
-                                </div>
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
-                                    <div className={t.typography.label}>
-                                        {shoreDataFresh ? 'Last Update' : 'Last-Known Update'}
-                                    </div>
-                                    <div className="text-lg font-bold text-white">
-                                        {new Date(shoreData.timestamp).toLocaleTimeString([], {
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                        })}
-                                    </div>
-                                </div>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="text-center">
-                            <div className="w-12 h-12 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                            <div className="text-slate-400">Waiting for vessel data…</div>
-                            <div className="text-sm text-slate-400 mt-2">Session: {syncState?.sessionCode}</div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
         );

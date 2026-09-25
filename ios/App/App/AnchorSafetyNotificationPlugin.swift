@@ -34,6 +34,7 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
     private let notificationCenter = UNUserNotificationCenter.current()
     private let maximumPendingNotificationCount = 64
     private let alarmRequestCount = 21
+    private static let alarmSoundName = "thalassa-anchor-alarm.wav"
 
     // UNUserNotificationCenter mutation callbacks are asynchronous. A normal
     // serial DispatchQueue would release before they finish, so keep an explicit
@@ -359,6 +360,13 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
     private func withVerifiedSettings(
         completion: @escaping (Result<SettingsSummary, PluginFailure>) -> Void
     ) {
+        guard Bundle.main.url(forResource: Self.alarmSoundName, withExtension: nil) != nil else {
+            completion(.failure(PluginFailure(
+                code: "ANCHOR_NOTIFICATION_SOUND_MISSING",
+                message: "The Anchor Watch notification sound is missing from this build. Update Thalassa before arming."
+            )))
+            return
+        }
         notificationCenter.getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized:
@@ -487,7 +495,10 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            content.sound = .default
+            // A bundled 24-second siren, not continuous background app audio
+            // or a Critical Alert. Silent mode, volume and Focus settings still
+            // govern audibility; the existing bounded reminders stay unchanged.
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(Self.alarmSoundName))
             content.threadIdentifier = "thalassa.anchor-watch"
             content.userInfo = ["kind": "anchor-drag", "source": "anchor-watch"]
             if #available(iOS 15.0, *) {

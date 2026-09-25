@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
 import type { CaptureContext, FlushBufferedTrackResult } from '../services/shiplog/CapturePipeline';
 import type { ShipLogEntry } from '../types';
 
@@ -15,6 +16,8 @@ const mocks = vi.hoisted(() => {
         blockStoppedStateWrite: false,
         releaseStoppedStateWrite: null as null | (() => void),
         failNextActiveStateWrite: false,
+        blockActiveStateWrite: false,
+        releaseActiveStateWrite: null as null | (() => void),
         failPendingTeardownWrites: 0,
         gpsStartError: null as Error | null,
         captureLocalOnly: false,
@@ -61,8 +64,14 @@ const mocks = vi.hoisted(() => {
         flushBuffered: vi.fn<(ctx: CaptureContext) => Promise<FlushBufferedTrackResult>>(async () => 'complete'),
         syncQueue: vi.fn(async () => 0),
         offlineEntries: vi.fn<(...args: unknown[]) => Promise<ShipLogEntry[]>>(async () => []),
+        deadLetters: vi.fn<() => Promise<Array<{ entry: ShipLogEntry }>>>(async () => []),
         purge: vi.fn(async () => true),
         cache: vi.fn(async () => undefined),
+        clearCache: vi.fn(async () => undefined),
+        completeEntries: vi.fn<(...args: unknown[]) => Promise<ShipLogEntry[]>>(async () => []),
+        deleteLogOnly: vi.fn<
+            (voyageId: string, canDelete?: () => boolean, options?: { deferCloud?: boolean }) => Promise<boolean>
+        >(async (_voyageId, canDelete) => canDelete?.() ?? true),
         disarmTrickle: vi.fn(),
         stopTrickle: vi.fn(async () => undefined),
         retireTrickle: vi.fn(async () => undefined),
@@ -92,6 +101,15 @@ vi.mock('@capacitor/preferences', () => ({
             ) {
                 mocks.state.failNextActiveStateWrite = false;
                 throw new Error('Preferences write failed');
+            }
+            if (
+                mocks.state.blockActiveStateWrite &&
+                key.startsWith('ship_log_tracking_state') &&
+                value.includes('"isTracking":true')
+            ) {
+                await new Promise<void>((resolve) => {
+                    mocks.state.releaseActiveStateWrite = resolve;
+                });
             }
             if (
                 mocks.state.blockStoppedStateWrite &&
@@ -260,12 +278,14 @@ vi.mock('../services/shiplog/OfflineQueue', () => ({
     syncOfflineQueue: mocks.syncQueue,
     getOfflineQueueCount: vi.fn(async () => 0),
     getOfflineEntries: mocks.offlineEntries,
+    getOfflineQueueDeadLetters: mocks.deadLetters,
     deleteVoyageFromOfflineQueue: mocks.deleteOfflineVoyage,
     flushOfflineQueueToDisk: vi.fn(async () => undefined),
 }));
 
 vi.mock('../services/shiplog/VoyageTrackCache', () => ({
     setCachedVoyageTrack: mocks.cache,
+    clearCachedVoyageTrack: mocks.clearCache,
 }));
 
 vi.mock('../services/shiplog/EntryCrud', () => ({
@@ -275,16 +295,20 @@ vi.mock('../services/shiplog/EntryCrud', () => ({
     archiveVoyage: vi.fn(async () => true),
     unarchiveVoyage: vi.fn(async () => true),
     deleteVoyage: vi.fn(async () => true),
+    deleteVoyageLogOnly: mocks.deleteLogOnly,
     deleteEntry: vi.fn(async () => true),
     importGPXVoyage: vi.fn(async () => ({ voyageId: 'v', savedCount: 0 })),
 }));
 
-vi.mock('../services/shiplog/VoyageSummary', () => ({
-    getVoyageSummaries: vi.fn(async () => []),
-    getCachedVoyageSummaries: vi.fn(async () => []),
-    getVoyageEntries: vi.fn(async () => []),
-    EMPTY_TRACK_NM: 0.01,
-}));
+vi.mock('../services/shiplog/VoyageSummary', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/shiplog/VoyageSummary')>();
+    return {
+        ...actual,
+        getVoyageSummaries: vi.fn(async () => []),
+        getCachedVoyageSummaries: vi.fn(async () => []),
+        getVoyageEntries: mocks.completeEntries,
+    };
+});
 
 vi.mock('../services/shiplog/PassagePlanSave', () => ({
     savePassagePlanToLogbook: vi.fn(async () => null),
@@ -293,6 +317,9 @@ vi.mock('../services/shiplog/PassagePlanSave', () => ({
 import { ShipLogService } from '../services/ShipLogService';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { useFollowRouteStore } from '../stores/followRouteStore';
+import { summarizeEntries } from '../services/shiplog/VoyageSummary';
+import { useHudRecording, useHudRecordingActivation } from '../hooks/useHudRecording';
+import { __resetPassageHudForTests, isPassageHudEnabled } from '../stores/passageHudStore';
 
 beforeAll(() => {
     vi.useFakeTimers();
@@ -322,6 +349,10 @@ describe('ShipLogService tracking owner fence', () => {
 
         const activeA = ShipLogService.getTrackingStatus();
         expect(activeA.isTracking).toBe(true);
+        expect(ShipLogService.getPublishedTrackingStatus()).toMatchObject({
+            isTracking: true,
+            currentVoyageId: activeA.currentVoyageId,
+        });
         expect(activeA.currentVoyageId).toMatch(/^voyage_/);
         const staleSchedulerTick = mocks.state.schedulerTick;
         const staleGpsOptions = mocks.state.gpsOptions;
@@ -374,8 +405,11 @@ describe('ShipLogService tracking owner fence', () => {
 
         // Let the transition-only A persistence write settle, then return.
         await Promise.resolve();
-        setAuthIdentityScope('ship-owner-a');
-        await ShipLogService.initialize();
+        const observer = renderHook(useHudRecording);
+        await act(async () => {
+            setAuthIdentityScope('ship-owner-a');
+            await ShipLogService.initialize();
+        });
 
         expect(ShipLogService.getTrackingStatus()).toMatchObject({
             isTracking: false,
@@ -384,6 +418,13 @@ describe('ShipLogService tracking owner fence', () => {
             voyageStartTime: activeA.voyageStartTime,
         });
         expect(ShipLogService.getTrackingStatus().voyageEndTime).toBeUndefined();
+        expect(observer.result.current).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            currentVoyageId: activeA.currentVoyageId,
+        });
+        expect(ShipLogService.getPublishedTrackingStatus()).toMatchObject(observer.result.current);
+        observer.unmount();
     });
 
     it('rejects an old scheduler callback after pause/resume in the same account generation', async () => {
@@ -503,6 +544,44 @@ describe('ShipLogService tracking owner fence', () => {
         expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage Start')).toHaveLength(
             startCapturesBefore,
         );
+    });
+
+    it('keeps observers mounted during a delayed failed start idle until a verified publication', async () => {
+        __resetPassageHudForTests();
+        mocks.state.blockActiveStateWrite = true;
+        mocks.state.releaseActiveStateWrite = null;
+        const starting = ShipLogService.startTracking(false, 'provisional-hud-start');
+        for (let i = 0; i < 80 && !mocks.state.releaseActiveStateWrite; i++) await Promise.resolve();
+        expect(mocks.state.releaseActiveStateWrite).toBeTypeOf('function');
+        // The raw transactional API retains its original behavior.
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: true,
+            currentVoyageId: 'provisional-hud-start',
+        });
+        expect(ShipLogService.getPublishedTrackingStatus().isTracking).toBe(false);
+        const useRecordingObserver = () => {
+            useHudRecordingActivation();
+            return useHudRecording();
+        };
+        const first = renderHook(useRecordingObserver);
+        expect(first.result.current.isTracking).toBe(false);
+        expect(isPassageHudEnabled()).toBe(false);
+        first.unmount();
+        const remounted = renderHook(useRecordingObserver);
+        expect(remounted.result.current.isTracking).toBe(false);
+
+        mocks.state.gpsStartError = new Error('Delayed GPS setup failure');
+        const failed = expect(starting).rejects.toThrow('Delayed GPS setup failure');
+        await act(async () => {
+            mocks.state.blockActiveStateWrite = false;
+            mocks.state.releaseActiveStateWrite?.();
+            await failed;
+        });
+        expect(remounted.result.current.isTracking).toBe(false);
+        expect(isPassageHudEnabled()).toBe(false);
+        expect(ShipLogService.getTrackingStatus().isTracking).toBe(false);
+        expect(ShipLogService.getPublishedTrackingStatus().isTracking).toBe(false);
+        remounted.unmount();
     });
 
     it('rolls back subscriptions, local-only capture, live sharing, persistence, and memory on setup failure', async () => {
@@ -1191,5 +1270,278 @@ describe('ShipLogService tracking owner fence', () => {
             preserveExisting: true,
         });
         expect(mocks.syncQueue.mock.calls.length).toBeGreaterThan(syncsBefore);
+    });
+});
+
+describe('ShipLogService never-departed cleanup', () => {
+    const startedAt = Date.parse('2026-09-23T03:00:00Z');
+    const voyageId = `voyage_${startedAt}_cleanup`;
+
+    function stationaryRecording(ownerId: string, id = voyageId, start = startedAt): ShipLogEntry[] {
+        return Array.from({ length: 7 }, (_, index) => ({
+            id: `${id}-${index}`,
+            userId: ownerId,
+            voyageId: id,
+            timestamp: new Date(start + index * 10_000).toISOString(),
+            latitude: -20 + (index % 2 ? 3 : -3) / 111195,
+            longitude: 148,
+            positionFormatted: '',
+            distanceNM: 0.001,
+            cumulativeDistanceNM: 0,
+            speedKts: 0.4,
+            source: 'device',
+            entryType: index === 0 || index >= 5 ? 'waypoint' : 'auto',
+            waypointName:
+                index === 0 ? 'Voyage Start' : index === 6 ? 'Voyage End' : index === 5 ? 'Latest Position' : undefined,
+        }));
+    }
+
+    async function initializeOwner(ownerId: string) {
+        mocks.offlineEntries.mockResolvedValue([]);
+        mocks.completeEntries.mockResolvedValue([]);
+        mocks.deadLetters.mockResolvedValue([]);
+        mocks.nativeTrackingEnabled.mockResolvedValue(false);
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(false);
+        setAuthIdentityScope(ownerId);
+        await ShipLogService.initialize();
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        mocks.completeEntries.mockClear();
+        mocks.deleteLogOnly.mockClear();
+        mocks.clearCache.mockClear();
+    }
+
+    it('deletes a complete idle stationary recording through the guarded log-only path', async () => {
+        const ownerId = 'ship-owner-cleanup-complete';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.completeEntries.mockResolvedValue(rows);
+        mocks.offlineEntries.mockClear();
+
+        await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([voyageId]);
+
+        expect(mocks.completeEntries).toHaveBeenCalledExactlyOnceWith(voyageId, true, {
+            maxRows: 10_000,
+            requireComplete: true,
+            throwOnIncomplete: true,
+            signal: expect.any(AbortSignal),
+        });
+        expect(mocks.offlineEntries).toHaveBeenCalledTimes(2);
+        expect(mocks.offlineEntries).toHaveBeenCalledWith({
+            voyageId,
+            expectedScope: expect.objectContaining({ userId: ownerId }),
+        });
+        expect(mocks.deleteLogOnly).toHaveBeenCalledExactlyOnceWith(voyageId, expect.any(Function), {
+            deferCloud: true,
+        });
+        expect(mocks.clearCache).toHaveBeenCalledExactlyOnceWith(
+            voyageId,
+            expect.objectContaining({ userId: ownerId }),
+        );
+    });
+
+    it.each(['active', 'paused'] as const)('preserves a %s recording without reading cloud rows', async (status) => {
+        const ownerId = `ship-owner-cleanup-${status}`;
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.completeEntries.mockResolvedValue(rows);
+        await ShipLogService.startTracking(false, voyageId);
+        if (status === 'paused') await ShipLogService.pauseTracking();
+
+        await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([]);
+
+        expect(mocks.completeEntries).not.toHaveBeenCalled();
+        expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+        expect(mocks.clearCache).not.toHaveBeenCalled();
+        await ShipLogService.stopTracking(voyageId);
+    });
+
+    it('preserves a historical recording when its persisted tracking state is unreadable', async () => {
+        const ownerId = 'ship-owner-cleanup-unreadable-state';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.completeEntries.mockResolvedValue(rows);
+        const key = `ship_log_tracking_state::${encodeURIComponent(`user:${ownerId}`)}`;
+        const previous = mocks.state.prefs.get(key);
+        mocks.state.prefs.set(key, '{"version":1,');
+
+        try {
+            await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([]);
+            expect(mocks.completeEntries).not.toHaveBeenCalled();
+            expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+            expect(mocks.clearCache).not.toHaveBeenCalled();
+        } finally {
+            if (previous === undefined) mocks.state.prefs.delete(key);
+            else mocks.state.prefs.set(key, previous);
+        }
+    });
+
+    it('preserves an idle recording with accepted GPS points in its durable handoff', async () => {
+        const ownerId = 'ship-owner-cleanup-pending-handoff';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.completeEntries.mockResolvedValue(rows);
+        const key = `ship_log_capture_handoff::${encodeURIComponent(`user:${ownerId}`)}`;
+        mocks.state.prefs.set(
+            key,
+            JSON.stringify({
+                version: 1,
+                ownerKey: `user:${ownerId}`,
+                ownerUserId: ownerId,
+                batches: [
+                    {
+                        id: 'pending-fix-batch',
+                        voyageId,
+                        points: [{ latitude: -20, longitude: 148, timestamp: startedAt, receivedAt: startedAt }],
+                    },
+                ],
+            }),
+        );
+        try {
+            await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([]);
+            expect(mocks.completeEntries).not.toHaveBeenCalled();
+            expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+            expect(mocks.clearCache).not.toHaveBeenCalled();
+        } finally {
+            mocks.state.prefs.delete(key);
+        }
+    });
+
+    it('verifies a historical recording using the complete cloud and local queue union', async () => {
+        const ownerId = 'ship-owner-cleanup-queued-tail';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.completeEntries.mockResolvedValue(rows);
+        mocks.offlineEntries.mockResolvedValueOnce(rows.slice(-1));
+
+        await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([voyageId]);
+
+        expect(mocks.completeEntries).toHaveBeenCalledOnce();
+        expect(mocks.deleteLogOnly).toHaveBeenCalledOnce();
+        expect(mocks.clearCache).toHaveBeenCalledOnce();
+    });
+
+    it('cleans a stopped local-only recording after reload when cloud confirms no other rows', async () => {
+        const ownerId = 'ship-owner-cleanup-local-reload';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.offlineEntries.mockResolvedValue(rows);
+        try {
+            await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([
+                voyageId,
+            ]);
+            expect(mocks.completeEntries).toHaveBeenCalledOnce();
+            expect(mocks.deleteLogOnly).toHaveBeenCalledOnce();
+        } finally {
+            mocks.offlineEntries.mockResolvedValue([]);
+        }
+    });
+
+    it('retains local-only rows if the cloud read fails rather than treating failure as empty', async () => {
+        const ownerId = 'ship-owner-cleanup-offline';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.offlineEntries.mockResolvedValue(rows);
+        mocks.completeEntries.mockRejectedValueOnce(new Error('Offline: cloud history unknown'));
+        try {
+            await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([]);
+            expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+        } finally {
+            mocks.offlineEntries.mockResolvedValue([]);
+        }
+    });
+
+    it('preserves a local stationary tail when the full cloud history contains movement', async () => {
+        const ownerId = 'ship-owner-cleanup-cloud-movement';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.offlineEntries.mockResolvedValue(rows.slice(-4));
+        mocks.completeEntries.mockResolvedValue([
+            ...rows.slice(0, 3),
+            { ...rows[2], id: 'real-movement', timestamp: new Date(startedAt + 25_000).toISOString(), speedKts: 5 },
+        ]);
+        try {
+            await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([]);
+            expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+        } finally {
+            mocks.offlineEntries.mockResolvedValue([]);
+        }
+    });
+
+    it('retains a recording with quarantined upload evidence outside the ordinary queue', async () => {
+        const ownerId = 'ship-owner-cleanup-dead-letter';
+        await initializeOwner(ownerId);
+        const rows = stationaryRecording(ownerId);
+        mocks.completeEntries.mockResolvedValue(rows);
+        mocks.deadLetters.mockResolvedValue([{ entry: { ...rows[3], speedKts: 5 } }]);
+        try {
+            await expect(ShipLogService.cleanupUndepartedRecordings(summarizeEntries(rows))).resolves.toEqual([]);
+            expect(mocks.completeEntries).not.toHaveBeenCalled();
+            expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+        } finally {
+            mocks.deadLetters.mockResolvedValue([]);
+        }
+    });
+
+    it("does not treat a resumed recording's complete-looking local tail as its full history at stop", async () => {
+        const ownerId = 'ship-owner-cleanup-resumed-tail';
+        vi.setSystemTime(startedAt);
+        await initializeOwner(ownerId);
+        await ShipLogService.startTracking();
+        const active = ShipLogService.getTrackingStatus();
+        const id = active.currentVoyageId!;
+        await ShipLogService.pauseTracking();
+        await ShipLogService.startTracking(true, id);
+        mocks.offlineEntries.mockResolvedValue(stationaryRecording(ownerId, id, Date.parse(active.voyageStartTime!)));
+        mocks.syncQueue.mockClear();
+        vi.setSystemTime(startedAt + 60_000);
+
+        try {
+            await ShipLogService.stopTracking(id);
+            for (let i = 0; i < 12; i++) await Promise.resolve();
+
+            expect(mocks.deleteLogOnly).not.toHaveBeenCalled();
+            expect(mocks.clearCache).not.toHaveBeenCalled();
+            expect(mocks.completeEntries).not.toHaveBeenCalled();
+            expect(mocks.syncQueue).toHaveBeenCalled();
+        } finally {
+            mocks.offlineEntries.mockResolvedValue([]);
+        }
+    });
+
+    it('discards a complete fresh stationary local recording when stop completes, before upload', async () => {
+        const ownerId = 'ship-owner-cleanup-complete-stop';
+        vi.setSystemTime(startedAt);
+        await initializeOwner(ownerId);
+        await ShipLogService.startTracking();
+        const active = ShipLogService.getTrackingStatus();
+        const id = active.currentVoyageId!;
+        const rows = stationaryRecording(ownerId, id, Date.parse(active.voyageStartTime!));
+        mocks.offlineEntries.mockResolvedValue(rows);
+        mocks.captureImmediate.mockClear();
+        mocks.syncQueue.mockClear();
+        vi.setSystemTime(startedAt + 60_000);
+
+        try {
+            await ShipLogService.stopTracking(id);
+            for (let i = 0; i < 12; i++) await Promise.resolve();
+
+            expect(ShipLogService.getTrackingStatus()).toMatchObject({
+                isTracking: false,
+                isPaused: false,
+                currentVoyageId: id,
+            });
+            expect(mocks.captureImmediate).toHaveBeenCalledWith(expect.anything(), id, 'Voyage End');
+            expect(mocks.deleteLogOnly).toHaveBeenCalledExactlyOnceWith(id, expect.any(Function), {
+                deferCloud: true,
+            });
+            expect(mocks.clearCache).toHaveBeenCalledExactlyOnceWith(id, expect.objectContaining({ userId: ownerId }));
+            expect(mocks.completeEntries).not.toHaveBeenCalled();
+            expect(mocks.syncQueue).toHaveBeenCalled();
+            expect(mocks.deleteLogOnly.mock.invocationCallOrder[0]).toBeLessThan(
+                mocks.syncQueue.mock.invocationCallOrder[0],
+            );
+        } finally {
+            mocks.offlineEntries.mockResolvedValue([]);
+        }
     });
 });

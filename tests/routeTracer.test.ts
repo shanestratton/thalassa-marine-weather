@@ -1062,6 +1062,8 @@ describe('routeTracer — trace plumbing (P4)', () => {
         expect(reverseRouteName('newport  -  lady musgrave')).toBe('lady musgrave - newport');
         expect(reverseRouteName('Newport → Mooloolaba')).toBe('Mooloolaba → Newport');
         expect(reverseRouteName('Newport to Tin Can Bay')).toBe('Tin Can Bay to Newport');
+        expect(reverseRouteName('Mackay → Whitsundays (Passage)')).toBe('Whitsundays → Mackay (Passage)');
+        expect(reverseRouteName('Newport - Mackay (2nd Leg)')).toBe('Mackay - Newport (2nd Leg)');
         // Multi-leg reverses whole; separator style survives.
         expect(reverseRouteName('A - B - C')).toBe('C - B - A');
         // Hyphenated place names (no SPACED separator) are untouched.
@@ -1069,6 +1071,21 @@ describe('routeTracer — trace plumbing (P4)', () => {
         expect(reverseRouteName('Bay run')).toBe('Bay run');
         expect(reverseRouteName('')).toBe('');
     });
+
+    it.each(['Mackay → Whitsundays', 'Mackay to Whitsundays', 'Mackay – Whitsundays'])(
+        'saves reversed endpoint labels as actual ports for %s',
+        (name) => {
+            const points = [
+                { lat: -21.1, lon: 149.2 },
+                { lat: -20.2, lon: 148.8 },
+            ];
+            const reversed = traceAsVoyagePlan(reverseRouteName(name), [...points].reverse());
+            expect(reversed.origin).toBe('Whitsundays');
+            expect(reversed.destination).toBe('Mackay');
+            expect(reversed.originCoordinates).toEqual(points[1]);
+            expect(reversed.destinationCoordinates).toEqual(points[0]);
+        },
+    );
 
     it('overwrite-save replaces in place — same id, fresh updatedAt, no twin', () => {
         const store = new Map<string, string>();

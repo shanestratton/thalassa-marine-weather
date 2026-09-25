@@ -88,6 +88,14 @@ describe('the silence ladder', () => {
 });
 
 describe('the shore page', () => {
+    it('observes the app-lifetime alarm and never owns alarm audio or vessel broadcasting', () => {
+        expect(page).toContain('ShoreWatchAlarmService.start()');
+        expect(page).toContain('ShoreWatchAlarmService.subscribe(setShoreAlarm)');
+        expect(page).toContain('await ShoreWatchAlarmService.mute()');
+        expect(page).not.toContain('AlarmAudioService');
+        expect(page).not.toContain('AnchorWatchSyncService.broadcastPosition(');
+    });
+
     it('does NOT demolish the session after 60 silent seconds', () => {
         // leaveSession() erased the saved code AND this device's row in
         // anchor_alarm_tokens — its registration for drag pushes — over a

@@ -1,84 +1,262 @@
-/**
- * ArchivedVoyagesSection — the collapsible "Archived Voyages" block at the
- * bottom of the Ship's Log list, extracted verbatim from pages/LogPage.tsx.
- * The caller keeps the `length > 0` guard.
- */
-import React from 'react';
-import type { ShipLogEntry } from '../../types';
+import React, { useId, useRef, useState } from 'react';
+import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming';
+import { groupPassageLogs } from './PassageLogList';
+import { useEndpointNames } from './useEndpointNames';
 
-export const ArchivedVoyagesSection: React.FC<{
-    loggedArchivedVoyages: { voyageId: string; entries: ShipLogEntry[] }[];
+type RestorePassage = (passageId: string, voyageIds: string[]) => Promise<void>;
+
+interface ArchivedVoyagesSectionProps {
+    loggedArchivedVoyages: readonly VoyageSummary[];
     showArchived: boolean;
     setShowArchived: React.Dispatch<React.SetStateAction<boolean>>;
-    handleUnarchiveVoyage: (voyageId: string) => void;
-}> = ({ loggedArchivedVoyages, showArchived, setShowArchived, handleUnarchiveVoyage }) => (
-    <div className="mt-4">
-        <button
-            aria-expanded={showArchived}
-            onClick={() => setShowArchived(!showArchived)}
-            className="w-full min-h-[44px] flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
-        >
-            <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"
-                    />
-                </svg>
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Archived Voyages</span>
-                <span className="text-[11px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">
-                    {loggedArchivedVoyages.length}
-                </span>
-            </div>
-            <svg
-                className={`w-4 h-4 text-amber-400 transition-transform ${showArchived ? 'rotate-180' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-            >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-        </button>
+    handleUnarchiveVoyage: (voyageId: string) => Promise<void>;
+    handleRestorePassage?: RestorePassage;
+    loading?: boolean;
+    error?: string | null;
+    onRetry?: () => void;
+}
 
-        {showArchived && (
-            <div className="mt-2 space-y-2">
-                {loggedArchivedVoyages.map((voyage) => (
-                    <div
-                        key={voyage.voyageId}
-                        className="rounded-2xl bg-slate-900/30 backdrop-blur-md border border-amber-500/10 p-4 flex items-center justify-between"
-                    >
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                                <span className="text-xs font-bold text-white/80">
-                                    {new Date(voyage.entries[voyage.entries.length - 1]?.timestamp || '')
-                                        .toLocaleDateString('en-AU', {
-                                            day: '2-digit',
-                                            month: 'short',
-                                            year: '2-digit',
-                                        })
-                                        .toUpperCase()}
-                                </span>
-                                <span className="text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">
-                                    Archived
-                                </span>
-                            </div>
-                            <div className="text-[11px] text-white/60">
-                                {voyage.entries.length} entries ·{' '}
-                                {Math.max(0, ...voyage.entries.map((e) => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
-                            </div>
-                        </div>
-                        <button
-                            aria-label="Unarchive voyage"
-                            onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
-                            className="hit-target-44 px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
-                        >
-                            Unarchive
-                        </button>
-                    </div>
-                ))}
+function ArchivedVoyageCard({
+    voyage,
+    busy,
+    restoring,
+    onRestore,
+}: {
+    voyage: VoyageSummary;
+    busy: boolean;
+    restoring: boolean;
+    onRestore: () => void;
+}) {
+    const { startLabel, endLabel } = useEndpointNames(
+        { latitude: voyage.firstLat, longitude: voyage.firstLon },
+        { latitude: voyage.lastLat, longitude: voyage.lastLon },
+    );
+    const title = `${startLabel ?? 'Departure'} → ${endLabel ?? 'Arrival'}`;
+    const date = new Date(voyage.departedAt ?? voyage.startedAt);
+    const dateLabel = Number.isFinite(date.getTime())
+        ? date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' })
+        : 'Date unavailable';
+    return (
+        <article aria-label={title} className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/40 p-3.5 sm:p-4">
+            <h4 className="text-sm font-bold leading-snug text-slate-100 break-words">{title}</h4>
+            <p className="mt-1 text-xs text-slate-400">{dateLabel}</p>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold tabular-nums">
+                    <span className="text-sky-300">{voyage.totalDistanceNM.toFixed(1)} nm</span>
+                    <span className="text-slate-300">{formatVoyageDuration(voyageElapsedMs(voyage))}</span>
+                </div>
+                <button
+                    type="button"
+                    aria-label={`Restore voyage ${title} · ${dateLabel}`}
+                    aria-busy={restoring}
+                    disabled={busy}
+                    onClick={onRestore}
+                    className="min-h-[44px] shrink-0 rounded-xl border border-sky-400/25 bg-sky-400/10 px-3.5 text-xs font-bold text-sky-200 transition-colors hover:bg-sky-400/20 disabled:opacity-50"
+                >
+                    {restoring ? 'Restoring…' : 'Restore'}
+                </button>
             </div>
-        )}
-    </div>
-);
+        </article>
+    );
+}
+
+/** Every row is a whole-voyage summary, never a slice of archived GPS points.
+ * The heading counts voyages, even when several are grouped in one passage. */
+export function ArchivedVoyagesSection({
+    loggedArchivedVoyages,
+    showArchived,
+    setShowArchived,
+    handleUnarchiveVoyage,
+    handleRestorePassage,
+    loading = false,
+    error = null,
+    onRetry,
+}: ArchivedVoyagesSectionProps) {
+    const contentId = useId();
+    const [restoringIds, setRestoringIds] = useState<readonly string[]>([]);
+    const [restoreError, setRestoreError] = useState<string | null>(null);
+    const [notice, setNotice] = useState('');
+    const [restoreRequest, setRestoreRequest] = useState<{
+        passageId: string;
+        voyageIds: string[];
+        restore: RestorePassage;
+    } | null>(null);
+    const busyRef = useRef(false);
+    const groups = groupPassageLogs(loggedArchivedVoyages);
+    const passageCount = groups.filter((group) => group.passage).length;
+    const count = loggedArchivedVoyages.length;
+    const busy = restoringIds.length > 0;
+
+    async function restore(ids: string[], action: () => Promise<void>) {
+        if (busyRef.current) return;
+        busyRef.current = true;
+        setRestoringIds(ids);
+        setRestoreError(null);
+        setNotice('');
+        try {
+            await action();
+            setNotice(`${ids.length === 1 ? 'Voyage' : `${ids.length} voyages`} restored to your log.`);
+        } catch (cause) {
+            setRestoreError(
+                cause instanceof Error && cause.message.trim()
+                    ? cause.message
+                    : 'Could not finish restoring. Refresh the archive, then try again.',
+            );
+        } finally {
+            busyRef.current = false;
+            setRestoringIds([]);
+        }
+    }
+
+    return (
+        <section className="mt-5 overflow-hidden rounded-[1.5rem] border border-slate-500/25 bg-slate-900/35">
+            <button
+                type="button"
+                aria-expanded={showArchived}
+                aria-controls={contentId}
+                onClick={() => setShowArchived(!showArchived)}
+                className="flex min-h-[76px] w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/3"
+            >
+                <span className="flex min-w-0 items-center gap-3">
+                    <svg
+                        aria-hidden="true"
+                        className="h-5 w-5 shrink-0 text-sky-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.7}
+                            d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                        />
+                    </svg>
+                    <span className="min-w-0">
+                        <span className="block text-sm font-extrabold text-slate-100">Archived voyages</span>
+                        <span className="mt-1 block text-xs text-slate-400">
+                            {loading && count === 0
+                                ? 'Loading archive…'
+                                : error && count === 0
+                                  ? 'Archive unavailable'
+                                  : `${count} ${count === 1 ? 'voyage' : 'voyages'}${passageCount ? ` · ${passageCount} ${passageCount === 1 ? 'passage' : 'passages'}` : ''}`}
+                        </span>
+                    </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-sky-200">
+                    {showArchived ? 'Hide' : 'Show'}
+                    <svg
+                        aria-hidden="true"
+                        className={`h-4 w-4 transition-transform ${showArchived ? 'rotate-180' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
+                    </svg>
+                </span>
+            </button>
+
+            <p role="status" className={notice ? 'mx-4 mb-3 text-xs font-semibold text-emerald-300' : 'sr-only'}>
+                {notice}
+            </p>
+            {showArchived && (
+                <div id={contentId} className="space-y-3 border-t border-white/5 p-3" aria-busy={loading}>
+                    {loading && <p className="px-1 text-xs text-sky-200">Updating archive…</p>}
+                    {(error || restoreError) && (
+                        <div role="alert" className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3">
+                            <p className="text-xs leading-relaxed text-amber-100">{restoreError || error}</p>
+                            {onRetry && (
+                                <button
+                                    type="button"
+                                    disabled={loading || busy}
+                                    onClick={() => {
+                                        setRestoreError(null);
+                                        onRetry();
+                                    }}
+                                    className="mt-1 min-h-[44px] text-xs font-bold text-amber-200 disabled:opacity-40"
+                                >
+                                    Refresh archive
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {!loading && !error && count === 0 && (
+                        <div className="px-3 py-6 text-center">
+                            <p className="text-sm font-semibold text-slate-200">No archived voyages</p>
+                            <p className="mt-1 text-xs text-slate-400">
+                                Archived logs stay here until you restore them.
+                            </p>
+                        </div>
+                    )}
+                    {groups.map((group) => {
+                        const cards = group.voyages.map((voyage) => (
+                            <ArchivedVoyageCard
+                                key={voyage.voyageId}
+                                voyage={voyage}
+                                busy={busy}
+                                restoring={restoringIds.includes(voyage.voyageId)}
+                                onRestore={() =>
+                                    void restore([voyage.voyageId], () => handleUnarchiveVoyage(voyage.voyageId))
+                                }
+                            />
+                        ));
+                        if (!group.passage) return <React.Fragment key={group.key}>{cards}</React.Fragment>;
+                        return (
+                            <section
+                                key={group.key}
+                                aria-label={`Archived passage · ${group.voyages.length} ${group.voyages.length === 1 ? 'leg' : 'legs'}`}
+                                className="min-w-0 space-y-2 rounded-2xl border border-purple-400/35 bg-linear-to-b from-purple-500/15 to-purple-500/5 p-2 shadow-[0_0_22px_-8px_rgba(192,132,252,0.3)]"
+                            >
+                                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-1 pb-1">
+                                    <div>
+                                        <h3 className="text-xs font-extrabold tracking-[0.2em] text-yellow-300">
+                                            PASSAGE
+                                        </h3>
+                                        <p className="mt-1 text-[11px] text-purple-200/75">
+                                            {group.voyages.length} {group.voyages.length === 1 ? 'leg' : 'legs'}
+                                        </p>
+                                    </div>
+                                    {handleRestorePassage && (
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() =>
+                                                setRestoreRequest({
+                                                    passageId: group.voyages[0].passageGroupId!,
+                                                    voyageIds: group.voyages.map((voyage) => voyage.voyageId),
+                                                    restore: handleRestorePassage,
+                                                })
+                                            }
+                                            className="min-h-[44px] rounded-xl border border-purple-300/25 bg-purple-400/10 px-3 text-xs font-bold text-purple-100 disabled:opacity-40"
+                                        >
+                                            Restore passage
+                                        </button>
+                                    )}
+                                </div>
+                                {cards}
+                            </section>
+                        );
+                    })}
+                </div>
+            )}
+            <ConfirmDialog
+                isOpen={!!restoreRequest}
+                title="Restore this passage?"
+                message={`Return all ${restoreRequest?.voyageIds.length ?? 0} archived ${(restoreRequest?.voyageIds.length ?? 0) === 1 ? 'leg' : 'legs'} to your log. They stay grouped as a passage.`}
+                confirmLabel={`Restore ${restoreRequest?.voyageIds.length ?? 0} ${(restoreRequest?.voyageIds.length ?? 0) === 1 ? 'leg' : 'legs'}`}
+                onCancel={() => {
+                    if (!busyRef.current) setRestoreRequest(null);
+                }}
+                onConfirm={async () => {
+                    if (!restoreRequest || busyRef.current) return;
+                    const request = restoreRequest;
+                    await restore(request.voyageIds, () => request.restore(request.passageId, request.voyageIds));
+                    setRestoreRequest(null);
+                }}
+            />
+        </section>
+    );
+}

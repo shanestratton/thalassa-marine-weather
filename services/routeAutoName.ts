@@ -8,13 +8,15 @@
  * generalisation-guarded — services/weather/api/geocoding). We keep only the
  * locality ("Newport", not "Newport, QLD, AU") — route names read like a
  * passage, not an address. Unreachable/no-name water falls back to compact
- * coords ("27.14S 153.09E"). Results cache on a ~1 km grid so plotting a
- * dozen pins costs two geocodes, not twenty-four.
+ * coords ("27.14S 153.09E"). A bundled marine locality lookup precedes
+ * weather geocoding. Results cache on an ~11 m grid so close neighbouring
+ * bays do not accidentally share a name.
  */
 
 import { reverseGeocode } from './weather';
 import { pruneMap } from '../utils/boundedMap';
 import { withTimeout } from '../utils/deadline';
+import { marineEndpointName } from './marineEndpointName';
 
 interface LatLon {
     lat: number;
@@ -31,13 +33,19 @@ export function coordsLabel(p: LatLon): string {
 const placeCache = new Map<string, string>();
 
 /** Locality name for a point, or compact coords when the geocoder can't
- *  produce one. Cached on a ~1 km grid; never rejects. */
+ *  produce one. Cached on an ~11 m grid; never rejects. */
 export async function placeLabelFor(p: LatLon): Promise<string> {
-    const key = `${p.lat.toFixed(2)}|${p.lon.toFixed(2)}`;
+    const key = `${p.lat.toFixed(4)}|${p.lon.toFixed(4)}`;
     const hit = placeCache.get(key);
     if (hit) return hit;
     let label = coordsLabel(p);
     try {
+        const marine = await marineEndpointName(p.lat, p.lon);
+        if (marine) {
+            placeCache.set(key, marine);
+            pruneMap(placeCache, 300);
+            return marine;
+        }
         // reverseGeocode has its own retries; the outer deadline bounds the
         // whole thing (CapacitorHttp ignores AbortSignal on native).
         const name = await withTimeout(reverseGeocode(p.lat, p.lon), null, 6_000);

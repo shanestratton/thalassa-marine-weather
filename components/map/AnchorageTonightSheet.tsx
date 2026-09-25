@@ -15,38 +15,20 @@
  */
 import React, { useEffect, useState } from 'react';
 import { AnchorageService } from '../../services/anchorages/AnchorageService';
-import { getStayWindowCached } from '../../services/anchorages/anchorageForecast';
+import { cachedPlaceConditions, loadPlaceConditions } from '../../services/anchorages/PlaceConditionsService';
 import {
-    rankAnchorages,
-    type AnchorageForVerdict,
-    type AnchorageVerdict,
-} from '../../services/anchorages/anchorageVerdict';
+    CONDITION_COLOURS,
+    CONDITION_LABELS,
+    distanceNM,
+    type PlaceConditions,
+} from '../../services/anchorages/placeConditions';
+import { conditionsPlaceForAnchorage } from './useAnchorageLayer';
 import { triggerHaptic } from '../../utils/system';
 
-const GRADE_CHIP: Record<AnchorageVerdict['grade'], { label: string; cls: string }> = {
-    bombproof: { label: 'BOMBPROOF', cls: 'bg-emerald-500/20 text-emerald-300' },
-    good: { label: 'GOOD', cls: 'bg-teal-500/20 text-teal-300' },
-    tenable: { label: 'TENABLE', cls: 'bg-amber-500/20 text-amber-300' },
-    poor: { label: 'POOR', cls: 'bg-red-500/20 text-red-300' },
-    'no-anchoring': { label: 'NO ANCHOR', cls: 'bg-red-500/30 text-red-200' },
-};
-
-interface RankedRow extends AnchorageVerdict {
+interface RankedRow extends PlaceConditions {
+    id: string;
+    name: string;
     distanceNM: number;
-}
-
-function rowsFor(
-    centre: { lat: number; lon: number },
-    verdicts: AnchorageVerdict[],
-    byId: Map<string, AnchorageForVerdict>,
-): RankedRow[] {
-    return verdicts.map((v) => {
-        const a = byId.get(v.id);
-        const distanceNM = a
-            ? Math.hypot((a.lat - centre.lat) * 60, (a.lon - centre.lon) * 60 * Math.cos((centre.lat * Math.PI) / 180))
-            : 0;
-        return { ...v, distanceNM };
-    });
 }
 
 export const AnchorageTonightSheet: React.FC<{
@@ -59,7 +41,19 @@ export const AnchorageTonightSheet: React.FC<{
     const [open, setOpen] = useState(false);
     const [rows, setRows] = useState<RankedRow[] | null>(null);
     const [state, setState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
-    const [swellUnknown, setSwellUnknown] = useState(false);
+    const [revision, setRevision] = useState(0);
+    useEffect(() => {
+        if (!open) return;
+        const refresh = () => setRevision((r) => r + 1);
+        const timer = setInterval(refresh, 60_000);
+        window.addEventListener('offline', refresh);
+        window.addEventListener('online', refresh);
+        return () => {
+            clearInterval(timer);
+            window.removeEventListener('offline', refresh);
+            window.removeEventListener('online', refresh);
+        };
+    }, [open]);
 
     useEffect(() => {
         if (!visible) setOpen(false);
@@ -72,55 +66,43 @@ export const AnchorageTonightSheet: React.FC<{
         // Clear the previous centre's ranking — it used to sit under "Reading
         // tonight's conditions…" for the new one (audit 2026-09-02).
         setRows(null);
-        setSwellUnknown(false);
         (async () => {
             try {
-                const [data, hours] = await Promise.all([
-                    AnchorageService.loadNear(centre.lat, centre.lon, 50),
-                    getStayWindowCached(centre.lat, centre.lon),
-                ]);
+                const data = await AnchorageService.loadNear(centre.lat, centre.lon, 50);
                 if (cancelled) return;
-                const candidates: AnchorageForVerdict[] = data.points.features
+                const candidates = data.points.features
                     .filter((f) => {
                         const p = f.properties;
                         return p.kind !== 'marina' && p.likelyAnchorage !== false && p.fetchLandNM && p.fetchReefNM;
                     })
                     .map((f) => ({
-                        id: f.properties.id,
+                        ...conditionsPlaceForAnchorage(f),
                         name: f.properties.name,
-                        kind: f.properties.kind,
-                        lat: f.geometry.coordinates[1],
-                        lon: f.geometry.coordinates[0],
-                        fetchLandNM: f.properties.fetchLandNM as number[],
-                        fetchReefNM: f.properties.fetchReefNM as number[],
-                        noAnchoring: f.properties.noAnchoring,
-                        noAnchoringName: f.properties.noAnchoringName,
-                    }));
+                        distanceNM: distanceNM(centre, {
+                            lat: f.geometry.coordinates[1],
+                            lon: f.geometry.coordinates[0],
+                        }),
+                    }))
+                    .filter((p) => p.distanceNM <= 50)
+                    .sort((a, b) => a.distanceNM - b.distanceNM)
+                    .slice(0, 24);
                 if (candidates.length === 0) {
                     setState('empty');
                     setRows(null);
                     return;
                 }
-                const verdicts = rankAnchorages(candidates, hours ?? []);
-                const byId = new Map(candidates.map((c) => [c.id, c]));
-                // Tiles load whole; the PROMISE is 50 NM — hold the sheet to
-                // it, and break same-score ties by distance (the closer of
-                // two equally bombproof bays wins the night).
-                const ranked = rowsFor(centre, verdicts, byId)
-                    .filter((r) => r.distanceNM <= 50)
-                    .sort(
-                        (a, b) =>
-                            (a.grade === 'no-anchoring' ? 1 : 0) - (b.grade === 'no-anchoring' ? 1 : 0) ||
-                            b.score - a.score ||
-                            a.distanceNM - b.distanceNM,
-                    );
+                await loadPlaceConditions(candidates);
+                if (cancelled) return;
+                const order = { green: 0, amber: 1, unknown: 2, red: 3 };
+                const ranked = candidates
+                    .map((c) => ({ id: c.id, name: c.name, distanceNM: c.distanceNM, ...cachedPlaceConditions(c) }))
+                    .sort((a, b) => order[a.light] - order[b.light] || a.distanceNM - b.distanceNM);
                 if (ranked.length === 0) {
                     setState('empty');
                     setRows(null);
                     return;
                 }
                 setRows(ranked.slice(0, 8));
-                setSwellUnknown(verdicts.some((v) => v.swellUnknown));
                 setState('idle');
             } catch {
                 if (!cancelled) setState('error');
@@ -129,7 +111,7 @@ export const AnchorageTonightSheet: React.FC<{
         return () => {
             cancelled = true;
         };
-    }, [open, centre]);
+    }, [open, centre, revision]);
 
     if (!visible || !centre) return null;
 
@@ -143,9 +125,9 @@ export const AnchorageTonightSheet: React.FC<{
                     }}
                     className="fixed left-3 z-720 px-3 py-2 bg-slate-800/95 border border-cyan-500/30 rounded-full text-cyan-300 text-xs font-black uppercase tracking-widest shadow-xl shadow-black/40 active:scale-95 transition-all"
                     style={{ bottom: 'calc(8.5rem + env(safe-area-inset-bottom))' }}
-                    aria-label="Rank anchorages for tonight"
+                    aria-label="Compare anchorages for the next 12 hours"
                 >
-                    <span aria-hidden>⚓ </span>Tonight?
+                    <span aria-hidden>⚓ </span>Next 12 hours
                 </button>
             )}
             {open && (
@@ -159,7 +141,7 @@ export const AnchorageTonightSheet: React.FC<{
                     <div className="relative w-full max-w-md bg-slate-900 border border-cyan-500/20 rounded-2xl shadow-2xl max-h-full flex flex-col">
                         <div className="flex items-center justify-between px-4 pt-3 pb-2">
                             <div className="text-sm font-bold text-white">
-                                <span aria-hidden>⚓ </span>Where tonight?
+                                <span aria-hidden>⚓ </span>Where to stop · next 12 hours
                             </div>
                             <button
                                 onClick={() => setOpen(false)}
@@ -185,7 +167,6 @@ export const AnchorageTonightSheet: React.FC<{
                                 </div>
                             )}
                             {rows?.map((r, i) => {
-                                const chip = GRADE_CHIP[r.grade];
                                 return (
                                     <button
                                         key={r.id}
@@ -204,9 +185,10 @@ export const AnchorageTonightSheet: React.FC<{
                                                 {r.name}
                                             </span>
                                             <span
-                                                className={`px-2 py-0.5 rounded-full text-sm font-black tracking-wider ${chip.cls}`}
+                                                className="px-2 py-0.5 rounded-full text-xs font-bold"
+                                                style={{ color: CONDITION_COLOURS[r.light] }}
                                             >
-                                                {chip.label}
+                                                ● {CONDITION_LABELS[r.light]}
                                             </span>
                                             <span className="text-gray-600 text-base leading-none" aria-hidden>
                                                 ›
@@ -221,10 +203,10 @@ export const AnchorageTonightSheet: React.FC<{
                             })}
                             {rows && (
                                 <div className="pt-3 text-xs text-gray-400 leading-relaxed">
-                                    {swellUnknown && 'Swell data unavailable — roll unassessed. '}
-                                    Advisory only — verify against official charts, the pilot and your own eyes before
-                                    anchoring. Data: © OpenStreetMap contributors (ODbL), © GBRMPA (CC BY). Forecast:
-                                    Open-Meteo.
+                                    Comparing up to 24 nearby mapped anchorages within 50 NM. Weather/shelter advisory,
+                                    not clearance. Check warnings, tide/depth, holding and swing room. Missing data
+                                    stays unassessed. Data: © OpenStreetMap contributors (ODbL), © GBRMPA (CC BY).
+                                    Forecast: Open-Meteo / national weather services.
                                 </div>
                             )}
                         </div>

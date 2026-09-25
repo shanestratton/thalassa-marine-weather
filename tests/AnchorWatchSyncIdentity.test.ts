@@ -36,13 +36,27 @@ const syncMocks = vi.hoisted(() => {
         deleteFilters,
         requestPushToken: vi.fn().mockResolvedValue(null),
         getPushToken: vi.fn().mockReturnValue(null),
+        platform: 'ios',
+        nativeReadiness: vi.fn(),
+        appStateListener: null as null | ((state: { isActive: boolean }) => void),
     };
 });
 
 vi.mock('@capacitor/app', () => ({
     App: {
-        addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
+        addListener: vi.fn(async (_event, listener) => {
+            syncMocks.appStateListener = listener;
+            return { remove: vi.fn() };
+        }),
     },
+}));
+
+vi.mock('@capacitor/core', () => ({
+    Capacitor: { getPlatform: () => syncMocks.platform },
+}));
+
+vi.mock('../services/AnchorSafetyNotificationService', () => ({
+    AnchorSafetyNotificationService: { requireReadiness: syncMocks.nativeReadiness },
 }));
 
 vi.mock('../services/PushNotificationService', () => ({
@@ -102,7 +116,7 @@ vi.mock('../services/supabase', () => ({
     },
 }));
 
-import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
+import { AnchorWatchSyncService, type PositionBroadcast } from '../services/AnchorWatchSyncService';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const SESSION_KEY = 'thalassa_anchor_sync_session';
@@ -114,6 +128,18 @@ function signInAs(userId: string) {
 
 function flushPromises(): Promise<void> {
     return Promise.resolve().then(() => undefined);
+}
+
+function position(): PositionBroadcast {
+    return {
+        type: 'position',
+        vessel: { latitude: -20, longitude: 148, accuracy: 4, heading: 0, speed: 0, timestamp: Date.now() },
+        anchor: { latitude: -20, longitude: 148, timestamp: Date.now() },
+        distance: 50,
+        swingRadius: 30,
+        isAlarm: true,
+        timestamp: Date.now(),
+    };
 }
 
 describe('AnchorWatchSyncService identity isolation', () => {
@@ -131,12 +157,14 @@ describe('AnchorWatchSyncService identity isolation', () => {
         syncMocks.getUser.mockImplementation(async () => ({
             data: { user: syncMocks.authUserId ? { id: syncMocks.authUserId } : null },
         }));
-        syncMocks.rpc.mockResolvedValue({ data: true, error: null });
+        syncMocks.rpc.mockReset().mockResolvedValue({ data: true, error: null });
         syncMocks.removeChannel.mockResolvedValue('ok');
         syncMocks.insertAlarm.mockResolvedValue({ error: null });
         syncMocks.upsertToken.mockResolvedValue({ error: null });
         syncMocks.requestPushToken.mockResolvedValue(null);
         syncMocks.getPushToken.mockReturnValue(null);
+        syncMocks.platform = 'ios';
+        syncMocks.nativeReadiness.mockResolvedValue({ ready: true });
     });
 
     afterEach(() => {
@@ -384,5 +412,284 @@ describe('AnchorWatchSyncService identity isolation', () => {
         expect(syncMocks.deleteRows).not.toHaveBeenCalled();
         expect(localStorage.getItem(authScopedStorageKey(SESSION_KEY, accountBScope))).toBeNull();
         expect(getAuthIdentityScope().userId).toBe('account-b');
+    });
+
+    it('reports checking until both native settings and the session token write are acknowledged', async () => {
+        signInAs('account-a');
+        syncMocks.requestPushToken.mockResolvedValue('push-token-a');
+        let acknowledge!: (value: { error: null }) => void;
+        syncMocks.upsertToken.mockReturnValueOnce(new Promise((resolve) => (acknowledge = resolve)));
+        const listener = vi.fn();
+        const unsubscribe = AnchorWatchSyncService.onPushReadinessChange(listener);
+        try {
+            expect(listener).toHaveBeenLastCalledWith({ status: 'inactive', reason: null, checkedAt: null });
+            expect(await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM')).toBe(true);
+            await vi.waitFor(() => expect(syncMocks.upsertToken).toHaveBeenCalledOnce());
+            expect(AnchorWatchSyncService.getPushReadiness().status).toBe('checking');
+            expect(syncMocks.nativeReadiness).toHaveBeenCalledOnce();
+            expect(syncMocks.upsertToken).toHaveBeenCalledWith(
+                {
+                    session_code: 'ABCDEFGHJKLM',
+                    user_id: 'account-a',
+                    device_token: 'push-token-a',
+                    platform: 'ios',
+                    supports_reminders: true,
+                },
+                { onConflict: 'session_code,device_token' },
+            );
+            const pending = AnchorWatchSyncService.refreshPushReadiness();
+            acknowledge({ error: null });
+            await expect(pending).resolves.toEqual({ status: 'ready', reason: null, checkedAt: expect.any(Number) });
+            expect(listener).toHaveBeenLastCalledWith(AnchorWatchSyncService.getPushReadiness());
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it.each(['web', 'android'])('keeps %s joins in-app-only without claiming APNs support', async (platform) => {
+        signInAs('account-a');
+        syncMocks.platform = platform;
+        expect(await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM')).toBe(true);
+        await expect(AnchorWatchSyncService.refreshPushReadiness()).resolves.toMatchObject({ status: 'unavailable' });
+        expect(AnchorWatchSyncService.getState().connected).toBe(true);
+        expect(syncMocks.requestPushToken).not.toHaveBeenCalled();
+        expect(syncMocks.upsertToken).not.toHaveBeenCalled();
+    });
+
+    it.each(['permission-or-token', 'native-settings', 'server-write'])(
+        'retains the joined session but reports unavailable when %s verification fails',
+        async (failure) => {
+            signInAs('account-a');
+            syncMocks.requestPushToken.mockResolvedValue(failure === 'permission-or-token' ? null : 'push-token-a');
+            if (failure === 'native-settings') {
+                syncMocks.nativeReadiness.mockRejectedValue(
+                    new Error('Enable Time Sensitive notifications in Settings.'),
+                );
+            }
+            if (failure === 'server-write') syncMocks.upsertToken.mockResolvedValue({ error: { message: 'offline' } });
+
+            expect(await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM')).toBe(true);
+            await expect(AnchorWatchSyncService.refreshPushReadiness()).resolves.toMatchObject({
+                status: 'unavailable',
+                reason: expect.any(String),
+            });
+            expect(AnchorWatchSyncService.getState()).toMatchObject({ connected: true, sessionCode: 'ABCDEFGHJKLM' });
+            expect(AnchorWatchSyncService.hasPersistedSession()).toBe(true);
+            if (failure !== 'server-write') expect(syncMocks.upsertToken).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['token', 'native', 'storage'] as const)(
+        'bounds a stalled %s check and ignores its late result',
+        async (stage) => {
+            signInAs('account-a');
+            syncMocks.requestPushToken.mockResolvedValue('push-token-a');
+            let release!: (value: unknown) => void;
+            const stalled = new Promise((resolve) => (release = resolve));
+            const mock =
+                stage === 'token'
+                    ? syncMocks.requestPushToken
+                    : stage === 'native'
+                      ? syncMocks.nativeReadiness
+                      : syncMocks.upsertToken;
+            mock.mockReturnValueOnce(stalled);
+            await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+            const pending = AnchorWatchSyncService.refreshPushReadiness();
+            await vi.advanceTimersByTimeAsync(20_000);
+
+            await expect(pending).resolves.toMatchObject({
+                status: 'unavailable',
+                reason: expect.stringContaining('timed out'),
+            });
+            const writesBefore = syncMocks.upsertToken.mock.calls.length;
+            release(stage === 'token' ? 'late-token' : stage === 'native' ? { ready: true } : { error: null });
+            await flushPromises();
+            await flushPromises();
+            expect(syncMocks.upsertToken).toHaveBeenCalledTimes(writesBefore);
+            expect(AnchorWatchSyncService.getPushReadiness().status).toBe('unavailable');
+            expect(AnchorWatchSyncService.getLastSessionCode()).toBe('ABCDEFGHJKLM');
+        },
+    );
+
+    it('rechecks revoked settings on foreground even while realtime is still connected', async () => {
+        signInAs('account-a');
+        syncMocks.requestPushToken.mockResolvedValue('push-token-a');
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        await expect(AnchorWatchSyncService.refreshPushReadiness()).resolves.toMatchObject({ status: 'ready' });
+        syncMocks.nativeReadiness.mockRejectedValue(new Error('Notifications were disabled.'));
+        syncMocks.appStateListener?.({ isActive: true });
+        await expect(AnchorWatchSyncService.refreshPushReadiness()).resolves.toMatchObject({
+            status: 'unavailable',
+            reason: 'Notifications were disabled.',
+        });
+        expect(AnchorWatchSyncService.getState().connected).toBe(true);
+    });
+
+    it('retains a failed channel join and retries notification setup on reconnect', async () => {
+        signInAs('account-a');
+        syncMocks.subscribeStatus = 'CHANNEL_ERROR';
+        expect(await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM')).toBe(false);
+        await expect(AnchorWatchSyncService.refreshPushReadiness()).resolves.toMatchObject({ status: 'unavailable' });
+        expect(AnchorWatchSyncService.getLastSessionCode()).toBe('ABCDEFGHJKLM');
+        syncMocks.subscribeStatus = 'SUBSCRIBED';
+        syncMocks.requestPushToken.mockResolvedValue('push-token-a');
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(AnchorWatchSyncService.getState().connected).toBe(true);
+        expect(AnchorWatchSyncService.getPushReadiness().status).toBe('ready');
+    });
+
+    it('cancels a pending check on leave and fences a rejoined identical session', async () => {
+        signInAs('account-a');
+        let oldToken!: (token: string) => void;
+        syncMocks.requestPushToken.mockReturnValueOnce(new Promise((resolve) => (oldToken = resolve)));
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        const oldCheck = AnchorWatchSyncService.refreshPushReadiness();
+        await AnchorWatchSyncService.leaveSession();
+        await expect(oldCheck).resolves.toMatchObject({ status: 'inactive' });
+        syncMocks.requestPushToken.mockResolvedValue('new-token');
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        await expect(AnchorWatchSyncService.refreshPushReadiness()).resolves.toMatchObject({ status: 'ready' });
+        const writesBefore = syncMocks.upsertToken.mock.calls.length;
+        oldToken('old-token');
+        await flushPromises();
+        expect(syncMocks.upsertToken).toHaveBeenCalledTimes(writesBefore);
+        expect(AnchorWatchSyncService.getPushReadiness().status).toBe('ready');
+    });
+
+    it("never publishes an old account's acknowledged token as ready after an identity switch", async () => {
+        signInAs('account-a');
+        syncMocks.requestPushToken.mockResolvedValue('push-token-a');
+        let acknowledge!: (value: { error: null }) => void;
+        syncMocks.upsertToken.mockReturnValueOnce(new Promise((resolve) => (acknowledge = resolve)));
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        await vi.waitFor(() => expect(syncMocks.upsertToken).toHaveBeenCalled());
+        signInAs('account-b');
+        acknowledge({ error: null });
+        await flushPromises();
+        expect(AnchorWatchSyncService.getPushReadiness().status).toBe('inactive');
+    });
+
+    it('replays latest position and alarm across channel reconnect, but not a replaced session/account', async () => {
+        signInAs('account-a');
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        const firstChannel = syncMocks.channels[0];
+        const fix = position();
+        const alarm = { type: 'alarm', triggered: false, distance: 5, swingRadius: 30, timestamp: Date.now() };
+        firstChannel.handlers.get('broadcast:position')?.({ payload: fix });
+        expect(AnchorWatchSyncService.getLatestPosition()).toEqual(fix);
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toEqual(fix);
+        firstChannel.handlers.get('broadcast:alarm')?.({ payload: alarm });
+        expect(AnchorWatchSyncService.getLatestPosition()).toEqual(fix);
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toEqual(alarm);
+
+        firstChannel.subscribeCallback?.('CHANNEL_ERROR');
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toEqual(alarm);
+        await AnchorWatchSyncService.joinSession('NPQRSTUVWXYZ');
+        firstChannel.handlers.get('broadcast:position')?.({ payload: fix });
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toBeNull();
+        expect(AnchorWatchSyncService.getLatestPosition()).toBeNull();
+        syncMocks.channels.at(-1)?.handlers.get('broadcast:position')?.({ payload: fix });
+        signInAs('account-b');
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toBeNull();
+        expect(AnchorWatchSyncService.getLatestPosition()).toBeNull();
+    });
+
+    it('acknowledges only the current phone’s matching incident at the original click time', async () => {
+        signInAs('account-a');
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        syncMocks.getPushToken.mockReturnValue('push-token-a');
+        const cutoff = Date.now();
+        const incident = {
+            incident_id: '00000000-0000-0000-0000-000000000001',
+            token_id: '00000000-0000-0000-0000-000000000002',
+            alarm_kind: 'drag',
+            started_at: new Date(cutoff - 1000).toISOString(),
+        };
+        syncMocks.rpc.mockClear();
+        syncMocks.rpc.mockResolvedValueOnce({ data: [incident, { ...incident, alarm_kind: 'gps_lost' }], error: null });
+        syncMocks.rpc.mockResolvedValueOnce({ data: true, error: null });
+        await expect(AnchorWatchSyncService.acknowledgeAlarmReminders('drag', cutoff)).resolves.toEqual([
+            incident.incident_id,
+        ]);
+        expect(syncMocks.rpc.mock.calls).toEqual([
+            [
+                'list_active_anchor_alarm_incidents',
+                {
+                    p_session_code: 'ABCDEFGHJKLM',
+                    p_device_token: 'push-token-a',
+                    p_started_before: new Date(cutoff).toISOString(),
+                },
+            ],
+            ['acknowledge_anchor_alarm', { p_incident_id: incident.incident_id, p_token_id: incident.token_id }],
+        ]);
+    });
+
+    it.each(['account', 'token', 'session'])('does not ACK after the %s changes during lookup', async (change) => {
+        signInAs('account-a');
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        syncMocks.getPushToken.mockReturnValue('push-token-a');
+        let complete!: (value: unknown) => void;
+        syncMocks.rpc.mockClear();
+        syncMocks.rpc.mockReturnValueOnce(
+            new Promise((resolve) => {
+                complete = resolve;
+            }),
+        );
+        const pending = AnchorWatchSyncService.acknowledgeAlarmReminders('drag', Date.now());
+        const rejected = expect(pending).rejects.toThrow('changed');
+        await flushPromises();
+        if (change === 'account') signInAs('account-b');
+        if (change === 'token') syncMocks.getPushToken.mockReturnValue('push-token-b');
+        if (change === 'session') await AnchorWatchSyncService.joinSession('NPQRSTUVWXYZ');
+        complete({ data: [], error: null });
+        await rejected;
+        expect(syncMocks.rpc.mock.calls.some(([name]) => name === 'acknowledge_anchor_alarm')).toBe(false);
+    });
+
+    it.each(['no-match', 'future-incident', 'server-refusal'])(
+        'does not claim a successful ACK for %s',
+        async (failure) => {
+            signInAs('account-a');
+            await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+            syncMocks.getPushToken.mockReturnValue('push-token-a');
+            const cutoff = Date.now();
+            const row = {
+                incident_id: '00000000-0000-0000-0000-000000000001',
+                token_id: '00000000-0000-0000-0000-000000000002',
+                alarm_kind: failure === 'no-match' ? 'gps_lost' : 'drag',
+                started_at: new Date(cutoff + (failure === 'future-incident' ? 1000 : -1000)).toISOString(),
+            };
+            syncMocks.rpc.mockClear();
+            syncMocks.rpc.mockResolvedValueOnce({ data: [row], error: null });
+            syncMocks.rpc.mockResolvedValueOnce({ data: false, error: null });
+            await expect(AnchorWatchSyncService.acknowledgeAlarmReminders('drag', cutoff)).rejects.toThrow();
+            expect(syncMocks.rpc).toHaveBeenCalledTimes(failure === 'server-refusal' ? 2 : 1);
+        },
+    );
+
+    it('relays GPS unavailable status without replacing a fix and fences the old channel', async () => {
+        signInAs('account-a');
+        await AnchorWatchSyncService.joinSession('ABCDEFGHJKLM');
+        const first = syncMocks.channels[0];
+        const fix = position();
+        const status = {
+            type: 'status',
+            gpsAvailable: false,
+            reason: 'gps_unavailable',
+            source: 'pi',
+            timestamp: Date.now(),
+        };
+        first.handlers.get('broadcast:position')?.({ payload: fix });
+        first.handlers.get('broadcast:status')?.({ payload: status });
+        expect(AnchorWatchSyncService.getLatestPosition()).toEqual(fix);
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toEqual(status);
+        await AnchorWatchSyncService.joinSession('NPQRSTUVWXYZ');
+        first.handlers.get('broadcast:status')?.({ payload: status });
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toBeNull();
+        syncMocks.channels.at(-1)?.handlers.get('broadcast:status')?.({ payload: status });
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toEqual(status);
+        signInAs('account-b');
+        expect(AnchorWatchSyncService.getLatestBroadcast()).toBeNull();
     });
 });

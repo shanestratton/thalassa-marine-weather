@@ -96,7 +96,8 @@ export function allDiaryPublicTrip(): PublicTrip {
     return {
         id: PUBLIC_ALL_DIARY_TRIP_ID,
         kind: 'all-diary',
-        label: 'All diary entries',
+        // Keep the existing URL id/kind so saved links and older clients work.
+        label: 'All trips & diary',
         started_at: null,
         ended_at: null,
         active: false,

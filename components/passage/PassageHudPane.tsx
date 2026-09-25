@@ -38,8 +38,9 @@
  * storm card, the planning surfaces and a landscape phone. It sits at z-549,
  * one under the offline card (z-550). Not a dialog: the chart stays live.
  *
- * OFF BY DEFAULT. OBS Layers → Passage HUD, offered only while following a
- * route from Log. Activation opens the readings, turns off Inspect and shows
+ * OBS Layers → Passage HUD, offered for a followed route or an active/paused
+ * recording. Recording starts open the LIVE readings once per session.
+ * Activation opens the readings, turns off Inspect and shows
  * wind plus available rain/squalls without taking over the chart camera.
  *
  * HONESTY:
@@ -80,6 +81,9 @@ import {
     usePassageWindCoverageHours,
 } from '../../stores/passageHudStore';
 import { usePassageHudInstruments, type HudMetric } from '../../hooks/usePassageHudInstruments';
+import { useHudRecording } from '../../hooks/useHudRecording';
+import type { TrackingState } from '../../services/shiplog/TrackingStateStore';
+import { PassageRecordingMetrics } from './PassageRecordingMetrics';
 import { usePassageEta } from '../../hooks/usePassageEta';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
@@ -206,16 +210,19 @@ const SUB_TONE = { quiet: 'text-gray-400', amber: 'text-amber-300', red: 'text-r
 
 const Cell: React.FC<CellProps> = ({ label, value, unit, metric, testId, sentence, forecast = false, sub = null }) => (
     <div
-        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 border-b border-white/10 px-2 py-1"
+        className="thalassa-passage-hud-cell grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 border-b border-white/10 px-2 py-1"
         data-testid={testId}
         data-freshness={metric.value === null ? 'none' : forecast ? 'forecast' : metric.freshness}
-        title={sentence}
-        aria-label={sentence}
+        title={`${sentence}${!forecast && metric.value !== null && metric.freshness === 'stale' ? ' — stale reading' : ''}`}
+        aria-label={`${sentence}${!forecast && metric.value !== null && metric.freshness === 'stale' ? ' — stale reading' : ''}`}
     >
         <p
             className={`text-[13px] font-black uppercase leading-tight ${forecast ? 'text-amber-300/90' : 'text-gray-300'}`}
         >
             {label}
+            {!forecast && metric.value !== null && metric.freshness === 'stale' && (
+                <span className="ml-1 text-[9px] text-amber-300">OLD</span>
+            )}
         </p>
         <p
             className={`whitespace-nowrap text-right font-mono text-[28px] font-black leading-tight tabular-nums ${tone(metric, forecast)}`}
@@ -288,13 +295,18 @@ const HOW_WORDS: Record<SpeedHow, string> = {
 /** Narrow read: WindStore changes at scrub rate (its hour); the model does not. */
 const currentWindModel = () => WindStore.getState().model;
 
-const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onToggle }) => {
+const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: TrackingState }> = ({
+    open,
+    onToggle,
+    recording,
+}) => {
     const inst = usePassageHudInstruments();
     const overlayOn = usePassageOverlay();
     const isFollowing = useFollowRouteStore((s) => s.isFollowing);
     const voyagePlan = useFollowRouteStore((s) => s.voyagePlan);
     const routeCoords = useFollowRouteStore((s) => s.routeCoords);
     const following = isFollowing && routeCoords.length >= 2;
+    const recordingAvailable = !!recording.currentVoyageId && (recording.isTracking || recording.isPaused);
 
     // The lane and her course can change while the route effect is running;
     // read them fresh.
@@ -422,7 +434,10 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
     }, []);
 
     // ── Look ahead (phase 2) ──
-    const look = usePassageLookAhead();
+    const storedLook = usePassageLookAhead();
+    // A route can disappear while recording continues. Hide its forecast in
+    // this render, before effects clear the old preview and ghost.
+    const look = following ? storedLook : { ...storedLook, on: false };
     const windCoverageHours = usePassageWindCoverageHours();
     const unsyncedLayers = usePassageUnsyncedLayers();
     const vessel = useSettingsStore((st) => st.settings.vessel);
@@ -458,8 +473,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
         [],
     );
     useEffect(() => {
-        if (look.on && !following) stopPassageLookAhead();
-    }, [look.on, following]);
+        if (storedLook.on && !following) stopPassageLookAhead();
+    }, [storedLook.on, following]);
 
     // The strip stands down by CSS for a storm card, the planning surfaces and
     // a landscape phone. It is still mounted then, and a look-ahead left
@@ -553,26 +568,104 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
     }, [open]);
     useEffect(() => {
         const pane = asideRef.current;
-        const scrubber = pane?.parentElement?.querySelector('.thalassa-route-scrubber');
-        if (!open || !look.on || !pane || !scrubber || typeof ResizeObserver === 'undefined') return;
-        // Credits and own-time/join notes wrap on a phone. Reserve their real
-        // height rather than allowing a taller scrubber to cover the readings.
+        const chart = pane?.closest('main');
+        const cells = pane?.querySelector<HTMLElement>('.thalassa-passage-hud-cells');
+        if (!open || !pane || !chart || !cells || typeof ResizeObserver === 'undefined') return;
+        // Use the room actually available, not the old worst-case weather
+        // reservation. The LIVE model row and the forecast scrubber have
+        // different heights; either can change as controls fold or notes wrap.
+        const furnitureSelector =
+            '.thalassa-route-scrubber, .mapboxgl-ctrl-bottom-left, ' +
+            '[role="slider"][aria-label$=" timeline"], [aria-label^="Wind model "], ' +
+            '[aria-label="Hide weather controls"], [aria-label="Show weather controls"]';
+        const observed = new Set<Element>();
+        let frame = 0;
+        let availableHeight = -1;
         const measure = () => {
-            const height = Math.max(
-                0,
-                Math.floor(scrubber.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8),
+            frame = 0;
+            const bounds = pane.getBoundingClientRect();
+            if (!bounds.width || getComputedStyle(pane).display === 'none') return;
+            const furniture = new Set<Element>(
+                [...chart.querySelectorAll(furnitureSelector)].map((element) =>
+                    element.matches('.thalassa-route-scrubber, .mapboxgl-ctrl-bottom-left')
+                        ? element
+                        : (element.closest('.absolute') ?? element),
+                ),
             );
-            pane.style.setProperty('--passage-scrubber-available-height', `${height}px`);
+            const navigation = document.querySelector('[aria-label="Main navigation"]');
+            if (navigation) furniture.add(navigation.closest('nav') ?? navigation);
+            const chartBounds = chart.getBoundingClientRect();
+            let bottom = Math.min(chartBounds.bottom, window.innerHeight) - 8;
+            for (const element of furniture) {
+                const box = element.getBoundingClientRect();
+                if (
+                    box.width > 0 &&
+                    box.height > 0 &&
+                    box.left < bounds.right &&
+                    box.right > bounds.left &&
+                    box.top > bounds.top
+                ) {
+                    bottom = Math.min(bottom, box.top - 8);
+                }
+            }
+            const height = Math.max(0, Math.floor(bottom - bounds.top));
+            if (height !== availableHeight) {
+                availableHeight = height;
+                pane.style.setProperty('--passage-hud-available-height', `${height}px`);
+                // Relax back to the readable default when space is returned.
+                delete pane.dataset.density;
+            }
+            // Keep every category and warning. Only tighten row spacing and
+            // the largest numerals if the available height requires it.
+            // Extremely short/accessibility-scaled panes retain a scroll escape.
+            if (cells.scrollHeight > cells.clientHeight + 1 && !pane.dataset.density) {
+                pane.dataset.density = 'compact';
+            }
+            if (cells.scrollHeight > cells.clientHeight + 1 && pane.dataset.density === 'compact') {
+                pane.dataset.density = 'tight';
+            }
+            const targets = new Set<Element>([chart, pane, ...cells.children, ...furniture]);
+            for (const target of targets) {
+                if (!observed.has(target)) {
+                    observed.add(target);
+                    observer.observe(target);
+                }
+            }
+            for (const target of observed) {
+                if (!targets.has(target)) {
+                    observer.unobserve(target);
+                    observed.delete(target);
+                }
+            }
         };
-        const observer = new ResizeObserver(measure);
-        observer.observe(scrubber);
-        observer.observe(pane);
-        window.addEventListener('resize', measure);
+        const schedule = () => {
+            if (!frame) frame = requestAnimationFrame(measure);
+        };
+        const observer = new ResizeObserver(schedule);
+        const mutations = new MutationObserver((records) => {
+            const relevant = (node: Node) =>
+                node instanceof Element && (node.matches(furnitureSelector) || node.querySelector(furnitureSelector));
+            if (
+                records.some(
+                    (record) =>
+                        pane.contains(record.target) || [...record.addedNodes, ...record.removedNodes].some(relevant),
+                )
+            )
+                schedule();
+        });
+        mutations.observe(chart, { childList: true, subtree: true });
+        // Credits can move the pane without resizing it. Re-measure that
+        // position-only change too; the guarded height assignment settles.
+        mutations.observe(pane, { attributes: true, attributeFilter: ['style'] });
+        window.addEventListener('resize', schedule);
         measure();
         return () => {
+            if (frame) cancelAnimationFrame(frame);
             observer.disconnect();
-            window.removeEventListener('resize', measure);
-            pane.style.removeProperty('--passage-scrubber-available-height');
+            mutations.disconnect();
+            window.removeEventListener('resize', schedule);
+            pane.style.removeProperty('--passage-hud-available-height');
+            delete pane.dataset.density;
         };
     }, [open, look.on]);
     useEffect(() => {
@@ -867,7 +960,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
             )}
             <p className="text-[10px] font-bold leading-tight text-gray-400">
                 {etaBasis}
-                {etaSpeed != null && etaSpeed > 0 ? ` · ${etaSpeed.toFixed(1)} KN` : ''}
+                {!look.on && etaSpeed != null && etaSpeed > 0 ? ` · ${etaSpeed.toFixed(1)} KN` : ''}
             </p>
         </div>
     );
@@ -1410,45 +1503,61 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
                         </>
                     ) : (
                         <>
-                            {/* The route FIRST: it is the number the strip exists to show. */}
-                            <div
-                                className="border-b border-white/10 px-1 py-1 text-center"
-                                data-testid="hud-route"
-                                title={routeSentence}
-                                aria-label={routeSentence}
-                            >
-                                <p className="text-[10px] font-black uppercase leading-none text-gray-400">To go</p>
-                                <p
-                                    className={`font-mono text-[32px] font-black leading-tight tabular-nums ${
-                                        !fix
-                                            ? 'text-white/40'
-                                            : fix.source === 'phone-old'
-                                              ? 'text-white/60'
-                                              : 'text-white'
-                                    }`}
-                                >
-                                    {fix ? fmtNm(fix.progress.toGoNm) : DASH}
-                                    {fix && <span className="ml-1 text-[13px] font-bold text-gray-400">NM</span>}
-                                </p>
-                                <p
-                                    className={`text-[10px] font-black uppercase leading-none ${
-                                        fix && fix.source !== 'boat' ? 'text-amber-300' : 'text-gray-400'
-                                    }`}
-                                    data-testid="hud-fix-source"
-                                >
-                                    {!following ? 'NO ROUTE' : fix ? fixSourceTag(fix.source, fix.ageMin) : 'NO FIX'}
-                                </p>
-                                {fix && fix.progress.offTrackNm >= 0.5 && (
-                                    <p
-                                        className="text-[10px] font-black uppercase leading-none text-amber-300"
-                                        data-testid="hud-off-line"
+                            {following ? (
+                                <>
+                                    <div
+                                        className="border-b border-white/10 px-1 py-1 text-center"
+                                        data-testid="hud-route"
+                                        title={routeSentence}
+                                        aria-label={routeSentence}
                                     >
-                                        {fmtNm(fix.progress.offTrackNm)} OFF
-                                    </p>
-                                )}
-                            </div>
+                                        <p className="text-[10px] font-black uppercase leading-none text-gray-400">
+                                            To go
+                                        </p>
+                                        <p
+                                            className={`font-mono text-[32px] font-black leading-tight tabular-nums ${
+                                                !fix
+                                                    ? 'text-white/40'
+                                                    : fix.source === 'phone-old'
+                                                      ? 'text-white/60'
+                                                      : 'text-white'
+                                            }`}
+                                        >
+                                            {fix ? fmtNm(fix.progress.toGoNm) : DASH}
+                                            {fix && (
+                                                <span className="ml-1 text-[13px] font-bold text-gray-400">NM</span>
+                                            )}
+                                        </p>
+                                        <p
+                                            className={`text-[10px] font-black uppercase leading-none ${
+                                                fix && fix.source !== 'boat' ? 'text-amber-300' : 'text-gray-400'
+                                            }`}
+                                            data-testid="hud-fix-source"
+                                        >
+                                            {!following
+                                                ? 'NO ROUTE'
+                                                : fix
+                                                  ? fixSourceTag(fix.source, fix.ageMin)
+                                                  : 'NO FIX'}
+                                        </p>
+                                        {fix && fix.progress.offTrackNm >= 0.5 && (
+                                            <p
+                                                className="text-[10px] font-black uppercase leading-none text-amber-300"
+                                                data-testid="hud-off-line"
+                                            >
+                                                {fmtNm(fix.progress.offTrackNm)} OFF
+                                            </p>
+                                        )}
+                                    </div>
 
-                            {etaCell}
+                                    {etaCell}
+                                </>
+                            ) : recording.currentVoyageId ? (
+                                <PassageRecordingMetrics
+                                    voyageId={recording.currentVoyageId}
+                                    paused={recording.isPaused}
+                                />
+                            ) : null}
                             <Cell
                                 label="SOG"
                                 value={fmtKnots(inst.sog)}
@@ -1523,12 +1632,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
                     )}
                 </div>
 
-                {/* THE WARNINGS STAND OUTSIDE THE SCROLLER. On a 393x852 phone paying both
-                insets the forecast cells can run a few pixels past the fold, and what
-                was below it was MODELS SPLIT and the age of a stale run — the two
-                lines that change what the numbers above them mean (review,
-                2026-09-19). Whatever overflows now is a cell, and the clipped cell is
-                its own cue to scroll. */}
+                {/* Warnings remain outside the readings' last-resort scroller,
+                including on very short screens or with enlarged accessibility text. */}
                 {look.on && (modelsSplit || forecastNote) && (
                     <div className="shrink-0 border-t border-white/10">
                         {modelsSplit && (
@@ -1556,43 +1661,51 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
                 same explicit ON as the button below: a ghost with no line to
                 ride is a boat adrift on the chart. OFF still lives in the
                 layer button. */}
-                <button
-                    type="button"
-                    data-testid="hud-look-ahead"
-                    disabled={!look.on && !canLookAhead}
-                    aria-pressed={look.on}
-                    aria-label={
-                        look.on
-                            ? 'Back to live instruments'
-                            : canLookAhead
-                              ? 'Look ahead along the route'
-                              : !following
-                                ? 'Look ahead along the route — follow a route first'
-                                : cruiseKts > 0
-                                  ? 'Look ahead along the route — waiting for a position'
-                                  : 'Look ahead along the route — set a cruising speed in Settings, Vessel'
-                    }
-                    onClick={() => {
-                        void triggerHaptic('light');
-                        if (look.on) {
-                            stopPassageLookAhead();
-                            return;
+                {following && (
+                    <button
+                        type="button"
+                        data-testid="hud-look-ahead"
+                        disabled={!look.on && !canLookAhead}
+                        aria-pressed={look.on}
+                        aria-label={
+                            look.on
+                                ? 'Back to live instruments'
+                                : canLookAhead
+                                  ? 'Look ahead along the route'
+                                  : !following
+                                    ? 'Look ahead along the route — follow a route first'
+                                    : cruiseKts > 0
+                                      ? 'Look ahead along the route — waiting for a position'
+                                      : 'Look ahead along the route — set a cruising speed in Settings, Vessel'
                         }
-                        setDepartureOpen(true);
-                    }}
-                    className={`flex h-10 shrink-0 items-center justify-center gap-1 border-t border-white/10 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:active:scale-100 ${
-                        look.on ? 'text-emerald-300' : canLookAhead ? 'text-amber-300' : 'text-white/40'
-                    }`}
-                >
-                    {look.on ? 'Live' : 'Ahead'}
-                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5}>
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d={look.on ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}
-                        />
-                    </svg>
-                </button>
+                        onClick={() => {
+                            void triggerHaptic('light');
+                            if (look.on) {
+                                stopPassageLookAhead();
+                                return;
+                            }
+                            setDepartureOpen(true);
+                        }}
+                        className={`flex h-10 shrink-0 items-center justify-center gap-1 border-t border-white/10 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:active:scale-100 ${
+                            look.on ? 'text-emerald-300' : canLookAhead ? 'text-amber-300' : 'text-white/40'
+                        }`}
+                    >
+                        {look.on ? 'Live' : 'Ahead'}
+                        <svg
+                            className="h-3 w-3"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={3.5}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d={look.on ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}
+                            />
+                        </svg>
+                    </button>
+                )}
 
                 <div className="flex shrink-0 border-t border-white/10">
                     {/* Route & track: the same ON the layer button performs. OFF lives
@@ -1600,19 +1713,23 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
                     <button
                         type="button"
                         data-testid="hud-show-passage"
-                        disabled={!(following || voyageActive) || overlayOn}
+                        disabled={!(following || voyageActive || recordingAvailable) || overlayOn}
                         aria-pressed={overlayOn}
                         aria-label={
                             overlayOn
-                                ? 'Route and track are on the chart. Turn them off with Passage in the layer button.'
-                                : following || voyageActive
-                                  ? 'Show route and track on the chart'
+                                ? `${following ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
+                                : following || voyageActive || recordingAvailable
+                                  ? following
+                                      ? 'Show route and track on the chart'
+                                      : 'Show recorded track on the chart'
                                   : 'Show route and track on the chart — cast off or follow a route first'
                         }
                         title={
                             overlayOn
                                 ? 'On the chart — turn off with Passage in the layer button'
-                                : 'Show route & track'
+                                : following
+                                  ? 'Show route & track'
+                                  : 'Show recorded track'
                         }
                         onClick={() => {
                             void triggerHaptic('light');
@@ -1622,7 +1739,11 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void }> = ({ open, onT
                     >
                         <svg
                             className={`h-5 w-5 ${
-                                overlayOn ? 'text-sky-300' : following || voyageActive ? 'text-white' : 'text-white/40'
+                                overlayOn
+                                    ? 'text-sky-300'
+                                    : following || voyageActive || recordingAvailable
+                                      ? 'text-white'
+                                      : 'text-white/40'
                             }`}
                             viewBox="0 0 24 24"
                             fill="none"
@@ -1720,14 +1841,16 @@ export const PassageHudPane: React.FC = () => {
     const enabled = usePassageHudEnabled();
     const open = usePassageHudOpen();
     const following = useFollowRouteStore((s) => s.isFollowing && s.routeCoords.length >= 2);
+    const recording = useHudRecording();
+    const available = following || (!!recording.currentVoyageId && (recording.isTracking || recording.isPaused));
     useEffect(() => {
-        if (enabled && !following) setPassageHudEnabled(false);
-    }, [enabled, following]);
+        if (enabled && !available) setPassageHudEnabled(false);
+    }, [enabled, available]);
     const toggle = () => {
         void triggerHaptic('light');
         togglePassageHud();
     };
-    if (!enabled || !following) return null;
+    if (!enabled || !available) return null;
     // Keep the forecast controller and scrubber alive when only readings hide.
-    return <OpenPane open={open} onToggle={toggle} />;
+    return <OpenPane open={open} onToggle={toggle} recording={recording} />;
 };

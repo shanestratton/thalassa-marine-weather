@@ -13,18 +13,15 @@ const source = readFileSync('components/nmea/TheGlassPage.tsx', 'utf8');
 
 /** The rendered snap sections, in document order. */
 function renderedSections(): string[] {
-    // Allow a trailing parenthetical: the sail-plan marker carries one
-    // ("SAIL PLAN (Serene Summer only ...)"), and a stricter pattern silently
-    // matched nothing there rather than failing loudly.
+    // Allow optional parenthetical notes without changing the section name.
     return [...source.matchAll(/── SECTION: ([^─]+?)──/g)].map((m) => m[1].split('(')[0].trim());
 }
 
 /**
  * The order the pages come in. Pinned as a list now that the dot rail is gone
  * (Shane 2026-09-09: "not necessary as a punter will keep scrolling until he
- * gets to the end") — the markers ARE the order, and two of them are
- * conditional: 'Watch' mounts only for a crew member on the watch bill, 'Sail
- * Plan' only for Serene Summer.
+ * gets to the end") — the markers ARE the order. 'Watch' mounts only for a
+ * crew member on the watch bill. Sail Plan is no longer an instrument page.
  */
 const EXPECTED_ORDER = [
     'CLOCK',
@@ -37,16 +34,14 @@ const EXPECTED_ORDER = [
     'SEA TEMP',
     'HEADING',
     'HELM',
-    'SAIL PLAN',
 ];
 
 describe('the pages come in the order the markers say', () => {
     it('lists every section, in the same order, with no dot rail to keep honest', () => {
         expect(renderedSections().map((s) => s.toUpperCase())).toEqual(EXPECTED_ORDER);
         expect(source).not.toContain('Jump to ${name}');
-        // The two conditional pages are still conditional.
+        // The crew Watch page is still conditional.
         expect(source).toMatch(/\{hasMyWatch && \(/);
-        expect(source).toMatch(/\{isSereneSummer && /);
     });
 
     it('opens on the Clock, then keeps Wind → Barometer → Position together near the top', () => {

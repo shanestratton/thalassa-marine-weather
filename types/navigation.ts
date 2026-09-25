@@ -12,6 +12,8 @@ export interface VoyageHazard {
 
 export interface ShipLogEntry {
     id: string;
+    /** Server read-back of the capture operation, used to reconcile queued and uploaded points. */
+    readonly clientOperationId?: string;
     userId: string;
     /** Immutable vessel identity captured when this voyage began. */
     boatId?: string;
@@ -230,6 +232,10 @@ export interface NmeaSample {
     awa?: number | null;
     stw: number | null;
     heading: number | null;
+    /** Explicitly true-north heading, never the unqualified/magnetic legacy heading. */
+    headingTrue?: number | null;
+    /** Original true-heading sentence receipt time; never the aggregate emission time. */
+    headingTrueAt?: number;
     rpm: number | null;
     /** 5s-window mean rudder angle (°, + = stbd), from $xxRSA. */
     rudder: number | null;

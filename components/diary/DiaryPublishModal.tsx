@@ -202,6 +202,12 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                     </div>
                 </div>
 
+                {(entry.latitude == null || entry.longitude == null) && (
+                    <p className="mx-6 mb-2 text-[12px] leading-relaxed text-amber-200/90">
+                        No map location — this entry won’t appear on the map.
+                    </p>
+                )}
+
                 {actionError && (
                     <p
                         role="alert"

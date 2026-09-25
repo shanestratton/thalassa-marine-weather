@@ -270,7 +270,7 @@ export function mergeSummariesWithLive(summaries: VoyageSummary[], entries: Ship
 let rpcUnavailable = false;
 
 /** Map a raw RPC row (snake_case) to a VoyageSummary. */
-function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
+export function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
     return {
         voyageId: normalizeVoyageId(row.voyage_id),
         entryCount: Number(row.entry_count ?? 0),
@@ -525,6 +525,43 @@ function targetMatchesRow(targetVoyageId: string, rowVoyageId: unknown): boolean
     return normalizeVoyageId(rowVoyageId) === targetVoyageId;
 }
 
+export interface VoyageEntryReadOptions {
+    maxRows?: number;
+    signal?: AbortSignal;
+    requireComplete?: boolean;
+    /** Reject unavailable or incomplete history instead of conflating it with a valid empty voyage. */
+    throwOnIncomplete?: boolean;
+}
+
+function incompleteVoyageRead(options: VoyageEntryReadOptions, reason: string): ShipLogEntry[] {
+    if (options.throwOnIncomplete) throw new Error(`Complete voyage history unavailable: ${reason}`);
+    return [];
+}
+
+/** Strict readers may support irreversible decisions; malformed evidence must not look like an empty trip. */
+function isCompleteVoyageRow(row: Record<string, unknown>): boolean {
+    return (
+        typeof row.id === 'string' &&
+        row.id.trim().length > 0 &&
+        typeof row.timestamp === 'string' &&
+        Number.isFinite(Date.parse(row.timestamp)) &&
+        typeof row.latitude === 'number' &&
+        Number.isFinite(row.latitude) &&
+        Math.abs(row.latitude) <= 90 &&
+        typeof row.longitude === 'number' &&
+        Number.isFinite(row.longitude) &&
+        Math.abs(row.longitude) <= 180 &&
+        ['speed_kts', 'distance_nm', 'cumulative_distance_nm'].every(
+            (key) => row[key] == null || (typeof row[key] === 'number' && Number.isFinite(row[key]) && row[key] >= 0),
+        ) &&
+        (row.entry_type == null || ['auto', 'manual', 'waypoint'].includes(String(row.entry_type))) &&
+        (row.source == null ||
+            ['device', 'gpx_import', 'community_download', 'planned_route'].includes(String(row.source))) &&
+        (row.archived == null || typeof row.archived === 'boolean') &&
+        (row.client_operation_id == null || typeof row.client_operation_id === 'string')
+    );
+}
+
 /**
  * Fetch rows first, then apply owner-scoped local truth before aggregating.
  * queryArchived controls the SQL projection; includeArchived controls what is
@@ -538,20 +575,20 @@ async function fetchVisibleProjectionEntries(
         queryArchived: boolean;
         includeArchived: boolean;
         columns?: string;
-        maxRows?: number;
-        signal?: AbortSignal;
-        requireComplete?: boolean;
-    },
+    } & VoyageEntryReadOptions,
 ): Promise<ShipLogEntry[]> {
     const current = () => isAuthIdentityScopeCurrent(scope) && !options.signal?.aborted;
-    if (!supabase || !scope.userId || !current()) return [];
+    if (!supabase || !scope.userId || !current())
+        return incompleteVoyageRead(options, 'session changed or read cancelled');
     const targetVoyageId = options.targetVoyageId ? normalizeVoyageId(options.targetVoyageId.trim()) : undefined;
     const maxRows = options.maxRows ?? FALLBACK_MAX_ROWS;
     const rows: Record<string, unknown>[] = [];
+    const seenRowIds = new Set<string>();
+    const requireComplete = options.requireComplete || options.throwOnIncomplete;
     let offset = 0;
 
     while (rows.length < maxRows) {
-        if (!current()) return [];
+        if (!current()) return incompleteVoyageRead(options, 'session changed or read cancelled');
         const pageSize = Math.min(FALLBACK_PAGE_SIZE, maxRows - rows.length);
         let query = supabase
             .from(SHIP_LOGS_TABLE)
@@ -570,13 +607,24 @@ async function fetchVisibleProjectionEntries(
         if (options.signal) query = query.abortSignal(options.signal);
 
         const { data, error } = await query;
-        if (!current()) return [];
+        if (!current()) return incompleteVoyageRead(options, 'session changed or read cancelled');
         if (error) {
             log.warn('voyage projection page failed:', error.message);
+            if (requireComplete) return incompleteVoyageRead(options, 'a history page could not be read');
             break;
         }
+        if (options.throwOnIncomplete && !Array.isArray(data)) {
+            return incompleteVoyageRead(options, 'invalid history response');
+        }
         const page = (data || []) as unknown as Record<string, unknown>[];
-        if (page.length > pageSize) return []; // a bounded read must never accept an over-sized response
+        if (page.length > pageSize)
+            return incompleteVoyageRead(options, 'history response exceeded the requested page');
+        if (
+            options.throwOnIncomplete &&
+            page.some((row) => !row || typeof row !== 'object' || Array.isArray(row) || !isCompleteVoyageRow(row))
+        ) {
+            return incompleteVoyageRead(options, 'malformed history row');
+        }
         if (
             page.some(
                 (row) =>
@@ -585,23 +633,32 @@ async function fetchVisibleProjectionEntries(
             )
         ) {
             log.warn('voyage projection returned a row outside the requested owner/voyage');
-            return [];
+            return incompleteVoyageRead(options, 'history row belongs to another owner or voyage');
+        }
+        if (options.throwOnIncomplete) {
+            for (const row of page) {
+                const id = row.id as string;
+                if (seenRowIds.has(id)) return incompleteVoyageRead(options, 'history pages contain repeated rows');
+                seenRowIds.add(id);
+            }
         }
         rows.push(...page);
         if (page.length < pageSize) break;
         offset += pageSize;
     }
 
-    if (!current() || (options.requireComplete && rows.length >= maxRows)) return [];
+    if (!current()) return incompleteVoyageRead(options, 'session changed or read cancelled');
+    if (requireComplete && rows.length >= maxRows)
+        return incompleteVoyageRead(options, 'history reached the row limit');
     let entries = rows.map((row) => {
         const entry = fromDbFormat(row);
         entry.voyageId = normalizeVoyageId(row.voyage_id);
         return entry;
     });
     entries = await filterVoyageTombstonedEntries(entries, scope);
-    if (!current()) return [];
+    if (!current()) return incompleteVoyageRead(options, 'session changed or read cancelled');
     entries = await applyVoyageArchiveIntentOverlay(entries, scope);
-    if (!current()) return [];
+    if (!current()) return incompleteVoyageRead(options, 'session changed or read cancelled');
     return options.includeArchived ? entries : entries.filter((entry) => entry.archived !== true);
 }
 
@@ -784,23 +841,33 @@ async function summariesFromProjection(includeArchived: boolean, scope: AuthIden
 
 /**
  * Lazy-load the FULL entry list for a single voyage — called when the user
- * expands a card or opens its track map. Bounded; newest-first.
+ * expands a card or opens its track map. Bounded; newest-first. Strict callers
+ * use throwOnIncomplete to distinguish a complete empty result from a failed
+ * read; it also implies requireComplete, including on the hard row limit.
  */
 export async function getVoyageEntries(
     voyageId: string,
     includeArchived = false,
-    options: { maxRows?: number; signal?: AbortSignal; requireComplete?: boolean } = {},
+    options: VoyageEntryReadOptions = {},
 ): Promise<ShipLogEntry[]> {
     const scope = getAuthIdentityScope();
     const targetVoyageId = normalizeVoyageId(voyageId.trim());
-    if (!supabase || !scope.userId || !voyageId.trim() || options.signal?.aborted) return [];
-    if (options.maxRows !== undefined && (!Number.isInteger(options.maxRows) || options.maxRows < 1)) return [];
+    if (!supabase || !scope.userId || !voyageId.trim() || options.signal?.aborted) {
+        return incompleteVoyageRead(options, 'no readable session, voyage or active request');
+    }
+    if (options.maxRows !== undefined && (!Number.isInteger(options.maxRows) || options.maxRows < 1)) {
+        return incompleteVoyageRead(options, 'invalid history row limit');
+    }
     try {
         const sessionUserId = await getCurrentUserId();
-        if (!isAuthIdentityScopeCurrent(scope) || options.signal?.aborted || sessionUserId !== scope.userId) return [];
+        if (!isAuthIdentityScopeCurrent(scope) || options.signal?.aborted || sessionUserId !== scope.userId) {
+            return incompleteVoyageRead(options, 'session changed or read cancelled');
+        }
 
         const intents = await getVoyageArchiveIntentSnapshot(scope);
-        if (!isAuthIdentityScopeCurrent(scope) || options.signal?.aborted) return [];
+        if (!isAuthIdentityScopeCurrent(scope) || options.signal?.aborted) {
+            return incompleteVoyageRead(options, 'session changed or read cancelled');
+        }
         const pendingUnarchive = intents.some(
             (intent) => !intent.archived && normalizeVoyageId(intent.voyageId) === targetVoyageId,
         );
@@ -812,12 +879,16 @@ export async function getVoyageEntries(
             maxRows: Math.min(options.maxRows ?? DETAIL_MAX_ROWS, DETAIL_MAX_ROWS),
             signal: options.signal,
             requireComplete: options.requireComplete,
+            throwOnIncomplete: options.throwOnIncomplete,
         });
-        return isAuthIdentityScopeCurrent(scope) ? entries : [];
+        return isAuthIdentityScopeCurrent(scope) && !options.signal?.aborted
+            ? entries
+            : incompleteVoyageRead(options, 'session changed or read cancelled');
     } catch (error) {
         if (isAuthIdentityScopeCurrent(scope)) {
             log.warn('getVoyageEntries failed closed while applying local truth:', error);
         }
+        if (options.throwOnIncomplete) throw error;
         return [];
     }
 }

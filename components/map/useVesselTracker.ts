@@ -11,7 +11,8 @@
  * the skipper's HOUSE while the boat sat on her marina berth streaming
  * her real position the whole time (Shane, 2026-08-31: "the obs is STILL
  * showing my home"). When NMEA wins, the badge shows the boat's actual
- * SOG and the arrow her COG — not the phone jiggling in a pocket.
+ * SOG and the arrow her fresh true heading, or COG only while moving.
+ * Without a reliable direction, a neutral dot never invents a bow bearing.
  */
 import mapboxgl from 'mapbox-gl';
 import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
@@ -28,6 +29,10 @@ import { createLogger } from '../../utils/createLogger';
 import { calculateDistance } from '../../utils/navigationCalculations';
 import { convexHull, hullRing, type LonLat } from '../../utils/convexHull';
 import { AnchorWatchService } from '../../services/AnchorWatchService';
+import { AnchorWatchSyncService } from '../../services/AnchorWatchSyncService';
+import { ShoreWatchAlarmService } from '../../services/ShoreWatchAlarmService';
+import { ownshipStatusLabel } from './ownshipStatus';
+import { resolveOwnshipDirection } from './ownshipDirection';
 
 const log = createLogger('VesselTracker');
 
@@ -70,6 +75,7 @@ const SWING_DOTS_LAYER = 'vessel-swing-dots-circle';
  */
 const SWING_STATES: ReadonlySet<string> = new Set(['setting', 'watching', 'paused', 'alarm']);
 const MAX_SWING_POINTS = 600;
+type TrackerPosition = Omit<CachedPosition, 'speed'> & { speed: number | null };
 
 /**
  * Build the vessel marker DOM element.
@@ -99,17 +105,18 @@ export function createVesselElement(): HTMLDivElement {
     `;
     el.appendChild(ring);
 
-    // Vessel arrow (rotates with heading)
+    // Vessel arrow (rotates with heading). No CSS angle tween: 359° → 1°
+    // would otherwise sweep through the wrong 358° around the compass.
     const arrow = document.createElement('div');
     arrow.className = 'vessel-arrow';
     arrow.style.cssText = `
         width: 28px; height: 28px;
         position: relative; z-index: 2;
-        transition: transform 0.5s ease-out;
     `;
     arrow.innerHTML = `
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L4 20L12 16L20 20L12 2Z" fill="url(#vesselGrad)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+            <path class="vessel-directional-shape" style="display:none" d="M12 2L4 20L12 16L20 20L12 2Z" fill="url(#vesselGrad)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+            <circle class="vessel-neutral-shape" cx="12" cy="12" r="6" fill="url(#vesselGrad)" stroke="white" stroke-width="1.5"/>
             <defs>
                 <linearGradient id="vesselGrad" x1="12" y1="2" x2="12" y2="20" gradientUnits="userSpaceOnUse">
                     <stop offset="0" stop-color="#38bdf8"/>
@@ -120,11 +127,14 @@ export function createVesselElement(): HTMLDivElement {
     `;
     el.appendChild(arrow);
 
-    // SOG badge (bottom)
+    // Reserve the AIS name row below the fix: at its largest size the name
+    // spans ~17–32 CSS px below the centre (12px text, 1.4em offset). Start
+    // this badge at +40px, independent of text height, heading or map zoom.
+    // Only the badge moves; Mapbox must retain the root's exact GPS anchor.
     const badge = document.createElement('div');
     badge.className = 'vessel-sog-badge';
     badge.style.cssText = `
-        position: absolute; bottom: -20px; left: 50%;
+        position: absolute; top: calc(100% + 16px); left: 50%;
         transform: translateX(-50%);
         background: rgba(15, 23, 42, 0.9);
         border: 1px solid rgba(56, 189, 248, 0.3);
@@ -361,7 +371,6 @@ function updateTrailData(map: mapboxgl.Map, coords: [number, number][]) {
 export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, visible: boolean) {
     const markerRef = useRef<mapboxgl.Marker | null>(null);
     const elementRef = useRef<HTMLDivElement | null>(null);
-    const lastHeadingRef = useRef<number>(0);
     const trailCoordsRef = useRef<[number, number][]>([]);
     const swingPointsRef = useRef<LonLat[]>([]);
     /** Which receiver painted last — the trail and the swing belong to ONE receiver. */
@@ -372,13 +381,52 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     // not state: a frozen GPS means the watch callback stops firing
     // entirely, so staleness MUST come from an interval, not callbacks.
     const lastFixAtRef = useRef<number | null>(null);
+    const lastMarkerPositionRef = useRef<{ position: TrackerPosition; viaVessel: boolean } | null>(null);
+
+    const updateDirection = useCallback(() => {
+        const last = lastMarkerPositionRef.current;
+        const el = elementRef.current;
+        const arrow = el?.querySelector('.vessel-arrow') as HTMLElement | null;
+        if (!last || !el || !arrow) return;
+        const direction = resolveOwnshipDirection(last.position, last.viaVessel, NmeaStore.getState());
+        el.dataset.directionSource = direction.source;
+        const label =
+            direction.source === 'heading'
+                ? `Bow heading ${Math.round(direction.degrees)}° true`
+                : direction.source === 'course'
+                  ? `Course over ground ${Math.round(direction.degrees)}° true; bow heading unavailable`
+                  : 'Position; heading unavailable';
+        el.setAttribute('role', 'img');
+        el.setAttribute('aria-label', label);
+        el.title = label;
+        arrow.style.transform = `rotate(${direction.degrees ?? 0}deg)`;
+        const shape = arrow.querySelector('.vessel-directional-shape') as SVGElement;
+        const dot = arrow.querySelector('.vessel-neutral-shape') as SVGElement;
+        shape.style.display = direction.degrees === null ? 'none' : '';
+        dot.style.display = direction.degrees === null ? '' : 'none';
+    }, []);
+
+    const updateStatusBadge = useCallback(() => {
+        const last = lastMarkerPositionRef.current;
+        const badge = elementRef.current?.querySelector('.vessel-sog-badge') as HTMLElement | null;
+        if (!last || !badge) return;
+        const label = ownshipStatusLabel(
+            last.position,
+            last.viaVessel,
+            AnchorWatchService.getSnapshot(),
+            AnchorWatchSyncService.getState(),
+            ShoreWatchAlarmService.getSnapshot(),
+        );
+        badge.textContent = label;
+        badge.style.color = label === 'Anchor alarm' ? '#ef4444' : label === 'Anchored' ? '#34d399' : '#38bdf8';
+    }, []);
 
     const updateMarker = useCallback(
-        (pos: CachedPosition, viaVessel = false) => {
+        (pos: TrackerPosition, viaVessel = false) => {
             const map = mapRef.current;
             if (!map || !visible) return;
 
-            const { latitude, longitude, heading, speed } = pos;
+            const { latitude, longitude } = pos;
             // BEFORE the trail-noise early-return below — a stationary
             // vessel still refreshes its fix age on every callback.
             //
@@ -409,21 +457,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             // A quiet tell for anyone debugging which truth the arrow is on.
             if (elementRef.current) elementRef.current.dataset.source = viaVessel ? 'vessel' : 'phone';
 
-            // Heading
-            const arrowEl = elementRef.current?.querySelector('.vessel-arrow') as HTMLElement;
-            if (arrowEl) {
-                const h = heading ?? lastHeadingRef.current;
-                if (heading !== null) lastHeadingRef.current = heading;
-                arrowEl.style.transform = `rotate(${h}deg)`;
-            }
-
-            // SOG badge
-            const badgeEl = elementRef.current?.querySelector('.vessel-sog-badge') as HTMLElement;
-            if (badgeEl) {
-                const sogKts = (speed ?? 0) * 1.94384;
-                badgeEl.textContent = sogKts < 0.3 ? 'Anchored' : `${sogKts.toFixed(1)} kts`;
-                badgeEl.style.color = sogKts < 0.3 ? '#94a3b8' : '#38bdf8';
-            }
+            // Anchor state is explicit, never inferred from a low GPS speed.
+            lastMarkerPositionRef.current = { position: pos, viaVessel };
+            updateDirection();
+            updateStatusBadge();
 
             // ── One receiver per trail ──
             // The wake trail and the swing envelope are a RECEIVER's story.
@@ -496,7 +533,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             ensureTrailLayers(map);
             updateTrailData(map, trail);
         },
-        [mapRef, visible],
+        [mapRef, visible, updateStatusBadge, updateDirection],
     );
 
     useEffect(() => {
@@ -544,9 +581,9 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                         longitude: own.lon,
                         accuracy: 15,
                         altitude: null,
-                        // COG of exactly 0 is also the arbiter's "unknown" —
-                        // keep the last heading rather than snapping north.
-                        heading: own.cog > 0 ? own.cog : null,
+                        // Direction comes from independently timestamped
+                        // metrics, not the arbiter's numeric-zero fallback.
+                        heading: null,
                         // The arbiter speaks knots; the marker eats m/s.
                         speed: own.sog / 1.94384,
                         timestamp: own.timestamp,
@@ -563,7 +600,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 accuracy: phone.accuracy ?? 50,
                 altitude: phone.altitude ?? null,
                 heading: phone.heading ?? null,
-                speed: phone.speed ?? 0,
+                speed: phone.speed ?? null,
                 timestamp: phone.timestamp ?? Date.now(),
                 receivedAt: Date.now(),
             });
@@ -574,6 +611,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         // merely because the chart was restored at launch.
         const unsub = GpsService.watchPosition((pos) => paint(pos));
         const unsubNmea = NmeaGpsProvider.onPosition(() => paint());
+        const unsubDirection = NmeaStore.subscribe(updateDirection);
+        const unsubAnchor = AnchorWatchService.subscribe(updateStatusBadge);
+        const unsubSync = AnchorWatchSyncService.onStateChange(updateStatusBadge);
+        const unsubShore = ShoreWatchAlarmService.subscribe(updateStatusBadge);
         paint();
 
         // Staleness ticker — the only path that can grey the marker once
@@ -583,12 +624,18 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             const last = lastFixAtRef.current;
             if (!el || last == null) return;
             applyGpsAgeTier(el, Date.now() - last);
+            updateStatusBadge();
+            updateDirection();
         }, 1000);
 
         return () => {
             window.clearInterval(staleTicker);
             unsub?.();
             unsubNmea();
+            unsubDirection();
+            unsubAnchor();
+            unsubSync();
+            unsubShore();
             if (markerRef.current) {
                 markerRef.current.remove();
                 markerRef.current = null;
@@ -599,7 +646,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 removeSwingLayers(map);
             }
         };
-    }, [mapReady, visible, updateMarker, mapRef]);
+    }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, mapRef]);
 
     // Fly-to-vessel
     const flyToVessel = useCallback(() => {

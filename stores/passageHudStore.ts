@@ -7,9 +7,8 @@
  * direction and true and apparent … most of the info needs to be on a pane
  * that can be hidden to one side (left i am thinking)."
  *
- * This is the one switch for that pane. Remembered on this device so the
- * skipper who opened it at the start of a passage finds it open on the next
- * glance. Same shape as chartPassageOverlay: a module value, a listener set,
+ * This is the one switch for that pane. Enabled only for the current app
+ * session; a fresh OBS starts clean. Same shape as chartPassageOverlay: a module value, a listener set,
  * and useSyncExternalStore for the components — no zustand, nothing to hydrate.
  *
  * PHASE 2 — LOOK AHEAD (Shane 2026-09-18: "ok next phase"). The same module
@@ -34,11 +33,13 @@
 import { useSyncExternalStore } from 'react';
 import { PASSAGE_DEPARTURE_MAX_MS } from '../services/passageDeparture';
 import type { RoutePoint } from '../services/routeProgress';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../services/authIdentityScope';
+import { setPassageOverlay } from './chartPassageOverlay';
 
 export { PASSAGE_DEPARTURE_MAX_MS } from '../services/passageDeparture';
 
 const KEY = 'thalassa_passage_hud_open_v1';
-/** Off until the skipper enables the followed route's HUD from the chart layers. */
+/** Off until a recording starts or the skipper enables the HUD from chart layers. */
 const ENABLED_KEY = 'thalassa_passage_hud_enabled_v1';
 
 function readFlag(key: string): boolean {
@@ -51,7 +52,11 @@ function readFlag(key: string): boolean {
 const read = (): boolean => readFlag(KEY);
 
 let open = read();
-let enabled = readFlag(ENABLED_KEY);
+// OBS starts with no layers. Keep this switch in memory during navigation,
+// but do not resurrect the HUD (and its weather layers) after a restart.
+let enabled = false;
+let activation = 0;
+const activatedRecordings = new Set<string>();
 const listeners = new Set<() => void>();
 
 export function isPassageHudOpen(): boolean {
@@ -88,9 +93,8 @@ export function usePassageHudOpen(): boolean {
 }
 
 /**
- * Whether the strip exists on the chart at all. OFF by default: three review
- * rounds measured it against the chart's furniture and each found something
- * new in its column, so it reaches a punter only when the skipper turns it on.
+ * Whether the strip exists on the chart at all. Browsing starts clean;
+ * a successful recording opens it once, and chart layers remain its manual switch.
  */
 export function isPassageHudEnabled(): boolean {
     return enabled;
@@ -99,6 +103,7 @@ export function isPassageHudEnabled(): boolean {
 export function setPassageHudEnabled(next: boolean): void {
     if (next === enabled) return;
     enabled = next;
+    if (next) activation += 1;
     try {
         if (next) localStorage.setItem(ENABLED_KEY, '1');
         else localStorage.removeItem(ENABLED_KEY);
@@ -121,6 +126,34 @@ export function setPassageHudEnabled(next: boolean): void {
 
 export function usePassageHudEnabled(): boolean {
     return useSyncExternalStore(subscribePassageHud, isPassageHudEnabled, isPassageHudEnabled);
+}
+
+/** A new enable or recording gets one set of initial layers, without enforcing them later. */
+export function getPassageHudActivation(): number {
+    return activation;
+}
+
+export function usePassageHudActivation(): number {
+    return useSyncExternalStore(subscribePassageHud, getPassageHudActivation, getPassageHudActivation);
+}
+
+/** Repeated recorder updates and same-voyage resumes respect the skipper's display choices. */
+export function activatePassageHudForRecording(recordingId: string): void {
+    const id = recordingId.trim();
+    if (!id) return;
+    const scope = getAuthIdentityScope();
+    const key = JSON.stringify([scope.key, scope.generation, id]);
+    if (activatedRecordings.has(key)) return;
+    activatedRecordings.add(key);
+    stopPassageLookAhead();
+    if (enabled) {
+        activation += 1;
+        listeners.forEach((fn) => fn());
+    } else {
+        setPassageHudEnabled(true);
+    }
+    setPassageHudOpen(true);
+    setPassageOverlay(true);
 }
 
 // ── Look ahead ─────────────────────────────────────────────────
@@ -453,7 +486,9 @@ export function usePassageUnsyncedLayers(): readonly string[] {
 /** Test seam. */
 export function __resetPassageHudForTests(): void {
     open = read();
-    enabled = readFlag(ENABLED_KEY);
+    enabled = false;
+    activation = 0;
+    activatedRecordings.clear();
     lookAhead = LIVE;
     ghost = null;
     ghostPath = null;
@@ -463,3 +498,11 @@ export function __resetPassageHudForTests(): void {
     speedPref = readSpeedPref();
     unsyncedLayers = NO_LAYERS;
 }
+
+// Account changes synchronously remove the previous owner's HUD and forecast.
+subscribeAuthIdentityScope(() => {
+    setPassageHudEnabled(false);
+    setPassageHudOpen(false);
+    stopPassageLookAhead();
+    setPassageOverlay(false);
+});

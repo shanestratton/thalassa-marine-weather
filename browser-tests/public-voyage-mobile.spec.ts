@@ -118,7 +118,7 @@ function voyageData(trip: string | null): VoyageLogData {
     };
 }
 
-async function openVoyage(page: Page, baseURL: string) {
+async function openVoyage(page: Page, baseURL: string, justRecording = false) {
     const origin = new URL(baseURL).origin;
     await page.route('**/*', async (route) => {
         const request = route.request();
@@ -126,6 +126,46 @@ async function openVoyage(page: Page, baseURL: string) {
         if (url.pathname.endsWith('/functions/v1/voyage-log')) {
             expect(request.method()).toBe('GET');
             const data = voyageData(url.searchParams.get('trip'));
+            if (justRecording) {
+                data.passage = null;
+                data.destination = null;
+                data.trips = data.trips.map((trip) => ({ ...trip, has_route: false }));
+                data.trips.push({
+                    id: 'all-diary',
+                    kind: 'all-diary',
+                    label: 'All diary entries',
+                    started_at: null,
+                    ended_at: null,
+                    active: false,
+                    point_count: 0,
+                    distance_nm: null,
+                    has_route: false,
+                });
+                if (url.searchParams.get('trip') === 'all-diary') {
+                    data.selected_trip = 'all-diary';
+                    const historical = voyageData('old-trip');
+                    data.track = [
+                        ...data.track,
+                        ...historical.track.map((point, index) => ({
+                            ...point,
+                            lat: -20.3 + index * 0.1,
+                            lon: 148.8 + index * 0.1,
+                            timestamp: `2026-01-01T0${index}:00:00Z`,
+                        })),
+                    ];
+                    data.entries = [
+                        ...data.entries,
+                        {
+                            ...historical.entries[0],
+                            id: 'earlier-island-story',
+                            title: 'An earlier island visit',
+                            latitude: -20.3,
+                            longitude: 148.8,
+                            created_at: '2026-01-01T00:00:00Z',
+                        },
+                    ];
+                }
+            }
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -168,6 +208,57 @@ async function openVoyage(page: Page, baseURL: string) {
     await page.goto('/logs.html?handle=mobile-layout-fixture');
     await expect(page.locator('h1')).toHaveText(VESSEL_NAME);
 }
+
+test('a just-recorded trip opens on its map and offers its public diary without a route', async ({ page, baseURL }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const tripRequests: string[] = [];
+    page.on('request', (request) => {
+        const url = new URL(request.url());
+        if (url.pathname.endsWith('/functions/v1/voyage-log') && !url.searchParams.has('view')) {
+            tripRequests.push(url.searchParams.get('trip') ?? 'latest');
+        }
+    });
+    await openVoyage(page, baseURL!, true);
+    const nav = page.getByRole('navigation', { name: 'Voyage views' });
+    await expect(nav.getByRole('button', { name: 'Map', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#voyage-map')).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+    await nav.getByRole('button', { name: 'Diary', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Lagoon journal 1', exact: true })).toBeVisible();
+    expect(tripRequests).not.toContain('all-diary');
+    await expectNoPageOverflow(page);
+});
+
+test('whole journey keeps the phone map and all diary entries reachable', async ({ page, baseURL }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openVoyage(page, baseURL!, true);
+    const selector = page.getByRole('combobox', { name: 'Choose a voyage to view' });
+    await expect(selector.getByRole('option', { name: 'All trips & diary', exact: true })).toHaveCount(1);
+    await selector.selectOption('all-diary');
+    const nav = page.getByRole('navigation', { name: 'Voyage views' });
+    await expect(nav.getByRole('button', { name: 'Map', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#voyage-map')).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Instruments', exact: true })).toBeDisabled();
+    await expectInViewport(page.getByTestId('public-voyage-header'), page);
+    // Wait for the selector's camera transition, then verify both distant
+    // voyages are framed rather than retaining the latest trip's close-up.
+    for (const title of ['Lagoon journal 1', 'An earlier island visit']) {
+        await expect(page.getByRole('button', { name: `Voyage log entry: ${title}`, exact: true })).toBeInViewport();
+    }
+    await expectNoPageOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('public-whole-journey-map.png') });
+    await nav.getByRole('button', { name: 'Diary', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'All trips & diary', exact: true })).toBeVisible();
+    const earlier = page
+        .locator('#voyage-panel-content')
+        .getByRole('button')
+        .filter({ hasText: 'An earlier island visit' });
+    await earlier.scrollIntoViewIfNeeded();
+    await expectInViewport(earlier, page);
+    await earlier.click();
+    await expect(page.getByRole('heading', { name: 'An earlier island visit', exact: true })).toBeVisible();
+    await expectNoPageOverflow(page);
+});
 
 async function expectNoPageOverflow(page: Page) {
     const geometry = await page.evaluate(() => ({

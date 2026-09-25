@@ -12,8 +12,10 @@
  */
 
 import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { PushNotificationService } from './PushNotificationService';
+import { AnchorSafetyNotificationService } from './AnchorSafetyNotificationService';
 import type { AnchorPosition, VesselPosition, AnchorWatchConfig } from './AnchorWatchService';
 import { createLogger } from '../utils/createLogger';
 import {
@@ -65,15 +67,33 @@ export interface AlarmBroadcast {
     timestamp: number;
 }
 
-export type SyncBroadcast = PositionBroadcast | AlarmBroadcast;
+export interface StatusBroadcast {
+    type: 'status';
+    gpsAvailable: false;
+    reason: 'gps_unavailable';
+    source: 'pi';
+    timestamp: number;
+}
+
+export type SyncBroadcast = PositionBroadcast | AlarmBroadcast | StatusBroadcast;
 
 export type SyncListener = (state: SyncState) => void;
 export type BroadcastListener = (data: SyncBroadcast) => void;
+
+/** Ready confirms this device's settings and the server's token receipt, not guaranteed delivery. */
+export interface ShorePushReadiness {
+    status: 'inactive' | 'checking' | 'ready' | 'unavailable';
+    reason: string | null;
+    checkedAt: number | null;
+}
+
+type PushReadinessListener = (state: ShorePushReadiness) => void;
 
 // ------- PERSISTENCE -------
 const SYNC_SESSION_KEY = 'thalassa_anchor_sync_session';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSION_CODE_ATTEMPTS = 5;
+const PUSH_READINESS_TIMEOUT_MS = 20_000;
 
 interface PersistedSyncSession {
     sessionCode: string;
@@ -120,6 +140,11 @@ class AnchorWatchSyncServiceClass {
     private channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null;
     private stateListeners: Set<SyncListener> = new Set();
     private broadcastListeners: Set<BroadcastListener> = new Set();
+    private latestBroadcast: SyncBroadcast | null = null;
+    private latestPosition: PositionBroadcast | null = null;
+    private pushReadiness: ShorePushReadiness = { status: 'inactive', reason: null, checkedAt: null };
+    private pushReadinessListeners = new Set<PushReadinessListener>();
+    private pushCheck: { promise: Promise<ShorePushReadiness>; cancel: () => void } | null = null;
     private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
     private peerTimeoutInterval: ReturnType<typeof setInterval> | null = null;
     private reconnectAttempts = 0;
@@ -153,6 +178,7 @@ class AnchorWatchSyncServiceClass {
         // Auto-reconnect when app returns to foreground
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') void this.refreshPushReadiness();
                 if (document.visibilityState === 'visible' && !this.connected && this.hasCurrentSession()) {
                     log.info('App foregrounded — attempting reconnect');
                     this.reconnectAttempts = 0; // Reset backoff on foreground
@@ -163,6 +189,7 @@ class AnchorWatchSyncServiceClass {
         // Auto-reconnect when network is restored
         if (typeof window !== 'undefined') {
             window.addEventListener('online', () => {
+                void this.refreshPushReadiness();
                 if (!this.connected && this.hasCurrentSession()) {
                     log.info('Network restored — attempting reconnect');
                     this.reconnectAttempts = 0;
@@ -177,6 +204,7 @@ class AnchorWatchSyncServiceClass {
         // re-enter the code.
         void Promise.resolve(
             App.addListener('appStateChange', ({ isActive }) => {
+                if (isActive) void this.refreshPushReadiness();
                 if (isActive && !this.connected && this.hasCurrentSession()) {
                     log.info('App active (native) — attempting reconnect');
                     this.reconnectAttempts = 0;
@@ -201,6 +229,167 @@ class AnchorWatchSyncServiceClass {
     onBroadcast(listener: BroadcastListener): () => void {
         this.broadcastListeners.add(listener);
         return () => this.broadcastListeners.delete(listener);
+    }
+
+    /** Latest received state survives page changes and channel reconnects, never session/account changes. */
+    getLatestBroadcast(): SyncBroadcast | null {
+        return this.hasCurrentSession() ? this.latestBroadcast : null;
+    }
+
+    getLatestPosition(): PositionBroadcast | null {
+        return this.hasCurrentSession() ? this.latestPosition : null;
+    }
+
+    getPushReadiness(): ShorePushReadiness {
+        return this.hasCurrentSession() && this.role === 'shore'
+            ? { ...this.pushReadiness }
+            : { status: 'inactive', reason: null, checkedAt: null };
+    }
+
+    onPushReadinessChange(listener: PushReadinessListener): () => void {
+        this.pushReadinessListeners.add(listener);
+        listener(this.getPushReadiness());
+        return () => this.pushReadinessListeners.delete(listener);
+    }
+
+    /** A failed check leaves realtime monitoring intact, explicitly without verified background alerts. */
+    refreshPushReadiness(): Promise<ShorePushReadiness> {
+        if (
+            !supabase ||
+            !this.sessionScope ||
+            !this.sessionCode ||
+            !this.hasCurrentSession() ||
+            this.role !== 'shore'
+        ) {
+            return Promise.resolve(this.getPushReadiness());
+        }
+        if (this.pushCheck) return this.pushCheck.promise;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        let finished = false;
+        let resolve!: (value: ShorePushReadiness) => void;
+        const promise = new Promise<ShorePushReadiness>((done) => (resolve = done));
+        const current = () =>
+            !finished && this.pushCheck === check && this.isSessionCurrent(scope, sessionCode, 'shore');
+        const finish = (state?: ShorePushReadiness) => {
+            if (finished) return;
+            if (state && current()) this.publishPushReadiness(state);
+            finished = true;
+            clearTimeout(timeout);
+            if (this.pushCheck === check) this.pushCheck = null;
+            resolve(this.getPushReadiness());
+        };
+        const check = { promise, cancel: () => finish() };
+        const timeout = setTimeout(
+            () =>
+                finish({
+                    status: 'unavailable',
+                    reason: 'Background notification verification timed out. Check your connection and retry.',
+                    checkedAt: Date.now(),
+                }),
+            PUSH_READINESS_TIMEOUT_MS,
+        );
+        this.pushCheck = check;
+        this.publishPushReadiness({ status: 'checking', reason: null, checkedAt: null });
+        void (async () => {
+            if (Capacitor.getPlatform() !== 'ios') {
+                throw new Error('Verified Shore Watch background alerts require the iPhone app.');
+            }
+            // This requests normal notification permission before the native
+            // safety check verifies sounds, Lock Screen and Time Sensitive access.
+            const token = await PushNotificationService.requestPermissionAndRegister();
+            if (!current()) return;
+            if (!token)
+                throw new Error('Notifications are not registered. Enable Notifications in iOS Settings and retry.');
+            const readiness = await AnchorSafetyNotificationService.requireReadiness();
+            if (!current()) return;
+            if (!readiness?.ready) throw new Error('iOS could not verify Shore Watch notification settings.');
+            const { data: authData } = await supabase!.auth.getUser();
+            if (!current()) return;
+            if (authData.user?.id !== scope.userId)
+                throw new Error('Sign in again to verify Shore Watch notifications.');
+            const { error } = await supabase!.from('anchor_alarm_tokens').upsert(
+                {
+                    session_code: sessionCode,
+                    user_id: scope.userId,
+                    device_token: token,
+                    platform: 'ios',
+                    supports_reminders: true,
+                },
+                { onConflict: 'session_code,device_token' },
+            );
+            if (!current()) return;
+            if (error)
+                throw new Error('The server could not register this phone for Shore Watch alarms. Retry when online.');
+            finish({ status: 'ready', reason: null, checkedAt: Date.now() });
+        })()
+            .catch((error: unknown) => {
+                if (!current()) return;
+                finish({
+                    status: 'unavailable',
+                    reason:
+                        error instanceof Error
+                            ? error.message
+                            : 'Background notification readiness could not be verified.',
+                    checkedAt: Date.now(),
+                });
+            })
+            .finally(() => finish());
+        return promise;
+    }
+
+    /** Acknowledge only this phone's current incident(s), never stop the boat. */
+    async acknowledgeAlarmReminders(
+        alarmKind: 'drag' | 'gps_lost' | 'contact_lost',
+        startedBefore: number,
+    ): Promise<string[]> {
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        const token = PushNotificationService.getToken();
+        if (
+            !supabase ||
+            !scope ||
+            !sessionCode ||
+            !token ||
+            !this.isSessionCurrent(scope, sessionCode, 'shore') ||
+            !Number.isFinite(startedBefore)
+        )
+            throw new Error('This phone’s Shore Watch registration is not available.');
+        const { data: authData } = await supabase.auth.getUser();
+        const current = () =>
+            this.isSessionCurrent(scope, sessionCode, 'shore') && PushNotificationService.getToken() === token;
+        if (!current() || authData.user?.id !== scope.userId) throw new Error('Shore Watch account changed.');
+        const { data, error } = await supabase.rpc('list_active_anchor_alarm_incidents', {
+            p_session_code: sessionCode,
+            p_device_token: token,
+            p_started_before: new Date(startedBefore).toISOString(),
+        });
+        if (!current()) throw new Error('Shore Watch session changed.');
+        if (error || !Array.isArray(data)) throw new Error('Could not check repeating alerts on the server.');
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const incidents = data.filter((row) => row.alarm_kind === alarmKind);
+        if (!incidents.length) throw new Error('No matching server alarm was found. Later alerts may still arrive.');
+        const acknowledged: string[] = [];
+        for (const row of incidents) {
+            // Keep the click-time cutoff even if a response is malformed; a
+            // delayed acknowledgement must never silence a newer incident.
+            if (
+                !uuid.test(row.incident_id) ||
+                !uuid.test(row.token_id) ||
+                !Number.isFinite(Date.parse(row.started_at)) ||
+                Date.parse(row.started_at) > startedBefore
+            )
+                throw new Error('The server alarm changed. Check the vessel and retry.');
+            if (!current()) throw new Error('Shore Watch session changed.');
+            const result = await supabase.rpc('acknowledge_anchor_alarm', {
+                p_incident_id: row.incident_id,
+                p_token_id: row.token_id,
+            });
+            if (!current()) throw new Error('Shore Watch session changed.');
+            if (result.error || result.data !== true) throw new Error('Repeating alerts have not been silenced.');
+            acknowledged.push(row.incident_id);
+        }
+        return acknowledged;
     }
 
     /** Get current sync state */
@@ -251,7 +440,10 @@ class AnchorWatchSyncServiceClass {
         // Idempotent: restore is now called both on app startup AND on
         // Anchor Watch page mount. If we're already live on a session,
         // there's nothing to do — don't tear down / re-join.
-        if (this.connected && this.hasCurrentSession()) return true;
+        if (this.connected && this.hasCurrentSession()) {
+            void this.refreshPushReadiness();
+            return true;
+        }
 
         const operationEpoch = ++this.operationEpoch;
 
@@ -288,11 +480,6 @@ class AnchorWatchSyncServiceClass {
             // Without this, lastPeerUpdate stays null after restore and the
             // timeout never fires — leaving shore stuck showing "Vessel Connected".
             this.lastPeerUpdate = Date.now();
-
-            // Re-register push token for shore devices
-            if (this.role === 'shore') {
-                void this.registerPushToken(persisted.sessionCode, scope);
-            }
 
             return true;
         } catch {
@@ -386,11 +573,6 @@ class AnchorWatchSyncServiceClass {
         const joined = await this.joinChannel();
         if (!this.isOperationCurrent(scope, operationEpoch)) return false;
 
-        if (joined) {
-            // Register push token for alarm notifications
-            void this.registerPushToken(normalizedCode, scope);
-        }
-
         return joined;
     }
 
@@ -432,7 +614,8 @@ class AnchorWatchSyncServiceClass {
      * Send anchor drag alarm as push notification to shore devices.
      * Called by the vessel device when drag is detected.
      * Writes an alarm event to Supabase which triggers an Edge Function
-     * to send APNs Critical Alert push notifications.
+     * to send time-sensitive APNs notifications. Critical Alerts require
+     * separate Apple approval and device permission; they are not enabled by default.
      */
     async sendAlarmPush(data: {
         distance: number;
@@ -671,6 +854,10 @@ class AnchorWatchSyncServiceClass {
      * asynchronous, but callbacks are already fenced out before it can settle.
      */
     private resetRuntimeSession(notify: boolean): void {
+        this.pushReadiness = { status: 'inactive', reason: null, checkedAt: null };
+        this.pushCheck?.cancel();
+        this.latestBroadcast = null;
+        this.latestPosition = null;
         this.connectionEpoch++;
         this.pendingJoinResolvers.forEach((resolve) => resolve('STALE'));
         this.pendingJoinResolvers.clear();
@@ -702,6 +889,7 @@ class AnchorWatchSyncServiceClass {
         this.peerConnected = false;
         this.lastPeerUpdate = null;
         this.peerDisconnectedAt = null;
+        this.publishPushReadiness(this.pushReadiness);
         if (notify) this.notifyState();
     }
 
@@ -711,6 +899,7 @@ class AnchorWatchSyncServiceClass {
         const sessionCode = this.sessionCode;
         const role = this.role;
         if (!this.isSessionCurrent(scope, sessionCode, role)) return false;
+        void this.refreshPushReadiness();
 
         try {
             const channelName = `anchor-watch-${sessionCode}`;
@@ -752,6 +941,7 @@ class AnchorWatchSyncServiceClass {
             channel.on('broadcast', { event: 'position' }, ({ payload }: { payload: PositionBroadcast }) => {
                 if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 this.lastPeerUpdate = Date.now();
+                this.latestPosition = this.latestBroadcast = payload;
                 this.broadcastListeners.forEach((listener) => {
                     try {
                         listener(payload);
@@ -765,6 +955,7 @@ class AnchorWatchSyncServiceClass {
             channel.on('broadcast', { event: 'alarm' }, ({ payload }: { payload: AlarmBroadcast }) => {
                 if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 this.lastPeerUpdate = Date.now();
+                this.latestBroadcast = payload;
                 this.broadcastListeners.forEach((listener) => {
                     try {
                         listener(payload);
@@ -775,6 +966,21 @@ class AnchorWatchSyncServiceClass {
             });
 
             // Listen for heartbeats
+            channel.on('broadcast', { event: 'status' }, ({ payload }: { payload: StatusBroadcast }) => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
+                if (payload.type !== 'status' || payload.gpsAvailable !== false) return;
+                this.lastPeerUpdate = Date.now();
+                // Contact is not a GPS fix. Retain the last position's original age.
+                this.latestBroadcast = payload;
+                this.broadcastListeners.forEach((listener) => {
+                    try {
+                        listener(payload);
+                    } catch {
+                        // One UI listener must not starve the others.
+                    }
+                });
+            });
+
             channel.on('broadcast', { event: 'heartbeat' }, () => {
                 if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 this.lastPeerUpdate = Date.now();
@@ -1068,43 +1274,14 @@ class AnchorWatchSyncServiceClass {
         });
     }
 
-    /**
-     * Register push token for alarm notifications.
-     * Called when shore device joins a session.
-     */
-    private async registerPushToken(sessionCode: string, scope: AuthIdentityScope): Promise<void> {
-        if (!supabase || !this.isSessionCurrent(scope, sessionCode, 'shore')) return;
-
-        try {
-            // Request permission and get token
-            const token = await PushNotificationService.requestPermissionAndRegister();
-            if (!token || !this.isSessionCurrent(scope, sessionCode, 'shore')) {
-                return;
+    private publishPushReadiness(state: ShorePushReadiness): void {
+        this.pushReadiness = state;
+        for (const listener of this.pushReadinessListeners) {
+            try {
+                listener(this.getPushReadiness());
+            } catch {
+                // One UI listener must not starve the others.
             }
-
-            // Register token to Supabase
-            const { data: authData } = await supabase.auth.getUser();
-            if (!this.isSessionCurrent(scope, sessionCode, 'shore') || authData.user?.id !== scope.userId) {
-                return;
-            }
-
-            const { error } = await supabase.from('anchor_alarm_tokens').upsert(
-                {
-                    session_code: sessionCode,
-                    user_id: scope.userId,
-                    device_token: token,
-                    platform: 'ios',
-                },
-                {
-                    onConflict: 'session_code,device_token',
-                },
-            );
-
-            if (error) {
-                log.warn('registerPushToken: upsert failed', error);
-            }
-        } catch (err) {
-            // Silently ignored — non-critical failure
         }
     }
 }

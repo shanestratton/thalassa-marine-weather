@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
         liferaftCapacity: 6,
         flaresExpiry: '2027-06-30',
         contactPhone: '+61 400 000 000',
+        fuelCapacity: 1000 / 3.78541,
+        waterCapacity: 600 / 3.78541,
     },
 }));
 
@@ -67,6 +69,8 @@ describe('FloatPlanSheet', () => {
         const whatsapp = screen.getByRole('button', { name: /WhatsApp/ });
         expect(whatsapp).toHaveAttribute('aria-pressed', 'true');
         expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('RAISE THE ALARM');
+        expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('Fuel 1000 L');
+        expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('water 600 L');
 
         fireEvent.click(screen.getByRole('button', { name: /Text Compact/ }));
         expect(screen.getByRole('button', { name: /Text Compact/ })).toHaveAttribute('aria-pressed', 'true');
@@ -78,6 +82,8 @@ describe('FloatPlanSheet', () => {
             'Float plan | Serene Summer | Newport to Lady Musgrave',
         );
         expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('PERSONS ONBOARD');
+        expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('Fuel 1000 L');
+        expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('water 600 L');
     });
 
     it('shares the selected neutral format through the native share sheet', async () => {

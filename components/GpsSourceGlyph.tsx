@@ -161,7 +161,7 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
  * another fab on the already jam packed screen"). Glyph plus the sentence —
  * this is the one place the words are welcome.
  */
-export const GpsSourceRow: React.FC = () => {
+export const GpsSourceRow: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
     const { state } = useGpsSourceState();
     const detail = state.label.replace(/^Position:\s*/, '');
     return (
@@ -169,14 +169,22 @@ export const GpsSourceRow: React.FC = () => {
             data-testid="gps-source-row"
             data-glyph={state.glyph}
             data-tone={state.tone}
-            className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/3 p-3"
+            className={
+                compact
+                    ? 'flex items-center gap-2.5'
+                    : 'flex items-center gap-3 rounded-xl border border-white/10 bg-white/3 p-3'
+            }
         >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5">
+            <span
+                className={`flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 ${compact ? 'h-8 w-8' : 'h-10 w-10'}`}
+            >
                 <GlyphArt glyph={state.glyph} tone={state.tone} />
             </span>
             <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Position</p>
-                <p className="text-sm font-semibold text-white">{detail}</p>
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
+                    {compact ? 'Weather position' : 'Position'}
+                </p>
+                <p className={`${compact ? 'text-xs' : 'text-sm'} font-semibold text-white`}>{detail}</p>
             </div>
         </div>
     );

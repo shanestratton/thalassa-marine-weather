@@ -385,8 +385,8 @@ describe('RoutePlanner', () => {
     it('keeps past voyages as their original identity-fenced direct chart handoff', async () => {
         const choice = {
             voyageId: 'past-voyage',
-            label: 'Voyage · 9 Sept',
-            sublabel: '18 NM sailed',
+            label: 'Mackay Harbour → Whitsundays',
+            sublabel: '9 Sept · 18 NM sailed',
             timestamp: Date.parse('2026-09-09T00:00:00Z'),
             distanceNm: 18,
             isLocal: false,
@@ -394,7 +394,9 @@ describe('RoutePlanner', () => {
         plannerMocks.fetchSeaVoyageChoices.mockResolvedValue([choice]);
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /From a past voyage/i }));
-        fireEvent.click(await screen.findByRole('button', { name: /Voyage · 9 Sept/i }));
+        const voyageButton = await screen.findByRole('button', { name: /Mackay Harbour → Whitsundays/i });
+        expect(voyageButton).toHaveTextContent('9 Sept · 18 NM sailed');
+        fireEvent.click(voyageButton);
         expect(plannerMocks.requestTracerOpen).toHaveBeenCalledExactlyOnceWith(
             { kind: 'load-voyage', choice },
             expect.objectContaining({ key: 'anonymous' }),

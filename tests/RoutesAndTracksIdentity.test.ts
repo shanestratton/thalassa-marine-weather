@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
     getOfflineEntries: vi.fn(),
     getVoyageSummaries: vi.fn(),
     getVoyageEntries: vi.fn(),
+    placeLabelFor: vi.fn(),
 }));
 
 vi.mock('../services/shiplog/EntryCrud', () => ({
@@ -20,6 +21,10 @@ vi.mock('../services/shiplog/VoyageSummary', () => ({
 }));
 vi.mock('../services/shiplog/PassagePlanSave', () => ({
     ROUTE_GEOMETRY_NOTES_PREFIX: '__route_geometry__::',
+}));
+vi.mock('../services/routeAutoName', () => ({
+    placeLabelFor: (...args: unknown[]) => mocks.placeLabelFor(...args),
+    coordsLabel: (point: { lat: number; lon: number }) => `coords:${point.lat}:${point.lon}`,
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -74,6 +79,7 @@ beforeEach(() => {
     mocks.getOfflineEntries.mockResolvedValue([]);
     mocks.getVoyageSummaries.mockResolvedValue([]);
     mocks.getVoyageEntries.mockResolvedValue([]);
+    mocks.placeLabelFor.mockResolvedValue(null);
 });
 
 describe('RoutesAndTracks identity isolation', () => {
@@ -139,5 +145,112 @@ describe('RoutesAndTracks identity isolation', () => {
         offlineA.resolve(plannedEntries('account-a', 'planned_a'));
         await expect(request).resolves.toEqual([]);
         expect(mocks.getVoyageEntries).not.toHaveBeenCalled();
+    });
+
+    it('names past voyages from summary endpoints, with date and distance secondary, without downloading tracks', async () => {
+        mocks.getVoyageSummaries.mockResolvedValue([
+            {
+                voyageId: 'sailed',
+                isPlannedRoute: false,
+                entryCount: 12000,
+                startedAt: '2026-09-21T00:00:00Z',
+                totalDistanceNM: 57.9,
+                firstLat: -21.1,
+                firstLon: 149.2,
+                lastLat: -20.2,
+                lastLon: 148.8,
+            },
+        ]);
+        mocks.placeLabelFor.mockImplementation(async ({ lat }: { lat: number }) =>
+            lat === -21.1 ? 'Mackay Harbour' : 'Whitsundays',
+        );
+        const choices = await fetchSeaVoyageChoices();
+        expect(choices[0]).toMatchObject({
+            label: 'Mackay Harbour → Whitsundays',
+            sublabel: expect.stringMatching(/21 Sep.* · 58 NM/),
+        });
+        expect(mocks.getVoyageEntries).not.toHaveBeenCalled();
+        expect(mocks.getLogEntries).not.toHaveBeenCalled();
+    });
+
+    it('uses offline endpoints too and keeps same-place voyages recognisable', async () => {
+        mocks.getOfflineEntries.mockResolvedValue(
+            plannedEntries('account-a', 'offline-voyage').map((entry) => ({ ...entry, source: 'device' })),
+        );
+        mocks.placeLabelFor.mockResolvedValue('Whitsundays');
+        const choices = await fetchSeaVoyageChoices();
+        expect(choices[0]).toMatchObject({ label: 'Whitsundays → Whitsundays', isLocal: true });
+        expect(choices[0].sublabel).toContain('2 fixes');
+    });
+
+    it('does not dress invalid fixes or coordinate fallbacks as port names', async () => {
+        mocks.getVoyageSummaries.mockResolvedValue([
+            {
+                voyageId: 'unknown',
+                isPlannedRoute: false,
+                entryCount: 2,
+                startedAt: '2026-09-21T00:00:00Z',
+                totalDistanceNM: 1,
+                firstLat: 0,
+                firstLon: 0,
+                lastLat: -20.2,
+                lastLon: 148.8,
+            },
+        ]);
+        mocks.placeLabelFor.mockResolvedValue('coords:-20.2:148.8');
+        const choices = await fetchSeaVoyageChoices();
+        expect(choices[0].label).toBe('Unknown departure → Unknown arrival');
+        expect(mocks.placeLabelFor).toHaveBeenCalledTimes(1);
+    });
+
+    it('discards endpoint-name results if the signed-in account changes while resolving', async () => {
+        const name = deferred<string>();
+        mocks.getVoyageSummaries.mockResolvedValue([
+            {
+                voyageId: 'private',
+                isPlannedRoute: false,
+                entryCount: 2,
+                startedAt: '2026-09-21T00:00:00Z',
+                totalDistanceNM: 1,
+                firstLat: -21.1,
+                firstLon: 149.2,
+                lastLat: -20.2,
+                lastLon: 148.8,
+            },
+        ]);
+        mocks.placeLabelFor.mockReturnValue(name.promise);
+        const request = fetchSeaVoyageChoices();
+        await vi.waitFor(() => expect(mocks.placeLabelFor).toHaveBeenCalledTimes(2));
+        setAuthIdentityScope('account-b');
+        name.resolve('Account A private endpoint');
+        await expect(request).resolves.toEqual([]);
+    });
+
+    it('only geocodes visible choices and times out when the connection stalls', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.getVoyageSummaries.mockResolvedValue(
+                [1, 2].map((day) => ({
+                    voyageId: `voyage-${day}`,
+                    isPlannedRoute: false,
+                    entryCount: 2,
+                    startedAt: `2026-09-0${day}T00:00:00Z`,
+                    totalDistanceNM: 1,
+                    firstLat: -21.1,
+                    firstLon: 149.2,
+                    lastLat: -20.2,
+                    lastLon: 148.8,
+                })),
+            );
+            mocks.placeLabelFor.mockReturnValue(new Promise(() => {}));
+            const request = fetchSeaVoyageChoices(1);
+            await vi.advanceTimersByTimeAsync(3001);
+            const choices = await request;
+            expect(choices).toHaveLength(1);
+            expect(choices[0]).toMatchObject({ voyageId: 'voyage-2', label: 'Unknown departure → Unknown arrival' });
+            expect(mocks.placeLabelFor).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

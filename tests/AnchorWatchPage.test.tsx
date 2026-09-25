@@ -80,11 +80,24 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         // missing from this mock it threw 3 unhandled rejections per run
         // (tests passed but vitest exited 1).
         getLastSessionCode: vi.fn().mockReturnValue(null),
+        getLatestPosition: vi.fn().mockReturnValue(null),
+        getPushReadiness: vi.fn().mockReturnValue({ status: 'inactive', reason: null, checkedAt: null }),
+        onPushReadinessChange: vi.fn().mockReturnValue(vi.fn()),
+        refreshPushReadiness: vi.fn().mockResolvedValue({ status: 'ready', reason: null, checkedAt: 1 }),
         onStateChange: vi.fn().mockReturnValue(vi.fn()),
         onPosition: vi.fn().mockReturnValue(vi.fn()),
         onBroadcast: vi.fn().mockReturnValue(vi.fn()),
         restoreSession: vi.fn().mockResolvedValue(false),
         leaveSession: vi.fn().mockResolvedValue(undefined),
+    },
+}));
+
+vi.mock('../services/ShoreWatchAlarmService', () => ({
+    ShoreWatchAlarmService: {
+        getSnapshot: vi.fn(),
+        start: vi.fn(),
+        subscribe: vi.fn().mockReturnValue(vi.fn()),
+        mute: vi.fn().mockResolvedValue(undefined),
     },
 }));
 
@@ -117,6 +130,7 @@ vi.mock('../components/SignInScreen', () => ({
 
 import { AnchorWatchPage, SHORE_DATA_STALE_MS } from '../components/AnchorWatchPage';
 import { AlarmAudioService } from '../services/AlarmAudioService';
+import { ShoreWatchAlarmService, type ShoreAlarmSnapshot } from '../services/ShoreWatchAlarmService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import { AnchorWatchSyncService, type PositionBroadcast, type SyncState } from '../services/AnchorWatchSyncService';
 
@@ -128,6 +142,18 @@ const CONNECTED_SHORE_STATE: SyncState = {
     lastPeerUpdate: Date.now(),
     peerDisconnectedAt: null,
 };
+
+function shoreAlarmSnapshot(cause: ShoreAlarmSnapshot['cause'] = null): ShoreAlarmSnapshot {
+    return {
+        sessionCode: CONNECTED_SHORE_STATE.sessionCode,
+        position: null,
+        lastContactAt: null,
+        stale: false,
+        cause,
+        muted: false,
+        audioError: null,
+    };
+}
 
 function makeShoreData(isAlarm = false): PositionBroadcast {
     return {
@@ -175,6 +201,7 @@ function makePausedSnapshot(): AnchorWatchSnapshot {
 async function renderShoreWatch(state: SyncState, data: PositionBroadcast) {
     vi.mocked(AnchorWatchSyncService.restoreSession).mockResolvedValueOnce(true);
     vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(state);
+    vi.mocked(ShoreWatchAlarmService.getSnapshot).mockReturnValue(shoreAlarmSnapshot(data.isAlarm ? 'drag' : null));
     const rendered = render(<AnchorWatchPage onBack={vi.fn()} />);
 
     await waitFor(() => {
@@ -215,6 +242,21 @@ describe('AnchorWatchPage', () => {
         vi.mocked(AnchorWatchSyncService.getLastSessionCode).mockReturnValue(null);
         vi.mocked(AnchorWatchSyncService.onStateChange).mockReturnValue(vi.fn());
         vi.mocked(AnchorWatchSyncService.onBroadcast).mockReturnValue(vi.fn());
+        vi.mocked(AnchorWatchSyncService.getLatestPosition).mockReturnValue(null);
+        vi.mocked(AnchorWatchSyncService.getPushReadiness).mockReturnValue({
+            status: 'inactive',
+            reason: null,
+            checkedAt: null,
+        });
+        vi.mocked(AnchorWatchSyncService.onPushReadinessChange).mockImplementation((listener) => {
+            listener(AnchorWatchSyncService.getPushReadiness());
+            return vi.fn();
+        });
+        vi.mocked(ShoreWatchAlarmService.getSnapshot).mockReturnValue(shoreAlarmSnapshot());
+        vi.mocked(ShoreWatchAlarmService.subscribe).mockImplementation((listener) => {
+            listener(ShoreWatchAlarmService.getSnapshot());
+            return vi.fn();
+        });
     });
 
     it('renders without crashing', () => {
@@ -394,48 +436,135 @@ describe('AnchorWatchPage', () => {
     it('labels shore alarm muting as local-device-only without implying vessel acknowledgement', async () => {
         await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData(true));
 
-        await waitFor(() => expect(AlarmAudioService.acquire).toHaveBeenCalledWith('shore-watch'));
+        expect(ShoreWatchAlarmService.start).toHaveBeenCalled();
 
         const mute = screen.getByRole('button', { name: 'Mute alarm on this device only' });
         expect(mute).toHaveTextContent('Mute this device only');
-        expect(mute).toHaveTextContent(
-            'This only silences this device; it does not acknowledge or change the vessel alarm.',
-        );
+        expect(mute).toHaveTextContent('The vessel’s watch continues.');
 
         fireEvent.click(mute);
 
-        await waitFor(() => expect(AlarmAudioService.release).toHaveBeenCalledWith('shore-watch-lease'));
+        await waitFor(() => expect(ShoreWatchAlarmService.mute).toHaveBeenCalledOnce());
+        act(() => {
+            vi.mocked(ShoreWatchAlarmService.subscribe).mock.calls.at(-1)?.[0]({
+                ...shoreAlarmSnapshot('drag'),
+                muted: true,
+            });
+        });
         expect(mute).toBeDisabled();
         expect(mute).toHaveTextContent('Muted on this device only');
     });
 
-    it('hands an owned shore alarm lease to exact-token cleanup when the page unmounts', async () => {
+    it('only unsubscribes on unmount and leaves app-owned alarm audio running', async () => {
         const { unmount } = await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData(true));
-        await waitFor(() => expect(AlarmAudioService.acquire).toHaveBeenCalledWith('shore-watch'));
-        await act(async () => Promise.resolve());
+        const unsubscribe = vi.mocked(ShoreWatchAlarmService.subscribe).mock.results.at(-1)?.value;
 
         unmount();
 
-        expect(AlarmAudioService.releaseEventually).toHaveBeenCalledWith('shore-watch-lease');
+        expect(unsubscribe).toHaveBeenCalledOnce();
+        expect(ShoreWatchAlarmService.mute).not.toHaveBeenCalled();
+        expect(AnchorWatchSyncService.leaveSession).not.toHaveBeenCalled();
+        expect(AlarmAudioService.acquire).not.toHaveBeenCalled();
+        expect(AlarmAudioService.releaseEventually).not.toHaveBeenCalled();
         expect(AlarmAudioService.release).not.toHaveBeenCalled();
     });
 
-    it('hands a shore alarm lease that resolves after unmount to exact-token cleanup', async () => {
-        let resolveAcquire!: (lease: string) => void;
-        const pendingAcquire = new Promise<string>((resolve) => {
-            resolveAcquire = resolve;
-        });
-        vi.mocked(AlarmAudioService.acquire).mockReturnValueOnce(pendingAcquire);
-        const { unmount } = await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData(true));
-        await waitFor(() => expect(AlarmAudioService.acquire).toHaveBeenCalledWith('shore-watch'));
+    it('shows retained vessel data immediately on a shore remount without awaiting restore', async () => {
+        vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(CONNECTED_SHORE_STATE);
+        vi.mocked(AnchorWatchSyncService.getLatestPosition).mockReturnValue(makeShoreData());
+        vi.mocked(AnchorWatchService.restoreWatchState).mockReturnValueOnce(new Promise(() => {}));
+        render(<AnchorWatchPage />);
 
-        unmount();
-        await act(async () => {
-            resolveAcquire('late-shore-watch-lease');
-            await pendingAcquire;
-        });
+        expect(screen.getByRole('button', { name: 'Leave Shore Watch' })).toBeInTheDocument();
+        expect(screen.getByText('Holding')).toBeInTheDocument();
+        expect(screen.queryByText(/Connecting to vessel/)).not.toBeInTheDocument();
+    });
 
-        expect(AlarmAudioService.releaseEventually).toHaveBeenCalledWith('late-shore-watch-lease');
-        expect(AlarmAudioService.release).not.toHaveBeenCalled();
+    it('does not refresh stale cached vessel timestamps just because the shore page remounted', () => {
+        const old = Date.now() - SHORE_DATA_STALE_MS - 1000;
+        const data = makeShoreData();
+        data.timestamp = old;
+        data.vessel.timestamp = old;
+        vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(CONNECTED_SHORE_STATE);
+        vi.mocked(AnchorWatchSyncService.getLatestPosition).mockReturnValue(data);
+        render(<AnchorWatchPage />);
+
+        expect(screen.getByText('Last-known data')).toBeInTheDocument();
+        expect(screen.queryByText('Holding')).not.toBeInTheDocument();
+    });
+
+    it('keeps an existing shore session visible when local watch restore completes before a failed reconnect', async () => {
+        vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(CONNECTED_SHORE_STATE);
+        vi.mocked(AnchorWatchSyncService.getLatestPosition).mockReturnValue(makeShoreData());
+        vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValueOnce(true);
+        vi.mocked(AnchorWatchSyncService.restoreSession).mockResolvedValueOnce(false);
+        render(<AnchorWatchPage />);
+        await waitFor(() => expect(AnchorWatchSyncService.restoreSession).toHaveBeenCalled());
+        expect(screen.getByRole('button', { name: 'Leave Shore Watch' })).toBeInTheDocument();
+        expect(screen.getByText('Holding')).toBeInTheDocument();
+    });
+
+    it('preserves the app-wide local mute state when returning to shore view', () => {
+        vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(CONNECTED_SHORE_STATE);
+        vi.mocked(AnchorWatchSyncService.getLatestPosition).mockReturnValue(makeShoreData(true));
+        vi.mocked(ShoreWatchAlarmService.getSnapshot).mockReturnValue({ ...shoreAlarmSnapshot('drag'), muted: true });
+        render(<AnchorWatchPage />);
+
+        expect(screen.getByRole('button', { name: 'Mute alarm on this device only' })).toBeDisabled();
+        expect(screen.getByText('Muted on this device only')).toBeInTheDocument();
+        expect(AlarmAudioService.acquire).not.toHaveBeenCalled();
+    });
+
+    it('keeps the healthy shore screen focused on readings, with notification explanations in the info panel', async () => {
+        vi.mocked(AnchorWatchSyncService.getPushReadiness).mockReturnValue({
+            status: 'ready',
+            reason: null,
+            checkedAt: 1,
+        });
+        await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+
+        expect(screen.queryByRole('region', { name: 'Background notification readiness' })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Registration is confirmed, not delivery/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Alarm notifications use a 24-second siren/)).not.toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Vessel anchor readings' })).toBeInTheDocument();
+        for (const label of ['Swing Radius', 'Rode', 'Depth', 'Last Update']) {
+            expect(screen.getByText(label)).toBeInTheDocument();
+        }
+        expect(screen.getByTestId('shore-watch-page').style.paddingBottom).toContain('safe-area-inset-bottom');
+        expect(screen.getByTestId('shore-readings-scroll')).toHaveClass('min-h-0', 'overflow-y-auto');
+    });
+
+    it('does not call an outside-radius fix Holding while the watchkeeper confirms the alarm', async () => {
+        const data = makeShoreData(false);
+        data.distance = 164;
+        await renderShoreWatch(CONNECTED_SHORE_STATE, data);
+        expect(screen.getByText('Outside radius · checking')).toHaveClass('text-amber-300');
+        expect(screen.queryByText('Holding')).not.toBeInTheDocument();
+        expect(screen.queryByText('Drag Alarm')).not.toBeInTheDocument();
+        expect(AlarmAudioService.acquire).not.toHaveBeenCalled();
+    });
+
+    it('shows unavailable reason and offers an explicit notification retry', async () => {
+        vi.mocked(AnchorWatchSyncService.getPushReadiness).mockReturnValue({
+            status: 'unavailable',
+            reason: 'Enable Time Sensitive notifications.',
+            checkedAt: 1,
+        });
+        await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+        expect(screen.getByText('Background notifications not verified')).toBeInTheDocument();
+        expect(screen.getByText('Enable Time Sensitive notifications.')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry notifications' }));
+        expect(AnchorWatchSyncService.refreshPushReadiness).toHaveBeenCalledOnce();
+    });
+
+    it('shows checking without permitting overlapping notification retries', async () => {
+        vi.mocked(AnchorWatchSyncService.getPushReadiness).mockReturnValue({
+            status: 'checking',
+            reason: null,
+            checkedAt: null,
+        });
+        await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+        expect(screen.getByText('Checking background notifications…')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Retry notifications' })).toBeDisabled();
     });
 });

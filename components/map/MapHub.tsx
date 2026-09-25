@@ -39,6 +39,7 @@ import { ZoomLevelFab } from './ZoomLevelFab';
 import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
+import { useObsStartupCamera } from './useObsStartupCamera';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
@@ -49,7 +50,6 @@ import {
     type MapHubProps,
     type WeatherLayer,
     frameZoomForSelection,
-    getActiveLayerFrameZoom,
     LAYER_FRAME_ZOOM,
     shouldShowPlanChartKey,
     shouldSuppressChartOverlays,
@@ -80,6 +80,9 @@ import { useTraceHistory } from './useTraceHistory';
 import { useTraceDraft } from './useTraceDraft';
 import { useMapHubLayerVisibility } from './useMapHubLayerVisibility';
 import { useAnchorageLayer } from './useAnchorageLayer';
+import { useCruisingReferenceLayer } from './useCruisingReferenceLayer';
+import { CruisingReferenceKey } from './CruisingReferenceKey';
+import type { MooringColourFilter } from '../../services/anchorages/cruisingReference';
 import { AnchorageTonightSheet } from './AnchorageTonightSheet';
 import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
@@ -237,7 +240,7 @@ import { TracerPinEditor } from './tracer/TracerPinEditor';
 import { CoachMark } from '../ui/CoachMark';
 import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { usePersistedState, usePersistedStringSet } from '../../hooks/usePersistedState';
+import { usePersistedState } from '../../hooks/usePersistedState';
 // ── MapHub sub-modules (components/map/mapHub/) ──
 // Lazy overlay chunks, module constants, and the cohesive units lifted out of
 // this file's body. Each is a verbatim move: no logic, prop, default, string,
@@ -336,14 +339,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
     const [showOfflineArea, setShowOfflineArea] = useState(false);
     const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
-    /**
-     * INSPECT IS THE DEFAULT MODE (Shane 2026-09-05: "i want to change the
-     * default layer from wind to Inspect"). The chart opens as a chart, and a
-     * tap answers a question about a place rather than the punter first having
-     * to switch off a weather field they did not ask for. Not persisted —
-     * neither is any other layer state now, deliberately.
-     */
-    const [weatherInspectMode, setWeatherInspectMode] = useState(true);
+    // A fresh OBS opens with ownship and satellite only. Inspect is opt-in.
+    const [weatherInspectMode, setWeatherInspectMode] = useState(false);
     // ── Route Tracer — grew out of coordinate capture (Shane 2026-07-07 →
     // promoted 2026-07-08 "let people make their own routes"). Tap pins
     // along your own line; every leg is graded LIVE against the router's
@@ -378,6 +375,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setTraceOrigin,
         traceDest,
         setTraceDest,
+        reverseDirection,
     } = useTraceDraft();
 
     // Every pin edit feeds the same history hook, regardless of whether it
@@ -493,6 +491,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (legAnchor && capturedCoords.length < 2) return;
         const first = capturedCoords[0];
         const last = capturedCoords[capturedCoords.length - 1];
+        let current = true;
         // Debounced: a burst of pin drops costs one geocode pass (and the
         // helper caches on a ~1 km grid anyway).
         const t = window.setTimeout(() => {
@@ -506,6 +505,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 const name = legAnchor
                     ? `${legAnchor.fromName} - ${await placeLabelFor(last)}`
                     : await autoRouteName(first, last);
+                // A slow outbound geocode must not overwrite the return-trip
+                // name after Reverse, a route load, or an endpoint edit.
+                if (!current) return;
                 setTraceName((cur) => {
                     // The skipper typed while we were geocoding — theirs wins.
                     if (cur !== '' && cur !== lastAutoNameRef.current) return cur;
@@ -514,7 +516,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                 });
             });
         }, 800);
-        return () => window.clearTimeout(t);
+        return () => {
+            current = false;
+            window.clearTimeout(t);
+        };
     }, [capturedCoords, coordCaptureMode, traceName, legAnchor, lastAutoNameRef, setTraceName]);
     // Typed GPS-fix entry (build a route by keying coords, not just tapping —
     // Shane 2026-07-16). Accepts decimal, hemisphere, DMM and DMS via
@@ -1281,13 +1286,14 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSelectedPin(null);
         setInsertAfter(null);
         insertAfterRef.current = null;
-        setCapturedCoords((prev) => [...prev].reverse());
         // The name flips with the pins ("Newport - Lady Musgrave" →
         // "Lady Musgrave - Newport", Shane 2026-07-15) — so saving the
         // return run creates ITS OWN route instead of colliding with
         // the outbound's overwrite guard. No-op for separator-less names.
         const flipped = reverseRouteName(traceName);
-        setTraceName(flipped);
+        reverseDirection();
+        setFromQuery(toQuery);
+        setToQuery(fromQuery);
         setOverwriteArm(null);
         // Say the new name out loud — "name is not flipping" turned out
         // to be an empty box being flipped; now the flash proves it.
@@ -1296,7 +1302,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 ? `Reversed — "${flipped.trim()}"`
                 : 'Reversed — checking the return run now',
         );
-    }, [capturedCoords.length, traceName, flashTraceFeedback, legAnchorRef, setCapturedCoords, setTraceName]);
+    }, [capturedCoords.length, traceName, flashTraceFeedback, legAnchorRef, reverseDirection, fromQuery, toQuery]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         try {
@@ -1605,13 +1611,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                 pins = rdpTracePoints(points, eps);
             }
             setShowVoyagePicker(false);
+            setLegAnchor(null);
+            setSelectedPin(null);
+            setOverwriteArm(null);
             rebaseHistoryRef.current = true; // wholesale load → new Undo floor
             setCapturedCoords(pins);
+            // A sailed track must not inherit the last open route's title or
+            // endpoint frame. Let its own endpoints generate a fresh name.
+            setTraceName('');
+            lastAutoNameRef.current = '';
+            setTraceOrigin(null);
+            setTraceDest(null);
             const mid = pins[Math.floor(pins.length / 2)];
             mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 11.5, duration: 1000 });
             flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
         },
-        [flashTraceFeedback, rebaseHistoryRef, setCapturedCoords],
+        [
+            flashTraceFeedback,
+            rebaseHistoryRef,
+            setCapturedCoords,
+            setTraceName,
+            lastAutoNameRef,
+            setTraceOrigin,
+            setTraceDest,
+            setLegAnchor,
+        ],
     );
     // Historical planned-route mirror → editable tracer. Unlike sailed-voyage
     // imports, this must keep the exact stored curve: simplifying a planned
@@ -1720,6 +1744,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setIsoProgress,
     });
     const planningSurface = shouldSuppressChartOverlays(cleanPlanningMap, coordCaptureMode, passage.showPassage);
+    const ownshipStartup = !embedded && !pickerMode && !planningSurface && !isPinView;
     const planChartKeyVisible = shouldShowPlanChartKey(
         cleanPlanningMap,
         planTracerActive,
@@ -1747,6 +1772,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSeamarkVisible,
         anchorageVisible,
         setAnchorageVisible,
+        mooringsVisible,
+        setMooringsVisible,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -1766,33 +1793,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         browseSquallVisible,
         browseSeamarkVisible,
         browseAnchorageVisible,
+        browseMooringsVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     } = useMapHubLayerVisibility({ mapRef, planningSurface });
-    // ENC vector chart visibility.
-    //
-    // PINNED ON 2026-07-22, for the same reason as encChartDetail below: the
-    // ChartModes dropdown held the only setter, and it is gone. A persisted
-    // `false` — which the old "Clear All" preset wrote and PERSISTED — could
-    // then never be undone, leaving the sea chart off with no UI to restore
-    // it. That exact state cost a day in July ("where did my white keel areas
-    // go?") and is the reason for the plotting keel floor.
-    //
-    // The old rationale (toggle it off to compare against raster charts
-    // underneath) does not survive losing the toggle — so this restores the
-    // state WITH a real control and a writer, in the same commit, exactly as
-    // the note above demanded.
-    //
-    // The reason it is back is not comparison. On 2026-09-04 a jetsam report
-    // showed com.apple.WebKit.WebContent killed at exactly 2048.0 MB with
-    // reason "per-process-limit" — the webview walking into iOS's hard 2GB
-    // per-process ceiling, twice over, while the native app process sat at
-    // 93 MB. The flight recorder for that session is dominated by
-    // enc:merge-start (9 cells, 25.3 MB a merge) and enc:merge-breathe backing
-    // off under pressure. A chart layer that can allocate at that scale must
-    // have an off switch — both so a skipper can save their own session, and
-    // so the layer can be ruled in or out without a rebuild.
-    const [encVisible, setEncVisible] = usePersistedState('thalassa_map_enc_visible', true);
+    // Browse charts are opt-in on every fresh OBS. The map-base menu keeps
+    // the switch reachable; the tracer still independently requires ENC.
+    const [encVisible, setEncVisible] = useState(false);
     // Chart-detail toggle. Default ON — the draft-aware depth shading IS the
     // product (flipped 2026-06-13; the 2026-05-17 "clean chart" preference
     // predates day-palette banding). When OFF: land + markers + hazards only.
@@ -1828,8 +1835,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         mapReady,
         encVisible,
     );
-    // OBS follows the app's resolved display mode: Ocean by day, Satellite in
-    // dark/night. The menu can override each mode for this map session without
+    // OBS starts on Satellite in both day and night. The menu can override
+    // each mode for this map session without
     // persisting stale choices across boots. Other map surfaces retain Satellite
     // unless their host explicitly opts into daylightMode.
     // All three bases retain the existing ENC safety-layer treatment. The
@@ -2317,9 +2324,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // (Charts → modes gear → "Seaway Graph") still works for a debugging
     // session; a restart always starts clean.
     const [seawayDebugVisible] = useState(false);
-    const [skChartIds, setSkChartIds] = usePersistedStringSet('thalassa_map_sk_chart_ids');
+    const [skChartIds, setSkChartIds] = useState<Set<string>>(() => new Set());
     const [skChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
-    const [localChartIds, setLocalChartIds] = usePersistedStringSet('thalassa_map_local_chart_ids');
+    const [localChartIds, setLocalChartIds] = useState<Set<string>>(() => new Set());
     const [localChartOpacity] = usePersistedState('thalassa_map_local_chart_opacity', 0.7);
 
     // Charts start hidden — user enables them via the Charts layer toggle.
@@ -2352,8 +2359,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         setShowConsensus(false);
     }, [pickerMode, setShowConsensus, setShowTideAck, setStormPickerOpen]);
 
-    // Active Voyage Mode — the voyages-cache mirror plus the chart's
-    // auto-selection of that voyage's planned route and sailed track, in
+    // Active Voyage Mode — the recorder's current state plus the chart's
+    // independent followed route and actual sailed track, in
     // components/map/mapHub/useActiveVoyageChartSync.ts. Called exactly where
     // the state used to be declared so hook order at this position is unchanged.
     // The "Passage" overlay switch — OFF by default (Shane 2026-09-09: the
@@ -2362,7 +2369,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     const passageHudEnabled = usePassageHudEnabled();
     const passageHudOpen = usePassageHudOpen();
     const passageLookingAhead = usePassageLookAheadOn();
-    const { activeVoyageMode } = useActiveVoyageChartSync(setActiveChartRoute, setActiveChartTrack, passageOverlay);
+    const { activeVoyageMode, hasRecording } = useActiveVoyageChartSync(
+        setActiveChartRoute,
+        setActiveChartTrack,
+        passageOverlay,
+    );
 
     /** Vessel position + trail are FORCED visible during Active Voyage
      *  Mode, regardless of the user's persisted toggle. The user can
@@ -2536,13 +2547,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const followedVoyageId = useFollowRouteStore((s) => s.voyageId);
     const passageHudOnChart =
         passageHudEnabled &&
-        isFollowingRoute &&
-        followedRouteCoords.length >= 2 &&
+        (hasRecording || (isFollowingRoute && followedRouteCoords.length >= 2)) &&
         !embedded &&
         !pickerMode &&
         !isPinView;
     const passageOverviewAvailable =
         passageHudOnChart &&
+        isFollowingRoute &&
+        followedRouteCoords.length >= 2 &&
         !planningSurface &&
         !showConsensus &&
         !mobActive &&
@@ -2558,7 +2570,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     usePassageWaypointLayer({
         mapRef,
         mapReady,
-        enabled: passageHudOnChart && passageOverlay && !planningSurface,
+        enabled: passageHudOnChart && isFollowingRoute && passageOverlay && !planningSurface,
         routeCoords: followedRouteCoords,
     });
     // The chart's large blue i owns the squall key, not a floating legend
@@ -2684,6 +2696,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         center,
         location,
         initialCenter: weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : undefined,
+        ownshipStartup,
         onLocationSelect,
         pickerMode,
         encVisible,
@@ -2711,56 +2724,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
     useLocationDot(mapRef, locationDotRef, mapReady && !planningSurface && !effectiveVesselTrackingVisible);
 
-    // ── Fly to the selected weather location when it arrives / changes ──
-    // `initialCenter` on useMapInit sets the mount-time centre, but when the
-    // weather data is still loading from cache it's undefined and the map
-    // falls back to live GPS. This effect fills that gap: as soon as
-    // weatherCoords is available — and any time it changes afterwards — we
-    // recentre on the selected location. User-driven pans don't change
-    // weatherCoords, so their pan sticks.
-    //
-    // The first centre uses the active overlay's framing zoom when one exists;
-    // otherwise it jumps instantly to ZOOM 10 — the golden chart size (Shane
-    // 2026-07-16: every nav mark visible, local water fills the screen). This
-    // matters when default-on wind is restored before weatherCoords resolves:
-    // a later z10 recenter must not overwrite wind's z3 frame. Subsequent
-    // centres preserve the user's zoom so we don't yank them out of a harbour.
-    const GOLDEN_BOOT_ZOOM = 10;
-    const activeWeatherLayersRef = useRef<ReadonlySet<WeatherLayer>>(new Set());
-    const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady) return;
-        if (embedded || pickerMode || planningSurface || isPinView) return;
-        if (!weatherCoords) return;
-
-        const last = lastFlownCoordsRef.current;
-        if (last && Math.abs(last.lat - weatherCoords.lat) < 1e-6 && Math.abs(last.lon - weatherCoords.lon) < 1e-6) {
-            return;
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ausNzFitZoom = (map as any).__ausNzMinZoom ?? map.getMinZoom();
-        const isFirst = last === null;
-        const activeLayerFrameZoom = getActiveLayerFrameZoom(activeWeatherLayersRef.current);
-        map.jumpTo({
-            center: [weatherCoords.lon, weatherCoords.lat],
-            zoom: isFirst ? (activeLayerFrameZoom ?? GOLDEN_BOOT_ZOOM) : Math.max(map.getZoom(), ausNzFitZoom),
-        });
-        if (!isFirst) {
-            map.easeTo({ center: [weatherCoords.lon, weatherCoords.lat], duration: 600 });
-        }
-        lastFlownCoordsRef.current = { lat: weatherCoords.lat, lon: weatherCoords.lon };
-    }, [
-        mapReady,
-        weatherCoords?.lat,
-        weatherCoords?.lon,
-        embedded,
-        pickerMode,
-        planningSurface,
-        isPinView,
-        weatherCoords,
-    ]);
+    // Centre once on the receiver, never on the weather/home selection.
+    // Passive late GPS is allowed until the skipper takes over the camera.
+    useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map');
 
     // Silent Pi-backed tile pre-cache around the boat —
     // components/map/usePiTileAutoCache.ts.
@@ -2783,9 +2749,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         planningSurface,
         weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null,
         { hudEnabled: passageHudOnChart, squallVisible: browseSquallVisible },
+        true, // Do not restore weather/MPA overlays into a fresh OBS.
     );
     usePassageHudLayerActivation({
         isFollowing: isFollowingRoute,
+        hasRecording,
         routeCoords: followedRouteCoords,
         enabled: passageHudOnChart,
         weather,
@@ -2794,8 +2762,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         setLightningVisible,
         setCycloneVisible,
         setSquallVisible,
+        setAisVisible,
     });
-    activeWeatherLayersRef.current = weather.userLayers;
     // Read by the layer-framing effect below, which deliberately depends only
     // on the layer set — so it must not close over a location from whenever it
     // last re-ran. A ref keeps the centre current without making a location
@@ -2829,7 +2797,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const skCharts = useAvNavCharts(mapRef, mapReady, planningSurface ? noChartIds : skChartIds, skChartOpacity);
 
     // ── Free Chart Catalog (NOAA, LINZ) ──
-    const chartCatalog = useChartCatalog(mapRef, mapReady, !planningSurface);
+    const chartCatalog = useChartCatalog(mapRef, mapReady, !planningSurface, true);
 
     // ── Local MBTiles Charts (on-phone, no AvNav needed) ──
     const localCharts = useLocalCharts(
@@ -2922,7 +2890,22 @@ export const MapHub: React.FC<MapHubProps> = ({
         () => (weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null),
         [weatherCoords?.lat, weatherCoords?.lon],
     );
-    const anchorageLayer = useAnchorageLayer(mapRef, mapReady, browseAnchorageVisible, anchorageCentre);
+    const [mooringColourFilter, setMooringColourFilter] = useState<MooringColourFilter>('all');
+    const cruisingReferences = useCruisingReferenceLayer(
+        mapRef,
+        mapReady,
+        browseMooringsVisible && !embedded && !pickerMode && !isPinView,
+        browseAnchorageVisible && !embedded && !pickerMode && !isPinView,
+        mooringColourFilter,
+        settings.vessel,
+    );
+    const anchorageLayer = useAnchorageLayer(
+        mapRef,
+        mapReady,
+        browseAnchorageVisible,
+        cruisingReferences.center ?? anchorageCentre,
+        cruisingReferences.anchors,
+    );
     // Armed anchor watch — anchor point + swing-radius ring (self-subscribes).
     useAnchorSwingLayer(mapRef, mapReady);
 
@@ -3280,7 +3263,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Hide OpenSeaMap raster overlays when another source draws navaids —
     // components/map/mapHub/useOpenSeaMapRasterHide.ts ──
-    useOpenSeaMapRasterHide(mapRef, mapReady, chartsActive, encActive, weather.activeLayers);
+    useOpenSeaMapRasterHide(mapRef, mapReady, chartsActive, encActive, weather.activeLayers, browseSeamarkVisible);
 
     // ── Pin View (chat pin tap) — components/map/usePinViewMode.ts ──
     // Pin marker, weather-layer snapshot/restore, identity sync, and the
@@ -3489,6 +3472,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setTideStationsVisible,
                             anchorageVisible,
                             setAnchorageVisible,
+                            mooringsVisible,
+                            setMooringsVisible,
                             lightningVisible,
                             setLightningVisible,
                             weatherInspectMode,
@@ -3518,6 +3503,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             sources: [
                                 ...passageHudLayerSources({
                                     isFollowing: isFollowingRoute,
+                                    hasRecording,
                                     routeCoords: followedRouteCoords,
                                     enabled: passageHudEnabled,
                                     weather,
@@ -3526,6 +3512,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     setLightningVisible,
                                     setCycloneVisible,
                                     setSquallVisible,
+                                    setAisVisible,
                                 }),
                                 // CAPAD protected-area context belongs with map
                                 // overlays, not the tactical danger menu. Its
@@ -4683,6 +4670,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             (browseCycloneVisible ? 1 : 0) +
                             (browseAisVisible ? 1 : 0) +
                             (browseSeamarkVisible ? 1 : 0) +
+                            (browseMooringsVisible ? 1 : 0) +
+                            (browseAnchorageVisible ? 1 : 0) +
                             (browseTideStationsVisible ? 1 : 0)
                         }
                     />
@@ -4749,6 +4738,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                     marine users who need to know what their data costs
                     them and whether live feeds will update. */}
                 <ConnectivityChip visible={!planningSurface && !embedded && !pickerMode && !isPinView} />
+                {(browseMooringsVisible || browseAnchorageVisible) &&
+                    !planningSurface &&
+                    !embedded &&
+                    !pickerMode &&
+                    !isPinView && (
+                        <CruisingReferenceKey
+                            moorings={browseMooringsVisible}
+                            status={cruisingReferences.status}
+                            filter={mooringColourFilter}
+                            onFilter={setMooringColourFilter}
+                        />
+                    )}
                 <AnchorageTonightSheet
                     visible={browseAnchorageVisible && !planningSurface && !embedded && !pickerMode && !isPinView}
                     centre={anchorageCentre}

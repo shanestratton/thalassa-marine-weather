@@ -58,6 +58,17 @@ vi.mock('../services/GpsService', () => ({
     GpsService: { getLastKnownPosition: () => null, watchPosition: () => () => undefined },
 }));
 vi.mock('../services/VoyageService', () => ({ getCachedActiveVoyage: () => null }));
+const recording = vi.hoisted(() => ({
+    state: {
+        isTracking: false,
+        isPaused: false,
+        isRapidMode: false,
+    } as import('../services/shiplog/TrackingStateStore').TrackingState,
+}));
+vi.mock('../hooks/useHudRecording', () => ({ useHudRecording: () => recording.state }));
+vi.mock('../hooks/usePassageRecordingMetrics', () => ({
+    usePassageRecordingMetrics: () => ({ distanceNm: 2, recordedAt: Date.now(), departedAt: null, nowMs: Date.now() }),
+}));
 
 // Man overboard — raised from this page, the MOB page or the watch.
 const mob = vi.hoisted(() => ({
@@ -267,6 +278,7 @@ const lookAhead = async ({ joining = false } = {}) => {
 
 beforeEach(() => {
     localStorage.clear();
+    recording.state = { isTracking: false, isPaused: false, isRapidMode: false };
     __resetPassageHudForTests();
     __resetPassageOverlayForTests();
     __clearRouteForecastCacheForTests();
@@ -494,7 +506,9 @@ describe('a forecast never wears a live reading’s face', () => {
         expect(text('hud-tws')).toBe('TWS27kn');
         await lookAhead();
         expect(text('hud-tws')).toMatch(/^TWS13kn/);
-        expect(screen.getByTestId('passage-hud').textContent).not.toContain('27');
+        // Arrival's clock/date can legitimately contain 27; only wind cells
+        // can accidentally mix the live measurement into this forecast.
+        expect(text('hud-tws')).not.toContain('27kn');
     });
 });
 
@@ -1554,6 +1568,26 @@ describe('the glance ends', () => {
         expect(screen.queryByTestId('route-time-scrubber')).toBeNull();
         expect(getPassageGhost()).toBeNull();
         expect(getPassageGhostJoinPath()).toBeNull();
+    });
+
+    it('returns to route-free LIVE recording and retires its ghost when the followed route ends', async () => {
+        recording.state = { isTracking: true, isPaused: false, isRapidMode: false, currentVoyageId: 'recording-1' };
+        underWay();
+        render(<PassageHudPane />);
+        await lookAhead();
+        act(() => setPassageAheadMs(2 * HOUR));
+        expect(getPassageGhost()).not.toBeNull();
+        act(() => useFollowRouteStore.getState().stopFollowing());
+        expect(isPassageHudEnabled()).toBe(true);
+        expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false, departureMs: null });
+        expect(getPassageGhost()).toBeNull();
+        expect(getPassageGhostJoinPath()).toBeNull();
+        expect(screen.getByTestId('passage-hud')).toHaveAttribute('data-mode', 'live');
+        expect(text('hud-sog')).toContain('6.1');
+        expect(screen.getByTestId('hud-recorded-distance')).toBeVisible();
+        expect(screen.queryByTestId('hud-route')).toBeNull();
+        expect(screen.queryByTestId('hud-eta')).toBeNull();
+        expect(screen.queryByTestId('route-time-scrubber')).toBeNull();
     });
 
     it('and so does the strip standing down behind a storm card or the planner', async () => {

@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
     getSummaries: vi.fn(),
     getVoyageEntries: vi.fn(),
     getOfflineEntries: vi.fn(),
-    getArchivedEntries: vi.fn(),
+    getArchivedSummaries: vi.fn(),
+    getLifetimeSummaries: vi.fn(),
     getLogEntries: vi.fn(),
     getCurrentVoyageId: vi.fn(),
     getTrackingStatus: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     unarchiveVoyage: vi.fn(),
     deleteEntry: vi.fn(),
     deleteVoyage: vi.fn(),
+    cleanupUndeparted: vi.fn(),
     endVoyage: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
@@ -97,7 +99,8 @@ vi.mock('../services/ShipLogService', () => ({
         getVoyageSummaries: (...args: unknown[]) => mocks.getSummaries(...args),
         getVoyageEntries: (...args: unknown[]) => mocks.getVoyageEntries(...args),
         getOfflineEntries: (...args: unknown[]) => mocks.getOfflineEntries(...args),
-        getArchivedEntries: (...args: unknown[]) => mocks.getArchivedEntries(...args),
+        getArchivedVoyageSummaries: (...args: unknown[]) => mocks.getArchivedSummaries(...args),
+        getLifetimeVoyageSummaries: (...args: unknown[]) => mocks.getLifetimeSummaries(...args),
         getLogEntries: (...args: unknown[]) => mocks.getLogEntries(...args),
         getCurrentVoyageId: (...args: unknown[]) => mocks.getCurrentVoyageId(...args),
         getTrackingStatus: (...args: unknown[]) => mocks.getTrackingStatus(...args),
@@ -111,6 +114,7 @@ vi.mock('../services/ShipLogService', () => ({
         unarchiveVoyage: (...args: unknown[]) => mocks.unarchiveVoyage(...args),
         deleteEntry: (...args: unknown[]) => mocks.deleteEntry(...args),
         deleteVoyage: (...args: unknown[]) => mocks.deleteVoyage(...args),
+        cleanupUndepartedRecordings: (...args: unknown[]) => mocks.cleanupUndeparted(...args),
         importGPXVoyage: vi.fn().mockResolvedValue({ savedCount: 0 }),
     },
 }));
@@ -168,12 +172,14 @@ beforeEach(() => {
     mocks.persistedTracking = null;
     setAuthIdentityScope('account-a');
     mocks.initialize.mockResolvedValue(undefined);
+    mocks.cleanupUndeparted.mockResolvedValue([]);
     mocks.getCachedSummaries.mockImplementation(async () => (mocks.account === 'a' ? [summaryA] : []));
     mocks.getSummaries.mockImplementation(async () => (mocks.account === 'a' ? [summaryA] : []));
     mocks.getCurrentVoyageId.mockImplementation(() => (mocks.account === 'a' ? 'voyage-a' : undefined));
     mocks.getVoyageEntries.mockImplementation(async () => (mocks.account === 'a' ? [entryA] : []));
     mocks.getOfflineEntries.mockResolvedValue([]);
-    mocks.getArchivedEntries.mockResolvedValue([]);
+    mocks.getArchivedSummaries.mockReset().mockResolvedValue([]);
+    mocks.getLifetimeSummaries.mockReset().mockImplementation(async () => (mocks.account === 'a' ? [summaryA] : []));
     mocks.getLogEntries.mockResolvedValue([]);
     mocks.getTrackingStatus.mockReturnValue({
         isTracking: false,
@@ -203,6 +209,480 @@ function switchToB() {
 }
 
 describe('useLogPageState identity boundary', () => {
+    it('keeps lifetime totals and all personal records unchanged through archive and restore', async () => {
+        const second = { ...summaryA, voyageId: 'voyage-b', totalDistanceNM: 20, avgSpeedKts: 7 };
+        let active = [summaryA, second];
+        let archived: typeof active = [];
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getSummaries.mockImplementation(async () => active);
+        mocks.getArchivedSummaries.mockImplementation(async () => archived);
+        mocks.getLifetimeSummaries.mockImplementation(async () => [...active, ...archived]);
+        mocks.archiveVoyage.mockImplementation(async (id: string) => {
+            archived = active.filter((voyage) => voyage.voyageId === id);
+            active = active.filter((voyage) => voyage.voyageId !== id);
+            return true;
+        });
+        mocks.unarchiveVoyage.mockImplementation(async () => {
+            active = [...active, ...archived];
+            archived = [];
+            return true;
+        });
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.voyageStats.voyageCount).toBe(2));
+        const baseline = result.current.lifetimeStats;
+        await act(async () => result.current.handleArchiveVoyage('voyage-a'));
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(1));
+        expect(result.current.lifetimeStats).toEqual(baseline);
+        await act(async () => result.current.handleUnarchiveVoyage('voyage-a'));
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(0));
+        expect(result.current.lifetimeStats).toEqual(baseline);
+        expect(mocks.getLogEntries).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates overlapping active/archive summaries and does not count never-departed records', async () => {
+        const waiting = { ...summaryA, voyageId: 'waiting', departedAt: null };
+        mocks.getSummaries.mockResolvedValue([summaryA, waiting]);
+        mocks.getArchivedSummaries.mockResolvedValue([summaryA, waiting]);
+        mocks.getLifetimeSummaries.mockResolvedValue([summaryA, waiting]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(2));
+        expect(result.current.voyageStats).toEqual({ totalNm: 2, totalMs: 3600_000, voyageCount: 1 });
+        expect(result.current.lifetimeStats.records.voyageCount).toBe(1);
+        expect(result.current.careerTotals.totalVoyages).toBe(1);
+    });
+
+    it('retains last complete lifetime totals on refresh failure and clears them across accounts', async () => {
+        const archived = { ...summaryA, voyageId: 'archived', totalDistanceNM: 100 };
+        mocks.getArchivedSummaries.mockResolvedValue([archived]);
+        mocks.getLifetimeSummaries.mockResolvedValue([summaryA, archived]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.voyageStats.totalNm).toBe(102));
+        const baseline = result.current.lifetimeStats;
+        mocks.getArchivedSummaries.mockRejectedValue(new Error('offline'));
+        mocks.getLifetimeSummaries.mockRejectedValue(new Error('offline'));
+        await act(async () => result.current.reloadArchivedVoyages());
+        expect(result.current.lifetimeStats).toEqual(baseline);
+        expect(result.current.archiveError).not.toBeNull();
+        expect(result.current.lifetimeError).not.toBeNull();
+        expect(result.current.lifetimeLoaded).toBe(true);
+        switchToB();
+        expect(result.current.voyageStats).toEqual({ totalNm: 0, totalMs: 0, voyageCount: 0 });
+        expect(result.current.lifetimeStats.records.voyageCount).toBe(0);
+    });
+
+    it('uses one whole-history aggregate for a voyage split across active and archived rows', async () => {
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getSummaries.mockResolvedValue([{ ...summaryA, entryCount: 1, totalDistanceNM: 1 }]);
+        mocks.getArchivedSummaries.mockResolvedValue([{ ...summaryA, entryCount: 2, totalDistanceNM: 2 }]);
+        const complete = {
+            ...summaryA,
+            entryCount: 3,
+            startedAt: '2026-07-22T22:00:00.000Z',
+            departedAt: '2026-07-22T22:00:00.000Z',
+            totalDistanceNM: 3,
+            avgSpeedKts: 5,
+        };
+        mocks.getLifetimeSummaries.mockResolvedValue([complete]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.lifetimeLoaded).toBe(true));
+        expect(result.current.voyageStats).toEqual({ totalNm: 3, totalMs: 3 * 3600_000, voyageCount: 1 });
+        expect(result.current.lifetimeStats.entryCount).toBe(3);
+        expect(result.current.lifetimeStats.records.longestDurationMs).toBe(3 * 3600_000);
+        expect(mocks.getLogEntries).not.toHaveBeenCalled();
+    });
+
+    it('does not replace complete lifetime history with partial active/archive lists after a read failure', async () => {
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getLifetimeSummaries.mockResolvedValue([{ ...summaryA, entryCount: 5000, totalDistanceNM: 100 }]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.lifetimeLoaded).toBe(true));
+        mocks.getLifetimeSummaries.mockRejectedValue(new Error('page 2 failed'));
+        mocks.getArchivedSummaries.mockResolvedValue([{ ...summaryA, entryCount: 2 }]);
+        await act(async () => result.current.reloadArchivedVoyages());
+        expect(result.current.lifetimeStats.entryCount).toBe(5000);
+        expect(result.current.voyageStats.totalNm).toBe(100);
+        expect(result.current.lifetimeError).not.toBeNull();
+    });
+
+    it('discards late lifetime history from the previous account', async () => {
+        const pending = deferred<(typeof summaryA)[]>();
+        mocks.getLifetimeSummaries.mockReturnValueOnce(pending.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(mocks.getLifetimeSummaries).toHaveBeenCalled());
+        switchToB();
+        await act(async () => pending.resolve([summaryA]));
+        expect(result.current.voyageStats.voyageCount).toBe(0);
+        expect(result.current.lifetimeStats.records.voyageCount).toBe(0);
+    });
+
+    it('honours a valid empty lifetime response instead of restoring old totals from archive cards', async () => {
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getArchivedSummaries.mockResolvedValue([summaryA]);
+        mocks.getLifetimeSummaries.mockResolvedValue([]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.lifetimeLoaded).toBe(true));
+        expect(result.current.archivedVoyages).toHaveLength(1);
+        expect(result.current.voyageStats.voyageCount).toBe(0);
+        expect(result.current.lifetimeError).toBeNull();
+    });
+
+    it('reloads complete lifetime totals if initial empty-track cleanup invalidates the first read', async () => {
+        const pending = deferred<(typeof summaryA)[]>();
+        const archived = { ...summaryA, voyageId: 'real-archived', totalDistanceNM: 100 };
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getLifetimeSummaries.mockReturnValueOnce(pending.promise).mockResolvedValue([archived]);
+        mocks.cleanupUndeparted.mockResolvedValueOnce(['voyage-a']);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.lifetimeLoaded).toBe(true));
+        expect(result.current.voyageStats).toMatchObject({ totalNm: 100, voyageCount: 1 });
+        await act(async () => pending.resolve([summaryA, archived]));
+        expect(result.current.voyageStats).toMatchObject({ totalNm: 100, voyageCount: 1 });
+    });
+
+    it('lists five complete archived voyages independently of their GPS point counts', async () => {
+        const voyages = [820, 1043, 5691, 18286, 16018].map((entryCount, index) => ({
+            ...summaryA,
+            voyageId: `archive-${index}`,
+            entryCount,
+        }));
+        mocks.getArchivedSummaries.mockResolvedValue(voyages);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toEqual(voyages));
+        expect(result.current.archiveError).toBeNull();
+        expect(result.current.archivesLoading).toBe(false);
+    });
+
+    it('retains the complete archive on a failed refresh, and exposes a retry error', async () => {
+        mocks.getArchivedSummaries.mockResolvedValue([summaryA]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toEqual([summaryA]));
+        mocks.getArchivedSummaries.mockRejectedValueOnce(new Error('network lost'));
+        await act(async () => result.current.reloadArchivedVoyages());
+        expect(result.current.archivedVoyages).toEqual([summaryA]);
+        expect(result.current.archiveError).toContain('Couldn’t refresh');
+        expect(result.current.archivesLoading).toBe(false);
+        await act(async () => result.current.reloadArchivedVoyages());
+        expect(result.current.archiveError).toBeNull();
+    });
+
+    it('discards an older archive read after a newer refresh completes', async () => {
+        const older = deferred<(typeof summaryA)[]>();
+        mocks.getArchivedSummaries.mockReturnValueOnce(older.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(mocks.getArchivedSummaries).toHaveBeenCalled());
+        mocks.getArchivedSummaries.mockResolvedValue([summaryA]);
+        await act(async () => result.current.reloadArchivedVoyages());
+        await act(async () => older.resolve([]));
+        expect(result.current.archivedVoyages).toEqual([summaryA]);
+    });
+
+    it('does not render an old account’s late archive response', async () => {
+        const older = deferred<(typeof summaryA)[]>();
+        mocks.getArchivedSummaries.mockReturnValueOnce(older.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(mocks.getArchivedSummaries).toHaveBeenCalled());
+        switchToB();
+        await act(async () => older.resolve([summaryA]));
+        expect(result.current.archivedVoyages).toEqual([]);
+        expect(result.current.archiveError).toBeNull();
+    });
+
+    it('restores all exact passage members, leaving unrelated archived voyages alone', async () => {
+        const passage = ['a', 'b', 'c'].map((id) => ({ ...summaryA, voyageId: id, passageGroupId: 'north' }));
+        const other = { ...summaryA, voyageId: 'other' };
+        mocks.getArchivedSummaries.mockResolvedValue([...passage, other]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(4));
+        mocks.getArchivedSummaries.mockResolvedValue([other]);
+        await act(async () => result.current.handleRestorePassage('north', ['a', 'b', 'c']));
+        expect(mocks.unarchiveVoyage.mock.calls).toEqual([['a'], ['b'], ['c']]);
+        expect(result.current.archivedVoyages).toEqual([other]);
+        expect(mocks.toastSuccess).toHaveBeenCalledWith('Passage restored · 3 legs');
+    });
+
+    it('reports a partial restore without dropping the failed archived legs', async () => {
+        const passage = ['a', 'b', 'c'].map((id) => ({ ...summaryA, voyageId: id, passageGroupId: 'north' }));
+        mocks.getArchivedSummaries.mockResolvedValue(passage);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(3));
+        mocks.unarchiveVoyage
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(false)
+            .mockRejectedValueOnce(new Error('offline'));
+        mocks.getArchivedSummaries.mockResolvedValue(passage.slice(1));
+        await act(async () => {
+            await expect(result.current.handleRestorePassage('north', ['a', 'b', 'c'])).rejects.toThrow(
+                'Restored 1 of 3',
+            );
+        });
+        expect(result.current.archivedVoyages.map((voyage) => voyage.voyageId)).toEqual(['b', 'c']);
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    });
+
+    it('immediately restores the summary and retains it through a stale Log refresh', async () => {
+        const archived = { ...summaryA, voyageId: 'archived-only' };
+        mocks.getArchivedSummaries.mockResolvedValue([archived]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toEqual([archived]));
+        const refresh = deferred<(typeof summaryA)[]>();
+        mocks.getSummaries.mockReturnValueOnce(refresh.promise);
+        mocks.getArchivedSummaries.mockResolvedValue([]);
+        await act(async () => result.current.handleUnarchiveVoyage(archived.voyageId));
+        expect(result.current.archivedVoyages).toEqual([]);
+        expect(result.current.summaries).toContainEqual(archived);
+        await act(async () => refresh.resolve([summaryA]));
+        expect(result.current.summaries).toContainEqual(archived);
+        expect(result.current.summaries.filter((summary) => summary.voyageId === archived.voyageId)).toHaveLength(1);
+    });
+
+    it('does not restore a later leg which changed passage during the first restore', async () => {
+        const passage = ['a', 'b'].map((id) => ({ ...summaryA, voyageId: id, passageGroupId: 'north' }));
+        mocks.getArchivedSummaries.mockResolvedValue(passage);
+        const first = deferred<boolean>();
+        mocks.unarchiveVoyage.mockReturnValueOnce(first.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(2));
+        let operation!: Promise<void>;
+        act(() => {
+            operation = result.current.handleRestorePassage('north', ['a', 'b']);
+        });
+        const moved = { ...passage[1], passageGroupId: 'south' };
+        mocks.getArchivedSummaries.mockResolvedValue([passage[0], moved]);
+        await act(async () => result.current.reloadArchivedVoyages());
+        mocks.getArchivedSummaries.mockResolvedValue([moved]);
+        await act(async () => {
+            first.resolve(true);
+            await expect(operation).rejects.toThrow('Restored 1 of 2');
+        });
+        expect(mocks.unarchiveVoyage.mock.calls).toEqual([['a']]);
+        expect(result.current.archivedVoyages).toEqual([moved]);
+    });
+
+    it('does not repaint an archived summary from an older parallel Log read', async () => {
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.summaries).toEqual([summaryA]));
+        await act(async () => result.current.loadData());
+        const offline = deferred<never[]>();
+        mocks.getOfflineEntries.mockReturnValueOnce(offline.promise);
+        let refresh!: Promise<void>;
+        act(() => {
+            refresh = result.current.loadData();
+        });
+        mocks.getArchivedSummaries.mockResolvedValue([summaryA]);
+        await act(async () => result.current.handleArchiveVoyage(summaryA.voyageId));
+        expect(result.current.summaries).toEqual([]);
+        await act(async () => {
+            offline.resolve([]);
+            await refresh;
+        });
+        expect(result.current.summaries).toEqual([]);
+        expect(result.current.archivedVoyages).toEqual([summaryA]);
+    });
+
+    it('rejects unrelated/stale restore requests without writing', async () => {
+        mocks.getArchivedSummaries.mockResolvedValue([{ ...summaryA, passageGroupId: 'north' }]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(1));
+        await expect(result.current.handleRestorePassage('north', ['other'])).rejects.toThrow('archive has changed');
+        await expect(result.current.handleUnarchiveVoyage('other')).rejects.toThrow('archive has changed');
+        expect(mocks.unarchiveVoyage).not.toHaveBeenCalled();
+    });
+
+    it('stops restoring a passage when the account changes mid-operation', async () => {
+        const passage = ['a', 'b'].map((id) => ({ ...summaryA, voyageId: id, passageGroupId: 'north' }));
+        mocks.getArchivedSummaries.mockResolvedValue(passage);
+        const first = deferred<boolean>();
+        mocks.unarchiveVoyage.mockReturnValueOnce(first.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.archivedVoyages).toHaveLength(2));
+        let operation!: Promise<void>;
+        act(() => {
+            operation = result.current.handleRestorePassage('north', ['a', 'b']);
+        });
+        await waitFor(() => expect(mocks.unarchiveVoyage).toHaveBeenCalledWith('a'));
+        mocks.getArchivedSummaries.mockResolvedValue([]);
+        switchToB();
+        await act(async () => {
+            first.resolve(true);
+            await operation;
+        });
+        expect(mocks.unarchiveVoyage).toHaveBeenCalledTimes(1);
+        expect(result.current.archivedVoyages).toEqual([]);
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    });
+
+    function seedPassage() {
+        const passage = ['voyage-a', 'voyage-b', 'voyage-c'].map((voyageId) => ({
+            ...summaryA,
+            voyageId,
+            passageGroupId: 'north',
+        }));
+        const summaries = [...passage, { ...summaryA, voyageId: 'unrelated' }];
+        mocks.getCachedSummaries.mockImplementation(async () => (mocks.account === 'a' ? summaries : []));
+        mocks.getSummaries.mockImplementation(async () => (mocks.account === 'a' ? summaries : []));
+        return passage;
+    }
+    it('archives every confirmed passage member through the durable voyage workflow, not unrelated logs', async () => {
+        seedPassage();
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.listVoyages).toHaveLength(4));
+        await act(async () =>
+            result.current.handleArchivePassage('north', ['voyage-a', 'voyage-b', 'voyage-c', 'voyage-a']),
+        );
+        expect(mocks.archiveVoyage.mock.calls).toEqual([['voyage-a'], ['voyage-b'], ['voyage-c']]);
+        expect(result.current.listVoyages.map((voyage) => voyage.voyageId)).toEqual(['unrelated']);
+        expect(mocks.toastSuccess).toHaveBeenCalledWith('Passage archived · 3 legs');
+    });
+    it('retains failed legs and reports partial completion without a success toast', async () => {
+        seedPassage();
+        mocks.archiveVoyage
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(false)
+            .mockRejectedValueOnce(new Error('offline intent failed'));
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.listVoyages).toHaveLength(4));
+        await act(async () => result.current.handleArchivePassage('north', ['voyage-a', 'voyage-b', 'voyage-c']));
+        expect(result.current.listVoyages.map((voyage) => voyage.voyageId)).toEqual(
+            expect.arrayContaining(['voyage-b', 'voyage-c', 'unrelated']),
+        );
+        expect(result.current.listVoyages).toHaveLength(3);
+        expect(mocks.toastError).toHaveBeenCalledWith(
+            'Archived 1 of 3 legs. 2 legs remain in the Log. Please try the remaining legs again.',
+        );
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    });
+    it.each(['recording', 'paused', 'remote'] as const)(
+        'protects a %s passage before any archive writes',
+        async (kind) => {
+            seedPassage();
+            const { result } = renderHook(() => useLogPageState());
+            await waitFor(() => expect(result.current.listVoyages).toHaveLength(4));
+            if (kind !== 'remote')
+                mocks.getTrackingStatus.mockReturnValue({
+                    isTracking: kind === 'recording',
+                    isPaused: kind === 'paused',
+                    currentVoyageId: 'voyage-b',
+                });
+            await act(async () =>
+                result.current.handleArchivePassage(
+                    'north',
+                    ['voyage-a', 'voyage-b', 'voyage-c'],
+                    (id) => kind === 'remote' && id === 'voyage-b',
+                ),
+            );
+            expect(mocks.archiveVoyage).not.toHaveBeenCalled();
+            expect(mocks.toastError).toHaveBeenCalledWith(
+                'This passage is still recording. End the active voyage before archiving the passage.',
+            );
+        },
+    );
+    it('rejects a stale confirmation or unrelated voyage ID before archiving', async () => {
+        seedPassage();
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.listVoyages).toHaveLength(4));
+        await act(async () => result.current.handleArchivePassage('north', ['voyage-a', 'voyage-b', 'unrelated']));
+        expect(mocks.archiveVoyage).not.toHaveBeenCalled();
+        expect(mocks.toastError).toHaveBeenCalledWith('This passage has changed. Review its legs and try again.');
+    });
+    it('ignores a passage confirmation opened under the previous account', async () => {
+        seedPassage();
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        const originalConfirmation = result.current.handleArchivePassage;
+        switchToB();
+        await act(async () => originalConfirmation('north', ['voyage-a', 'voyage-b', 'voyage-c']));
+        expect(mocks.archiveVoyage).not.toHaveBeenCalled();
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+        expect(mocks.toastError).not.toHaveBeenCalled();
+    });
+
+    it('stops a passage batch at the account boundary and suppresses stale announcements', async () => {
+        seedPassage();
+        const first = deferred<boolean>();
+        mocks.archiveVoyage.mockReturnValueOnce(first.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.listVoyages).toHaveLength(4));
+        let operation!: Promise<void>;
+        act(() => {
+            operation = result.current.handleArchivePassage('north', ['voyage-a', 'voyage-b', 'voyage-c']);
+        });
+        await waitFor(() => expect(mocks.archiveVoyage).toHaveBeenCalledWith('voyage-a'));
+        switchToB();
+        await act(async () => {
+            first.resolve(true);
+            await operation;
+        });
+        expect(mocks.archiveVoyage).toHaveBeenCalledTimes(1);
+        expect(mocks.toastSuccess).not.toHaveBeenCalled();
+        expect(mocks.toastError).not.toHaveBeenCalled();
+    });
+    it('does not archive a leg which starts recording while an earlier archive is in flight', async () => {
+        seedPassage();
+        const first = deferred<boolean>();
+        mocks.archiveVoyage.mockReturnValueOnce(first.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.listVoyages).toHaveLength(4));
+        let operation!: Promise<void>;
+        act(() => {
+            operation = result.current.handleArchivePassage('north', ['voyage-a', 'voyage-b', 'voyage-c']);
+        });
+        mocks.getTrackingStatus.mockReturnValue({ isTracking: true, isPaused: false, currentVoyageId: 'voyage-b' });
+        await act(async () => {
+            first.resolve(true);
+            await operation;
+        });
+        expect(mocks.archiveVoyage.mock.calls).toEqual([['voyage-a'], ['voyage-c']]);
+        expect(mocks.toastError).toHaveBeenCalledWith(
+            'Archived 2 of 3 legs. 1 leg remains in the Log. Active recording was left untouched.',
+        );
+    });
+    it('removes a verified never-departed card and its resident points after history cleanup', async () => {
+        const sweep = deferred<string[]>();
+        mocks.cleanupUndeparted.mockReturnValueOnce(sweep.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(mocks.cleanupUndeparted).toHaveBeenCalledWith([summaryA]));
+        expect(result.current.state.summaries).toEqual([summaryA]);
+        expect(result.current.state.entries).toEqual([entryA]);
+        await act(async () => sweep.resolve(['voyage-a']));
+        expect(result.current.state.summaries).toEqual([]);
+        expect(result.current.state.entries).toEqual([]);
+        expect(result.current.listVoyages).toEqual([]);
+    });
+
+    it('nominates stopped local-only recordings even when no cloud summary exists', async () => {
+        const localId = 'voyage_1790124398484_local';
+        const local = { ...entryA, id: 'offline_start', voyageId: localId };
+        mocks.getSummaries.mockResolvedValue([]);
+        mocks.getCachedSummaries.mockResolvedValue([]);
+        mocks.getOfflineEntries.mockResolvedValue([local]);
+        mocks.getVoyageEntries.mockResolvedValue([]);
+        const sweep = deferred<string[]>();
+        mocks.cleanupUndeparted.mockReturnValueOnce(sweep.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() =>
+            expect(mocks.cleanupUndeparted).toHaveBeenCalledWith([
+                expect.objectContaining({ voyageId: localId, entryCount: 1 }),
+            ]),
+        );
+        // Nomination is not a deletion decision; only service verification
+        // returning the id removes its card, never the displayed 0.0nm alone.
+        expect(result.current.listVoyages.some((voyage) => voyage.voyageId === localId)).toBe(true);
+        await act(async () => sweep.resolve([localId]));
+        expect(result.current.listVoyages.some((voyage) => voyage.voyageId === localId)).toBe(false);
+    });
+
+    it('does not apply an old account’s cleanup completion after switching accounts', async () => {
+        const sweep = deferred<string[]>();
+        mocks.cleanupUndeparted.mockReturnValueOnce(sweep.promise);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(mocks.cleanupUndeparted).toHaveBeenCalled());
+        switchToB();
+        await waitFor(() => expect(mocks.cleanupUndeparted).toHaveBeenCalledTimes(2));
+        act(() => result.current.dispatch({ type: 'SET_SUMMARIES', summaries: [summaryA] }));
+        await act(async () => sweep.resolve(['voyage-a']));
+        expect(result.current.state.summaries).toEqual([summaryA]);
+    });
+
     it('hides A synchronously and discards a deferred A network load', async () => {
         const loadA = deferred<(typeof summaryA)[]>();
         mocks.getSummaries.mockReturnValueOnce(loadA.promise);
@@ -266,6 +746,44 @@ describe('useLogPageState identity boundary', () => {
         expect(result.current.deletedEntry).toBeNull();
         expect(mocks.toastSuccess).not.toHaveBeenCalledWith('Entry restored');
         expect(mocks.toastError).not.toHaveBeenCalledWith('Failed to delete entry');
+    });
+
+    it.each(['handleStartTracking', 'startTrackingWithNewVoyage', 'continueLastVoyage'] as const)(
+        'commits %s choice after the page unmounts while native start is pending',
+        async (handler) => {
+            const start = deferred<void>();
+            mocks.startTracking.mockReturnValueOnce(start.promise);
+            mocks.getCachedSummaries.mockResolvedValue([]);
+            mocks.getSummaries.mockResolvedValue([]);
+            const onStarted = vi.fn();
+            const { result, unmount } = renderHook(() => useLogPageState(onStarted));
+            await waitFor(() => expect(result.current.state.loading).toBe(false));
+            act(() => {
+                void result.current[handler]();
+            });
+            unmount();
+            mocks.getTrackingStatus.mockReturnValue({ isTracking: true, currentVoyageId: 'started-voyage' });
+            start.resolve();
+            await waitFor(() => expect(onStarted).toHaveBeenCalledWith('started-voyage'));
+            expect(onStarted).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('does not commit a previous account’s deferred recording choice', async () => {
+        const start = deferred<void>();
+        mocks.startTracking.mockReturnValueOnce(start.promise);
+        const onStarted = vi.fn();
+        const { result } = renderHook(() => useLogPageState(onStarted));
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        act(() => {
+            void result.current.startTrackingWithNewVoyage();
+        });
+        switchToB();
+        mocks.getTrackingStatus.mockReturnValue({ isTracking: true, currentVoyageId: 'account-b-voyage' });
+        await act(async () => {
+            start.resolve();
+        });
+        expect(onStarted).not.toHaveBeenCalled();
     });
 
     it('keeps a deferred A start completion and failure out of B', async () => {
@@ -752,6 +1270,13 @@ describe('useLogPageState delete — instant on the acceptance boundary', () => 
 
         const { result } = renderHook(() => useLogPageState());
         await waitFor(() => expect(result.current.state.entries.length).toBeGreaterThan(0));
+        await waitFor(() => expect(result.current.lifetimeLoaded).toBe(true));
+        const oldTotals = deferred<(typeof summaryA)[]>();
+        mocks.getLifetimeSummaries.mockReturnValueOnce(oldTotals.promise);
+        let oldRead!: Promise<void>;
+        act(() => {
+            oldRead = result.current.reloadArchivedVoyages();
+        });
 
         act(() => result.current.dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: 'voyage-a' }));
         await act(async () => {
@@ -766,6 +1291,12 @@ describe('useLogPageState delete — instant on the acceptance boundary', () => 
             expect(result.current.state.entries.filter((e) => e.voyageId === 'voyage-a')).toEqual([]);
             expect(result.current.state.deleteVoyageId).toBeNull(); // dialog closed
         });
+        expect(result.current.voyageStats.voyageCount).toBe(0);
+        await act(async () => {
+            oldTotals.resolve([summaryA]);
+            await oldRead;
+        });
+        expect(result.current.voyageStats.voyageCount).toBe(0);
         // The promise never resolved. The UI did not wait for it.
     });
 

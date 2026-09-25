@@ -283,7 +283,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
 
     const radio = useRadioPosition();
     const { position, requestGpsAccess } = radio;
-    const [dialogStep, setDialogStep] = useState<'instructions' | 'transcript' | null>('instructions');
+    const [dialogStep, setDialogStep] = useState<'instructions' | 'transcript' | null>(null);
     const [readback, setReadback] = useState<{ text: string; fix: RadioPositionFix | null } | null>(null);
     const [confirmedReceiver, setConfirmedReceiver] = useState<string | null>(null);
     const closeDialog = useCallback(() => setDialogStep(null), []);
@@ -318,6 +318,8 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             setHandoffMobSnapshot(intent.snapshot ?? MobService.currentState().active);
             setDscMode('distress');
             setNatureOfDistress('mob');
+            // An explicit MOB handoff goes straight to emergency preparation.
+            setDialogStep('instructions');
             localStorage.removeItem(intentKey);
         }
     }, []);
@@ -349,7 +351,6 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
     const vesselType = emergencyVesselType(vessel?.type);
     const callSign = emergencyIdentity(vessel?.callSign);
     const mmsi = emergencyIdentity(vessel?.mmsi);
-    const rego = emergencyIdentity(vessel?.registration);
     const phoneticName = emergencyIdentity(vessel?.phoneticName);
     const configuredPob = vessel?.crewCount as number | undefined;
     const pob =
@@ -414,38 +415,47 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
     const gpsNotice = (
         <div
             data-testid="radio-position-status"
-            className={`rounded-xl border p-3 text-micro ${gpsStatusClass}`}
+            className={`rounded-2xl border px-3 py-2 text-sm ${gpsStatusClass}`}
             role="status"
         >
-            <p className="font-bold">{gpsLabel}</p>
+            <p className="text-xs font-bold">{gpsLabel}</p>
             {position && (
-                <p className="mt-1 font-mono font-bold">
-                    {formatLat(position.latitude)} {formatLon(position.longitude)}
-                </p>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-base font-bold tracking-tight text-slate-100">
+                    <span>
+                        <span className="sr-only">LAT </span>
+                        {formatLat(position.latitude)}
+                    </span>
+                    <span>
+                        <span className="sr-only">LON </span>
+                        {formatLon(position.longitude)}
+                    </span>
+                </div>
             )}
             {position && !position.isVessel && (
-                <p className="mt-1">
-                    Device GPS, not a verified vessel fix. Confirm this device is aboard before using it for the boat.
-                </p>
+                <p className="mt-1">Phone / device GPS. Confirm this device is aboard.</p>
+            )}
+            {position && !receiverMatchesSelection && (
+                <p className="mt-2 font-semibold">This fix belongs to another vessel. State your position yourself.</p>
             )}
             {dialogStep === 'instructions' && position && receiverMatchesSelection && (
-                <button
-                    type="button"
-                    aria-label="Confirm position receiver is aboard this vessel"
-                    aria-pressed={receiverVerified}
-                    onClick={() => setConfirmedReceiver(receiverVerified ? null : (position.receiverKey ?? null))}
-                    className="mt-2 min-h-11 rounded-lg border border-current/30 px-3 py-2 font-bold"
-                >
-                    {receiverVerified ? '✓ Position selected · clear' : 'Use these coordinates in call'}
-                </button>
+                <div className="mt-2 flex items-center gap-2 border-t border-current/15 pt-1">
+                    <p className="min-w-0 flex-1 text-xs">Receiver aboard {vesselName ?? 'your vessel'}?</p>
+                    <button
+                        type="button"
+                        aria-label="Confirm position receiver is aboard this vessel"
+                        aria-pressed={receiverVerified}
+                        onClick={() => setConfirmedReceiver(receiverVerified ? null : (position.receiverKey ?? null))}
+                        className={`min-h-11 max-w-[58%] shrink-0 rounded-xl border px-2 py-1 text-xs font-bold ${receiverVerified ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300' : 'border-sky-400/40 bg-sky-500/15 text-sky-200'}`}
+                    >
+                        {receiverVerified ? '✓ Position selected · undo' : 'Use this position'}
+                    </button>
+                </div>
             )}
             {!position && (
                 <p className="mt-1">
-                    Do not wait for the app to get a fix before calling for help. State a position from another reliable
-                    source, or your last known position and time.
+                    Need help? Call now. Give a reliable position, or your last known position and time.
                 </p>
             )}
-            {gpsBlocked && <p className="mt-1">{gpsBlocked.detail}</p>}
             {gpsBlocked && gpsHealth?.actionable && (
                 <button
                     type="button"
@@ -458,6 +468,51 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
         </div>
     );
 
+    const vesselIdentity = (
+        <section
+            aria-label="Vessel radio identity"
+            className="rounded-2xl border border-white/10 bg-white/[0.025] px-3 py-2.5"
+        >
+            <div className="flex items-center justify-between gap-2">
+                <h2 className="min-w-0 break-words text-base font-bold text-slate-100">
+                    {vesselName ?? 'Say your vessel name'}
+                </h2>
+                {onNavigate && (
+                    <button
+                        type="button"
+                        aria-label="Edit vessel radio identity"
+                        onClick={() => {
+                            localStorage.setItem(authScopedStorageKey('thalassa_settings_return_to'), 'radio');
+                            onNavigate('settings');
+                        }}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-slate-300"
+                    >
+                        <GearIcon className="h-4 w-4" />
+                    </button>
+                )}
+            </div>
+            {(callSign || mmsi) && (
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
+                    {callSign && (
+                        <span>
+                            Call sign <strong className="text-sky-300">{callSign}</strong>
+                        </span>
+                    )}
+                    {mmsi && (
+                        <span>
+                            MMSI <strong className="font-mono text-sky-300">{mmsi}</strong>
+                        </span>
+                    )}
+                </div>
+            )}
+            {!vesselName && (
+                <p role="alert" className="mt-1 text-xs text-amber-200">
+                    No name set. Say it yourself in the call.
+                </p>
+            )}
+        </section>
+    );
+
     return (
         // One screen, no page scroll (Shane 2026-09-06): a stressed operator
         // must never have to scroll to find the call buttons. Instructions
@@ -465,11 +520,12 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
         <div
             data-testid="radio-console-page"
             aria-hidden={dialogStep !== null}
-            className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-hidden"
+            className="w-full h-full min-h-0 flex flex-col bg-slate-950 slide-up-enter overflow-hidden"
+            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
         >
             <PageHeader
                 title="Radio Console"
-                subtitle="Report Position"
+                subtitle="Choose your call"
                 onBack={onBack}
                 action={
                     <div
@@ -492,101 +548,21 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 </div>
             </div>
 
-            {/* ── Vessel identity strip ── */}
-            <div className="shrink-0 px-5 py-3 border-b border-white/6">
-                <div className="text-xl font-black text-white uppercase tracking-wide mb-2">
-                    {vesselName ?? 'Vessel name not set'}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {callSign && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/4 border border-white/8">
-                            <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
-                                CS
-                            </span>
-                            <span className="text-[13px] font-bold text-sky-400 tracking-wide">{callSign}</span>
-                        </div>
-                    )}
-                    {mmsi && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/4 border border-white/8">
-                            <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
-                                MMSI
-                            </span>
-                            <span className="text-[13px] font-bold text-sky-400 tracking-wide">{mmsi}</span>
-                        </div>
-                    )}
-                    {rego && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/4 border border-white/8">
-                            <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
-                                Rego
-                            </span>
-                            <span className="text-[13px] font-bold text-sky-400 tracking-wide">{rego}</span>
-                        </div>
-                    )}
-                    {(!vesselName || (!callSign && !mmsi && !rego)) && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                localStorage.setItem(authScopedStorageKey('thalassa_settings_return_to'), 'radio');
-                                onNavigate?.('settings');
-                            }}
-                            className="hit-target-44 px-2.5 py-1 rounded-md bg-white/2 border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"
-                        >
-                            <GearIcon className="w-3 h-3" />
-                            <span>{vesselName ? 'Add radio identity in Vessel Settings →' : 'Set vessel name →'}</span>
-                        </button>
-                    )}
-                </div>
-                {!vesselName && (
-                    <p
-                        role="alert"
-                        className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-2.5 py-2 text-[11px] font-semibold leading-relaxed text-amber-100"
-                    >
-                        The script will prompt you to say your vessel name. It will not read an app name or setup
-                        placeholder as your identity.
-                    </p>
-                )}
-            </div>
-
             {/* ── Middle: entry point and readouts. Scrolls only
                    on a screen too short to hold it; call type above never does. ── */}
             <div
                 data-testid="radio-console-body"
-                className="flex-1 min-h-0 flex flex-col gap-3 px-5 pt-3 overflow-y-auto"
-                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                className="mx-auto w-full max-w-3xl flex-1 min-h-0 space-y-3 px-4 pb-3 overflow-y-auto overscroll-contain"
             >
+                {/* Vessel identity strip */}
+                {vesselIdentity}
                 {dialogStep !== 'instructions' && gpsNotice}
-                <button
-                    type="button"
-                    onClick={() => setDialogStep('instructions')}
-                    className="shrink-0 rounded-2xl border border-sky-400/40 bg-sky-500/15 px-4 py-5 text-left text-white"
-                >
-                    <span className="block text-lg font-bold">Prepare voice call</span>
-                    <span className="block mt-1 text-sm text-slate-300">
-                        VHF instructions, then a full-screen script to read aloud.
-                    </span>
-                </button>
 
                 {/* ── Live / last-known readouts ── */}
                 <div className="shrink-0 rounded-xl border border-white/6 bg-white/2 px-4 py-3 font-mono">
-                    <div className="flex items-baseline justify-between gap-3">
-                        <div className="flex items-baseline gap-2 min-w-0">
-                            <span className="text-[10px] font-extrabold tracking-[0.2em] text-slate-500">LAT</span>
-                            <span className="text-[19px] font-black text-sky-400 tracking-tight">
-                                {position ? formatLat(position.latitude) : '—'}
-                            </span>
-                        </div>
-                        <div className="flex items-baseline gap-2 min-w-0">
-                            <span className="text-[10px] font-extrabold tracking-[0.2em] text-slate-500">LON</span>
-                            <span className="text-[19px] font-black text-sky-400 tracking-tight">
-                                {position ? formatLon(position.longitude) : '—'}
-                            </span>
-                        </div>
-                    </div>
-                    <div className="mt-2 flex items-center border-t border-white/6 pt-2">
+                    <div className="flex items-center">
                         <div className="flex-1 text-center">
-                            <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase">
-                                SOG
-                            </div>
+                            <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">SOG</div>
                             <div className="text-[18px] font-black text-white">
                                 {sogKts !== null ? sogKts.toFixed(1) : '—'}
                                 <span className="text-[10px] font-bold text-slate-500 ml-0.5">kts</span>
@@ -594,9 +570,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                         </div>
                         <div className="w-px h-7 bg-white/8 shrink-0" />
                         <div className="flex-1 text-center">
-                            <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase">
-                                COG
-                            </div>
+                            <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">COG</div>
                             <div className="text-[18px] font-black text-white">
                                 {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '—'}
                                 <span className="text-[10px] font-bold text-slate-500 ml-0.5">°T</span>
@@ -604,9 +578,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                         </div>
                         <div className="w-px h-7 bg-white/8 shrink-0" />
                         <div className="flex-1 text-center">
-                            <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase">
-                                UTC
-                            </div>
+                            <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">UTC</div>
                             <div className="text-[16px] font-black text-white tracking-wider">{utcTime}</div>
                         </div>
                     </div>
@@ -635,6 +607,17 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                  */}
             </div>
 
+            <footer className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2">
+                <button
+                    type="button"
+                    onClick={() => setDialogStep('instructions')}
+                    className="min-h-12 w-full rounded-2xl bg-sky-600 px-4 py-3 text-base font-bold text-white shadow-lg shadow-sky-950/30"
+                >
+                    Prepare voice call <span aria-hidden="true">→</span>
+                </button>
+                <p className="mt-2 text-center text-xs text-slate-400">Read from here. Transmit on your radio.</p>
+            </footer>
+
             {dialogStep === 'instructions' && (
                 <RadioInstructionsDialog
                     onClose={closeDialog}
@@ -647,13 +630,25 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     )}
                     <DscSteps mode={dscMode} />
                     {gpsNotice}
-                    <p className="text-sm text-slate-200">
-                        Check the vessel identity, position and actual number of people aboard before speaking. These
-                        controls only prepare text; operate the radio itself to call.
-                    </p>
-                    <details className="text-micro text-slate-300">
-                        <summary className="cursor-pointer font-bold py-2">VHF / HF channel reference</summary>
+                    <details className="rounded-xl border border-white/10 px-3 text-sm text-slate-300">
+                        <summary className="min-h-11 cursor-pointer py-3 font-bold">Radio help & channels</summary>
                         <ChannelStrip mode={dscMode} />
+                        {dscMode === 'urgency' && (
+                            <p className="pb-3 text-xs">
+                                Optional DSC: use the Urgency / All-Ships menu, not the red DISTRESS button.
+                            </p>
+                        )}
+                        {dscMode === 'distress' && (
+                            <p className="pb-3 text-xs">
+                                Follow your radio’s prompts to send DSC and monitor Ch 16. Without DSC, call MAYDAY by
+                                voice on Ch 16. This app cannot confirm an alert was sent.
+                            </p>
+                        )}
+                        <p className="pb-3 text-xs">
+                            Check vessel identity and the actual number of people aboard. The script stays fixed while
+                            you read; use Update position for a new fix.
+                        </p>
+                        {gpsBlocked && <p className="pb-3 text-xs">{gpsBlocked.detail}</p>}
                     </details>
                 </RadioInstructionsDialog>
             )}
@@ -674,13 +669,13 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                                 {dscMode === 'routine'
                                     ? 'On the agreed working channel'
                                     : 'Read aloud on VHF Channel 16'}{' '}
-                                · Not transmitted by this app
+                                · Use your radio
                             </p>
                             <p className="mt-1">
                                 {readback.fix
                                     ? `Script fix: ${readback.fix.sourceLabel} · ${fixAge(readback.fix.timestamp)}`
-                                    : 'No GPS position in this script — state your position yourself.'}{' '}
-                                Position stays fixed while you read; Update position uses the latest fix.
+                                    : 'No verified position — say your position yourself.'}{' '}
+                                {readback.fix && '· Fixed for this call'}
                             </p>
                         </div>
                     }
@@ -739,20 +734,20 @@ const DscSelector: React.FC<{
                     triggerHaptic(m === 'distress' ? 'heavy' : 'light');
                     onChange(m);
                 }}
-                className={`flex-1 py-2.5 px-2 rounded-xl border text-center transition-all active:scale-[0.97] ${
+                className={`min-h-14 min-w-0 flex-1 py-2.5 px-1 rounded-xl border text-center transition-all active:scale-[0.97] ${
                     isActive ? activeClasses : 'bg-white/3 border-white/8 text-slate-400 hover:bg-white/6'
                 }`}
                 aria-pressed={isActive}
             >
-                <div className="text-[11px] font-extrabold tracking-widest uppercase">{label}</div>
-                <div className="text-[9px] font-bold tracking-wider uppercase mt-0.5">{hint}</div>
+                <div className="text-xs font-extrabold tracking-wide uppercase">{label}</div>
+                <div className="text-xs font-bold uppercase mt-0.5">{hint}</div>
             </button>
         );
     };
     return (
         <div role="group" aria-label="Call type" data-testid="radio-call-selector" className="shrink-0">
             <div className="flex items-center gap-2 mb-1.5">
-                <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500">Call type</div>
+                <div className="text-xs font-bold tracking-wider uppercase text-slate-400">Call type</div>
                 {mobActive && (
                     <div className="px-2 py-0.5 rounded-full bg-red-500/15 border border-red-400/30 text-red-300 text-[9px] font-extrabold tracking-widest uppercase animate-pulse">
                         MOB Active
@@ -773,12 +768,12 @@ const NatureSelector: React.FC<{
     onChange: (n: DistressNature) => void;
 }> = ({ value, onChange }) => (
     <div className="shrink-0 flex items-center gap-3">
-        <label className="shrink-0 text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500">Nature</label>
+        <label className="shrink-0 text-xs font-bold text-slate-300">What happened?</label>
         <select
             aria-label="Nature of distress"
             value={value}
             onChange={(e) => onChange(e.target.value as DistressNature)}
-            className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-white text-[13px] font-bold focus:outline-hidden focus:border-white/20"
+            className="min-h-11 flex-1 min-w-0 px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-white text-sm font-bold focus:outline-hidden focus:border-white/20"
         >
             {(Object.keys(NATURE_LABEL) as DistressNature[]).map((k) => (
                 <option key={k} value={k} className="bg-slate-900">
@@ -791,47 +786,64 @@ const NatureSelector: React.FC<{
 
 const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
     const isDistress = mode === 'distress';
+    const tone = isDistress ? 'text-red-300' : mode === 'urgency' ? 'text-amber-300' : 'text-sky-300';
     const steps =
         mode === 'routine'
             ? [
-                  'Listen on Channel 16, then call the intended station and identify your vessel.',
-                  'Once answered, move to the agreed working channel for your position report.',
-                  'Read the script clearly. Release the talk button and listen for a reply.',
+                  ['Listen on Ch 16', 'Call the station. Name your vessel.'],
+                  ['Switch when answered', 'Use the agreed working channel.'],
+                  ['Read your script', 'Release TALK and listen.'],
               ]
             : isDistress
               ? [
-                    'MAYDAY is for grave and imminent danger requiring immediate assistance.',
-                    'If DSC-equipped, follow your radio’s DISTRESS button hold/countdown until it confirms sending.',
-                    'Select and monitor Channel 16 for the voice Mayday, following your radio’s prompts. Without DSC, use voice on Channel 16.',
-                    'Read the script clearly, then release the talk button and listen. Do not wait for this app’s GPS before calling.',
+                    ['DSC radio?', 'Follow its DISTRESS button hold/countdown instructions.'],
+                    ['Voice on Ch 16', 'Read your MAYDAY script.'],
+                    ['Release TALK · listen', 'Repeat if unanswered. Do not wait for app GPS.'],
                 ]
               : [
-                    'PAN-PAN is for urgent safety concerns below grave and imminent danger.',
-                    'If DSC-equipped, you can use the Urgency / All-Ships menu — not the red DISTRESS button — then use voice on Channel 16.',
-                    'Without DSC, use voice on Channel 16. Read the script clearly, then release the talk button and listen.',
+                    ['Select Ch 16', 'Voice works with or without DSC.'],
+                    ['Read your PAN-PAN', 'Speak clearly into your radio.'],
+                    ['Release TALK · listen', 'Do not wait for app GPS.'],
                 ];
     return (
         <div
-            className={`shrink-0 rounded-xl border px-3 py-2 ${
-                isDistress ? 'border-red-400/30 bg-red-950/30' : 'border-amber-400/30 bg-amber-950/20'
+            className={`shrink-0 rounded-2xl border px-3 py-2 ${
+                isDistress
+                    ? 'border-red-400/30 bg-red-950/20'
+                    : mode === 'urgency'
+                      ? 'border-amber-400/30 bg-amber-950/15'
+                      : 'border-sky-400/25 bg-sky-950/20'
             }`}
         >
-            <div
-                className={`text-[10px] font-extrabold tracking-[0.2em] uppercase mb-1 ${
-                    isDistress ? 'text-red-300' : 'text-amber-300'
-                }`}
-            >
-                On your VHF
-            </div>
-            <ol className="space-y-2 list-decimal list-inside text-sm text-slate-200 leading-snug">
-                {steps.map((s, i) => (
-                    <li key={i}>{s}</li>
+            {mode !== 'routine' && (
+                <p className={`mb-2 text-sm font-bold ${tone}`}>
+                    {isDistress
+                        ? 'MAYDAY · grave & imminent danger. Immediate help needed.'
+                        : 'PAN-PAN · urgent safety concern, below distress.'}
+                </p>
+            )}
+            <ol className="space-y-2 text-sm leading-snug">
+                {steps.map(([title, detail], i) => (
+                    <li key={title} className="flex gap-2">
+                        <span
+                            aria-hidden="true"
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/5 font-bold ${tone}`}
+                        >
+                            {i + 1}
+                        </span>
+                        <p className="text-slate-300">
+                            <strong className="text-slate-100">
+                                {title}
+                                {/[.!?]$/.test(title) ? '' : '.'}
+                            </strong>{' '}
+                            {detail}
+                        </p>
+                    </li>
                 ))}
             </ol>
-            <div className={`mt-3 text-micro font-bold ${isDistress ? 'text-red-300' : 'text-amber-300'}`}>
-                Channel 70 is DSC only — never voice. This app does not transmit or confirm an alert. Continue opens the
-                script.
-            </div>
+            <p className={`mt-2 border-t border-current/15 pt-1 text-xs font-semibold ${tone}`}>
+                Ch 70: DSC only, never voice. This app does not transmit.
+            </p>
         </div>
     );
 };

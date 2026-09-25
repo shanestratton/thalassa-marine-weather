@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 
 import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
+import {
+    captureDiaryTripContext,
+    loadDiaryTripChoices,
+    type DiaryTripContext,
+    type DiaryTripChoice,
+} from '../services/diaryVoyageSelection';
 import { reconcileDiaryEntries, reconcileDiaryRefresh } from '../services/diaryEntryIdentity';
 import { triggerHaptic } from '../utils/system';
 import { haversineMeters } from '../services/shiplog/GpsTrackBuffer';
@@ -220,6 +226,44 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // Deepgram streaming and iOS mic-lifecycle guards went with it. Legacy
     // entries keep their voice memos: playback and transcribe-on-view stay.
     const composeSessionRef = useRef(0);
+    const tripContextRef = useRef<Promise<DiaryTripContext> | null>(null);
+    const [tripContext, setTripContext] = useState<DiaryTripContext | null>(null);
+    const [tripChoices, setTripChoices] = useState<DiaryTripChoice[]>([]);
+    const [selectedTrip, setSelectedTrip] = useState<string | null | undefined>(undefined);
+    const [tripsLoading, setTripsLoading] = useState(false);
+    const [tripsUnavailable, setTripsUnavailable] = useState(false);
+    const startTripChooser = useCallback((entry?: DiaryEntry) => {
+        const session = composeSessionRef.current;
+        const scope = getAuthIdentityScope();
+        setTripContext(null);
+        setTripChoices([]);
+        setSelectedTrip(undefined);
+        setTripsLoading(true);
+        setTripsUnavailable(false);
+        const contextPromise = entry
+            ? Promise.resolve({
+                  scope,
+                  boatId: entry.boat_id ?? null,
+                  originalVoyageId: entry.voyage_id,
+                  entryId: entry.id,
+              })
+            : captureDiaryTripContext();
+        tripContextRef.current = contextPromise;
+        const isCurrent = () => composeSessionRef.current === session && isAuthIdentityScopeCurrent(scope);
+        void contextPromise
+            .then(async (context) => {
+                if (!isCurrent()) return;
+                setTripContext(context);
+                const choices = await loadDiaryTripChoices(context);
+                if (isCurrent()) setTripChoices(choices);
+            })
+            .catch(() => {
+                if (isCurrent()) setTripsUnavailable(true);
+            })
+            .finally(() => {
+                if (isCurrent()) setTripsLoading(false);
+            });
+    }, []);
     // Photos returned by uploadPhoto are still compose-owned until a confirmed
     // create/update adopts them. Existing edit photos never enter this set.
     const unsavedPhotoRefs = useRef<Set<string>>(new Set());
@@ -554,6 +598,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     }, [weatherData]);
     const openCompose = useCallback(async () => {
         invalidateComposeSession();
+        startTripChooser();
         setEditingId(null);
         setTitle('');
         setBody('');
@@ -571,11 +616,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         gpsChoiceExplicitRef.current = false;
         grabGps();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [invalidateComposeSession, grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
+    }, [invalidateComposeSession, startTripChooser, grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
     // ── Edit (existing) ────────────────────────────────────────
     const openEdit = useCallback(
         (entry: DiaryEntry) => {
             invalidateComposeSession();
+            startTripChooser(entry);
             // Fresh edit session: a photo attached DURING this edit may
             // re-pin the entry from its EXIF (the repair path for entries
             // pinned at the berth — re-attach the original photo and the
@@ -588,7 +634,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             dispatch({ type: 'OPEN_EDIT', entry, locationDisplay });
             triggerHaptic('light');
         },
-        [invalidateComposeSession, dispatch],
+        [invalidateComposeSession, startTripChooser, dispatch],
     );
     // ── Audio Playback ─────────────────────────────────────────
     const togglePlayback = async (url: string) => {
@@ -896,6 +942,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         triggerHaptic('medium');
 
         try {
+            const saveTripContext = await tripContextRef.current;
+            if (!saveTripContext || !operationIsCurrent()) return;
+            const voyageId = selectedTrip === undefined ? saveTripContext.originalVoyageId : selectedTrip;
             // Last-chance GPS — openCompose fires grabGps async, but if the
             // skipper opens the form, types a quick title, and hits save
             // within a couple seconds, the async grab won't have landed yet
@@ -970,8 +1019,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         latitude: finalLat,
                         longitude: finalLon,
                         location_name: finalLocationName,
+                        voyage_id: voyageId,
                     },
-                    { shouldContinue: operationIsCurrent },
+                    { shouldContinue: operationIsCurrent, tripContext: saveTripContext },
                 );
                 if (updateResult.ok) {
                     mediaAdopted = true;
@@ -981,10 +1031,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (!operationIsCurrent()) return;
                 if (updateResult.ok) {
                     const savedAudioUrl = updateResult.audioUrl ?? audioUrl;
-                    const prevEntry = entries.find((e) => e.id === editingId);
+                    const savedEntryId = DiaryService.resolveServerId(editingId) ?? editingId;
+                    const prevEntry =
+                        latestEntriesRef.current.find((e) => e.id === savedEntryId) ??
+                        latestEntriesRef.current.find((e) => e.id === editingId);
                     const updated: DiaryEntry | null = prevEntry
                         ? {
                               ...prevEntry,
+                              id: savedEntryId,
                               title: title.trim() || prevEntry.title,
                               body: body.trim(),
                               mood,
@@ -993,9 +1047,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                               latitude: finalLat,
                               longitude: finalLon,
                               location_name: finalLocationName || prevEntry.location_name,
+                              voyage_id: voyageId,
                           }
                         : null;
-                    setEntries((prev) => prev.map((e) => (e.id === editingId && updated ? updated : e)));
+                    setEntries((prev) =>
+                        prev.map((e) => ((e.id === editingId || e.id === savedEntryId) && updated ? updated : e)),
+                    );
                     setShowCompose(false);
                     setEditingId(null);
                     // Same publish checkpoint as a new entry — lets the skipper
@@ -1007,27 +1064,32 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             } else {
                 let entry: DiaryEntry | null = null;
                 try {
-                    entry = await DiaryService.createEntry({
-                        video_url: videoUrl,
-                        title: title.trim() || formatDate(new Date().toISOString()),
-                        body: body.trim(),
-                        mood,
-                        photos,
-                        audio_url: audioUrl,
-                        latitude: finalLat,
-                        longitude: finalLon,
-                        location_name: finalLocationName,
-                        weather_summary: weatherSummary,
-                        weather_data: state.weatherDataObj,
-                        tags: [],
-                        // DiaryService resolves the active recording voyage at its
-                        // durable boundary. Omitting this field also covers a cold
-                        // launch where the Diary is open before Log hydrates.
-                    });
+                    entry = await DiaryService.createEntry(
+                        {
+                            video_url: videoUrl,
+                            title: title.trim() || formatDate(new Date().toISOString()),
+                            body: body.trim(),
+                            mood,
+                            photos,
+                            audio_url: audioUrl,
+                            latitude: finalLat,
+                            longitude: finalLon,
+                            location_name: finalLocationName,
+                            weather_summary: weatherSummary,
+                            weather_data: state.weatherDataObj,
+                            tags: [],
+                            voyage_id: voyageId,
+                        },
+                        { tripContext: saveTripContext, shouldContinue: operationIsCurrent },
+                    );
                 } catch (error) {
                     if (operationIsCurrent()) {
                         log.error('Diary entry save failed:', error);
-                        toast.error('Could not save this entry. Please try again.');
+                        toast.error(
+                            error instanceof Error
+                                ? error.message
+                                : 'Could not save this entry. Your changes are still in the editor.',
+                        );
                     }
                     return;
                 }
@@ -1053,6 +1115,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     setPublishPromptEntry(entry);
                 }
             }
+        } catch (error) {
+            if (operationIsCurrent())
+                toast.error(
+                    error instanceof Error
+                        ? error.message
+                        : 'Could not save this entry. Your changes are still in the editor.',
+                );
         } finally {
             const abandoned = abandonedComposeSessionsRef.current.delete(composeSession);
             if (!mediaAdopted && (abandoned || !pageActiveRef.current)) {
@@ -1337,6 +1406,17 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                             : null
                     }
                     polishStyle={polishStyle}
+                    tripPicker={{
+                        value:
+                            selectedTrip === undefined ? (tripContext?.originalVoyageId ?? '') : (selectedTrip ?? ''),
+                        choices: tripChoices,
+                        originalVoyageId: tripContext?.originalVoyageId ?? null,
+                        originalLabel: editingId ? 'Current trip' : 'Active recording',
+                        disabled: !tripContext,
+                        loading: tripsLoading,
+                        unavailable: tripsUnavailable || (!tripsLoading && tripChoices.length === 0),
+                        onChange: (value) => setSelectedTrip(value || null),
+                    }}
                     onSetTitle={setTitle}
                     onSetBody={setBody}
                     onSetMood={setMood}

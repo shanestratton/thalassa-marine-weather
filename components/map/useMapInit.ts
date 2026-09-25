@@ -24,6 +24,7 @@ import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from 
 import { crumb } from '../../utils/flightRecorder';
 import { installPaneAwareAttribution } from './paneAwareAttribution';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
+import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -49,7 +50,10 @@ export function setOpenSeaMapRasterVisibility(
     for (const [id, show] of Object.entries(byId)) {
         try {
             if (map.getLayer(id)) {
-                map.setLayoutProperty(id, 'visibility', show ? 'visible' : 'none');
+                const target = show ? 'visible' : 'none';
+                if (map.getLayoutProperty(id, 'visibility') !== target) {
+                    map.setLayoutProperty(id, 'visibility', target);
+                }
             }
         } catch {
             /* layer not yet available — harmless */
@@ -71,12 +75,12 @@ interface UseMapInitOptions {
     location: { lat: number; lon: number };
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
     /**
-     * Centre to use for the very first map render. Takes priority over `location`
-     * so the map opens on whatever the "location box" says (the selected weather
-     * location) instead of being dragged around by live GPS updates. If undefined,
-     * falls back to `location` (live GPS).
+     * Selected-location centre for the very first render on planning/picker
+     * surfaces. Takes priority over `location`; ignored by ownshipStartup.
      */
     initialCenter?: { lat: number; lon: number };
+    /** OBS starts at a fresh ownship fix, never a weather/home selection. */
+    ownshipStartup?: boolean;
     pickerMode?: boolean; // Kept as it's passed to usePickerMode
     /** The live ENC browse switch; plotting may still require the chart. */
     encVisible?: boolean;
@@ -149,6 +153,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         location,
         onLocationSelect,
         initialCenter,
+        ownshipStartup = false,
         pickerMode: _pickerMode,
         settingPoint,
         showPassage,
@@ -307,8 +312,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             return Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
         })();
 
-        // ── Default view: z10 on the selected location / GPS ──
-        // Priority for the initial centre:
+        // ── Default view: z10 on ownship for OBS, selected location elsewhere ──
+        // OBS may wait for its first real fix in useObsStartupCamera. An
+        // initial/home/search coordinate must not masquerade as the vessel.
+        // Other surfaces retain their existing initial-centre priority:
         //   1. `initialCenter` — the "location box" value (selected weather
         //      location). This is what the user actually cares about: if they
         //      set a destination, that's where the map opens.
@@ -319,11 +326,13 @@ export function useMapInit(opts: UseMapInitOptions) {
         const validCenter = (pt?: { lat: number; lon: number }): boolean =>
             !!pt && isFinite(pt.lat) && isFinite(pt.lon) && (pt.lat !== 0 || pt.lon !== 0);
 
-        const preferredCenter = validCenter(initialCenter)
-            ? { lat: initialCenter!.lat, lon: initialCenter!.lon }
-            : validCenter(location)
-              ? { lat: location.lat, lon: location.lon }
-              : null;
+        const preferredCenter = ownshipStartup
+            ? getCachedOwnshipPosition()
+            : validCenter(initialCenter)
+              ? { lat: initialCenter!.lat, lon: initialCenter!.lon }
+              : validCenter(location)
+                ? { lat: location.lat, lon: location.lon }
+                : null;
 
         const startCenter: [number, number] = embedded
             ? [location.lon, location.lat]

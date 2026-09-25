@@ -8,6 +8,13 @@ import {
 } from '../supabase/functions/_shared/public-trip-selector';
 
 describe('public Voyage Log trip selector', () => {
+    it('keeps saved all-diary links compatible while naming the combined cruising overview', () => {
+        expect(allDiaryPublicTrip()).toMatchObject({
+            id: 'all-diary',
+            kind: 'all-diary',
+            label: 'All trips & diary',
+        });
+    });
     it('catalogues actual tracks only, keeps their useful metadata, and puts the active trip first', () => {
         const trips = buildPublicTripCatalogue(
             [

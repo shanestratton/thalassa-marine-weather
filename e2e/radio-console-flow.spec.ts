@@ -23,9 +23,16 @@ interface RadioViewport {
 interface RadioGpsControl {
     latitude: number;
     longitude: number;
+    unavailable: boolean;
 }
 
-async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, vesselName = 'Northern Surveyor') {
+async function openRadio(
+    page: Page,
+    baseURL: string,
+    viewport: RadioViewport,
+    vesselName = 'Northern Surveyor',
+    { prepareCall = true, gpsUnavailable = false } = {},
+) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     const origin = new URL(baseURL).origin;
     await page.route('**/*', (route) => {
@@ -39,7 +46,12 @@ async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, v
     });
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.addInitScript(
-        ({ split, displayMode, vesselName }: RadioViewport & { vesselName: string }) => {
+        ({
+            split,
+            displayMode,
+            vesselName,
+            gpsUnavailable,
+        }: RadioViewport & { vesselName: string; gpsUnavailable: boolean }) => {
             localStorage.setItem('thalassa_split_view', split ? '1' : '0');
             localStorage.removeItem('thalassa_weather_last_boat_fix::anonymous');
             localStorage.removeItem('thalassa_dsc_intent::anonymous');
@@ -89,9 +101,21 @@ async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, v
                     }),
                 },
             });
-            const gps: RadioGpsControl = { latitude: -27.5, longitude: 153.5 };
+            const gps: RadioGpsControl = { latitude: -27.5, longitude: 153.5, unavailable: gpsUnavailable };
             (window as unknown as { __radioGps: RadioGpsControl }).__radioGps = gps;
-            const readPosition = (success: PositionCallback) => {
+            const readPosition = (success: PositionCallback, error?: PositionErrorCallback) => {
+                if (gps.unavailable) {
+                    queueMicrotask(() =>
+                        error?.({
+                            code: 2,
+                            message: 'Synthetic GPS unavailable',
+                            PERMISSION_DENIED: 1,
+                            POSITION_UNAVAILABLE: 2,
+                            TIMEOUT: 3,
+                        }),
+                    );
+                    return;
+                }
                 queueMicrotask(() =>
                     success({
                         coords: {
@@ -114,20 +138,22 @@ async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, v
                 configurable: true,
                 value: {
                     getCurrentPosition: readPosition,
-                    watchPosition: (success: PositionCallback) => {
-                        readPosition(success);
+                    watchPosition: (success: PositionCallback, error?: PositionErrorCallback) => {
+                        readPosition(success, error);
                         return ++watchId;
                     },
                     clearWatch: () => undefined,
                 },
             });
         },
-        { ...viewport, vesselName },
+        { ...viewport, vesselName, gpsUnavailable },
     );
     await page.goto('/');
     await page.getByRole('tab', { name: 'Navigate to Vessel', exact: true }).click();
     await page.getByRole('button', { name: 'Open radio position reporting', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'VHF instructions', exact: true })).toBeVisible();
+    await expect(page.getByTestId('radio-console-page')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'VHF instructions', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Voice transcript', exact: true })).toHaveCount(0);
     await page.evaluate(async () => {
         await document.fonts.ready;
     });
@@ -145,6 +171,10 @@ async function openRadio(page: Page, baseURL: string, viewport: RadioViewport, v
             }),
         )
         .toBe(true);
+    if (prepareCall) {
+        await page.getByRole('button', { name: /^Prepare voice call/ }).click();
+        await expect(page.getByRole('dialog', { name: 'VHF instructions', exact: true })).toBeVisible();
+    }
 }
 
 async function selectorGeometry(surface: Locator) {
@@ -164,28 +194,37 @@ async function expectStableSelectors(
     surface: Locator,
     baseline: Awaited<ReturnType<typeof selectorGeometry>>,
 ) {
+    const readback = (await surface.getAttribute('aria-label')) === 'Voice transcript';
+    if (readback) {
+        await expect(page.getByRole('group', { name: 'Call type', exact: true })).toHaveCount(0);
+        await expect(surface.getByRole('button', { name: 'Change call', exact: true })).toBeInViewport();
+        await surface.getByRole('button', { name: 'Change call', exact: true }).click();
+    }
     // Only the current screen's selector is exposed to assistive technology.
     await expect(page.getByRole('group', { name: 'Call type', exact: true })).toHaveCount(1);
     const selector = surface.getByRole('group', { name: 'Call type', exact: true });
     await expect(selector).toBeInViewport();
     await expect(selector.getByRole('button')).toHaveCount(3);
-    await expect
-        .poll(async () => {
-            const current = await selectorGeometry(surface);
-            return (
-                current.length === baseline.length &&
-                current.every((rect, index) =>
-                    (['x', 'y', 'width', 'height'] as const).every(
-                        (key) => Math.abs(rect[key] - baseline[index][key]) <= 1,
-                    ),
-                )
-            );
-        })
-        .toBe(true);
+    if ((await surface.getAttribute('data-testid')) === 'radio-console-page')
+        await expect
+            .poll(async () => {
+                const current = await selectorGeometry(surface);
+                return (
+                    current.length === baseline.length &&
+                    current.every((rect, index) =>
+                        (['x', 'y', 'width', 'height'] as const).every(
+                            (key) => Math.abs(rect[key] - baseline[index][key]) <= 1,
+                        ),
+                    )
+                );
+            })
+            .toBe(true);
     for (const button of await selector.getByRole('button').all()) {
         await expect(button).toBeInViewport();
+        expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         expect(await button.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     }
+    if (readback) await surface.getByRole('button', { name: 'Hide choices', exact: true }).click();
 }
 
 test('Very long radio identities remain readable through the final Over with Close pinned', async ({
@@ -212,13 +251,11 @@ test('Very long radio identities remain readable through the final Over with Clo
     const transcript = dialog.getByTestId('dsc-transcript');
     const close = dialog.getByRole('button', { name: 'Close voice transcript', exact: true });
     await expectDialogFrame(page, dialog, false);
-    await expect(dialog.getByRole('note')).toHaveText(
-        'Long message — scroll within the transcript to read every word.',
-    );
+    await expect(dialog.getByRole('note')).toContainText('Scroll to continue');
     await expect(transcript).toContainText(vesselName);
     await expect(transcript).toHaveText(/4 persons on board\. Requesting immediate assistance\. Over\.$/);
     const before = await transcriptGeometry(body);
-    expect(before.fontSize).toBeGreaterThanOrEqual(14);
+    expect(before.fontSize).toBeGreaterThanOrEqual(16);
     expect(before.scrollHeight).toBeGreaterThan(before.clientHeight);
     expect(before.scrollWidth).toBeLessThanOrEqual(before.clientWidth + 1);
     const closeBefore = await close.boundingBox();
@@ -281,9 +318,7 @@ test('Unconfirmed phone GPS never becomes vessel coordinates and does not block 
     await expect(transcript).not.toContainText('2, 7, degrees. 3, 0, decimal, 0, minutes. South');
     await expect(transcript).not.toContainText(/this device['’]s GPS/);
     await expect(transcript).toHaveText(/4 persons on board\. Requesting immediate assistance\. Over\.$/);
-    await expect
-        .poll(async () => (await transcriptGeometry(dialog.getByTestId('radio-transcript-body'))).allLinesInside)
-        .toBe(true);
+    await expectReadableTranscript(dialog);
     await page.screenshot({
         path: testInfo.outputPath('unconfirmed-phone-transcript.png'),
         fullPage: true,
@@ -299,9 +334,8 @@ async function expectDialogFrame(page: Page, dialog: Locator, split: boolean) {
         .poll(async () => {
             const actual = await dialog.boundingBox();
             const bounds = frame ? await frame.boundingBox() : { x: 0, y: 0, ...page.viewportSize()! };
-            const consoleBounds = await page.getByTestId('radio-console-page').boundingBox();
-            if (!actual || !bounds || !consoleBounds) return false;
-            const target = { ...bounds, y: consoleBounds.y, height: bounds.y + bounds.height - consoleBounds.y };
+            if (!actual || !bounds) return false;
+            const target = bounds;
             return (
                 Math.abs(actual.x - target.x) <= 2 &&
                 Math.abs(actual.y - target.y) <= 2 &&
@@ -318,14 +352,6 @@ async function expectDialogFrame(page: Page, dialog: Locator, split: boolean) {
         ).toBe('page');
         await expect(dialog).not.toHaveAttribute('aria-modal', 'true');
     } else {
-        const brand = page
-            .locator('header')
-            .filter({ has: page.getByText('Thalassa', { exact: true }) })
-            .first();
-        await expect(brand).toBeInViewport();
-        expect((await brand.boundingBox())!.y + (await brand.boundingBox())!.height).toBeLessThanOrEqual(
-            (await dialog.boundingBox())!.y + 2,
-        );
         await expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(await dialog.evaluate((element) => element.parentElement === document.body)).toBe(true);
     }
@@ -358,7 +384,131 @@ async function transcriptGeometry(body: Locator) {
     });
 }
 
+/** A large readable script may scroll; every word and the pinned controls must remain reachable. */
+async function expectReadableTranscript(dialog: Locator) {
+    const body = dialog.getByTestId('radio-transcript-body');
+    const close = dialog.getByRole('button', { name: 'Close voice transcript', exact: true });
+    await expect(body).toBeInViewport();
+    await expect(close).toBeInViewport();
+    const before = await transcriptGeometry(body);
+    expect(before.fontSize).toBeGreaterThanOrEqual(16);
+    expect(before.clientHeight).toBeGreaterThan(64);
+    expect(before.scrollWidth).toBeLessThanOrEqual(before.clientWidth + 1);
+    const closeBefore = await close.boundingBox();
+    if (before.scrollHeight > before.clientHeight + 1) {
+        await expect(dialog.getByRole('note')).toContainText('Scroll to continue');
+    }
+    await body.evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+    });
+    await expect
+        .poll(() =>
+            body.evaluate((element) => {
+                const text = element.querySelector<HTMLElement>('[data-testid="dsc-transcript"]')!.firstChild!;
+                const content = text.textContent!;
+                const range = document.createRange();
+                range.setStart(text, content.lastIndexOf('Over.'));
+                range.setEnd(text, content.length);
+                const ending = range.getBoundingClientRect();
+                const visible = element.getBoundingClientRect();
+                return ending.top >= visible.top && ending.bottom <= visible.bottom + 1;
+            }),
+        )
+        .toBe(true);
+    await expect(dialog.getByTestId('dsc-transcript')).toHaveText(before.fullText!);
+    expect(await close.boundingBox()).toEqual(closeBefore);
+    await body.evaluate((element) => {
+        element.scrollTop = 0;
+    });
+}
+
+test('Radio opens on its clear console first on a compact phone', async ({ page, baseURL }, testInfo) => {
+    await openRadio(page, baseURL!, { width: 375, height: 667, split: false, displayMode: 'dark' }, undefined, {
+        prepareCall: false,
+    });
+    const consolePage = page.getByTestId('radio-console-page');
+    await expect(consolePage.getByRole('group', { name: 'Call type', exact: true })).toBeInViewport();
+    await expect(consolePage.getByRole('button', { name: /^Prepare voice call/ })).toBeInViewport();
+    expect(await consolePage.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await page.screenshot({
+        path: testInfo.outputPath('radio-console-first.png'),
+        fullPage: true,
+        animations: 'disabled',
+    });
+    await consolePage.getByRole('button', { name: /^Distress/ }).click();
+    await expect(page.getByRole('dialog', { name: 'VHF instructions', exact: true })).toBeVisible();
+});
+
+test('No GPS leaves a readable Mayday script available on a compact phone', async ({ page, baseURL }, testInfo) => {
+    await openRadio(page, baseURL!, { width: 375, height: 667, split: false, displayMode: 'dark' }, undefined, {
+        gpsUnavailable: true,
+    });
+    const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
+    await instructions.getByRole('button', { name: /^Distress/ }).click();
+    await instructions.getByRole('combobox').selectOption('fire');
+    const proceed = instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true });
+    await expect(proceed).toBeInViewport();
+    await expect(proceed).toBeEnabled();
+    await proceed.click();
+    const dialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
+    const transcript = dialog.getByTestId('dsc-transcript');
+    await expect(transcript).toContainText('Mayday, Mayday, Mayday.');
+    await expect(transcript).toContainText('Position unavailable in this app.');
+    await expect(transcript).not.toContainText('2, 7, degrees. 3, 0, decimal, 0, minutes. South');
+    await expectReadableTranscript(dialog);
+    await page.screenshot({ path: testInfo.outputPath('mayday-no-gps.png'), fullPage: true, animations: 'disabled' });
+});
+
+test('Enlarged radio text keeps an honest scroll fallback without resizing loops', async ({ page, baseURL }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await openRadio(page, baseURL!, { width: 375, height: 667, split: false, displayMode: 'dark' });
+    const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
+    await instructions.getByRole('button', { name: /^Distress/ }).click();
+    await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
+    await page.evaluate(() => document.documentElement.style.setProperty('font-size', '24px', 'important'));
+    const dialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
+    const body = dialog.getByTestId('radio-transcript-body');
+    await expect.poll(async () => (await transcriptGeometry(body)).fontSize).toBeGreaterThanOrEqual(24);
+    await expect(dialog.getByRole('note')).toContainText('Scroll to continue');
+    await expectReadableTranscript(dialog);
+    expect(errors.filter((message) => /ResizeObserver loop/i.test(message))).toEqual([]);
+    await dialog.getByRole('button', { name: 'Close voice transcript', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+});
+
+test('A failed GPS update keeps the held fix honest and the existing script frozen', async ({
+    page,
+    baseURL,
+}, testInfo) => {
+    test.setTimeout(60_000);
+    await openRadio(page, baseURL!, { width: 390, height: 844, split: false, displayMode: 'dark' });
+    const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
+    await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
+    await instructions
+        .getByRole('button', { name: 'Confirm position receiver is aboard this vessel', exact: true })
+        .click();
+    await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
+    const transcript = dialog.getByTestId('dsc-transcript');
+    const original = await transcript.textContent();
+    await page.evaluate(() => {
+        (window as unknown as { __radioGps: RadioGpsControl }).__radioGps.unavailable = true;
+    });
+    await expect(page.getByTestId('radio-position-status')).toContainText(/Last known/i);
+    await expect(transcript).toHaveText(original!);
+    await dialog.getByRole('button', { name: 'Update position', exact: true }).click();
+    await expect(transcript).toContainText('Last known device GPS position');
+    await expectReadableTranscript(dialog);
+    await page.screenshot({
+        path: testInfo.outputPath('held-position-radio.png'),
+        fullPage: true,
+        animations: 'disabled',
+    });
+});
+
 const viewports: RadioViewport[] = [
+    { width: 375, height: 667, split: false, displayMode: 'dark' },
     { width: 390, height: 844, split: false, displayMode: 'light' },
     { width: 430, height: 932, split: false, displayMode: 'dark' },
     // Reduced height also exercises native safe-area headroom without editing CSS.
@@ -403,23 +553,35 @@ for (const viewport of viewports) {
                 await expectStableSelectors(page, instructions, selectorBaseline);
                 if (mode !== 'routine') {
                     await instructions.getByRole('combobox').selectOption('fire');
-                    await expect(instructions).toContainText('On your VHF');
-                    await expect(instructions).toContainText('Channel 16');
+                    await expect(instructions.getByRole('list')).toContainText('Ch 16');
+                    await expect(instructions.getByRole('list')).toContainText('Do not wait for app GPS.');
                 } else {
                     await expect(instructions.getByRole('list')).not.toContainText(/DSC Urgency|DISTRESS button/);
                 }
                 const proceed = instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true });
                 await expect(proceed).toBeInViewport();
                 await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
+                const prepBody = instructions.getByTestId('radio-instructions-body');
+                const prepGeometry = await prepBody.evaluate((element) => ({
+                    clientHeight: element.clientHeight,
+                    scrollHeight: element.scrollHeight,
+                    clientWidth: element.clientWidth,
+                    scrollWidth: element.scrollWidth,
+                }));
+                expect(prepGeometry.scrollHeight).toBeLessThanOrEqual(prepGeometry.clientHeight + 1);
+                expect(prepGeometry.scrollWidth).toBeLessThanOrEqual(prepGeometry.clientWidth + 1);
                 await instructions
                     .getByRole('button', { name: 'Confirm position receiver is aboard this vessel', exact: true })
                     .click();
-                await instructions.getByText('VHF / HF channel reference', { exact: true }).click();
+                await instructions.getByText('Radio help & channels', { exact: true }).click();
                 await instructions.getByTestId('radio-instructions-body').evaluate((element) => {
                     element.scrollTop = element.scrollHeight;
                 });
                 await expectStableSelectors(page, instructions, selectorBaseline);
-                await instructions.getByText('VHF / HF channel reference', { exact: true }).click();
+                await instructions.getByText('Radio help & channels', { exact: true }).click();
+                await prepBody.evaluate((element) => {
+                    element.scrollTop = 0;
+                });
                 if (mode === 'distress') {
                     if (viewport.split) {
                         const glass = page.locator('[data-split-pane="glass"]');
@@ -460,11 +622,12 @@ for (const viewport of viewports) {
                     );
                 }
                 const body = transcriptDialog.getByTestId('radio-transcript-body');
-                await expect.poll(async () => (await transcriptGeometry(body)).allLinesInside).toBe(true);
+                await expectReadableTranscript(transcriptDialog);
                 const geometry = await transcriptGeometry(body);
-                expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
                 expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
-                expect(geometry.fontSize).toBeGreaterThanOrEqual(14);
+                expect(geometry.fontSize).toBeGreaterThanOrEqual(16);
+                expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
+                expect(geometry.allLinesInside).toBe(true);
                 await testInfo.attach(`transcript-${mode}-geometry`, {
                     body: JSON.stringify(geometry, null, 2),
                     contentType: 'application/json',
@@ -498,7 +661,7 @@ for (const viewport of viewports) {
                     await transcriptDialog.getByRole('button', { name: 'Update position', exact: true }).click();
                     await expect(transcript).toContainText('2, 7, degrees. 3, 6, decimal, 0, minutes. South');
                     await expect(transcript).toContainText('1, 5, 3, degrees. 3, 6, decimal, 0, minutes. East');
-                    await expect.poll(async () => (await transcriptGeometry(body)).allLinesInside).toBe(true);
+                    await expectReadableTranscript(transcriptDialog);
                 }
                 if (mode === 'urgency') {
                     await transcriptDialog.getByRole('button', { name: 'VHF instructions', exact: true }).click();
@@ -514,6 +677,7 @@ for (const viewport of viewports) {
                 }
                 if (mode === 'routine') {
                     // A mode switch must not silently rewrite an active readback.
+                    await transcriptDialog.getByRole('button', { name: 'Change call', exact: true }).click();
                     await transcriptDialog.getByRole('button', { name: /^Urgency/ }).click();
                     await expect(instructions).toBeVisible();
                     await expect(transcriptDialog).toHaveCount(0);

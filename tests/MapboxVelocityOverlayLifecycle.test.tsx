@@ -1,6 +1,11 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { guardVelocityLayerStartup, MapboxVelocityOverlay } from '../components/map/MapboxVelocityOverlay';
+import {
+    guardVelocityLayerStartup,
+    MapboxVelocityOverlay,
+    zoomCompensatedVelocityScale,
+    zoomScaledParticleMultiplier,
+} from '../components/map/MapboxVelocityOverlay';
 import type { VelocityGribRecord } from '../components/map/windVelocityFrame';
 import type { WindGrid } from '../services/weather/windGridEncoding';
 
@@ -473,6 +478,31 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
         expect(mapbox.listeners.size).toBe(0);
         expect(mapbox.container.children).toHaveLength(0);
 
+        view.unmount();
+        expect(mapbox.listeners.size).toBe(0);
+    });
+
+    it('keeps wind mounted and reapplies sparse, slow particles at harbour zoom', async () => {
+        const mapbox = createMapboxHarness(9);
+        const before = mocks.leafletMaps.length;
+        const beforeLayers = mocks.velocityLayers.length;
+        const view = render(
+            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={windGrid(12, 'ecmwf')} />,
+        );
+        await waitFor(() => expect(mocks.leafletMaps.length).toBe(before + 1));
+        await waitFor(() => expect(mocks.velocityLayers.length).toBe(beforeLayers + 1));
+        const leaflet = mocks.leafletMaps[before];
+        act(() => {
+            mapbox.map.getZoom.mockReturnValue(19);
+            mapbox.emit('moveend');
+            mapbox.emit('zoomend');
+        });
+        expect(leaflet.remove).not.toHaveBeenCalled();
+        expect(leaflet.setView).toHaveBeenLastCalledWith([-27, 153], 20, { animate: false });
+        expect(mocks.velocityLayers[beforeLayers]._windy).toMatchObject({
+            velocityScale: zoomCompensatedVelocityScale(19),
+            particleMultiplier: zoomScaledParticleMultiplier(19),
+        });
         view.unmount();
         expect(mapbox.listeners.size).toBe(0);
     });

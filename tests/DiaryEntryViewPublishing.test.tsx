@@ -98,6 +98,24 @@ beforeEach(() => {
 });
 
 describe('DiaryEntryView Voyage Log publishing', () => {
+    it('explains an absent map location while allowing a general diary note to publish', async () => {
+        const { onPublishedChange } = renderEntry({ location_name: 'Whitsundays' });
+
+        expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
+        const publish = screen.getByRole('switch', { name: 'Publish this entry to your voyage log' });
+        expect(publish).toBeEnabled();
+        fireEvent.click(publish);
+
+        await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith(entry.id, true));
+        expect(mocks.setEntryPublished).toHaveBeenCalledExactlyOnceWith(entry.id, true);
+    });
+
+    it('does not show a missing-location notice for an entry with coordinates', () => {
+        renderEntry({ latitude: -20.25, longitude: 148.95 });
+
+        expect(screen.queryByText(/No map location/)).not.toBeInTheDocument();
+    });
+
     it('shows approval below the entry and approves its guest comment inside the diary', async () => {
         mocks.listComments.mockResolvedValueOnce([
             { id: 'comment-1', guest_name: 'Mum', body: 'Enjoy Mackay!', status: 'pending' },

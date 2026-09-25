@@ -45,7 +45,9 @@ export interface VesselProfile {
     maxWaveHeight: number;
     maxWindSpeed?: number;
     cruisingSpeed: number;
+    /** Stored in US gallons; vesselUnits.volume controls display/input only. */
     fuelCapacity?: number;
+    /** Stored in US gallons; vesselUnits.volume controls display/input only. */
     waterCapacity?: number;
     fuelBurn?: number;
     hullColor?: string;

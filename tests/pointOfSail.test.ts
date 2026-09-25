@@ -84,20 +84,7 @@ describe('the point of sail', () => {
     });
 });
 
-describe('the panel shows it', () => {
-    const page = read('components/nmea/TheGlassPage.tsx');
-    it('reads her limit from the vessel profile and shows the strip only when it has something to say', () => {
-        expect(page).toContain('const closeHauledDeg = closeHauledDegFor(vesselProfile);');
-        expect(page).toContain('pointOfSail({ windFromDeg: roseTrueAngle, sogKts: sog.value, closeHauledDeg })');
-        expect(page).toContain("pointing !== null && (pointing.level !== 'good' || pointing.wingAndWing)");
-        expect(page).toContain('data-testid="point-of-sail-strip"');
-    });
-    it('running offers wing and wing or gybing down, defaulting to the pole under 20 kn gusts', () => {
-        expect(page).toContain("recentGust != null && recentGust >= 20 ? 'gybe' : 'wing'");
-        expect(page).toContain('Square · wing and wing');
-        expect(page).toContain('Gybe down · 145–165°');
-        expect(page).toMatch(/plan\.band\.band === 'Running' && downwind === 'gybe'\s*\?\s*'Broad reach'/);
-    });
+describe('the stored vessel preference', () => {
     it('the profile carries the number', () => {
         expect(read('types/vessel.ts')).toContain('closeHauledTwa?: number;');
     });

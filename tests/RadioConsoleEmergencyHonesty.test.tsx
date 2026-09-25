@@ -56,6 +56,7 @@ const CURRENT_POSITION: RadioPositionFix = {
 };
 const MOB_SNAPSHOT = { fixLat: -27.25, fixLon: 153.125, fixAccuracy: 12, activatedAt: Date.UTC(2026, 7, 5, 3, 4) };
 function instructions() {
+    if (!screen.queryByRole('dialog')) fireEvent.click(screen.getByRole('button', { name: /Prepare voice call/ }));
     return within(screen.getByRole('dialog', { name: 'VHF instructions' }));
 }
 function transcript() {
@@ -92,9 +93,12 @@ describe('RadioConsole emergency transcript honesty', () => {
         setAuthIdentityScope(null);
     });
 
-    it('opens instructions first and has an explicit exit from both dialogs', () => {
+    it('starts on the console and has an explicit exit from both dialogs', () => {
         render(<RadioConsolePage onBack={vi.fn()} />);
-        expect(instructions().getByText(/agreed working channel for your position report/)).toBeVisible();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Radio Console' })).toBeVisible();
+        expect(screen.getByRole('button', { name: /Prepare voice call/ })).toBeVisible();
+        expect(instructions().getByText(/Use the agreed working channel/)).toBeVisible();
         expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
         fireEvent.click(instructions().getByRole('button', { name: 'Close vhf instructions' }));
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -119,7 +123,19 @@ describe('RadioConsole emergency transcript honesty', () => {
         expect(readScript(undefined, false)).toContain('Position not verified for this vessel');
     });
 
-    it('keeps accessible call selectors in every state and returns transcript mode changes to instructions first', () => {
+    it('keeps preparation to three actions and folds away reference material', () => {
+        render(<RadioConsolePage onBack={vi.fn()} />);
+        for (const mode of [/Routine Position/i, /Urgency Pan-Pan/i, /Distress Mayday/i]) {
+            fireEvent.click(instructions().getByRole('button', { name: mode }));
+            expect(instructions().getAllByRole('listitem')).toHaveLength(3);
+            expect(instructions().getByText(/Ch 70: DSC only, never voice. This app does not transmit./)).toBeVisible();
+            expect(instructions().getByText('Radio help & channels').closest('details')).not.toHaveAttribute('open');
+            expect(instructions().getByRole('button', { name: 'Continue to voice transcript' })).toBeEnabled();
+        }
+        expect(instructions().getByText(/Do not wait for app GPS/)).toBeVisible();
+    });
+
+    it('keeps call selectors one tap away during readback and returns mode changes to preparation', () => {
         const onBack = vi.fn();
         render(<RadioConsolePage onBack={onBack} />);
         expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
@@ -128,6 +144,10 @@ describe('RadioConsole emergency transcript honesty', () => {
             instructions().getByRole('group', { name: 'Call type' }),
         );
         readScript();
+        expect(screen.queryByRole('group', { name: 'Call type' })).not.toBeInTheDocument();
+        const changeCall = transcript().getByRole('button', { name: 'Change call' });
+        expect(changeCall).toHaveAttribute('aria-expanded', 'false');
+        fireEvent.click(changeCall);
         expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
         expect(transcript().getByRole('button', { name: /Routine Position/i })).toHaveAttribute('aria-pressed', 'true');
         expect(transcript().getByTestId('radio-transcript-body')).not.toContainElement(
@@ -140,7 +160,7 @@ describe('RadioConsole emergency transcript honesty', () => {
             'aria-pressed',
             'true',
         );
-        expect(instructions().getByText(/MAYDAY is for grave and imminent danger/)).toBeVisible();
+        expect(instructions().getByText(/MAYDAY · grave & imminent danger/)).toBeVisible();
         expect(readScript()).toContain('Mayday, Mayday, Mayday');
         fireEvent.click(transcript().getByRole('button', { name: 'Close voice transcript' }));
         expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);

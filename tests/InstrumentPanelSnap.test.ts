@@ -1,7 +1,6 @@
 /**
- * Instrument Panel snap rebuild — Shane 2026-08-26: "make the instruments
- * page really pop… scrolls up and down, but snaps to each instrument…
- * make sure the sail plans etc stay there and go to the bottom".
+ * Instrument Panel snap pages. Sail Plan was removed from the instrument
+ * panel on 2026-09-24; the remaining instruments keep their original order.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -15,7 +14,7 @@ describe('snap-scroll structure', () => {
         expect((source.match(/snap-start snap-always/g) ?? []).length).toBeGreaterThanOrEqual(5);
     });
 
-    it('sections run Wind → Position → Speed → Depth → Sea temp → Heading → Helm, sail plan LAST', () => {
+    it('sections run Wind → Position → Speed → Depth → Sea temp → Heading → Helm', () => {
         const order = [
             'SECTION: WIND',
             'SECTION: POSITION',
@@ -24,13 +23,26 @@ describe('snap-scroll structure', () => {
             'SECTION: SEA TEMP',
             'SECTION: HEADING',
             'SECTION: HELM',
-            'SECTION: SAIL PLAN',
         ];
         let cursor = -1;
         for (const marker of order) {
             const at = source.indexOf(marker);
             expect(at, marker).toBeGreaterThan(cursor);
             cursor = at;
+        }
+    });
+
+    it('has no Sail Plan page or empty snap page left behind', () => {
+        expect(source).not.toContain('SECTION: SAIL PLAN');
+        expect(source).not.toContain('<SailPlanDiagram');
+        expect(source).not.toContain('<SailPartsDiagram');
+        expect(source).not.toContain('title="Sail Plan"');
+        const sections = [...source.matchAll(/<section\b[\s\S]*?<\/section>/g)].map(([section]) => section);
+        expect(sections).toHaveLength(10); // Nine instruments plus the conditional crew Watch.
+        for (const section of sections) {
+            expect(section).toContain('snap-start snap-always');
+            expect(section).toContain('<SectionPlate title=');
+            expect(section).toMatch(/<(?:div|ShipsBellClock)\b/);
         }
     });
 
@@ -44,19 +56,11 @@ describe('snap-scroll structure', () => {
     });
 });
 
-describe('the serene brain is gated to her hull', () => {
-    it('sail plan renders only for Serene Summer, labelled as hers', () => {
-        expect(source).toContain('isSereneSummer &&');
-        expect(source).toMatch(/tayana\\?s\*55/i);
-        expect(source).toContain('Tuned for Serene Summer');
-    });
-
+describe('the remaining helm instrument', () => {
     it('helm advice is honest about its inputs', () => {
         // No rudder sentence → nothing invented.
         expect(source).toContain('No rudder sensor');
         // The verdict waits for the 30s window rather than flickering.
         expect(source).toContain('30 seconds of rudder history');
-        // Runners rule surfaces in the UI, not just the data.
-        expect(source).toContain('Runners on BEFORE the staysail');
     });
 });

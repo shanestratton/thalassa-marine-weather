@@ -5,6 +5,24 @@ import { describe, expect, it } from 'vitest';
 const source = readFileSync(resolve(process.cwd(), 'components/DiaryPage.tsx'), 'utf8');
 
 describe('Diary compose media ownership contract', () => {
+    it('keeps a rejected trip save in the editor and adopts a reconciled server id only on success', () => {
+        const save = source.slice(
+            source.indexOf('const handleSave = async'),
+            source.indexOf('// ── Delete (soft-delete'),
+        );
+        expect(save).toContain('tripContext: saveTripContext');
+        expect(save).toContain('const savedEntryId = DiaryService.resolveServerId(editingId) ?? editingId;');
+        expect(save).toMatch(
+            /} else \{\s*toast\.error\('Could not save this entry\. Your changes are still in the editor\.'\);\s*}/,
+        );
+        const catchBlocks = [...save.matchAll(/catch \(error\) \{([\s\S]*?)\n\s*}/g)];
+        expect(catchBlocks.length).toBeGreaterThan(0);
+        for (const [, failure] of catchBlocks) {
+            expect(failure).not.toContain('setShowCompose(false)');
+            expect(failure).not.toContain('setBody(');
+            expect(failure).not.toContain('discardAllNewPhotos');
+        }
+    });
     it('owns only newly-uploaded photos and exact-discards them on remove or cancel', () => {
         expect(source.match(/unsavedPhotoRefs\.current\.add\(url\)/g)).toHaveLength(1);
         expect(source).toContain('if (ref) discardNewPhoto(ref);');

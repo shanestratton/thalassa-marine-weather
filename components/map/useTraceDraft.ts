@@ -10,6 +10,7 @@ import {
     type SetStateAction,
 } from 'react';
 import type { NextLegSeed } from '../../services/routeTracer';
+import { reverseRouteName } from '../../services/routeNameParts';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -205,6 +206,22 @@ export function useTraceDraft() {
         (action) => updateDraft((current) => ({ ...current, traceDest: resolveAction(action, current.traceDest) })),
         [updateDraft],
     );
+    const reverseDirection = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        if (draft.capturedCoords.length < 2 || draft.legAnchor) return;
+        // Geometry and its labels are one edit. Previously only pins/title
+        // reversed, leaving the departure/destination frame pointing outbound.
+        const autoName = reverseRouteName(lastAutoNameRef.current);
+        lastAutoNameRef.current = autoName;
+        updateDraft((current) => ({
+            ...current,
+            capturedCoords: [...current.capturedCoords].reverse(),
+            traceName: reverseRouteName(current.traceName),
+            autoName,
+            traceOrigin: current.traceDest,
+            traceDest: current.traceOrigin,
+        }));
+    }, [draft.capturedCoords.length, draft.legAnchor, identityScope, updateDraft]);
 
     useEffect(() => {
         const scope = identityScope;
@@ -241,5 +258,6 @@ export function useTraceDraft() {
         setTraceOrigin,
         traceDest: draft.traceDest,
         setTraceDest,
+        reverseDirection,
     };
 }

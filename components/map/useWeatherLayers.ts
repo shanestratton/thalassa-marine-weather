@@ -296,6 +296,8 @@ export function useWeatherLayers(
     frameCenter?: { lat: number; lon: number } | null,
     /** Passage instruments own the camera; Squall is a separate, current-only overlay. */
     passageContext?: { hudEnabled: boolean; squallVisible: boolean },
+    /** OBS opens clean, even if a previous tab session stored overlays. */
+    startEmpty = false,
 ) {
     const passageOwnsCamera = !planMode && (passageContext?.hudEnabled ?? false);
     const passageSquallVisible = !planMode && (passageContext?.squallVisible ?? false);
@@ -320,7 +322,9 @@ export function useWeatherLayers(
      * THE PUNTER'S SELECTION — persisted, and the only thing the toggles write.
      * Distinct from `activeLayers` below, which is what is actually PAINTED.
      */
-    const [userLayers, setUserLayers] = useState<Set<WeatherLayer>>(() => sessionInitialLayers());
+    const [userLayers, setUserLayers] = useState<Set<WeatherLayer>>(() =>
+        startEmpty ? new Set() : sessionInitialLayers(),
+    );
 
     /**
      * WHAT IS ON THE MAP. Empty while plotting, so every add/remove effect below
@@ -591,6 +595,7 @@ export function useWeatherLayers(
     // exclusive with anything.
     const MPA_STORAGE_KEY = 'thalassa_mpa_visible';
     const [mpaVisible, setMpaVisibleState] = useState<boolean>(() => {
+        if (startEmpty) return false;
         try {
             return localStorage.getItem(MPA_STORAGE_KEY) === '1';
         } catch {
@@ -1857,37 +1862,11 @@ export function useWeatherLayers(
             map.setMaxZoom(7);
             map.setMaxBounds(undefined!);
         } else if (hasWind) {
-            // Wind particle overlay needs enough pixels on screen to look right,
-            // while still allowing the chart to reach wind's authoritative
-            // opening frame on a wide tablet/desktop canvas.
-            //
-            // With the isobar overlay riding wind, the floor drops to
-            // pressure's 2.0 — isobars are a synoptic read and the user must
-            // be able to pinch out for the whole-ocean picture — while wind's
-            // full tile depth stays available.
-            // Wind never zooms out past z3 (Shane 2026-08-04: "no more than
-            // the default zoom level") — including when the isobar overlay
-            // rides along. Solo pressure (branch above) keeps its deliberate
-            // z2 synoptic frame.
-            //
-            // This FLOOR comes from LAYER_MIN_ZOOM, not LAYER_FRAME_ZOOM. It
-            // used to read the framing value, which was only ever right
-            // because both happened to be 3 — moving wind's opening frame to
-            // z9 took the floor with it and pinned the chart at a single zoom
-            // level (Shane 2026-08-22: "now it is stuck at zoom 9"). Where a
-            // layer opens and how far out it may go are separate decisions.
-            //
-            // The CEILING is z9 (Shane 2026-08-08: "the punter can zoom
-            // between 3-9 only"). It used to be 18, which let the chart run
-            // four levels past anything the wind field could actually
-            // resolve: the particles are seeded from a global forecast grid,
-            // so past synoptic scale you are watching interpolation, drawn
-            // with total confidence, over a street map. Mapbox clamps the
-            // live camera the moment this is set, so activating wind while
-            // zoomed deeper pulls back to z9 rather than leaving the map
-            // outside its own limit.
+            // Wind remains an overlay at harbour zoom. Particle density and
+            // apparent speed now taper through z22; a fine chart does not
+            // imply a finer forecast grid. Keep the existing synoptic floor.
             map.setMinZoom(Math.max(LAYER_MIN_ZOOM.wind ?? 3, 3));
-            map.setMaxZoom(9);
+            map.setMaxZoom(22);
             map.setMaxBounds(undefined!);
         } else {
             // No weather layer → full zoom-in depth, but the zoom-out floor

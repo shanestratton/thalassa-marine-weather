@@ -54,8 +54,8 @@ function Harness({ encCellCount = 9, startOn = true }: { encCellCount?: number; 
 const openMenu = () => fireEvent.click(screen.getByRole('button', { name: /^Map base:/ }));
 
 describe('the ENC master switch', () => {
-    it('is persisted state with a real writer, not a hardcoded true', () => {
-        expect(hubCode).toMatch(/usePersistedState\('thalassa_map_enc_visible', true\)/);
+    it('starts off with a real writer, not a persisted or hardcoded true', () => {
+        expect(hubCode).toContain('const [encVisible, setEncVisible] = useState(false)');
         expect(hubCode).toMatch(/setEncVisible\(\(on\) => !on\)/);
         expect(hubCode).not.toMatch(/const encVisible = true;/);
     });

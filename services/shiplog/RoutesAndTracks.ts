@@ -26,6 +26,7 @@ import { formatPlannedRouteLabel } from './plannedRouteNaming';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import { getVoyageSummaries, getVoyageEntries, isLandVoyage, type VoyageSummary } from './VoyageSummary';
 import type { ShipLogEntry } from '../../types/navigation';
+import { withTimeout } from '../../utils/deadline';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -453,15 +454,42 @@ export function invalidateRoutesAndTracks(expectedScope: AuthIdentityScope = get
 
 export interface SeaVoyageChoice {
     voyageId: string;
-    /** Picker row title — the voyage date. */
+    /** Picker row title — departure → arrival (or an explicit unknown-place fallback). */
     label: string;
-    /** Picker row detail — distance or fix count. */
+    /** Picker row detail — date sailed, plus distance or fix count. */
     sublabel: string;
     /** startedAt ms — the list is newest-first. */
     timestamp: number;
     distanceNm: number;
     /** Lives only in this device's offline queue (not yet synced). */
     isLocal: boolean;
+}
+
+type VoyageEndpoint = { lat: number | null; lon: number | null };
+let endpointNamer: Promise<typeof import('../routeAutoName')> | null = null;
+
+async function voyageEndpointName(point: VoyageEndpoint): Promise<string | null> {
+    const { lat, lon } = point;
+    if (
+        typeof lat !== 'number' ||
+        typeof lon !== 'number' ||
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon) ||
+        Math.abs(lat) > 90 ||
+        Math.abs(lon) > 180 ||
+        (lat === 0 && lon === 0)
+    )
+        return null;
+    try {
+        const { coordsLabel, placeLabelFor } = await (endpointNamer ??= import('../routeAutoName'));
+        const position = { lat, lon };
+        // This is decoration for at most the visible picker rows, not a full
+        // track download. An offshore connection must not trap the picker.
+        const label = (await withTimeout(placeLabelFor(position), null, 3_000))?.trim();
+        return label && label !== coordsLabel(position) && /\p{L}/u.test(label) ? label : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -479,7 +507,7 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
         getOfflineEntries().catch(() => [] as ShipLogEntry[]),
     ]);
     if (!isAuthIdentityScopeCurrent(scope)) return [];
-    const fromCloud: SeaVoyageChoice[] = summaries
+    const fromCloud = summaries
         .filter((s) => !s.isPlannedRoute && !isLandVoyage(s) && s.entryCount >= 2)
         .map((s) => {
             const ts = new Date(s.startedAt).getTime();
@@ -490,10 +518,12 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
                 timestamp: ts,
                 distanceNm: s.totalDistanceNM,
                 isLocal: false,
+                first: { lat: s.firstLat, lon: s.firstLon },
+                last: { lat: s.lastLat, lon: s.lastLon },
             };
         });
     const cloudIds = new Set(fromCloud.map((c) => c.voyageId));
-    const fromQueue: SeaVoyageChoice[] = groupByVoyage(offline, new Set<string>())
+    const fromQueue = groupByVoyage(offline, new Set<string>())
         .filter((t) => !isPlanned(t.id) && t.kind !== 'land' && !cloudIds.has(t.id))
         .map((t) => ({
             voyageId: t.id,
@@ -502,9 +532,22 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
             timestamp: t.timestamp,
             distanceNm: t.distanceNm,
             isLocal: true,
+            first: t.points[0],
+            last: t.points[t.points.length - 1],
         }));
     if (!isAuthIdentityScopeCurrent(scope)) return [];
-    return [...fromQueue, ...fromCloud].sort((a, b) => b.timestamp - a.timestamp).slice(0, Math.max(0, max));
+    const visible = [...fromQueue, ...fromCloud].sort((a, b) => b.timestamp - a.timestamp).slice(0, Math.max(0, max));
+    const choices = await Promise.all(
+        visible.map(async ({ first, last, ...choice }): Promise<SeaVoyageChoice> => {
+            const [departure, arrival] = await Promise.all([voyageEndpointName(first), voyageEndpointName(last)]);
+            return {
+                ...choice,
+                label: `${departure ?? 'Unknown departure'} → ${arrival ?? 'Unknown arrival'}`,
+                sublabel: `${fmtDate(choice.timestamp)} · ${choice.sublabel}`,
+            };
+        }),
+    );
+    return isAuthIdentityScopeCurrent(scope) ? choices : [];
 }
 
 /**
