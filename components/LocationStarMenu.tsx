@@ -28,6 +28,7 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { panePopoverStyle, usePanePortalTarget } from '../context/PanePortalContext';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 import { AnchorIcon, CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
 import { useSettings } from '../context/SettingsContext';
@@ -142,6 +143,8 @@ export const LocationStarMenu: React.FC = () => {
         };
     }, [open, popoverRef]);
 
+    // Removing a hand-saved place asks first (Shane 2026-09-26: the small state items were my call).
+    const [pendingRemove, setPendingRemove] = useState<string | null>(null);
     const closeAndRestore = () => {
         setOpen(false);
         requestAnimationFrame(() => buttonRef.current?.focus({ preventScroll: true }));
@@ -321,7 +324,7 @@ export const LocationStarMenu: React.FC = () => {
                                     <button
                                         type="button"
                                         role="menuitem"
-                                        onClick={() => removeSaved(loc.name)}
+                                        onClick={() => setPendingRemove(loc.name)}
                                         aria-label={`Remove ${loc.name}`}
                                         title="Remove"
                                         className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors shrink-0"
@@ -331,6 +334,19 @@ export const LocationStarMenu: React.FC = () => {
                                 </div>
                             ))}
 
+                            <ConfirmDialog
+                                isOpen={pendingRemove !== null}
+                                title="Remove saved place?"
+                                message={`${pendingRemove ?? ''} will be removed from your saved places.`}
+                                confirmLabel="Remove"
+                                cancelLabel="Keep"
+                                destructive
+                                onConfirm={() => {
+                                    if (pendingRemove) removeSaved(pendingRemove);
+                                    setPendingRemove(null);
+                                }}
+                                onCancel={() => setPendingRemove(null)}
+                            />
                             {!homePortLoc && otherSaved.length === 0 && (
                                 <div className="px-3 py-3 text-xs text-gray-500">
                                     No saved locations yet — save one below, then set it as your home port.

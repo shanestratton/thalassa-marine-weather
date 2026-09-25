@@ -2145,7 +2145,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {loading && loggedVoyages.length === 0 ? (
                                     <VoyageListSkeleton />
                                 ) : loggedVoyages.length === 0 ? (
-                                    loggedArchivedVoyages.length > 0 || archivesLoading || archiveError ? (
+                                    loggedArchivedVoyages.length > 0 || archivesLoading ? (
                                         <p className="px-1 py-3 text-sm text-slate-400">
                                             {loggedArchivedVoyages.length > 0
                                                 ? 'Your past voyages are in the archive below.'

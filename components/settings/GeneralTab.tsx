@@ -62,6 +62,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <div>
                         <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Wind Speed</label>
                         <select
+                            aria-label="Wind Speed unit"
                             value={settings.units.speed}
                             onChange={(e) => updateUnit('speed', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
@@ -76,6 +77,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <div>
                         <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Distance</label>
                         <select
+                            aria-label="Distance unit"
                             value={settings.units.distance}
                             onChange={(e) => updateUnit('distance', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
@@ -91,6 +93,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             Seas (Wave Height)
                         </label>
                         <select
+                            aria-label="Seas (Wave Height) unit"
                             value={settings.units.waveHeight || 'm'}
                             onChange={(e) => updateUnit('waveHeight', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
@@ -103,6 +106,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <div>
                         <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Tides / Length</label>
                         <select
+                            aria-label="Tides / Length unit"
                             value={settings.units.length}
                             onChange={(e) => {
                                 const val = e.target.value;
@@ -124,6 +128,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <div>
                         <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Temperature</label>
                         <select
+                            aria-label="Temperature unit"
                             value={settings.units.temp}
                             onChange={(e) => updateUnit('temp', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
@@ -136,6 +141,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <div>
                         <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Visibility</label>
                         <select
+                            aria-label="Visibility unit"
                             value={settings.units.visibility || 'nm'}
                             onChange={(e) => updateUnit('visibility', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
@@ -149,6 +155,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <div>
                         <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Liquid Volume</label>
                         <select
+                            aria-label="Liquid Volume unit"
                             value={settings.units.volume || 'gal'}
                             onChange={(e) => updateUnit('volume', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"

@@ -389,22 +389,22 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <StatusRow
                         label="Assistant"
                         isConnected={isGeminiConfigured()}
-                        details={isGeminiConfigured() ? 'Connected' : 'Not configured'}
+                        details={isGeminiConfigured() ? 'Set up' : 'Not set up'}
                     />
                     <StatusRow
                         label="Charts"
                         isConnected={isMapboxConfigured()}
-                        details={isMapboxConfigured() ? 'Connected' : 'Not configured'}
+                        details={isMapboxConfigured() ? 'Set up' : 'Not set up'}
                     />
                     <StatusRow
                         label="Cloud sync"
                         isConnected={isSupabaseConfigured()}
-                        details={isSupabaseConfigured() ? 'Connected' : 'Not configured'}
+                        details={isSupabaseConfigured() ? 'Set up' : 'Not set up'}
                     />
                     <StatusRow
                         label="Weather models"
                         isConnected={!!isOpenMeteoConfigured()}
-                        details={isOpenMeteoConfigured() ? 'Connected' : 'Not configured'}
+                        details={isOpenMeteoConfigured() ? 'Set up' : 'Not set up'}
                     />
                 </div>
             </Section>

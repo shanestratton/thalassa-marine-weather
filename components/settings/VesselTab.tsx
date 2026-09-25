@@ -499,6 +499,7 @@ function MetricInput({
             </label>
             <div className="flex gap-1.5 min-w-0">
                 <input
+                    aria-label={label}
                     type="number"
                     inputMode="decimal"
                     value={localVal}
@@ -1766,6 +1767,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 </span>
                             </div>
                             <input
+                                aria-label="Max Wind"
                                 type="range"
                                 min={10}
                                 max={60}
@@ -1803,6 +1805,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 </span>
                             </div>
                             <input
+                                aria-label="Max Wave Height"
                                 type="range"
                                 min={0.5}
                                 max={8}
@@ -1840,6 +1843,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 </span>
                             </div>
                             <input
+                                aria-label="Max Gust"
                                 type="range"
                                 min={15}
                                 max={80}
