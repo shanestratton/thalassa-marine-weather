@@ -886,7 +886,9 @@ input[type='date']::-webkit-calendar-picker-indicator {
     border-color: rgb(15 23 42 / 0.3);
 }
 
-/* An OFF switch track must still read as a track (Polars' measured 1.09:1). */
+/* An OFF switch track must still read as a track (Polars' measured 1.09:1). The
+   track is the switch button's child div. */
+.display-light [role='switch'] .bg-slate-700,
 .display-light [role='switch'].bg-slate-700 {
     --tw-bg-opacity: 1;
     background-color: #94a3b8;

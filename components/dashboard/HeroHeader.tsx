@@ -273,7 +273,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             visibleWhen={heroMetric === 'temp'}
                             anchor="top-right"
                             arrow="left"
-                            message="Tap to pin any metric here"
+                            message="Tap to pin"
                             initialDelayMs={1500}
                             ttlMs={6000}
                             className="translate-x-[calc(100%+8px)] translate-y-1 whitespace-nowrap"
