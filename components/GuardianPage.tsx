@@ -51,6 +51,8 @@ import {
 
 interface GuardianPageProps {
     onBack: () => void;
+    /** Opens Settings, where Account & Cloud signs the skipper in. */
+    onSignIn?: () => void;
 }
 
 function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
@@ -100,7 +102,7 @@ function guardianInitializationSettled(promise: Promise<void>): Promise<boolean>
     });
 }
 
-export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
+export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) => {
     const { settings } = useSettings();
     const authUserId = useAuthStore((state) => state.user?.id ?? null);
     const armDescriptionId = useId();
@@ -671,8 +673,17 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <h2 className="mt-3 text-lg font-black text-white">Sign in to use Guardian</h2>
                         <p className="mt-2 text-sm leading-relaxed text-slate-300">
                             Guardian shares your vessel’s current safety presence with nearby Thalassa boats only while
-                            you arm it. Sign in from Account &amp; Settings, then return here to opt in.
+                            you arm it. Sign in from Account &amp; Cloud, then return here to opt in.
                         </p>
+                        {onSignIn && (
+                            <button
+                                type="button"
+                                onClick={onSignIn}
+                                className="mt-4 min-h-11 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-5 text-sm font-black text-emerald-100 transition-colors hover:bg-emerald-500/25"
+                            >
+                                Sign in
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

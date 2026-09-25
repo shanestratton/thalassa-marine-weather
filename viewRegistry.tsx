@@ -224,6 +224,8 @@ export interface ViewContext {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     handleFavoriteSelect: (...args: any[]) => void;
     weatherAlerts: unknown[];
+    /** When the report behind those alerts was generated — the Warnings page says when it last checked. */
+    weatherGeneratedAt?: string;
 }
 
 /** Configuration for a single registered view. */
@@ -294,7 +296,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: WarningDetails,
         boundaryName: 'Warnings',
         group: 'standalone',
-        getProps: (ctx) => ({ alerts: ctx.weatherAlerts }),
+        getProps: (ctx) => ({ alerts: ctx.weatherAlerts, checkedAt: ctx.weatherGeneratedAt }),
     },
     chat: {
         component: ChatPage,
@@ -380,6 +382,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         getProps: (ctx) => ({
             onBack: () => ctx.setPage('vessel'),
             onNavigateToNmea: () => ctx.setPage('nmea'),
+            onOpenVesselProfile: () => ctx.setPage('settings'),
         }),
     },
     nmea: {
@@ -457,7 +460,9 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: GuardianPage,
         boundaryName: 'Guardian',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        // Sign in lives in Settings; the locked card offers the way there instead of
+        // describing it (Shane 2026-09-26: the smaller state items are my call).
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel'), onSignIn: () => ctx.setPage('settings') }),
     },
     radio: {
         component: RadioConsolePage,
