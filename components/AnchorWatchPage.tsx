@@ -785,10 +785,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <PageHeader
                     title="Anchor Watch"
                     onBack={onBack}
-                    status={
+                    // Under the title, not beside it: three things in the title row
+                    // squeezed ANCHOR WATCH to a clipped column at 393 pt.
+                    subtitle={
                         <span
                             role="status"
-                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest ${fixTone}`}
+                            className={`mt-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest ${fixTone}`}
                         >
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />
                             {fixWord}

@@ -4961,7 +4961,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    inside the SVG came out at 7–9 px (UX scorecard run 4, the L cap). */
 @media (orientation: portrait) and (min-height: 700px) {
     .anchor-setup-radar {
-        flex: 0 0 auto !important;
+        flex: 0 0 224px !important;
+        height: 224px;
         min-height: 224px !important;
     }
 }
