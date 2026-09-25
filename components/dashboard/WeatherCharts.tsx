@@ -134,12 +134,14 @@ export const HourlyWidget = ({
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-xl font-bold text-white">
-                                                {convertLength(item.waveHeight, units.length)}
+                                                {item.waveHeight != null
+                                                    ? convertLength(item.waveHeight, units.length)
+                                                    : '--'}
                                             </span>
                                             <span className="text-xs text-gray-400">{units.length}</span>
                                         </div>
                                         <div className="text-xs text-sky-300 font-medium mt-1">
-                                            {item.swellPeriod ? `${item.swellPeriod}s` : 'Choppy'}
+                                            {item.swellPeriod != null ? `${Math.round(item.swellPeriod)}s` : '--'}
                                         </div>
                                     </div>
                                 );
@@ -444,7 +446,7 @@ export const DailyWidget = ({
                                         <span className="text-[11px] text-gray-400 uppercase font-bold">Sea State</span>
                                     </div>
                                     <div className="flex items-baseline gap-1 relative z-10 mb-2">
-                                        <span className="text-2xl font-bold text-white">{dayWave}</span>
+                                        <span className="text-2xl font-bold text-white">{dayWave ?? '--'}</span>
                                         <span className="text-xs text-gray-400">{units.length}</span>
                                     </div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2">

@@ -186,7 +186,7 @@ function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
             windGust: h.windGust != null ? msToKnots(kmhToMs(h.windGust)) : null,
             windDirection: h.windDirection != null ? degreesToCardinalSimple(h.windDirection) : undefined,
             windDegree: h.windDirection ?? undefined,
-            waveHeight: 0, // WeatherKit doesn't provide waves — StormGlass fills this
+            waveHeight: null, // WeatherKit doesn't provide waves — StormGlass fills this when it can
             swellPeriod: null,
             temperature: h.temperature ?? 0,
             condition: mapCondition(h.conditionCode || ''),
@@ -233,7 +233,7 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw, timeZone?: string): Fore
             lowTemp: d.temperatureMin ?? 0,
             windSpeed: msToKnots(kmhToMs(d.windSpeedAvg ?? d.windSpeedMax)),
             windGust: d.windGustSpeedMax != null ? msToKnots(kmhToMs(d.windGustSpeedMax)) : undefined,
-            waveHeight: 0, // WeatherKit doesn't provide — StormGlass fills this
+            waveHeight: null, // WeatherKit doesn't provide — StormGlass fills this when it can
             condition: mapCondition(d.conditionCode || ''),
             precipitation: d.precipitationAmount ?? undefined,
             precipChance: d.precipitationChance != null ? Math.round(d.precipitationChance * 100) : undefined,
@@ -242,7 +242,8 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw, timeZone?: string): Fore
             sunrise: d.sunrise ? roundToNearestMinute(d.sunrise, timeZone) : undefined,
             sunset: d.sunset ? roundToNearestMinute(d.sunset, timeZone) : undefined,
             humidity: fractionToPercent(d.daytimeForecast?.humidity) ?? undefined,
-            pressure: d.restOfDayForecast?.pressureTrend ?? undefined,
+            // pressureTrend is a word ('rising'), not hPa — never assign it to a number cell.
+            pressure: undefined,
         };
     });
 }
@@ -682,8 +683,8 @@ export function buildReportFromWeatherKit(
         swellPeriod: null, // StormGlass fills
         swellDirection: undefined,
         waterTemperature: null, // StormGlass fills
-        currentSpeed: 0, // StormGlass fills
-        currentDirection: 0, // StormGlass fills
+        currentSpeed: null, // StormGlass fills
+        currentDirection: undefined, // StormGlass fills
         condition,
         description: `${condition}. Wind ${obs?.windSpeed != null ? parseFloat(obs.windSpeed.toFixed(1)) : '--'} kts ${obs?.windDirection != null ? degreesToCardinalSimple(obs.windDirection) : ''}`,
         pressure: obs?.pressure ?? null,
@@ -691,7 +692,7 @@ export function buildReportFromWeatherKit(
         visibility: obs?.visibility ?? null,
         humidity: obs?.humidity ?? null,
         dewPoint: obs?.dewPoint ?? null,
-        uvIndex: obs?.uvIndex ?? 0,
+        uvIndex: obs?.uvIndex ?? null,
         precipitation: obs?.precipitationIntensity ?? null,
         sunrise: solar.sunrise,
         sunset: solar.sunset,

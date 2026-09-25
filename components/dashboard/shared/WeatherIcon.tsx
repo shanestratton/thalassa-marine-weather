@@ -10,7 +10,9 @@ export const WeatherIcon = ({
     cloudCover?: number;
     className?: string;
 }) => {
-    const c = condition ? condition.toLowerCase() : '';
+    // An unknown condition ('') draws nothing rather than a fabricated sun.
+    if (!condition) return null;
+    const c = condition.toLowerCase();
     if (c.includes('rain')) return <RainIcon className={className} />;
     if (c.includes('storm') || c.includes('thunder')) return <RainIcon className={className} />;
 

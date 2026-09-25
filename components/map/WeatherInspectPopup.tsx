@@ -352,7 +352,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                                 icon="💨"
                                 label="Wind"
                                 value={data ? `${kmhToKnots(data.windSpeedKmh)} kts` : ''}
-                                sub={data ? degToCardinal(data.windDirectionDeg) : ''}
+                                sub={data && data.windDirectionDeg != null ? degToCardinal(data.windDirectionDeg) : ''}
                                 loading={loading && !data}
                             />
                             <Metric
@@ -370,13 +370,15 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                             <Metric
                                 icon="🔵"
                                 label="Pressure"
-                                value={data ? `${Math.round(data.pressureMsl)} hPa` : ''}
+                                value={
+                                    data ? (data.pressureMsl != null ? `${Math.round(data.pressureMsl)} hPa` : '—') : ''
+                                }
                                 loading={loading && !data}
                             />
                         </div>
 
                         {/* Wind direction arrow row */}
-                        {data && !loading && (
+                        {data && !loading && data.windDirectionDeg != null && (
                             <div className="flex items-center gap-1.5 mt-1 mb-1 px-0.5">
                                 <WindArrow deg={data.windDirectionDeg} />
                                 <span className="text-[11px] text-white/50 font-medium">

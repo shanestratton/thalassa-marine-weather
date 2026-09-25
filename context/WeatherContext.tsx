@@ -942,7 +942,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                         airTemperature: null,
                         waterTemperature: null,
                         condition: 'Loading...',
-                        uvIndex: 0,
+                        uvIndex: null,
                         visibility: null,
                         humidity: null,
                         pressure: null,

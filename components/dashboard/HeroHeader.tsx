@@ -89,7 +89,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     // conditionCategory memo were removed during the 2026-05 visual
     // uplift — neither was rendered (the condition string itself is
     // shown as text, no icon overlay). Kept the text-only display.
-    const displayCondition = data.condition || 'Cloudy';
+    // '' is the producers' sentinel for an unknown condition; never invent 'Cloudy'.
+    const displayCondition = data.condition || '--';
 
     // ── PINNED METRIC STATE ──────────────────────────────────────────
     // When `heroMetric` !== 'temp', the LEFT partition renders the pinned
@@ -270,11 +271,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         <CoachMark
                             seenKey="thalassa_hero_pin_coach_v1"
                             visibleWhen={heroMetric === 'temp'}
-                            anchor="bottom-right"
-                            arrow="up"
+                            anchor="top-right"
+                            arrow="left"
                             message="Tap to pin any metric here"
                             initialDelayMs={1500}
                             ttlMs={6000}
+                            className="translate-x-[calc(100%+8px)] translate-y-1 whitespace-nowrap"
                         />
                     )}
                 </div>

@@ -317,7 +317,8 @@ const doFetchOpenMeteo = async (
         95: 'Thunderstorm',
         96: 'Thunderstorm with Hail',
     };
-    const getWmo = (code: number) => wmoMap[code] || 'Cloudy';
+    // null/undefined code (the model lacks the variable) → '' (rendered '--'); an unmapped NUMBER still reads 'Cloudy'.
+    const getWmo = (code: number | null | undefined) => (code == null ? '' : wmoMap[code] || 'Cloudy');
 
     // Build Current
     const cur = wData.current;
@@ -355,7 +356,9 @@ const doFetchOpenMeteo = async (
     // Legacy code (implicit): likely used 0.54.
     const kFactor = 0.539957;
 
-    const waveH = (curWave.wave_height || 0) * 3.28084; // m to ft
+    // null, not 0, when the marine grid has nothing here (UX scorecard: 'WAVE 0 m' with a red arrow).
+    const waveM = num(curWave.wave_height);
+    const waveH = waveM === null ? null : waveM * 3.28084; // m to ft
 
     // km/h → knots, null-safe. Not every model publishes every wind field:
     // ECMWF AIFS and JMA GSM have NO wind_gusts_10m at all (absent from the
@@ -372,11 +375,12 @@ const doFetchOpenMeteo = async (
         windGust: kn(cur.wind_gusts_10m),
         windDirection: degreesToCardinal(cur.wind_direction_10m),
         windDegree: cur.wind_direction_10m,
-        waveHeight: parseFloat(waveH.toFixed(1)),
-        swellPeriod: curWave.wave_period || 0,
-        swellDirection: degreesToCardinal(curWave.wave_direction || 0),
+        waveHeight: waveH === null ? null : parseFloat(waveH.toFixed(1)),
+        swellPeriod: num(curWave.wave_period),
+        // undefined (not null, not '--') so the SWELL label and the direction arrow stay off.
+        swellDirection: curWave.wave_direction != null ? degreesToCardinal(curWave.wave_direction) : undefined,
         airTemperature: cur.temperature_2m,
-        waterTemperature: 0, // OM Marine doesn't give water temp easily in basic tier? actually 'hourly' has it in marine? No.
+        waterTemperature: null, // OM Marine does not supply it here; StormGlass fills it when present.
         pressure: cur.pressure_msl,
         cloudCover: cur.cloud_cover,
         visibility: curVis === null ? null : parseFloat((curVis / 1000).toFixed(1)), // m to km
@@ -403,8 +407,8 @@ const doFetchOpenMeteo = async (
         moonPhaseValue: 0,
         moonrise: undefined as string | undefined,
         moonset: undefined as string | undefined,
-        currentSpeed: 0,
-        currentDirection: 0,
+        currentSpeed: null,
+        currentDirection: undefined,
         highTemp: undefined as number | undefined,
         lowTemp: undefined as number | undefined,
         cape: curCAPE,
@@ -453,13 +457,10 @@ const doFetchOpenMeteo = async (
             // SunCalc-computed — no API dependency, works fully offline
             sunrise: solar.sunrise,
             sunset: solar.sunset,
-            pressure: 1013, // Daily pressure avg not easily available
-            cloudCover: 50,
+            // No invented daily pressure/cloud/humidity/visibility: the cells render '--' for undefined.
             isEstimated: false,
-            humidity: 80,
-            visibility: 10,
-            windDirection: degreesToCardinal(dailyArr.wind_direction_10m_dominant?.[i] ?? 0),
-            windDegree: dailyArr.wind_direction_10m_dominant?.[i] ?? 0,
+            windDirection: degreesToCardinal(dailyArr.wind_direction_10m_dominant?.[i]),
+            windDegree: dailyArr.wind_direction_10m_dominant?.[i] ?? undefined,
             precipLabel: '',
             precipValue: '',
         };
@@ -493,8 +494,8 @@ const doFetchOpenMeteo = async (
         time: t,
         windSpeed: kn(hourlyArr.wind_speed_10m?.[i]),
         windGust: kn(hourlyArr.wind_gusts_10m?.[i]),
-        windDirection: degreesToCardinal(hourlyArr.wind_direction_10m?.[i] ?? 0),
-        windDegree: hourlyArr.wind_direction_10m?.[i] ?? 0,
+        windDirection: degreesToCardinal(hourlyArr.wind_direction_10m?.[i]),
+        windDegree: hourlyArr.wind_direction_10m?.[i] ?? undefined,
         waveHeight: ((): number | null => {
             const raw = waveData?.hourly?.wave_height?.[i];
             if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
@@ -517,9 +518,9 @@ const doFetchOpenMeteo = async (
         visibility: num(hourlyArr.visibility?.[i]) === null ? null : num(hourlyArr.visibility?.[i])! / 1000, // m to km
         humidity: hourlyArr.relative_humidity_2m[i],
         isEstimated: false,
-        currentSpeed: 0,
-        currentDirection: 0,
-        waterTemperature: 0,
+        currentSpeed: null,
+        currentDirection: undefined,
+        waterTemperature: null,
         uvIndex: num(hourlyArr.uv_index?.[i]),
         cape: num(hourlyArr.cape?.[i]),
         dewPoint: hourlyArr.dew_point_2m?.[i] ?? null,

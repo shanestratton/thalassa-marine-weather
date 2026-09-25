@@ -204,7 +204,8 @@ const InstrumentCell: React.FC<{
                 >
                     {label}
                 </span>
-                <TrendArrow trend={trend} improving={improving} />
+                {/* No arrow beside a missing value: compare() reports 'stable' for null. */}
+                <TrendArrow trend={value === '--' ? undefined : trend} improving={improving} />
             </div>
 
             {/* Value */}
