@@ -175,15 +175,15 @@ export interface ForecastDay {
      *  UIs should render "—" for null, never coerce to 0. */
     waveHeight: number | null;
     condition: string;
-    precipitation?: number;
+    precipitation?: number | null;
     precipChance?: number;
     cloudCover?: number;
-    pressure?: number;
+    pressure?: number | null;
     uvIndex?: number | null;
     sunrise?: string;
     sunset?: string;
     tideSummary?: string;
-    swellPeriod?: number;
+    swellPeriod?: number | null;
     isEstimated?: boolean;
     humidity?: number;
     visibility?: number;
@@ -212,7 +212,7 @@ export interface HourlyForecast {
     cloudCover?: number | null;
     tideHeight?: number | null;
     uvIndex?: number | null;
-    pressure?: number;
+    pressure?: number | null;
     humidity?: number | null;
     visibility?: number | null;
     currentSpeed?: number | null;

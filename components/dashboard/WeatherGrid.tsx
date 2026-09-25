@@ -331,7 +331,9 @@ export const DetailedMetricsWidget = ({
     // Metric Calculations
     const rawVis = convertDistance(current.visibility, units.visibility || 'mi');
     const vis = rawVis !== '--' ? Math.round(parseFloat(rawVis)).toString() : '--';
-    const precipValue = convertPrecip(current.precipitation, units.temp);
+    // null = the source had no precipitation value ('--'); 0 is a genuine dry reading ('0').
+    const precipValue =
+        current.precipitation == null ? '--' : (convertPrecip(current.precipitation, units.temp) ?? '0');
 
     // Condition Score Logic
     const score = calculateDailyScore(current.windSpeed || 0, current.waveHeight || 0, settings.vessel);
@@ -450,8 +452,8 @@ export const DetailedMetricsWidget = ({
             return (
                 <DetailTile
                     label="Precipitation"
-                    value={precipValue || '0'}
-                    unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
+                    value={precipValue}
+                    unit={precipValue === '0' ? (units.length === 'ft' ? 'in' : 'mm') : ''}
                     colorClass="text-sky-300"
                     icon={<RainIcon className="w-4 h-4" />}
                     subContent={

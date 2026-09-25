@@ -116,6 +116,7 @@ export function computeCardDisplayValues(
             if (!isHourly && index === 0) {
                 // convertPrecip keys inches on the TEMPERATURE unit; units.length never says 'F', so
                 // Fahrenheit users saw millimetres under an 'in' label (audit 2026-09-02).
+                if (cardData.precipitation == null) return '--';
                 return convertPrecip(cardData.precipitation, units.temp) ?? '0';
             }
             const chance = cardData.precipChance;
@@ -204,7 +205,7 @@ export interface DailySummary {
     /** Day's general wind direction (deg FROM), circular-mean of the hourly. */
     windDegree?: number;
     waveHeight?: number | null;
-    swellPeriod?: number;
+    swellPeriod?: number | null;
     tideSummary?: string;
     sunrise?: string;
     sunset?: string;
@@ -229,7 +230,7 @@ export interface HeroDailyForecast {
     /** Null where the model publishes no gust field (AIFS, JMA GSM). */
     windGust?: number | null;
     waveHeight?: number | null;
-    swellPeriod?: number;
+    swellPeriod?: number | null;
     tideSummary?: string;
 }
 
@@ -518,7 +519,7 @@ export function buildSlides(
             windSpeed: rowData.windSpeed,
             windGust: rowData.windGust,
             waveHeight: rowData.waveHeight,
-            swellPeriod: rowData.swellPeriod ?? undefined,
+            swellPeriod: rowData.swellPeriod,
             sunrise: rowData.sunrise,
             sunset: rowData.sunset,
             precipChance: rowData.precipChance,

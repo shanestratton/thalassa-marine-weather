@@ -144,8 +144,8 @@ export interface ModelForecastPoint {
     windSpeed: number; // kts
     windDirection: number; // degrees
     windGust: number; // kts
-    waveHeight: number; // metres
-    pressure: number; // hPa
+    waveHeight: number | null; // metres — null when the model has no wave coverage here
+    pressure: number | null; // hPa — null when the model did not supply it
 }
 
 export interface ModelForecast {
@@ -163,9 +163,9 @@ export interface WaypointComparison {
         windSpeedSpread: number; // max - min across models
         windDirectionMean: number;
         windDirectionSpread: number;
-        waveHeightMean: number;
-        waveHeightSpread: number;
-        pressureMean: number;
+        waveHeightMean: number | null;
+        waveHeightSpread: number | null;
+        pressureMean: number | null;
         confidence: 'high' | 'medium' | 'low';
     };
 }
@@ -334,8 +334,8 @@ async function fetchModelForecast(
                 windSpeed: Math.round(((hourly.wind_speed_10m?.[h] ?? 0) / 1.852) * 10) / 10, // km/h → kts
                 windDirection: hourly.wind_direction_10m?.[h] ?? 0,
                 windGust: Math.round(((hourly.wind_gusts_10m?.[h] ?? 0) / 1.852) * 10) / 10,
-                waveHeight: waveHourly?.wave_height?.[h] ?? 0,
-                pressure: hourly.pressure_msl?.[h] ?? 1013,
+                waveHeight: waveHourly?.wave_height?.[h] ?? null,
+                pressure: hourly.pressure_msl?.[h] ?? null,
             }));
 
             allPoints.push(points);
@@ -376,8 +376,9 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
         if (!pt) continue;
         windSpeeds.push(pt.windSpeed);
         windDirs.push(pt.windDirection);
-        waveHeights.push(pt.waveHeight);
-        pressures.push(pt.pressure);
+        // A model with no wave coverage or no pressure here must not drag the mean toward 0.
+        if (pt.waveHeight != null) waveHeights.push(pt.waveHeight);
+        if (pt.pressure != null) pressures.push(pt.pressure);
     }
 
     const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
@@ -413,9 +414,9 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
         windSpeedSpread: Math.round(wSpread * 10) / 10,
         windDirectionMean: Math.round(meanDir),
         windDirectionSpread: Math.round(maxDirDiff),
-        waveHeightMean: Math.round(mean(waveHeights) * 10) / 10,
-        waveHeightSpread: Math.round(spread(waveHeights) * 10) / 10,
-        pressureMean: Math.round(mean(pressures)),
+        waveHeightMean: waveHeights.length ? Math.round(mean(waveHeights) * 10) / 10 : null,
+        waveHeightSpread: waveHeights.length ? Math.round(spread(waveHeights) * 10) / 10 : null,
+        pressureMean: pressures.length ? Math.round(mean(pressures)) : null,
         confidence,
     };
 }

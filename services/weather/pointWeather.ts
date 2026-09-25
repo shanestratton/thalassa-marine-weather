@@ -25,9 +25,9 @@ export interface PointWeatherData {
     marineStatus: 'available' | 'land' | 'unavailable' | 'pending';
     // Atmospheric
     windSpeedKmh: number;
-    windDirectionDeg: number;
+    windDirectionDeg: number | null;
     windGustsKmh: number;
-    pressureMsl: number;
+    pressureMsl: number | null;
     temperatureC: number;
     humidity: number;
     cloudCover: number;
@@ -179,9 +179,9 @@ function shape(lat: number, lon: number, wx: AtmoData, sea: MarineData | null): 
 
 interface AtmoData {
     windSpeedKmh: number;
-    windDirectionDeg: number;
+    windDirectionDeg: number | null;
     windGustsKmh: number;
-    pressureMsl: number;
+    pressureMsl: number | null;
     temperatureC: number;
     humidity: number;
     cloudCover: number;
@@ -201,9 +201,9 @@ async function fetchForecastPoint(lat: string, lon: string): Promise<AtmoData | 
 
     return {
         windSpeedKmh: c.wind_speed_10m ?? 0,
-        windDirectionDeg: c.wind_direction_10m ?? 0,
+        windDirectionDeg: c.wind_direction_10m ?? null,
         windGustsKmh: c.wind_gusts_10m ?? 0,
-        pressureMsl: c.pressure_msl ?? 1013.25,
+        pressureMsl: c.pressure_msl ?? null,
         temperatureC: c.temperature_2m ?? 0,
         humidity: c.relative_humidity_2m ?? 0,
         cloudCover: c.cloud_cover ?? 0,
@@ -213,12 +213,12 @@ async function fetchForecastPoint(lat: string, lon: string): Promise<AtmoData | 
 // ── Marine (waves/swell) ────────────────────────────────────────
 
 interface MarineData {
-    waveHeightM: number;
-    wavePeriodS: number;
-    waveDirectionDeg: number;
-    swellHeightM: number;
-    swellPeriodS: number;
-    swellDirectionDeg: number;
+    waveHeightM: number | null;
+    wavePeriodS: number | null;
+    waveDirectionDeg: number | null;
+    swellHeightM: number | null;
+    swellPeriodS: number | null;
+    swellDirectionDeg: number | null;
 }
 
 async function fetchMarinePoint(lat: string, lon: string): Promise<MarineData | null> {
@@ -236,11 +236,11 @@ async function fetchMarinePoint(lat: string, lon: string): Promise<MarineData | 
     if (c.wave_height == null && c.swell_wave_height == null) return null;
 
     return {
-        waveHeightM: c.wave_height ?? 0,
-        wavePeriodS: c.wave_period ?? 0,
-        waveDirectionDeg: c.wave_direction ?? 0,
-        swellHeightM: c.swell_wave_height ?? 0,
-        swellPeriodS: c.swell_wave_period ?? 0,
-        swellDirectionDeg: c.swell_wave_direction ?? 0,
+        waveHeightM: c.wave_height ?? null,
+        wavePeriodS: c.wave_period ?? null,
+        waveDirectionDeg: c.wave_direction ?? null,
+        swellHeightM: c.swell_wave_height ?? null,
+        swellPeriodS: c.swell_wave_period ?? null,
+        swellDirectionDeg: c.swell_wave_direction ?? null,
     };
 }

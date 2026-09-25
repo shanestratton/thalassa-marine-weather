@@ -106,9 +106,13 @@ export const checkIsDay = (now: Date, lat: number, lon: number): boolean => {
     return nowTs >= sun.sunrise.getTime() && nowTs < sun.sunset.getTime();
 };
 
-export const getCondition = (cloudCover: number, precip: number, isDay: boolean): string => {
-    if (precip > 5) return 'Rain';
-    if (precip > 0.5) return 'Light Rain';
+export const getCondition = (cloudCover: number | null, precip: number | null, isDay: boolean): string => {
+    // Neither cloud nor precipitation from the source: '' is the sentinel the Glass renders as '--'.
+    if (cloudCover == null && precip == null) return '';
+    if (precip != null && precip > 5) return 'Rain';
+    if (precip != null && precip > 0.5) return 'Light Rain';
+    // Precipitation known but cloud cover not: the sky word cannot be inferred.
+    if (cloudCover == null) return '';
     if (cloudCover > 90) return 'Overcast';
     if (cloudCover > 50) return 'Cloudy';
     if (cloudCover > 20) return isDay ? 'Clouds' : 'Clouds';
@@ -267,9 +271,9 @@ export const mapStormGlassToReport = (
     // StormGlassHour keys are string | number | StormGlassValue...
     const wSpeed = (getVal(currentHour.windSpeed as MultiSourceField) ?? 0) * 1.94384;
     const wGust = (getVal(currentHour.gust as MultiSourceField) ?? 0) * 1.94384;
-    const wDir = getVal(currentHour.windDirection as MultiSourceField) ?? 0;
+    const wDir = getVal(currentHour.windDirection as MultiSourceField);
     const temp = getVal(currentHour.airTemperature as MultiSourceField) ?? 0;
-    const pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
+    const pressure = getVal(currentHour.pressure as MultiSourceField);
 
     const vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
     const dew = getVal(currentHour.dewPointTemperature as MultiSourceField); // Dewpoint from StormGlass API
@@ -289,12 +293,12 @@ export const mapStormGlassToReport = (
     const sSet = sunTimes ? fmtTime(sunTimes.sunset) : '18:00';
 
     const rawUV = currentHour.uvIndex as MultiSourceField;
-    const curUV = getVal(rawUV) ?? 0;
+    const curUV = getVal(rawUV);
 
     const cIsDay = checkIsDay(now, lat, lon);
     const finalCondition = getCondition(
-        getVal(currentHour.cloudCover as MultiSourceField) ?? 0,
-        getVal(currentHour.precipitation as MultiSourceField) ?? 0,
+        getVal(currentHour.cloudCover as MultiSourceField),
+        getVal(currentHour.precipitation as MultiSourceField),
         cIsDay,
     );
 
@@ -305,10 +309,13 @@ export const mapStormGlassToReport = (
         windSpeed: parseFloat(wSpeed.toFixed(1)),
         windGust: parseFloat(wGust.toFixed(1)),
         windDirection: degreesToCardinal(wDir),
-        windDegree: wDir,
+        windDegree: wDir ?? undefined,
         waveHeight: scale1(getVal(currentHour.waveHeight as MultiSourceField), 3.28084),
         swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField),
-        swellDirection: degreesToCardinal(getVal(currentHour.waveDirection as MultiSourceField) ?? 0),
+        swellDirection: (() => {
+            const d = getVal(currentHour.waveDirection as MultiSourceField);
+            return d != null ? degreesToCardinal(d) : undefined;
+        })(),
         secondarySwellHeight: (() => {
             const v = getVal(currentHour.secondarySwellHeight as MultiSourceField);
             return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
@@ -321,7 +328,7 @@ export const mapStormGlassToReport = (
         visibility: vis,
         dewPoint: dew,
         fogRisk: fogRisk,
-        precipitation: getVal(currentHour.precipitation as MultiSourceField) ?? 0,
+        precipitation: getVal(currentHour.precipitation as MultiSourceField),
         humidity: hum,
         uvIndex: curUV,
         condition: finalCondition,
@@ -351,20 +358,20 @@ export const mapStormGlassToReport = (
             // We invert by +180 degrees.
             return (val + 180) % 360;
         })(),
-        precipLabel: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).label,
-        precipValue: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).value,
+        precipLabel: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField)).label,
+        precipValue: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField)).value,
     };
 
     // 2. Map Hourly
     const hourlyStr: HourlyForecast[] = hours.map((h, _i) => {
         coverage.hourly[h.time] = providedKeys([h]);
         const windKts = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
-        const windDeg = getVal(h.windDirection as MultiSourceField) ?? 0;
+        const windDeg = getVal(h.windDirection as MultiSourceField);
         return {
             time: h.time,
             windSpeed: windKts,
             windDirection: degreesToCardinal(windDeg),
-            windDegree: windDeg,
+            windDegree: windDeg ?? undefined,
             currentSpeed: scale1(getVal(h.currentSpeed as MultiSourceField), 1.94384),
             currentDirection: (() => {
                 const val = getVal(h.currentDirection as MultiSourceField);
@@ -377,12 +384,12 @@ export const mapStormGlassToReport = (
             windGust: (getVal(h.gust as MultiSourceField) ?? 0) * 1.94384,
             waveHeight: scale(getVal(h.waveHeight as MultiSourceField), 3.28084),
             temperature: getVal(h.airTemperature as MultiSourceField) ?? 0,
-            pressure: getVal(h.pressure as MultiSourceField) ?? 0,
-            precipitation: getVal(h.precipitation as MultiSourceField) ?? 0,
+            pressure: getVal(h.pressure as MultiSourceField),
+            precipitation: getVal(h.precipitation as MultiSourceField),
             cloudCover: getVal(h.cloudCover as MultiSourceField) ?? 0,
             condition: getCondition(
-                getVal(h.cloudCover as MultiSourceField) ?? 0,
-                getVal(h.precipitation as MultiSourceField) ?? 0,
+                getVal(h.cloudCover as MultiSourceField),
+                getVal(h.precipitation as MultiSourceField),
                 checkIsDay(new Date(h.time), lat, lon),
             ),
             isEstimated: false,
@@ -396,7 +403,7 @@ export const mapStormGlassToReport = (
             tideHeight: 0,
             uvIndex: (() => {
                 const uvField = h.uvIndex as MultiSourceField;
-                return getVal(uvField) ?? 0;
+                return getVal(uvField);
             })(),
             feelsLike: calculateFeelsLike(
                 getVal(h.airTemperature as MultiSourceField) ?? 0,
@@ -447,7 +454,8 @@ export const mapStormGlassToReport = (
             let _windDirVectorX = 0,
                 _windDirVectorY = 0,
                 _windDirCount = 0;
-            let maxUV = 0;
+            let maxUV: number | null = null;
+            let precipCount = 0;
 
             dayHours.forEach((h) => {
                 const t = getVal(h.airTemperature as MultiSourceField);
@@ -474,7 +482,11 @@ export const mapStormGlassToReport = (
                     if (wh > maxWave) maxWave = wh;
                 }
 
-                totalPrecip += getVal(h.precipitation as MultiSourceField) ?? 0;
+                const hPrecip = getVal(h.precipitation as MultiSourceField);
+                if (hPrecip != null) {
+                    totalPrecip += hPrecip;
+                    precipCount++;
+                }
                 totalCloud += getVal(h.cloudCover as MultiSourceField) ?? 0;
                 totalPress += getVal(h.pressure as MultiSourceField) ?? 0;
                 totalHum += getVal(h.humidity as MultiSourceField) ?? 0;
@@ -500,11 +512,11 @@ export const mapStormGlassToReport = (
                     currentDirCount++;
                 }
 
-                const hUV = getVal(h.uvIndex as MultiSourceField) ?? 0;
-                if (hUV > maxUV) maxUV = hUV;
+                const hUV = getVal(h.uvIndex as MultiSourceField);
+                if (hUV != null && (maxUV == null || hUV > maxUV)) maxUV = hUV;
             });
 
-            if (maxUV < 1.0 && dailyUV && dailyUV.time && dailyUV.uv_index_max) {
+            if ((maxUV == null || maxUV < 1.0) && dailyUV && dailyUV.time && dailyUV.uv_index_max) {
                 // Typed check for dailyUV
                 const uvIdx = dailyUV.time.findIndex((t: string) => t.startsWith(dayIso));
                 if (uvIdx !== -1 && dailyUV.uv_index_max[uvIdx]) {
@@ -514,6 +526,7 @@ export const mapStormGlassToReport = (
 
             const count = (field: string) =>
                 dayHours.filter((h) => select(h[field] as MultiSourceField) !== null).length || 1;
+            const pressCount = dayHours.filter((h) => select(h.pressure as MultiSourceField) !== null).length;
             const avgCloud = totalCloud / count('cloudCover');
 
             const spl = dayIso.split('-');
@@ -539,12 +552,12 @@ export const mapStormGlassToReport = (
                 windSpeed: parseFloat(maxWind.toFixed(1)),
                 windGust: parseFloat(maxGust.toFixed(1)),
                 waveHeight: waveCount > 0 ? parseFloat(maxWave.toFixed(1)) : null,
-                condition: getCondition(avgCloud, totalPrecip, true),
-                precipitation: parseFloat(totalPrecip.toFixed(1)),
+                condition: getCondition(avgCloud, precipCount > 0 ? totalPrecip : null, true),
+                precipitation: precipCount > 0 ? parseFloat(totalPrecip.toFixed(1)) : undefined,
                 uvIndex: maxUV,
                 sunrise: sunTimesDay ? formatTimeInZone(sunTimesDay.sunrise, tz) : '06:00',
                 sunset: sunTimesDay ? formatTimeInZone(sunTimesDay.sunset, tz) : '18:00',
-                pressure: parseFloat((totalPress / count('pressure')).toFixed(1)),
+                pressure: pressCount > 0 ? parseFloat((totalPress / count('pressure')).toFixed(1)) : undefined,
                 cloudCover: Math.round(avgCloud),
                 isEstimated: false,
                 humidity: Math.round(totalHum / count('humidity')),
@@ -556,8 +569,8 @@ export const mapStormGlassToReport = (
                 // Both read as absent at every consumer, which checks `!= null`.
                 currentSpeed: currentSpeedCount > 0 ? parseFloat(maxCurrentSpeed.toFixed(1)) : undefined,
                 currentDirection: Math.round(avgCurrentDir),
-                precipLabel: getPrecipitationLabelV2(null, totalPrecip).label,
-                precipValue: getPrecipitationLabelV2(null, totalPrecip).value,
+                precipLabel: getPrecipitationLabelV2(null, precipCount > 0 ? totalPrecip : null).label,
+                precipValue: getPrecipitationLabelV2(null, precipCount > 0 ? totalPrecip : null).value,
             });
         }
     });

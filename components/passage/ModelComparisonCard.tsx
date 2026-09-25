@@ -81,7 +81,8 @@ const windTextColor = (kts: number): string => {
     return 'text-red-300';
 };
 
-const waveHeatColor = (m: number): string => {
+const waveHeatColor = (m: number | null): string => {
+    if (m == null) return 'bg-white/10'; // no wave data for this model here
     if (m < 0.5) return 'bg-sky-900/40';
     if (m < 1.0) return 'bg-sky-600/40';
     if (m < 1.5) return 'bg-emerald-500/40';
@@ -105,7 +106,7 @@ const Sparkline: React.FC<{
     const path = sampled
         .map((pt, i) => {
             const x = (i / (sampled.length - 1)) * width;
-            const y = height - (pt[metric] / (maxVal || 1)) * (height - 4);
+            const y = height - ((pt[metric] ?? 0) / (maxVal || 1)) * (height - 4);
             return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
         })
         .join(' ');
@@ -174,7 +175,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
         data.waypoints.forEach((wp) =>
             wp.forecasts.forEach((f) =>
                 f.points.forEach((p) => {
-                    if (p.waveHeight > max) max = p.waveHeight;
+                    if (p.waveHeight != null && p.waveHeight > max) max = p.waveHeight;
                 }),
             ),
         );
@@ -308,18 +309,22 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                             <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                 Waves
                             </div>
-                            <div className="text-sm font-bold text-white">{wpData.consensus.waveHeightMean}m</div>
+                            <div className="text-sm font-bold text-white">
+                                {wpData.consensus.waveHeightMean != null ? `${wpData.consensus.waveHeightMean}m` : '--'}
+                            </div>
                             <div
-                                className={`text-[11px] font-mono ${wpData.consensus.waveHeightSpread > 1 ? 'text-amber-400' : 'text-emerald-400'}`}
+                                className={`text-[11px] font-mono ${(wpData.consensus.waveHeightSpread ?? 0) > 1 ? 'text-amber-400' : 'text-emerald-400'}`}
                             >
-                                ±{wpData.consensus.waveHeightSpread}m
+                                {wpData.consensus.waveHeightSpread != null
+                                    ? `±${wpData.consensus.waveHeightSpread}m`
+                                    : '--'}
                             </div>
                         </div>
                         <div className="text-center">
                             <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                 Pres
                             </div>
-                            <div className="text-sm font-bold text-white">{wpData.consensus.pressureMean}</div>
+                            <div className="text-sm font-bold text-white">{wpData.consensus.pressureMean ?? '--'}</div>
                             <div className="text-[11px] font-mono text-gray-400">hPa</div>
                         </div>
                     </div>
@@ -357,7 +362,9 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                                 <DirArrow deg={sample24.windDirection} size={10} />
                                                 {sample24.windDirection}°
                                             </span>
-                                            <span className="text-sky-300">{sample24.waveHeight}m</span>
+                                            <span className="text-sky-300">
+                                                {sample24.waveHeight != null ? `${sample24.waveHeight}m` : '--'}
+                                            </span>
                                         </div>
                                     </div>
 
@@ -367,7 +374,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                             <div
                                                 key={hIdx}
                                                 className={`flex-1 h-5 ${windHeatColor(hp.windSpeed)} flex items-center justify-center transition-all hover:scale-y-[1.4] hover:z-10 relative group cursor-default`}
-                                                title={`+${hIdx * 6}h: ${hp.windSpeed}kt ${hp.windDirection}° | ${hp.waveHeight}m`}
+                                                title={`+${hIdx * 6}h: ${hp.windSpeed}kt ${hp.windDirection}° | ${hp.waveHeight != null ? `${hp.waveHeight}m` : '--'}`}
                                             >
                                                 <span className="text-[11px] font-mono text-white/60 group-hover:text-white/90 transition-colors">
                                                     {Math.round(hp.windSpeed)}
@@ -382,10 +389,10 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                             <div
                                                 key={hIdx}
                                                 className={`flex-1 h-3 ${waveHeatColor(hp.waveHeight)} flex items-center justify-center transition-all hover:scale-y-[1.5] hover:z-10 relative group cursor-default`}
-                                                title={`+${hIdx * 6}h: ${hp.waveHeight}m waves`}
+                                                title={`+${hIdx * 6}h: ${hp.waveHeight != null ? `${hp.waveHeight}m waves` : 'no wave data'}`}
                                             >
                                                 <span className="text-[10px] font-mono text-white/70 group-hover:text-white transition-colors">
-                                                    {hp.waveHeight.toFixed(1)}
+                                                    {hp.waveHeight != null ? hp.waveHeight.toFixed(1) : '--'}
                                                 </span>
                                             </div>
                                         ))}

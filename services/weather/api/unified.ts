@@ -73,9 +73,9 @@ interface StandardHourly {
     time: string;
     temperature: number;
     windSpeed: number;
-    windDirection: number;
+    windDirection: number | null;
     windGust: number | null;
-    precipitation: number;
+    precipitation: number | null;
     precipProbability: number;
     condition: string;
     pressure: number | null;
@@ -93,7 +93,7 @@ interface StandardDaily {
     windSpeedMax: number;
     windGustMax: number | null;
     condition: string;
-    precipSum: number;
+    precipSum: number | null;
     precipProbability: number | null;
     sunrise: string;
     sunset: string;
@@ -122,7 +122,7 @@ let cached: { data: StandardWeatherResponse; fetchedAt: number; key: string } | 
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
 function degreesToCompass(deg: number | null): string {
-    if (deg == null) return 'N/A';
+    if (deg == null) return '--';
     return COMPASS[Math.round(deg / 22.5) % 16];
 }
 
@@ -229,9 +229,9 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
         time: h.forecastStart || '',
         temperature: h.temperature ?? 0,
         windSpeed: typeof h.windSpeed === 'number' ? h.windSpeed / 1.852 : 0,
-        windDirection: h.windDirection ?? 0,
+        windDirection: h.windDirection ?? null,
         windGust: typeof h.windGust === 'number' ? h.windGust / 1.852 : null,
-        precipitation: h.precipitationAmount ?? 0,
+        precipitation: h.precipitationAmount ?? null,
         // WeatherKit returns these as 0-1 fractions; multiply by 100 for
         // percent and ROUND so the UI doesn't render `79.83333333333333%`.
         // The current-weather mapper at line 206 was already rounding —
@@ -261,7 +261,7 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
         // (today's gust comes from live current.windGust, not the daily forecast).
         windGustMax: typeof d.windGustSpeedMax === 'number' ? d.windGustSpeedMax / 1.852 : null,
         condition: d.conditionCode || 'Unknown',
-        precipSum: d.precipitationAmount ?? 0,
+        precipSum: d.precipitationAmount ?? null,
         precipProbability: typeof d.precipitationChance === 'number' ? d.precipitationChance * 100 : null,
         sunrise: d.sunrise || '',
         sunset: d.sunset || '',
@@ -484,7 +484,7 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         precipitation: c.precipitation,
         visibility: c.visibility,
         humidity: c.humidity,
-        uvIndex: c.uvIndex ?? 0,
+        uvIndex: c.uvIndex ?? null,
         pressure: c.pressure,
         feelsLike: c.feelsLike,
         isDay: c.isDay ?? undefined,
@@ -503,8 +503,8 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         windSpeed: h.windSpeed,
         windGust: h.windGust,
         windDirection: degreesToCompass(h.windDirection),
-        windDegree: h.windDirection,
-        waveHeight: 0, // Filled by StormGlass
+        windDegree: h.windDirection ?? undefined,
+        waveHeight: null, // StormGlass fills it when it has coverage; null renders '--'
         temperature: h.temperature,
         condition: h.condition,
         precipitation: h.precipitation,
@@ -526,7 +526,7 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         lowTemp: d.tempMin,
         windSpeed: d.windSpeedMax,
         windGust: d.windGustMax ?? undefined,
-        waveHeight: 0, // Filled by StormGlass
+        waveHeight: null, // StormGlass fills it when it has coverage; null renders '--'
         condition: d.condition,
         precipitation: d.precipSum,
         precipChance: d.precipProbability ?? undefined,
