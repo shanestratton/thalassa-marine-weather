@@ -40,9 +40,16 @@ interface PolarManagerTabProps {
     };
     onSave?: (patch: Record<string, unknown>) => void;
     onNavigateToNmea?: () => void;
+    /** Opens Settings so the skipper can pick a yacht under Vessel Profile. */
+    onOpenVesselProfile?: () => void;
 }
 
-export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSave, onNavigateToNmea }) => {
+export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
+    settings,
+    onSave,
+    onNavigateToNmea,
+    onOpenVesselProfile,
+}) => {
     const [activeTab, setActiveTab] = useState<InputTab>('import');
     const [polarData, setPolarData] = useState<PolarData>(settings?.polarData || createEmptyPolar());
     const [boatModel, setBoatModel] = useState(settings?.polarBoatModel || '');
@@ -218,7 +225,18 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                         {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
                         {!boatModel && (
                             <span className="text-xs text-gray-400">
-                                No yacht selected — choose one in Settings → Vessel Profile
+                                No yacht selected —{' '}
+                                {onOpenVesselProfile ? (
+                                    <button
+                                        type="button"
+                                        onClick={onOpenVesselProfile}
+                                        className="inline-flex min-h-11 items-center font-bold text-sky-300 underline underline-offset-2"
+                                    >
+                                        choose one in Settings → Vessel Profile
+                                    </button>
+                                ) : (
+                                    'choose one in Settings → Vessel Profile'
+                                )}
                             </span>
                         )}
                     </div>

@@ -8,6 +8,8 @@ import { useUI } from '../context/UIContext';
 
 interface WarningDetailsProps {
     alerts: string[];
+    /** ISO time the weather report was generated — 'none issued' and 'not checked' must not look the same. */
+    checkedAt?: string;
 }
 
 // Critical warnings that CANNOT be dismissed (life/vessel safety)
@@ -24,7 +26,13 @@ const CRITICAL_PATTERNS = [
 ];
 const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
 
-export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
+export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedAt }) => {
+    const checkedLabel = (() => {
+        if (!checkedAt) return null;
+        const d = new Date(checkedAt);
+        if (Number.isNaN(d.getTime())) return null;
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    })();
     const { setPage } = useUI();
     const [dismissed, setDismissed] = useState<Set<string>>(() => {
         try {
@@ -140,6 +148,9 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                             <AlertTriangleIcon className="w-12 h-12 text-gray-400" />
                         </div>
                         <p className="text-gray-400 font-medium">No active warnings.</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            {checkedLabel ? `Forecast checked at ${checkedLabel}` : 'Forecast not checked yet'}
+                        </p>
                         {dismissed.size > 0 && (
                             <p className="text-gray-400 text-sm mt-2">
                                 {dismissed.size} warning{dismissed.size > 1 ? 's' : ''} dismissed this session

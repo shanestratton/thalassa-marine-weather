@@ -1317,6 +1317,7 @@ const App: React.FC = () => {
                                                                         ) => void,
                                                                         handleFavoriteSelect,
                                                                         weatherAlerts: weatherData?.alerts || [],
+                                                                        weatherGeneratedAt: weatherData?.generatedAt,
                                                                     };
                                                                     const viewProps =
                                                                         activeViewConfig.getProps?.(viewCtx) ?? {};
