@@ -18,6 +18,7 @@ import {
     CalendarGridIcon,
     DownloadIcon,
     RouteIcon,
+    XIcon,
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
 import { toast } from './Toast';
@@ -138,6 +139,13 @@ export const RoutePlanner: React.FC<{
     // routeGeoJSON). The sheet re-TIMES that polyline — it never re-routes.
     /** Header kebab → centred page-actions modal (Import GPX lives here). */
     const [plannerMenuOpen, setPlannerMenuOpen] = useState(false);
+    // Same discipline as the map and route-picker dialogs: trap focus, land
+    // it on Close, and let Escape dismiss (UX scorecard 2026-09-26).
+    const plannerMenuCloseRef = useRef<HTMLButtonElement>(null);
+    const plannerMenuDialogRef = useFocusTrap(plannerMenuOpen, {
+        initialFocusRef: plannerMenuCloseRef,
+        onEscape: () => setPlannerMenuOpen(false),
+    });
     const [showSweepSheet, setShowSweepSheet] = useState(false);
     const inshoreSweepAvailable =
         (voyagePlan as { __inshoreRouting?: { status?: string } } | null)?.__inshoreRouting?.status === 'success';
@@ -591,12 +599,30 @@ export const RoutePlanner: React.FC<{
                         onClick={() => setPlannerMenuOpen(false)}
                     >
                         <div
+                            ref={plannerMenuDialogRef}
                             role="dialog"
                             aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
-                            aria-label="Route Planner actions"
+                            aria-labelledby="route-planner-actions-title"
                             className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
+                            <div className="flex items-center justify-between pl-3 pr-1">
+                                <h2
+                                    id="route-planner-actions-title"
+                                    className="text-[11px] font-black uppercase tracking-widest text-gray-400"
+                                >
+                                    Route Planner actions
+                                </h2>
+                                <button
+                                    ref={plannerMenuCloseRef}
+                                    type="button"
+                                    onClick={() => setPlannerMenuOpen(false)}
+                                    aria-label="Close"
+                                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+                                >
+                                    <XIcon className="h-5 w-5" />
+                                </button>
+                            </div>
                             <button
                                 type="button"
                                 onClick={() => {

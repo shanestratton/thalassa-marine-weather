@@ -61,11 +61,11 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
     const dismissableCount = activeAlerts.filter((a) => !isCritical(a)).length;
 
     return (
-        <div className="flex flex-col h-full bg-slate-900 text-white animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="flex flex-col h-full bg-slate-950 text-white animate-in fade-in slide-in-from-right-4 duration-300">
             {/* Header — the shared PageHeader (h1 + back), the same chrome as
                 every other sub-page. The triangle is decoration: red while
                 anything is active, quiet once the list is clear. */}
-            <div className="shrink-0 border-b border-white/10 bg-slate-900">
+            <div className="shrink-0 border-b border-white/10 bg-slate-950">
                 <PageHeader
                     title="Active Warnings"
                     onBack={() => setPage('dashboard')}
