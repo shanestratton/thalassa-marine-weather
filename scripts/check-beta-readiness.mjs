@@ -1971,6 +1971,7 @@ check(
 // Safety/privacy contracts.
 const anchor = read('services/AnchorWatchService.ts');
 const anchorUi = read('components/AnchorWatchPage.tsx');
+const shoreWatchReadings = read('components/anchor-watch/ShoreWatchReadings.tsx');
 const anchorSoundCheck = read('components/anchor-watch/SoundCheckModal.tsx');
 const anchorAlarmAudio = read('ios/App/App/AlarmAudioPlugin.swift');
 const anchorSafetyNotifications = read('ios/App/App/AnchorSafetyNotificationPlugin.swift');
@@ -2120,8 +2121,13 @@ check(
         'SHORE_DATA_STALE_MS = 35_000',
         'shoreDataFresh',
         'Vessel data is stale · showing last-known update',
-        'Mute this device only',
-    ]),
+        '<ShoreWatchReadings',
+    ]) &&
+        includesAll(shoreWatchReadings, [
+            "label: fresh ? 'Last Update' : 'Last-Known Update'",
+            "{fresh ? 'from anchor' : 'last-known from anchor'}",
+            'Mute this device only',
+        ]),
 );
 check(
     'Watch Anchor companion age-gates phone state and foreground GPS',
