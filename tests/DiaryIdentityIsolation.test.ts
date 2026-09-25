@@ -184,6 +184,113 @@ beforeEach(() => {
 });
 
 describe('DiaryService auth identity isolation', () => {
+    it('saves an explicit No trip offline without inheriting the active voyage or publishing it', async () => {
+        const account = `no-trip-${testNumber}`;
+        setAuthIdentityScope(account);
+        tracking.resolveActiveBoatId.mockResolvedValue('original-boat');
+        tracking.resolveActiveVoyageId.mockResolvedValue('active-trip');
+        const entry = await DiaryService.createEntry(
+            { title: 'At anchor', body: 'A quiet morning.', mood: 'good', voyage_id: null },
+            {
+                tripContext: {
+                    scope: getAuthIdentityScope(),
+                    boatId: 'original-boat',
+                    originalVoyageId: 'active-trip',
+                },
+            },
+        );
+        expect(entry).toMatchObject({ voyage_id: null, boat_id: 'original-boat', is_public: false });
+        expect(tracking.resolveActiveVoyageId).not.toHaveBeenCalled();
+    });
+
+    it('rejects a frozen compose vessel mismatch before queueing any diary changes', async () => {
+        const account = `trip-vessel-race-${testNumber}`;
+        setAuthIdentityScope(account);
+        tracking.resolveActiveBoatId.mockResolvedValue('new-boat');
+        await expect(
+            DiaryService.createEntry(
+                { title: 'Do not move', body: 'Keep my hull.', mood: 'good', voyage_id: null },
+                {
+                    tripContext: { scope: getAuthIdentityScope(), boatId: 'original-boat', originalVoyageId: null },
+                },
+            ),
+        ).rejects.toThrow('no longer available');
+        expect(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account))).toBeNull();
+    });
+
+    it('edits retain the original vessel and publication when changing to No trip offline', async () => {
+        const account = `trip-edit-${testNumber}`;
+        setAuthIdentityScope(account);
+        const original = {
+            ...makeServerEntry('server-entry', account),
+            boat_id: 'original-boat',
+            voyage_id: 'old-trip',
+            is_public: true,
+        };
+        localStorage.setItem(keyFor('thalassa_diary_entries_v2', account), JSON.stringify([original]));
+        tracking.resolveActiveBoatId.mockResolvedValue('new-boat');
+        const tripContext = {
+            scope: getAuthIdentityScope(),
+            boatId: 'original-boat',
+            originalVoyageId: 'old-trip',
+            entryId: original.id,
+        };
+        expect(
+            await DiaryService.updateEntry(
+                original.id,
+                { voyage_id: null, body: 'Updated aboard the original boat.' },
+                { tripContext },
+            ),
+        ).toMatchObject({ ok: true });
+        expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]')).toMatchObject([
+            { boat_id: 'original-boat', voyage_id: null, is_public: true },
+        ]);
+        expect(tracking.resolveActiveBoatId).not.toHaveBeenCalled();
+    });
+
+    it('does not accept an unvalidated new historical association', async () => {
+        const account = `trip-unvalidated-${testNumber}`;
+        setAuthIdentityScope(account);
+        localStorage.setItem(
+            keyFor('thalassa_diary_entries_v2', account),
+            JSON.stringify([makeServerEntry('server-entry', account)]),
+        );
+        expect(await DiaryService.updateEntry('server-entry', { voyage_id: 'other-trip' })).toEqual({ ok: false });
+        expect(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account))).toBeNull();
+    });
+
+    it('keeps the frozen edit association valid after its offline id reconciles to a server id', async () => {
+        const account = `trip-id-reconcile-${testNumber}`;
+        setAuthIdentityScope(account);
+        const original = {
+            ...makeServerEntry('server-entry', account),
+            boat_id: 'original-boat',
+            voyage_id: 'old-trip',
+            is_public: true,
+        };
+        localStorage.setItem(keyFor('thalassa_diary_entries_v2', account), JSON.stringify([original]));
+        localStorage.setItem(
+            keyFor('thalassa_diary_idmap_v1', account),
+            JSON.stringify([{ offlineId: 'offline-composing', serverId: original.id, owner_user_id: account }]),
+        );
+        const result = await DiaryService.updateEntry(
+            'offline-composing',
+            { voyage_id: null },
+            {
+                tripContext: {
+                    scope: getAuthIdentityScope(),
+                    boatId: 'original-boat',
+                    originalVoyageId: 'old-trip',
+                    entryId: 'offline-composing',
+                },
+            },
+        );
+        expect(result.ok).toBe(true);
+        expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]')).toMatchObject([
+            { id: 'server-entry', voyage_id: null, boat_id: 'original-boat', is_public: true },
+        ]);
+    });
+
     it('shows one entry when cloud polling sees a pending save before its write acknowledgement', async () => {
         const account = `duplicate-race-${testNumber}`;
         setAuthIdentityScope(account);

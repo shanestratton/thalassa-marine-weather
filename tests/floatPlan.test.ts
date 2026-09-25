@@ -335,7 +335,30 @@ describe('USCG-style restructure (2026-08-26)', () => {
         expect(plan).toContain('Look for: hard dodger, wind generator, tan sail covers');
         expect(plan).toContain('Radios: VHF 16 + 67; HF 8291');
         expect(plan).toContain('Sat phone +870 7731 12345');
-        expect(plan).toContain('Fuel 200 L · water 400 L · cruise 6 kn');
+        expect(plan).toContain('Fuel 757 L · water 1514 L · cruise 6 kn');
+    });
+
+    it.each(['generic', 'email', 'whatsapp'] as const)(
+        'restores litre-entered capacities in the %s plan',
+        (channel) => {
+            // Match VesselTab's litre input → stored US gallon conversion.
+            const vessel = { ...SAR_VESSEL, fuelCapacity: 1000 / 3.78541, waterCapacity: 600 / 3.78541 };
+            const text = createFloatPlanSharePayload({ ...sarInput, vessel }, channel).text;
+            expect(text).toContain('Fuel 1000 L');
+            expect(text).toContain('water 600 L');
+            expect(text).not.toContain('Fuel 264 L');
+            expect(vessel.fuelCapacity).toBe(1000 / 3.78541); // display must not rewrite the profile
+        },
+    );
+
+    it.each([undefined, 0, -1, NaN, Infinity])('omits unknown or invalid capacities (%s)', (capacity) => {
+        const plan = composeFloatPlan({
+            ...sarInput,
+            vessel: { ...SAR_VESSEL, fuelCapacity: capacity, waterCapacity: capacity },
+        });
+        expect(plan).not.toContain('Fuel ');
+        expect(plan).not.toContain('water ');
+        expect(plan).toContain('cruise 6 kn');
     });
 
     it('SAFETY & SURVIVAL carries tender and provisions endurance', () => {

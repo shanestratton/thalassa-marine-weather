@@ -48,6 +48,7 @@ import {
     DiaryRelayValidationError,
 } from './diaryRelayOutbox.js';
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
+import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { readLanTelemetry } from './lanTelemetry.js';
 import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
@@ -206,14 +207,23 @@ const telemetryPublisher = new TelemetryPublisher({
 });
 if (process.env.THALASSA_TELEMETRY_PUBLISH !== '0') telemetryPublisher.start();
 
-/* The shore watch, when the skipper hands it to this Pi.
- *
- * Deliberately NOT resumed on boot, unlike the track above. A Pi that has just
- * rebooted cannot vouch for what happened while it was down, and an anchor
- * alarm that silently resumes with a stale idea of where the hook is would be
- * worse than one that is honestly off — so the app re-assigns on its next
- * renew sweep and the watch starts from something current. */
-const anchorWatch = new AnchorWatchRunner({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+/* Recover only a still-valid, cloud-confirmed assignment for this paired Pi.
+ * The first report fetches fresh GPS and revalidates the live session; no
+ * position is persisted, nor is a previous green/safe state replayed. */
+const anchorWatch = new AnchorWatchRunner({
+    fetchImpl: fetch,
+    signalkOrigin: SIGNALK_ORIGIN,
+    store: fileAnchorWatchStore(CACHE_DIR),
+});
+const anchorCredential = diaryRelayOutbox.lendAnchorCredentials();
+if (anchorCredential && SUPABASE_ANON_KEY && APP_API_ENABLED) {
+    anchorWatch.restore({
+        url: canonicalAnchorRelayEndpoint(SUPABASE_ORIGIN),
+        relayId: anchorCredential.relayId,
+        token: anchorCredential.token,
+        anonKey: SUPABASE_ANON_KEY,
+    });
+}
 /** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
 const ANCHOR_SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const app = express();
@@ -876,6 +886,7 @@ plaintextSignpost.listen(PORT + 1, BIND_HOST, () => {
 function shutdown() {
     console.log('\n🛑 Shutting down...');
     windHistory.stop();
+    anchorWatch.close();
     stopScheduler();
     void stopEncWatcher();
     plaintextSignpost.close();

@@ -44,6 +44,7 @@
  * one.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { validAnchorGps } from '../_shared/anchor-alarm.ts';
 
 const CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -57,9 +58,8 @@ const RELAY_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 /** A position is small. Anything larger is not an anchor report. */
 const MAX_BODY_BYTES = 8 * 1024;
 /**
- * How long one authorisation lasts. The app refreshes it while the watch runs,
- * so this is a lapse window, not a session length — a standing permission to
- * broadcast someone's boat position is not a thing to hand out.
+ * Lease renewed by authenticated heartbeats, bounded by the owner's existing
+ * anchor_watch_sessions expiry. The Pi never extends or creates that session.
  */
 const AUTHORISATION_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -111,6 +111,11 @@ Deno.serve(async (req: Request) => {
     const sessionCode = typeof body.session_code === 'string' ? body.session_code.trim() : '';
     if (!RELAY_ID_RE.test(relayId)) return json({ error: 'invalid_relay_id' }, 400);
     if (!SESSION_CODE_RE.test(sessionCode)) return json({ error: 'invalid_session_code' }, 400);
+    // Installed Pi versions omit action for their normal position report.
+    const action = body.action ?? 'broadcast';
+    if (!['authorise', 'broadcast', 'stop'].includes(String(action))) {
+        return json({ error: 'invalid_action' }, 400);
+    }
 
     // ── authorise: the signed-in app grants this Pi one channel, for a while ──
     if (body.action === 'authorise') {
@@ -133,13 +138,29 @@ Deno.serve(async (req: Request) => {
         if (!relay || relay.owner_id !== ownerId || !relay.enabled) return json({ error: 'forbidden' }, 403);
 
         const now = Date.now();
+        const { data: session, error: sessionError } = await admin
+            .from('anchor_watch_sessions')
+            .select('owner_user_id, expires_at')
+            .eq('session_code', sessionCode)
+            .maybeSingle();
+        if (sessionError) return json({ error: 'unavailable' }, 503);
+        if (!session || session.owner_user_id !== ownerId || Date.parse(session.expires_at) <= now) {
+            return json({ error: 'not_authorised_for_session' }, 403);
+        }
+        const expiresAt = new Date(Math.min(now + AUTHORISATION_TTL_MS, Date.parse(session.expires_at))).toISOString();
         const { error: writeError } = await admin.from('pi_anchor_sessions').upsert(
             {
                 relay_id: relayId,
                 owner_id: ownerId,
                 session_code: sessionCode,
                 authorised_at: new Date(now).toISOString(),
-                expires_at: new Date(now + AUTHORISATION_TTL_MS).toISOString(),
+                expires_at: expiresAt,
+                last_heartbeat_at: null,
+                contact_alarm_at: null,
+                gps_alarm_at: null,
+                expiry_alarm_at: null,
+                gps_available: false,
+                is_dragging: false,
             },
             { onConflict: 'relay_id' },
         );
@@ -147,7 +168,12 @@ Deno.serve(async (req: Request) => {
             console.error('[anchor-relay] authorise failed:', writeError.message);
             return json({ error: 'unavailable' }, 503);
         }
-        return json({ authorised: true, expires_in_ms: AUTHORISATION_TTL_MS });
+        return json({
+            authorised: true,
+            expires_in_ms: Date.parse(expiresAt) - now,
+            expires_at: expiresAt,
+            session_expires_at: session.expires_at,
+        });
     }
 
     // ── broadcast: the Pi, with its relay credential ──
@@ -172,6 +198,25 @@ Deno.serve(async (req: Request) => {
         .eq('relay_id', relayId)
         .maybeSingle();
     if (bindingError) return json({ error: 'unavailable' }, 503);
+    if (body.action === 'stop') {
+        // Idempotent and exact-session scoped. A delayed stop for an old watch
+        // must never remove the replacement watch on the same Pi.
+        const { error } = await admin
+            .from('pi_anchor_sessions')
+            .delete()
+            .eq('relay_id', relayId)
+            .eq('owner_id', relay.owner_id)
+            .eq('session_code', sessionCode);
+        if (!error) {
+            await admin
+                .from('anchor_alarm_events')
+                .update({ resolved_at: new Date().toISOString() })
+                .eq('session_code', sessionCode)
+                .eq('user_id', relay.owner_id)
+                .is('resolved_at', null);
+        }
+        return error ? json({ error: 'unavailable' }, 503) : json({ stopped: true });
+    }
     if (
         !binding ||
         binding.owner_id !== relay.owner_id ||
@@ -185,7 +230,32 @@ Deno.serve(async (req: Request) => {
     }
 
     const payload = body.payload;
-    if (!payload || typeof payload !== 'object') return json({ error: 'invalid_payload' }, 400);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return json({ error: 'invalid_payload' }, 400);
+    }
+    const p = payload as Record<string, unknown>;
+    const gpsAvailable = validAnchorGps(p, Date.now());
+    const vessel = (p.vessel ?? {}) as Record<string, unknown>;
+    const finiteOrZero = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : 0);
+    // Atomic lease + event write comes BEFORE realtime. A realtime outage must
+    // not suppress a drag/GPS alarm that can still reach APNs.
+    const { data: lease, error: heartbeatError } = await admin.rpc('record_pi_anchor_heartbeat', {
+        p_relay_id: relayId,
+        p_session_code: sessionCode,
+        p_owner_id: relay.owner_id,
+        p_gps_available: gpsAvailable,
+        p_drag: gpsAvailable && p.isAlarm === true,
+        p_distance_m: finiteOrZero(p.distance),
+        p_swing_radius_m: finiteOrZero(p.swingRadius),
+        p_lat: gpsAvailable ? vessel.latitude : null,
+        p_lon: gpsAvailable ? vessel.longitude : null,
+    });
+    if (heartbeatError) return json({ error: 'heartbeat_failed' }, 503);
+    if (!lease) return json({ error: 'not_authorised_for_session' }, 403);
+    const event = gpsAvailable ? 'position' : 'status';
+    const broadcastPayload = gpsAvailable
+        ? { ...p, type: 'position', gpsAvailable: true, timestamp: Date.now() }
+        : { type: 'status', gpsAvailable: false, reason: 'gps_unavailable', source: 'pi', timestamp: Date.now() };
 
     // Publish server-side. The Pi never joins Realtime and never sees a key.
     const url = Deno.env.get('SUPABASE_URL');
@@ -201,61 +271,20 @@ Deno.serve(async (req: Request) => {
             messages: [
                 {
                     topic: `anchor-watch-${sessionCode}`,
-                    event: 'position',
+                    event,
                     private: true,
-                    payload: { ...(payload as Record<string, unknown>), type: 'position', timestamp: Date.now() },
+                    payload: broadcastPayload,
                 },
             ],
         }),
     });
     if (!response.ok) {
         console.error('[anchor-relay] broadcast failed:', response.status);
-        return json({ error: 'broadcast_failed' }, 502);
-    }
-
-    // ── A PI-DETECTED DRAG MUST BE ABLE TO WAKE A LOCKED PHONE ──
-    //
-    // Until now the ONLY route from a dragging boat to the skipper was the
-    // realtime broadcast above, landing in a foregrounded WKWebView with the
-    // anchor page mounted. Asleep, pocketed, or on any other screen: nothing.
-    // anchor_alarm_events had exactly one writer in the whole codebase, gated
-    // on role === 'vessel' — a phone aboard. The Pi could never reach it, so
-    // the one setup designed to let the skipper LEAVE THE BOAT was the one
-    // with no push path.
-    //
-    // Inserting here closes it: the row fires the on_anchor_alarm_insert
-    // trigger, which calls send-anchor-alarm, which pushes via APNs — and
-    // retry_pending_anchor_alarms sweeps anything that failed.
-    const p = payload as Record<string, unknown>;
-    if (p.isAlarm === true) {
-        // RISING EDGE ONLY. The Pi POSTs every 10s, so a level-triggered
-        // insert would queue 360 alerts an hour. The Pi already confirms a
-        // drag over three consecutive fixes before it ever sets this, so an
-        // edge here is a confirmed drag, not a GPS spike.
-        const { data: recent } = await admin
-            .from('anchor_alarm_events')
-            .select('id')
-            .eq('session_code', sessionCode)
-            .gt('created_at', new Date(Date.now() - 10 * 60_000).toISOString())
-            .limit(1);
-        if (!recent || recent.length === 0) {
-            const vessel = (p.vessel ?? {}) as Record<string, unknown>;
-            // user_id comes from the VERIFIED relay owner, never the request
-            // body — the binding checks above already matched owner, session
-            // code and a live expiry before we got here.
-            const { error: alarmError } = await admin.from('anchor_alarm_events').insert({
-                session_code: sessionCode,
-                user_id: relay.owner_id,
-                distance_m: typeof p.distance === 'number' ? p.distance : 0,
-                swing_radius_m: typeof p.swingRadius === 'number' ? p.swingRadius : 0,
-                vessel_lat: typeof vessel.latitude === 'number' ? vessel.latitude : null,
-                vessel_lon: typeof vessel.longitude === 'number' ? vessel.longitude : null,
-            });
-            if (alarmError) console.error('[anchor-relay] alarm insert failed:', alarmError.message);
-            else console.log(`[anchor-relay] drag alarm raised for ${sessionCode}`);
-        }
+        // Monitoring and lease renewal succeeded, even if the foreground UI
+        // channel is down. Report degraded realtime without losing the lease.
+        return json({ delivered: false, realtime_error: 'broadcast_failed', ...lease });
     }
 
     void admin.from('pi_diary_relays').update({ last_seen_at: new Date().toISOString() }).eq('relay_id', relayId);
-    return json({ delivered: true });
+    return json({ delivered: true, ...lease });
 });

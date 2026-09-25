@@ -43,11 +43,7 @@ import { ShipLogEntry } from '../types';
 
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
-import {
-    computePersonalRecords,
-    matchPlannedRouteByCoords,
-    type VoyageSummary,
-} from '../services/shiplog/VoyageSummary';
+import { matchPlannedRouteByCoords, type VoyageSummary } from '../services/shiplog/VoyageSummary';
 import { voyageHasRecordedFix } from '../services/shiplog/helpers';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
@@ -59,7 +55,6 @@ import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAnd
 import { requestTracerOpen } from '../services/deepLink';
 import { useUIStore } from '../stores/uiStore';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
-import { excludeSuggestedRoutes } from '../utils/voyageStats';
 import { VoyageCard } from './log/LogSubComponents';
 import { PassageLogList } from './log/PassageLogList';
 import { formatEndpointCoordinates } from './log/useEndpointNames';
@@ -78,6 +73,11 @@ import {
     type PublishFollowHold,
 } from '../services/shiplog/publishFollowedRoute';
 import { PLAN_LINK_INTENT_DROPPED_EVENT, type PlanLinkIntentDropped } from '../services/shiplog/planLinkIntent';
+import {
+    choseJustRecording,
+    JUST_RECORDING_CHOSEN_EVENT,
+    rememberJustRecording,
+} from '../services/shiplog/recordingChoice';
 import { currentRouteReplaceDecision, ROUTE_AUTHORITY_REFUSAL } from '../services/shiplog/routeAuthority';
 import { useRemotePassage } from '../hooks/useRemotePassage';
 import type { RemotePassage } from '../services/shiplog/remotePassage';
@@ -118,12 +118,11 @@ import { FollowRoutePromptSheet } from './log/FollowRoutePromptSheet';
 import { LiveVoyageCard } from './log/LiveVoyageCard';
 import { LogPageHeader } from './log/LogPageHeader';
 import { LogStatsFullscreen } from './log/LogStatsFullscreen';
-import { PersonalRecordsStrip } from './log/PersonalRecordsStrip';
+import { VoyageStatsRollup } from './log/VoyageStatsRollup';
 import { PropulsionNudge } from './log/PropulsionNudge';
 import { StartTrackingFooter } from './log/StartTrackingFooter';
 import { TrackingFooterControls } from './log/TrackingFooterControls';
 import { VoyageListEmptyState, VoyageListSkeleton } from './log/VoyageListPlaceholders';
-import { VoyageTotalsTiles } from './log/VoyageTotalsTiles';
 
 /**
  * ANSWER-keyed guards for the cast-off "Following a route?" sheet — MODULE
@@ -169,6 +168,15 @@ export function resetFollowPromptGuardsForTest(): void {
 
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    const preStartAnswerRef = React.useRef<VoyageSummary | 'none' | null>(null);
+    const rememberStartedRecordingChoice = useCallback(
+        (voyageId: string) => {
+            if (!isAuthIdentityScopeCurrent(identityScope) || preStartAnswerRef.current !== 'none') return;
+            dismissedFollowVoyages.add(voyageId);
+            rememberJustRecording(voyageId, identityScope);
+        },
+        [identityScope],
+    );
 
     // Cast Off handoff — Passage Planning's Cast Off lands here immediately
     // and this page owns the honest GPS starting/failed state plus the
@@ -253,17 +261,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         entryCounts: _entryCounts,
         listVoyages,
         voyageStats,
+        lifetimeStats,
+        lifetimeLoading,
+        lifetimeError,
+        lifetimeLoaded,
         loadVoyageEntries,
-        loadAllEntries,
         hasNonDeviceEntries,
         totalDistance: _totalDistance,
         avgSpeed: _avgSpeed,
         // Archive
         archivedVoyages,
+        archivesLoading,
+        archiveError,
+        reloadArchivedVoyages,
         handleArchiveVoyage,
+        handleArchivePassage,
         handleUnarchiveVoyage,
+        handleRestorePassage,
         // Empty-track tidy announcement
-    } = useLogPageState();
+    } = useLogPageState(rememberStartedRecordingChoice);
 
     // ── The passage the ACCOUNT is running on another device (2026-09-08) ──
     // Server truth: the active voyage (stamped with the device that cast off)
@@ -432,7 +448,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  asks?? tidy this up"): the sheet now opens the moment Start Tracking
      *  is slid, before the voyage exists. The answer parks here and the
      *  cast-off effect applies it once the voyage id is real. */
-    const preStartAnswerRef = React.useRef<VoyageSummary | 'none' | null>(null);
     const [preStartSheetOpen, setPreStartSheetOpen] = React.useState(false);
     /** The GPS-verified start action, assigned each render once the handlers
      *  exist below — the sheet's pre-start answers fire it without caring
@@ -500,7 +515,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             return;
         }
         const confirmed = promptVid !== null && confirmedFollowVoyages.has(promptVid);
-        if (promptVid && !confirmed) dismissedFollowVoyages.add(promptVid);
+        if (promptVid && !confirmed) {
+            dismissedFollowVoyages.add(promptVid);
+            rememberJustRecording(promptVid, identityScope);
+        }
         const follow = useFollowRouteStore.getState();
         if (follow.isFollowing && !confirmed) follow.stopFollowing();
         // Durable-intent clear: retried on reconnect, and a no-op when no link
@@ -540,7 +558,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             ),
         [filteredEntries, plannedVoyageIds],
     );
-    const loggedArchivedVoyages = React.useMemo(() => excludeSuggestedRoutes(archivedVoyages), [archivedVoyages]);
+    const loggedArchivedVoyages = React.useMemo(
+        () => archivedVoyages.filter((voyage) => !voyage.isPlannedRoute),
+        [archivedVoyages],
+    );
     // Stats-view scope — filtered once per change and shared by the tiles and
     // the VoyageStatsPanel (it used to be filtered twice per render).
     const scopedStatsEntries = React.useMemo(
@@ -1165,6 +1186,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setFollowPromptVoyageId(remote.voyageId);
     }, [followSheetChoices]);
 
+    useEffect(() => {
+        const onChoice = (event: Event) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+            const detail = (event as CustomEvent<{ voyageId: string; ownerKey: string }>).detail;
+            if (detail?.ownerKey !== identityScope.key || typeof detail.voyageId !== 'string') return;
+            setFollowPromptVoyageId((open) => (open === detail.voyageId ? null : open));
+        };
+        window.addEventListener(JUST_RECORDING_CHOSEN_EVENT, onChoice);
+        return () => window.removeEventListener(JUST_RECORDING_CHOSEN_EVENT, onChoice);
+    }, [identityScope]);
+
     React.useEffect(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
@@ -1176,6 +1208,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             preStartAnswerRef.current = null;
             if (preAnswer === 'none') {
                 dismissedFollowVoyages.add(vid);
+                rememberJustRecording(vid, identityScope);
                 void clearFollowedRoute();
             } else {
                 confirmedFollowVoyages.add(vid);
@@ -1202,7 +1235,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             return;
         }
         if (followPromptVoyageId !== null) return; // already open
-        if (confirmedFollowVoyages.has(vid) || dismissedFollowVoyages.has(vid)) return; // answered
+        if (
+            confirmedFollowVoyages.has(vid) ||
+            dismissedFollowVoyages.has(vid) ||
+            choseJustRecording(vid, identityScope)
+        )
+            return; // answered
         // A cast-off passage already DECLARED its route — the handoff is the
         // answer to "which route?", whether or not the auto-follow managed
         // to arm the line (Shane 2026-08-26: "it asks you to pick a route,
@@ -1398,8 +1436,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (state.showTrackMap && matchedPlannedId) void loadVoyageEntries(matchedPlannedId);
     }, [state.showTrackMap, matchedPlannedId, loadVoyageEntries]);
 
-    // Career personal records — derived purely from voyage summaries.
-    const records = React.useMemo(() => computePersonalRecords(state.summaries ?? []), [state.summaries]);
+    // Same complete lifetime set as the totals, including archived voyages.
+    const records = lifetimeStats.records;
+    const lifetimeStatsNotice = lifetimeLoading
+        ? 'Updating lifetime totals…'
+        : lifetimeError
+          ? lifetimeLoaded
+              ? 'Couldn’t refresh lifetime totals. Showing the last complete history with locally recorded updates.'
+              : 'Lifetime history is unavailable. Only locally loaded recordings are shown; totals are incomplete.'
+          : undefined;
 
     // "Recording" vs "Acquiring GPS fix…" — keyed on whether the active
     // voyage has a real recorded position yet. gpsStatus alone can't be
@@ -1921,6 +1966,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // Account boundary: prompt suppression must not leak across identities.
         confirmedFollowVoyages.clear();
         dismissedFollowVoyages.clear();
+        preStartAnswerRef.current = null;
+        setPreStartSheetOpen(false);
         setShowMenu(false);
         setShowArchived(false);
         setEngineRunningState(undefined);
@@ -1954,6 +2001,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     dispatch={dispatch}
                     scopedStatsEntries={scopedStatsEntries}
                     selectedVoyageId={selectedVoyageId}
+                    lifetimeStats={lifetimeStats}
+                    lifetimeStatsNotice={lifetimeStatsNotice}
                 />
             ) : (
                 <div className="flex flex-col h-full">
@@ -1972,6 +2021,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         closeOverflowMenu={closeOverflowMenu}
                         dispatch={dispatch}
                         loggedVoyages={loggedVoyages}
+                        hasLifetimeVoyages={lifetimeStats.totals.voyageCount > 0}
                         loggedEntries={loggedEntries}
                     />
 
@@ -2000,21 +2050,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         />
                     )}
 
-                    {/* ── Voyage Totals — three hero gauge tiles ──
-                        Polished 2026-05-17 — gradient backdrops per
-                        accent colour, icon glyph in the upper-right
-                        corner of each, larger metric + inline unit
-                        suffix, brighter labels. Stats use
-                        `sailedVoyageGroups` — the SAILED subset of the
-                        cards below, with suggested/planned routes excluded
-                        (2026-05-20) so aspirational routes don't inflate
-                        the distance / time / voyage totals. */}
-                    <VoyageTotalsTiles voyageStats={voyageStats} />
-
-                    {/* ── Personal records strip — career bests from summaries.
-                        Shown in the list view (not while the live card fills
-                        the screen), only once there's qualifying history. */}
-                    {!isTracking && records.voyageCount >= 2 && <PersonalRecordsStrip records={records} />}
+                    {/* Career totals and records stay available without crowding the log. */}
+                    <VoyageStatsRollup voyageStats={voyageStats} records={records} notice={lifetimeStatsNotice} />
 
                     {castOffHandoff &&
                         (castOffHandoff.caution ||
@@ -2108,10 +2145,31 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {loading && loggedVoyages.length === 0 ? (
                                     <VoyageListSkeleton />
                                 ) : loggedVoyages.length === 0 ? (
-                                    <VoyageListEmptyState />
+                                    loggedArchivedVoyages.length > 0 || archivesLoading || archiveError ? (
+                                        <p className="px-1 py-3 text-sm text-slate-400">
+                                            {loggedArchivedVoyages.length > 0
+                                                ? 'Your past voyages are in the archive below.'
+                                                : 'No voyages in your current log.'}
+                                        </p>
+                                    ) : (
+                                        <VoyageListEmptyState />
+                                    )
                                 ) : (
                                     <PassageLogList
                                         voyages={loggedVoyages}
+                                        protectedVoyageIds={[
+                                            ...((state.isTracking || state.isPaused) && state.currentVoyageId
+                                                ? [state.currentVoyageId]
+                                                : []),
+                                            ...(remotePassage ? [remotePassage.voyageId] : []),
+                                        ]}
+                                        onArchivePassage={(passageId, voyageIds) =>
+                                            handleArchivePassage(
+                                                passageId,
+                                                voyageIds,
+                                                (voyageId) => remotePassageRef.current?.voyageId === voyageId,
+                                            )
+                                        }
                                         renderVoyage={(summary, first) => (
                                             <VoyageCard
                                                 showSwipeHint={first}
@@ -2151,14 +2209,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 )}
 
                                 {/* ── Archived Voyages ── */}
-                                {loggedArchivedVoyages.length > 0 && (
-                                    <ArchivedVoyagesSection
-                                        loggedArchivedVoyages={loggedArchivedVoyages}
-                                        showArchived={showArchived}
-                                        setShowArchived={setShowArchived}
-                                        handleUnarchiveVoyage={handleUnarchiveVoyage}
-                                    />
-                                )}
+                                <ArchivedVoyagesSection
+                                    key={`${identityScope.key}:${identityScope.generation}`}
+                                    loggedArchivedVoyages={loggedArchivedVoyages}
+                                    showArchived={showArchived}
+                                    setShowArchived={setShowArchived}
+                                    handleUnarchiveVoyage={handleUnarchiveVoyage}
+                                    handleRestorePassage={handleRestorePassage}
+                                    loading={archivesLoading}
+                                    error={archiveError}
+                                    onRetry={reloadArchivedVoyages}
+                                />
                             </div>
 
                             {/* ── Slide to Start CTA — pinned at bottom ── */}
@@ -2292,10 +2353,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 <StatsSheet
                     onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                     onSelectVoyage={(id) => {
-                        // Stats need the full points: lazy-load the selected
-                        // voyage, or ALL voyages for the "All Voyages" deep-dive.
+                        // Individual charts need points; lifetime totals use
+                        // whole-voyage summaries, not a capped point download.
                         if (id) void loadVoyageEntries(id);
-                        else void loadAllEntries();
                         dispatch({ type: 'SELECT_VOYAGE', voyageId: id });
                     }}
                     onShowStats={() => dispatch({ type: 'SHOW_STATS', show: true })}
@@ -2303,6 +2363,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     selectedVoyageId={selectedVoyageId}
                     currentVoyageId={currentVoyageId ?? null}
                     voyageGroups={loggedVoyages}
+                    lifetimeStats={lifetimeStats}
                 />
             )}
 

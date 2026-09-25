@@ -42,7 +42,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import tzLookup from 'npm:tz-lookup@6.1.25';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse } from '../_shared/http-security.ts';
-import { decimatePublicTrack } from '../_shared/track-decimation.ts';
+import { decimatePublicTrack, decimatePublicVoyages } from '../_shared/track-decimation.ts';
+import {
+    isRetiredPublicLiveVoyage,
+    mapPublicHistory,
+    publicOverviewPointBudget,
+    readCompletePublicPages,
+} from '../_shared/public-history.ts';
 import { redactPublicTelemetry, redactPublicTrackPoint } from '../_shared/public-instruments.ts';
 import { readPublicInstrumentAuthority, readPublicInstruments } from '../_shared/public-instrument-reader.ts';
 import {
@@ -59,6 +65,8 @@ const corsHeaders = {
 };
 
 const MAX_ENTRIES = 200;
+const MAX_OVERVIEW_DIARY_ENTRIES = 20_000;
+const MAX_CATALOGUE_TRIPS = 20_000;
 // Internal fetch envelope: enough raw samples for telemetry, land-voyage
 // classification, and passage progress. The public response is separately
 // decimated below; never serialize this many records to an unauthenticated
@@ -401,15 +409,32 @@ Deno.serve(async (req: Request) => {
         // passage's public track to its first ~17 minutes (audit
         // 2026-07-03). Page ascending in 1000-row steps up to the
         // declared envelope.
-        const TRACK_SELECT = 'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
+        const TRACK_SELECT = 'id, latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
             'wind_speed, wind_gust, wind_direction, ' +
             'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes, voyage_id, ' +
-            'cumulative_distance_nm, is_on_water';
+            'cumulative_distance_nm, is_on_water, source';
 
         // Owner's per-voyage exclusion list — voyages hidden from the public
         // page (the app's "Public tracks" list). Filters BOTH the durable
         // track and the live tail. Fail closed if this authority is unreadable.
         const { hiddenVoyageIds, trackVisibilityReadable } = authority;
+        // The client writes a retirement fence before separately purging the
+        // live shadow. If that purge fails, the old rows can still exist; the
+        // INSERT trigger alone only blocks future retries. Read the fences
+        // before any live-tail/catalogue use and fail closed if unavailable.
+        // Retirement identity is owner + immutable voyage id (no boat column).
+        // All live/durable geometry below remains pinned to config.boat_id.
+        const retiredLiveVoyageIds = new Set<string>(
+            trackVisibilityReadable
+                ? (await readCompletePublicPages<{ voyage_id: string }>(async (from, to) => {
+                    const { data, error } = await supabase.from('live_track_retirements')
+                        .select('voyage_id').eq('user_id', ownerId)
+                        .order('voyage_id', { ascending: true }).range(from, to);
+                    return { data, error };
+                }, { maxRows: MAX_CATALOGUE_TRIPS, key: (row) => row.voyage_id?.trim() ?? '' }))
+                    .map((row) => row.voyage_id.trim())
+                : [],
+        );
         // Voyages that are majority-LAND — a car drive, not a passage (Shane
         // 2026-07-19: "it also has some older test tracks there on land as
         // well"; his M1 run from Redcliffe to Logan City was drawing on the
@@ -425,36 +450,44 @@ Deno.serve(async (req: Request) => {
         const fetchTrack = async ({
             voyageId,
             since,
+            publicPointBudget,
         }: {
             voyageId?: string;
             since?: string;
-        } = {}): Promise<{ data: Record<string, unknown>[]; error: unknown }> => {
+            publicPointBudget?: number;
+        } = {}): Promise<{
+            data: Record<string, unknown>[];
+            error: unknown;
+            totalPoints?: number;
+            waypointData?: Record<string, unknown>[];
+        }> => {
             if (!trackVisibilityReadable) return { data: [], error: null };
-            const rows: Record<string, unknown>[] = [];
-            const PAGE = 1000;
-            while (rows.length < MAX_TRACK_POINTS) {
-                let query = supabase
-                    .from('ship_logs')
-                    // Rows are declared as untyped column bags to match how they
-                    // are consumed: every reader below re-checks the column it
-                    // needs, because a logbook row can predate any of them.
-                    .select<string, Record<string, unknown>>(TRACK_SELECT)
-                    .eq('user_id', ownerId)
-                    .neq('entry_type', 'manual')
-                    // Binned voyages are soft-archived (archived=true) and
-                    // hidden from every in-app read — the public page must
-                    // hide them too.
-                    .or('archived.is.null,archived.eq.false');
-                if (boatId) query = query.eq('boat_id', boatId);
-                if (voyageId) query = query.eq('voyage_id', voyageId);
-                else if (since) query = query.gte('timestamp', since);
-                const { data, error } = await query
-                    .order('timestamp', { ascending: true })
-                    .range(rows.length, rows.length + PAGE - 1);
-                if (error) return { data: rows, error };
-                const page = (data ?? []) as Record<string, unknown>[];
-                rows.push(...page);
-                if (page.length < PAGE) break;
+            let rows: Record<string, unknown>[];
+            try {
+                rows = await readCompletePublicPages<Record<string, unknown>>(async (from, to) => {
+                    let query = supabase
+                        .from('ship_logs')
+                        // Rows are declared as untyped column bags to match how they
+                        // are consumed: every reader below re-checks the column it
+                        // needs, because a logbook row can predate any of them.
+                        .select<string, Record<string, unknown>>(TRACK_SELECT)
+                        .eq('user_id', ownerId)
+                        .neq('entry_type', 'manual')
+                        // Binned voyages are soft-archived (archived=true) and
+                        // hidden from every in-app read — the public page must
+                        // hide them too.
+                        .or('archived.is.null,archived.eq.false');
+                    if (boatId) query = query.eq('boat_id', boatId);
+                    if (voyageId) query = query.eq('voyage_id', voyageId);
+                    if (since) query = query.gte('timestamp', since);
+                    const { data, error } = await query
+                        .order('timestamp', { ascending: true })
+                        .order('id', { ascending: true })
+                        .range(from, to);
+                    return { data: data as Record<string, unknown>[] | null, error };
+                }, { maxRows: MAX_TRACK_POINTS, key: (row) => typeof row.id === 'string' ? row.id : '' });
+            } catch (error) {
+                return { data: [], error };
             }
             // LAND VERDICT, per VOYAGE — never per point. Mirrors the app's
             // isLandVoyage()/LAND_VOYAGE_FRACTION majority vote
@@ -523,6 +556,7 @@ Deno.serve(async (req: Request) => {
                 // surfaced separately as `passage.plan_line`; drop the planned
                 // rows from both the track AND the derived waypoint pins here.
                 if (String((p.voyage_id as string | null) ?? '').startsWith('planned_')) return false;
+                if (p.source === 'planned_route') return false;
                 const lat = p.latitude as number | null;
                 const lon = p.longitude as number | null;
                 if (typeof lat !== 'number' || typeof lon !== 'number') return false;
@@ -533,7 +567,14 @@ Deno.serve(async (req: Request) => {
                 if (name.startsWith('COG ') || notes.startsWith('Auto: COG')) return false;
                 return true;
             });
-            return { data: trackworthy, error: null };
+            return {
+                data: publicPointBudget === undefined
+                    ? trackworthy
+                    : decimatePublicTrack(trackworthy, publicPointBudget),
+                totalPoints: trackworthy.length,
+                waypointData: trackworthy.filter((point) => point.entry_type === 'waypoint'),
+                error: null,
+            };
         };
 
         // Live tail — points the device trickled into `live_track` while a
@@ -719,59 +760,45 @@ Deno.serve(async (req: Request) => {
         };
 
         const fetchLiveTail = async (afterTs: string, voyageId?: string): Promise<Record<string, unknown>[]> => {
-            const rows: Record<string, unknown>[] = [];
-            const PAGE = 1000;
-            const LIVE_CAP = 10_000;
-            // Pagination offset must count FETCHED rows, not kept rows — the
-            // hidden-voyage filter shrinks the kept set and would otherwise
-            // make successive .range() windows overlap.
-            let fetched = 0;
-            while (fetched < LIVE_CAP) {
+            const rows = await readCompletePublicPages<Record<string, unknown>>(async (from, to) => {
                 let query = supabase
                     .from('live_track')
-                    .select('latitude, longitude, timestamp, speed_kts, course_deg, source, voyage_id, is_on_water')
+                    .select('id, latitude, longitude, timestamp, speed_kts, course_deg, source, voyage_id, is_on_water')
                     .eq('user_id', ownerId)
                     .gt('timestamp', afterTs);
                 if (boatId) query = query.eq('boat_id', boatId);
                 if (voyageId) query = query.eq('voyage_id', voyageId);
                 const { data, error } = await query
                     .order('timestamp', { ascending: true })
-                    .range(fetched, fetched + PAGE - 1);
-                if (error) {
-                    console.warn('voyage-log: live_track fetch failed:', (error as { message?: string }).message);
-                    return rows;
-                }
-                const page = (data ?? []) as Record<string, unknown>[];
-                fetched += page.length;
-                rows.push(
-                    ...page.filter((p) => {
-                        const vid = (p.voyage_id as string | null) ?? '';
-                        // New live-track rows preserve the capture-time water
-                        // verdict. Older rows can be unknown, so retaining
-                        // their null verdict is deliberately less destructive
-                        // than inventing a land classification.
-                        const lat = p.latitude as number | null;
-                        const lon = p.longitude as number | null;
-                        return (
-                            !hiddenVoyageIds.has(vid) &&
-                            !landVoyageIds.has(vid) &&
-                            !vid.startsWith('planned_') &&
-                            // New live rows carry the capture-time water
-                            // verdict. Older rows may be unknown, so retain
-                            // them until the seven-day live-tail expiry rather
-                            // than inventing a false land classification.
-                            p.is_on_water !== false &&
-                            typeof lat === 'number' &&
-                            typeof lon === 'number' &&
-                            Math.abs(lat) <= 90 &&
-                            Math.abs(lon) <= 180 &&
-                            !(Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001)
-                        );
-                    }),
+                    .order('id', { ascending: true })
+                    .range(from, to);
+                return { data: data as Record<string, unknown>[] | null, error };
+            }, { maxRows: MAX_TRACK_POINTS, key: (row) => typeof row.id === 'string' ? row.id : '' });
+            return rows.filter((p) => {
+                const vid = (p.voyage_id as string | null) ?? '';
+                // New live-track rows preserve the capture-time water
+                // verdict. Older rows can be unknown, so retaining
+                // their null verdict is deliberately less destructive
+                // than inventing a land classification.
+                const lat = p.latitude as number | null;
+                const lon = p.longitude as number | null;
+                return (
+                    !hiddenVoyageIds.has(vid) &&
+                    !isRetiredPublicLiveVoyage(vid, retiredLiveVoyageIds) &&
+                    !landVoyageIds.has(vid) &&
+                    !vid.startsWith('planned_') &&
+                    // New live rows carry the capture-time water
+                    // verdict. Older rows may be unknown, so retain
+                    // them until the seven-day live-tail expiry rather
+                    // than inventing a false land classification.
+                    p.is_on_water !== false &&
+                    typeof lat === 'number' &&
+                    typeof lon === 'number' &&
+                    Math.abs(lat) <= 90 &&
+                    Math.abs(lon) <= 180 &&
+                    !(Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001)
                 );
-                if (page.length < PAGE) break;
-            }
-            return rows;
+            });
         };
 
         const vesselRes = await (boatId
@@ -828,11 +855,18 @@ Deno.serve(async (req: Request) => {
         let catalogueLiveRows: Record<string, unknown>[] = [];
         if (trackVisibilityReadable) {
             const [catalogueResult, liveResult] = await Promise.all([
-                supabase.rpc('public_voyage_log_trip_catalog', {
-                    p_owner_id: ownerId,
-                    p_since: trackSince,
-                    p_boat_id: boatId,
-                }),
+                readCompletePublicPages<CatalogueRow>(async (from, to) => {
+                    const { data, error } = await supabase.rpc('public_voyage_log_trip_catalog', {
+                        p_owner_id: ownerId,
+                        p_since: trackSince,
+                        p_boat_id: boatId,
+                    }).order('ended_at', { ascending: false }).order('voyage_id', { ascending: true }).range(from, to);
+                    return { data: data as CatalogueRow[] | null, error };
+                }, {
+                    maxRows: MAX_CATALOGUE_TRIPS,
+                    key: (row) =>
+                        typeof row.voyage_id === 'string' ? row.voyage_id : '',
+                }).then((data) => ({ data, error: null as unknown })).catch((error: unknown) => ({ data: [], error })),
                 fetchLiveTail(trackSince),
             ]);
             catalogueLiveRows = liveResult;
@@ -843,7 +877,7 @@ Deno.serve(async (req: Request) => {
                 // normal selector path because it cannot outscale the RPC.
                 console.warn(
                     'voyage-log: trip-catalogue RPC unavailable; using bounded fallback:',
-                    catalogueResult.error.message,
+                    catalogueResult.error,
                 );
                 const fallback = await fetchTrack({ since: trackSince });
                 if (fallback.error) {
@@ -894,7 +928,7 @@ Deno.serve(async (req: Request) => {
                 : null;
             const startedTs = startedIso ? Date.parse(startedIso) : Number.NaN;
             if (
-                id && !hiddenVoyageIds.has(id) && startedIso &&
+                id && !hiddenVoyageIds.has(id) && !isRetiredPublicLiveVoyage(id, retiredLiveVoyageIds) && startedIso &&
                 Number.isFinite(startedTs) && liveNow - startedTs < ACTIVE_ROW_FRESH_MS
             ) {
                 activeRowVoyageId = id;
@@ -994,9 +1028,7 @@ Deno.serve(async (req: Request) => {
         // fix, while old/stale tails cannot invent phantom passages.
         const activeLivePoints =
             currentVoyageId && !suppressedCatalogueVoyageIds.has(currentVoyageId) && !landVoyageIds.has(currentVoyageId)
-                ? catalogueLiveRows.filter((row) =>
-                    row.voyage_id === currentVoyageId
-                )
+                ? catalogueLiveRows.filter((row) => row.voyage_id === currentVoyageId)
                 : [];
         for (const row of activeLivePoints) {
             const timestamp = typeof row.timestamp === 'string' ? row.timestamp : '';
@@ -1041,14 +1073,32 @@ Deno.serve(async (req: Request) => {
         }
         const selectedTrackId = tripSelection.mode === 'track' ? (tripSelection.trip?.id ?? null) : null;
 
-        // Geometry is fetched only for the chosen trip. That gives each old
-        // passage its own decimation budget and keeps a historical dropdown
-        // from turning the public endpoint into an all-tracks bulk export.
+        // The compatible all-diary selector now presents the complete PUBLIC
+        // cruising overview: each authorised trip retains its own endpoints
+        // and fair share of geometry. Paginate per trip so a dense newer trip
+        // cannot consume a global raw-point cap and erase its predecessors.
+        const overviewTrips = trips.filter((trip) => trip.kind === 'track').sort((left, right) =>
+            Date.parse(left.started_at ?? '') - Date.parse(right.started_at ?? '')
+        );
+        const overviewPointBudget = publicOverviewPointBudget(overviewTrips.length, MAX_PUBLIC_TRACK_POINTS);
+        const overviewResults = tripSelection.mode === 'all-diary'
+            ? await mapPublicHistory(overviewTrips, (trip) =>
+                fetchTrack({
+                    voyageId: trip.id,
+                    since: trackSince,
+                    publicPointBudget: overviewPointBudget,
+                }))
+            : [];
         const trackRes = selectedTrackId !== null
             ? await fetchTrack({ voyageId: selectedTrackId })
             : tripSelection.mode === 'legacy'
             ? await fetchTrack({ since: trackSince })
-            : { data: [] as Record<string, unknown>[], error: null };
+            : {
+                data: overviewResults.flatMap((result) => result.data),
+                error: overviewResults.find((result) => result.error)?.error ?? null,
+                totalPoints: overviewResults.reduce((sum, result) => sum + (result.totalPoints ?? 0), 0),
+                waypointData: overviewResults.flatMap((result) => result.waypointData ?? []),
+            };
         if (trackRes.error) {
             console.error('voyage-log: selected track fetch failed:', trackRes.error);
             return json({ error: 'Internal server error' }, 500);
@@ -1088,13 +1138,32 @@ Deno.serve(async (req: Request) => {
             live: false,
         }));
 
-        // Append the selected live trickle tail (recording voyage, not yet
-        // uploaded). All-diary intentionally has neither geometry nor a boat
-        // position; it is a diary-only view.
+        // Append an authorised live trickle only beyond THAT voyage's durable
+        // endpoint. A global timestamp cutoff would hide a different voyage's
+        // still-unsynced points in the overview.
         const lastDurableTs = (durableTrack[durableTrack.length - 1]?.timestamp as string | undefined) ?? trackSince;
-        const liveRows = trackVisibilityReadable && tripSelection.mode !== 'all-diary'
-            ? await fetchLiveTail(lastDurableTs, selectedTrackId ?? undefined)
-            : [];
+        const overviewIds = new Set(overviewTrips.map((trip) => trip.id));
+        const durableEndByVoyage = new Map<string, number>();
+        for (const point of durableTrack) {
+            if (point.voyage_id && typeof point.timestamp === 'string') {
+                durableEndByVoyage.set(
+                    point.voyage_id,
+                    Math.max(
+                        durableEndByVoyage.get(point.voyage_id) ?? -Infinity,
+                        Date.parse(point.timestamp),
+                    ),
+                );
+            }
+        }
+        const liveRows = !trackVisibilityReadable
+            ? []
+            : tripSelection.mode === 'all-diary'
+            ? catalogueLiveRows.filter((point) => {
+                const id = typeof point.voyage_id === 'string' ? point.voyage_id : '';
+                return overviewIds.has(id) && !landVoyageIds.has(id) &&
+                    Date.parse(String(point.timestamp)) > (durableEndByVoyage.get(id) ?? Date.parse(trackSince));
+            })
+            : await fetchLiveTail(lastDurableTs, selectedTrackId ?? undefined);
         const liveTail = liveRows.map((p) => ({
             lat: p.latitude,
             lon: p.longitude,
@@ -1120,12 +1189,16 @@ Deno.serve(async (req: Request) => {
         }));
         const fullTrack = [...durableTrack, ...liveTail];
         const rawDurable = (trackRes.data || []) as Record<string, unknown>[];
-        const selectedFullTrack = tripSelection.mode === 'all-diary' ? [] : fullTrack;
+        const selectedFullTrack = fullTrack;
         // Each chosen trip gets its own decimation budget; slicing a globally
         // decimated history makes an old passage unnecessarily sparse.
-        const track = decimatePublicTrack(selectedFullTrack, MAX_PUBLIC_TRACK_POINTS);
-        const selectedRawDurable = tripSelection.mode === 'all-diary' ? [] : rawDurable;
-        const selectedLiveRows = tripSelection.mode === 'all-diary' ? [] : liveRows;
+        const track = tripSelection.mode === 'all-diary'
+            ? decimatePublicVoyages(selectedFullTrack, MAX_PUBLIC_TRACK_POINTS)
+            : decimatePublicTrack(selectedFullTrack, MAX_PUBLIC_TRACK_POINTS);
+        const trackTotalPoints = (trackRes.totalPoints ?? rawDurable.length) + liveRows.length;
+        const selectedRawDurable = rawDurable;
+        const publicWaypointRows = trackRes.waypointData ?? selectedRawDurable;
+        const selectedLiveRows = liveRows;
 
         // The normal RPC supplies the linked route id as part of catalogue
         // metadata. The rollout fallback resolves just the one displayed
@@ -1146,9 +1219,9 @@ Deno.serve(async (req: Request) => {
         }
 
         // A public Diary entry is always opt-in. A selected owner track
-        // filters *before* the 200-row cap; combined crew entries stay in the
-        // All diary entries view because their local voyage ids are not a
-        // trustworthy shared boat identity.
+        // filters before its existing 200-row preview cap. The overview
+        // paginates every published post, including unassigned/crew entries;
+        // a crew member's local voyage id is not a shared boat identity.
         const diarySelect = 'id, user_id, title, body, mood, photos, video_url, location_name, latitude, longitude, ' +
             'weather_summary, weather_data, tags, created_at, voyage_id';
         // Named for the same reason as the config row above: a concatenated
@@ -1170,25 +1243,38 @@ Deno.serve(async (req: Request) => {
             created_at: string;
             voyage_id: string | null;
         };
-        let diaryQuery = selectedTrackId
-            ? supabase
-                .from('diary_entries')
-                .select<string, PublicDiaryRow>(diarySelect)
-                .eq('user_id', ownerId)
-                .eq('voyage_id', selectedTrackId)
-            : supabase.from('diary_entries').select<string, PublicDiaryRow>(diarySelect).in('user_id', entryUserIds);
-        if (boatId) diaryQuery = diaryQuery.eq('boat_id', boatId);
-        const entriesRes = await diaryQuery
-            .eq('is_public', true)
-            .order('created_at', { ascending: false })
-            .limit(MAX_ENTRIES);
+        const makeDiaryQuery = () => {
+            let diaryQuery = selectedTrackId
+                ? supabase
+                    .from('diary_entries')
+                    .select<string, PublicDiaryRow>(diarySelect)
+                    .eq('user_id', ownerId)
+                    .eq('voyage_id', selectedTrackId)
+                : supabase.from('diary_entries').select<string, PublicDiaryRow>(diarySelect).in(
+                    'user_id',
+                    entryUserIds,
+                );
+            if (boatId) diaryQuery = diaryQuery.eq('boat_id', boatId);
+            return diaryQuery.eq('is_public', true)
+                .order('created_at', { ascending: false }).order('id', { ascending: false });
+        };
+        const entriesRes = tripSelection.mode === 'all-diary'
+            ? {
+                data: await readCompletePublicPages<PublicDiaryRow>(async (from, to) => {
+                    const { data, error } = await makeDiaryQuery().range(from, to);
+                    return { data, error };
+                }, { maxRows: MAX_OVERVIEW_DIARY_ENTRIES, key: (entry) => entry.id }),
+                error: null,
+            }
+            : await makeDiaryQuery().limit(MAX_ENTRIES);
         if (entriesRes.error) {
             console.error('voyage-log: diary fetch failed:', entriesRes.error);
             return json({ error: 'Internal server error' }, 500);
         }
 
-        const entries = await Promise.all(
-            (entriesRes.data || []).map(async (e) => ({
+        const entries = await mapPublicHistory(
+            entriesRes.data || [],
+            async (e) => ({
                 id: e.id,
                 title: e.title,
                 body: e.body,
@@ -1208,7 +1294,7 @@ Deno.serve(async (req: Request) => {
                 author: combinedAuthors && combinedAuthors.has(e.user_id as string)
                     ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
                     : null,
-            })),
+            }),
         );
 
         // Named waypoints — the marks the skipper deliberately dropped and
@@ -1224,7 +1310,7 @@ Deno.serve(async (req: Request) => {
         // through). It's never a mark the skipper interacted with — drop it.
         // Voyage Start/End and any custom names stay.
         const SYSTEM_WAYPOINT_NAMES = new Set(['Latest Position']);
-        const waypoints = selectedRawDurable
+        const waypoints = publicWaypointRows
             .filter(
                 (p) =>
                     p.entry_type === 'waypoint' &&
@@ -1237,6 +1323,7 @@ Deno.serve(async (req: Request) => {
                 lon: p.longitude as number,
                 name: p.waypoint_name as string,
                 timestamp: p.timestamp as string,
+                voyage_id: (p.voyage_id as string | null) ?? null,
             }));
 
         // ── Passage: linked plan → destination + progress ──────────
@@ -1403,7 +1490,10 @@ Deno.serve(async (req: Request) => {
         // built belongs to some OTHER voyage than the one currently under
         // way — otherwise a historical trip's route would permanently
         // suppress the route the skipper is actually sailing.
-        if (!passage || (activeRowVoyageId && passage.voyage_id !== activeRowVoyageId)) {
+        if (
+            tripSelection.mode !== 'all-diary' &&
+            (!passage || (activeRowVoyageId && passage.voyage_id !== activeRowVoyageId))
+        ) {
             const { data: activeVoyage, error: activeVoyageError } = await supabase
                 .from('voyages')
                 .select('id, voyage_name, saved_route_id')
@@ -1594,7 +1684,7 @@ Deno.serve(async (req: Request) => {
         // off drops the WORK and not just the markers. Absent column (an Edge
         // deploy landing before its migration) reads as ON, matching the state
         // this shipped in.
-        const PUBLIC_AIS_ENABLED = config.public_ais_enabled !== false;
+        const PUBLIC_AIS_ENABLED = config.public_ais_enabled !== false && tripSelection.mode !== 'all-diary';
         const PUBLIC_AIS_RADIUS_NM = 60;
         const PUBLIC_AIS_MAX = 50;
         // Key on position rounded to ~1 nm: a boat at anchor jitters by metres
@@ -1732,9 +1822,12 @@ Deno.serve(async (req: Request) => {
                 entries,
                 track: instrumentsEnabled ? track : track.map(redactPublicTrackPoint),
                 track_meta: {
-                    total_points: selectedFullTrack.length,
+                    total_points: trackTotalPoints,
                     returned_points: track.length,
-                    decimated: track.length < selectedFullTrack.length,
+                    decimated: track.length < trackTotalPoints,
+                    voyage_count: new Set(track.map((point) => point.voyage_id).filter(Boolean)).size,
+                    history_since: trackSince,
+                    complete: trackVisibilityReadable,
                 },
                 waypoints,
                 telemetry: instrumentsEnabled ? telemetry : redactPublicTelemetry(telemetry),

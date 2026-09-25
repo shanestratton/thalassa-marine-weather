@@ -26,6 +26,7 @@ export const LogPageHeader: React.FC<{
     closeOverflowMenu: () => void;
     dispatch: (action: LogPageAction) => void;
     loggedVoyages: VoyageSummary[];
+    hasLifetimeVoyages?: boolean;
     loggedEntries: ShipLogEntry[];
 }> = ({
     isTracking,
@@ -41,6 +42,7 @@ export const LogPageHeader: React.FC<{
     closeOverflowMenu,
     dispatch,
     loggedVoyages,
+    hasLifetimeVoyages = false,
     loggedEntries,
 }) => (
     <PageHeader
@@ -133,7 +135,9 @@ export const LogPageHeader: React.FC<{
                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' });
                                     setShowMenu(false);
                                 }}
-                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
+                                disabled={
+                                    !hasLifetimeVoyages && loggedVoyages.length === 0 && loggedEntries.length === 0
+                                }
                             />
                             <MenuBtn
                                 icon={<MapIcon className="w-4 h-4" />}

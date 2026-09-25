@@ -28,6 +28,8 @@ export interface BuildTacticalStateDeps {
     setTideStationsVisible: Dispatch<SetStateAction<boolean>>;
     anchorageVisible: boolean;
     setAnchorageVisible: Dispatch<SetStateAction<boolean>>;
+    mooringsVisible?: boolean;
+    setMooringsVisible?: Dispatch<SetStateAction<boolean>>;
     lightningVisible: boolean;
     setLightningVisible: Dispatch<SetStateAction<boolean>>;
     weatherInspectMode: boolean;
@@ -58,6 +60,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         setTideStationsVisible,
         anchorageVisible,
         setAnchorageVisible,
+        mooringsVisible,
+        setMooringsVisible,
         lightningVisible,
         setLightningVisible,
         weatherInspectMode,
@@ -195,6 +199,8 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         onToggleTideStations: () => setTideStationsVisible((v) => !v),
         anchorageVisible,
         onToggleAnchorage: () => setAnchorageVisible((v) => !v),
+        mooringsVisible,
+        onToggleMoorings: setMooringsVisible ? () => setMooringsVisible((v) => !v) : undefined,
         onOpenWeatherWindow: () => setPage('weatherWindow'),
         mobActive,
         onOpenMob: () => setPage('mob'),

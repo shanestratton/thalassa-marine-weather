@@ -291,7 +291,7 @@ vi.mock('@capacitor/preferences', () => ({
 
 // ── Mock the consolidated hook — MUST match full public API ──
 vi.mock('../hooks/useLogPageState', () => ({
-    useLogPageState: () => ({
+    useLogPageState: vi.fn(() => ({
         state: {
             entries: [],
             isTracking: false,
@@ -456,6 +456,24 @@ vi.mock('../hooks/useLogPageState', () => ({
             },
         ],
         voyageStats: { totalNm: 62, totalMs: 25200000, voyageCount: 2 },
+        lifetimeLoading: false,
+        lifetimeError: null,
+        lifetimeLoaded: true,
+        lifetimeStats: {
+            summaries: [],
+            totals: { totalNm: 62, totalMs: 25200000, voyageCount: 2 },
+            records: {
+                longestPassageNM: 50,
+                longestPassageVoyageId: 'v2',
+                fastestAvgKts: 6,
+                fastestVoyageId: 'v1',
+                longestDurationMs: 18000000,
+                longestDurationVoyageId: 'v2',
+                voyageCount: 2,
+            },
+            careerTotals: { totalDistance: 62, totalTimeAtSeaHrs: 7, totalVoyages: 2 },
+            entryCount: 2,
+        },
         loadVoyageEntries: vi.fn(),
         loadAllEntries: vi.fn(),
         hasNonDeviceEntries: false,
@@ -463,13 +481,19 @@ vi.mock('../hooks/useLogPageState', () => ({
         avgSpeed: 5.5,
         careerTotals: { totalDistance: 62, totalTimeAtSeaHrs: 12, totalVoyages: 2 },
         archivedVoyages: [],
+        archivesLoading: false,
+        archiveError: null,
+        reloadArchivedVoyages: vi.fn(),
         handleArchiveVoyage: vi.fn(),
-        handleUnarchiveVoyage: vi.fn(),
+        handleArchivePassage: vi.fn().mockResolvedValue(undefined),
+        handleUnarchiveVoyage: vi.fn().mockResolvedValue(undefined),
+        handleRestorePassage: vi.fn().mockResolvedValue(undefined),
         ...logPageStateOverrides.hook,
-    }),
+    })),
 }));
 
 import { LogPage, resetFollowPromptGuardsForTest } from '../pages/LogPage';
+import { useLogPageState } from '../hooks/useLogPageState';
 import {
     clearCastOffHandoff,
     peekCastOffHandoff,
@@ -484,6 +508,7 @@ describe('LogPage', () => {
 
     beforeEach(() => {
         resetFollowPromptGuardsForTest();
+        localStorage.clear();
 
         vi.clearAllMocks();
         for (const key of Object.keys(logPageStateOverrides.state)) delete logPageStateOverrides.state[key];
@@ -522,6 +547,29 @@ describe('LogPage', () => {
         render(<LogPage />);
         expect(screen.getByTestId('voyage-v1')).toBeDefined();
         expect(screen.getByTestId('voyage-v2')).toBeDefined();
+    });
+
+    it('keeps all six metrics behind the Voyage stats roll-up without hiding the logs', () => {
+        logPageStateOverrides.state.summaries = ['v1', 'v2'].map((voyageId) => ({
+            voyageId,
+            totalDistanceNM: 12,
+            entryCount: 100,
+            avgSpeedKts: 5,
+            startedAt: '2026-09-22T00:00:00Z',
+            endedAt: '2026-09-22T03:00:00Z',
+        }));
+        render(<LogPage />);
+        const toggle = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.getByText('Distance')).not.toBeVisible();
+        expect(screen.getByTestId('voyage-v1')).toBeVisible();
+        fireEvent.click(toggle);
+        expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        for (const label of ['Distance', 'Sea Time', 'Voyages', 'Farthest', 'Fastest avg', 'Longest']) {
+            expect(screen.getByText(label)).toBeVisible();
+        }
+        fireEvent.click(toggle);
+        expect(screen.getByText('Longest')).not.toBeVisible();
     });
 
     it('shows actual and imported tracks but hides planned routes from the main Log list', () => {
@@ -594,27 +642,19 @@ describe('LogPage', () => {
         logPageStateOverrides.hook.archivedVoyages = [
             {
                 voyageId: 'actual-archive',
-                entries: [
-                    {
-                        id: 'actual-archive-entry',
-                        voyageId: 'actual-archive',
-                        source: 'device',
-                        timestamp: '2026-01-01T00:00:00.000Z',
-                        cumulativeDistanceNM: 8,
-                    },
-                ],
+                entryCount: 3,
+                isPlannedRoute: false,
+                startedAt: '2026-01-01T00:00:00.000Z',
+                endedAt: '2026-01-01T02:00:00.000Z',
+                totalDistanceNM: 8,
             },
             {
                 voyageId: 'planned-archive',
-                entries: [
-                    {
-                        id: 'planned-archive-entry',
-                        voyageId: 'planned-archive',
-                        source: 'planned_route',
-                        timestamp: '2026-01-02T00:00:00.000Z',
-                        cumulativeDistanceNM: 12,
-                    },
-                ],
+                entryCount: 3,
+                isPlannedRoute: true,
+                startedAt: '2026-01-02T00:00:00.000Z',
+                endedAt: '2026-01-02T02:00:00.000Z',
+                totalDistanceNM: 12,
             },
         ];
 
@@ -622,10 +662,20 @@ describe('LogPage', () => {
 
         // The expander is named by its visible text now (the placeholder
         // aria-label went 2026-09-03; it announces aria-expanded instead).
-        const toggle = screen.getByRole('button', { name: /Archived Voyages/ });
+        const toggle = screen.getByRole('button', { name: /Archived voyages/i });
         expect(toggle).toHaveTextContent('1');
         fireEvent.click(toggle);
-        expect(screen.getAllByRole('button', { name: 'Unarchive voyage' })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: /^Restore voyage/ })).toHaveLength(1);
+    });
+
+    it('keeps the archive close to hand instead of showing a first-voyage welcome when everything is archived', () => {
+        logPageStateOverrides.hook.listVoyages = [];
+        logPageStateOverrides.hook.archivedVoyages = [{ voyageId: 'past', isPlannedRoute: false }];
+        render(<LogPage />);
+        expect(screen.queryByText('Begin Your Log')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('log-watermark')).not.toBeInTheDocument();
+        expect(screen.getByText('Your past voyages are in the archive below.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Archived voyages/i })).toHaveTextContent('1 voyage');
     });
 
     it('accepts onBack callback without crashing', () => {
@@ -909,7 +959,7 @@ describe('LogPage', () => {
         );
     });
 
-    it('excludes planned routes from all-voyages detailed statistics and the stats picker', () => {
+    it('uses lifetime summaries rather than resident points for all-voyages stats and excludes plans from the picker', () => {
         const actualEntry = { id: 'actual', voyageId: 'actual-voyage', source: 'device' };
         const plannedEntry = { id: 'plan', voyageId: 'planned-voyage', source: 'planned_route' };
         const actualSummary = { voyageId: 'actual-voyage', isPlannedRoute: false };
@@ -926,7 +976,9 @@ describe('LogPage', () => {
         });
 
         const { rerender } = render(<LogPage />);
-        expect(screen.getByTestId('voyage-stats')).toHaveAttribute('data-entry-voyages', '["actual-voyage"]');
+        expect(screen.queryByTestId('voyage-stats')).not.toBeInTheDocument();
+        expect(screen.getByText('Lifetime · includes archived voyages')).toBeVisible();
+        expect(screen.getByText('62.0')).toBeVisible();
 
         logPageStateOverrides.state.showStats = false;
         logPageStateOverrides.state.actionSheet = 'stats';
@@ -1092,8 +1144,48 @@ describe('LogPage', () => {
             expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument(),
         );
         second.unmount();
-        render(<LogPage />);
+        // A webview reload also loses the old in-memory guards.
+        resetFollowPromptGuardsForTest();
+        const restored = render(<LogPage />);
         await new Promise((r) => setTimeout(r, 50));
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+        expect(clearFollowedRouteMock).toHaveBeenCalledTimes(1); // reading an answer must not clear a route again
+        restored.unmount();
+        Object.assign(logPageStateOverrides.state, { currentVoyageId: 'different-voyage' });
+        render(<LogPage />);
+        expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+    });
+
+    it('keeps Just recording when Log unmounts before native tracking finishes starting', async () => {
+        Object.assign(logPageStateOverrides.state, {
+            summaries: [
+                {
+                    voyageId: 'plan',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        const first = render(<LogPage />);
+        fireEvent.click(screen.getByRole('button', { name: 'Slide to Start Tracking' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Just recording' }));
+        const onStarted = vi.mocked(useLogPageState).mock.calls.at(-1)![0]!;
+        first.unmount();
+        // Return before native startup completes: the replacement instance
+        // must also retire any question when the old start commits its answer.
+        Object.assign(logPageStateOverrides.state, { isTracking: true, currentVoyageId: 'new-recording' });
+        const returned = render(<LogPage />);
+        await act(async () => onStarted('new-recording'));
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+        returned.unmount();
+        resetFollowPromptGuardsForTest();
+        render(<LogPage />); // Also survives losing all in-memory guards.
+        await act(async () => Promise.resolve());
         expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
     });
 

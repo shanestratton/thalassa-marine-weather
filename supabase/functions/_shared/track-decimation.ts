@@ -45,3 +45,19 @@ export function decimatePublicTrack<T extends SegmentTrackPoint>(points: T[], ma
         .slice(0, maxPoints)
         .map((index) => points[index]);
 }
+
+/** An overview must retain every authorised voyage, even beyond the soft payload budget. */
+export function decimatePublicVoyages<T extends SegmentTrackPoint>(points: T[], maxPoints: number): T[] {
+    if (!Number.isInteger(maxPoints) || maxPoints < 2) return [];
+    const voyages = new Map<string, T[]>();
+    for (const point of points) {
+        const id = typeof point.voyage_id === 'string' ? point.voyage_id.trim() : '';
+        // No identity means no honest segment; plans are never sailed history.
+        if (!id || id.startsWith('planned_')) continue;
+        const voyage = voyages.get(id) ?? [];
+        voyage.push(point);
+        voyages.set(id, voyage);
+    }
+    const perVoyage = Math.max(2, Math.floor(maxPoints / Math.max(1, voyages.size)));
+    return [...voyages.values()].flatMap((voyage) => decimatePublicTrack(voyage, perVoyage));
+}

@@ -8,13 +8,24 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
+import type { TrackingState } from '../services/shiplog/TrackingStateStore';
 
 const chart = vi.hoisted(() => ({
     activeVoyage: null as null | { id: string; voyage_name: string; status: string },
+    recording: { isTracking: false, isPaused: false, isRapidMode: false } as TrackingState,
     fetchRoutesAndTracks: vi.fn(),
     fetchVoyageAsTrack: vi.fn(),
 }));
 vi.mock('../services/VoyageService', () => ({ getCachedActiveVoyage: () => chart.activeVoyage }));
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        getPublishedTrackingStatus: () => ({ ...chart.recording }),
+        onTrackingStateChange: (listener: () => void) => {
+            listener();
+            return () => undefined;
+        },
+    },
+}));
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchRoutesAndTracks: chart.fetchRoutesAndTracks,
     fetchVoyageAsTrack: chart.fetchVoyageAsTrack,
@@ -91,6 +102,12 @@ describe('active voyage chart sync — opt-in', () => {
         localStorage.clear();
         __resetPassageOverlayForTests();
         chart.activeVoyage = { id: 'voyage-1', voyage_name: 'Newport → Whitsundays', status: 'active' };
+        chart.recording = {
+            isTracking: true,
+            isPaused: false,
+            isRapidMode: false,
+            currentVoyageId: 'voyage-1',
+        };
         chart.fetchRoutesAndTracks.mockResolvedValue({ routes: [ROUTE], tracks: [TRACK] });
         chart.fetchVoyageAsTrack.mockResolvedValue(TRACK);
         useFollowRouteStore.getState().startFollowing(buildFollowRoutePlanFromRoute(ROUTE)!, ROUTE.id, ROUTE.points);
@@ -151,12 +168,31 @@ describe('active voyage chart sync — opt-in', () => {
         expect(view.result.current.route).toBeNull();
         expect(view.result.current.track).toBeNull();
     });
+
+    it('does not revive an old cached passage trail when no recording is active', async () => {
+        chart.recording = { isTracking: false, isPaused: false, isRapidMode: false };
+        useFollowRouteStore.getState().stopFollowing();
+        const view = renderHook(() => useChartSelection(true));
+        await act(async () => {
+            vi.advanceTimersByTime(120_000);
+            window.dispatchEvent(new Event('thalassa:routes-and-tracks-changed'));
+            await Promise.resolve();
+        });
+        expect(chart.activeVoyage?.status).toBe('active');
+        expect(view.result.current.activeVoyageMode).toBe(false);
+        expect(view.result.current.route).toBeNull();
+        expect(view.result.current.track).toBeNull();
+        expect(chart.fetchVoyageAsTrack).not.toHaveBeenCalled();
+        expect(chart.fetchRoutesAndTracks).not.toHaveBeenCalled();
+    });
 });
 
 describe('MapHub wiring (source pins)', () => {
     const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
     it('feeds the overlay into the sync and the flag, offers "Passage" in the layer FAB, and a clear sticks', () => {
-        expect(hub).toContain('useActiveVoyageChartSync(setActiveChartRoute, setActiveChartTrack, passageOverlay)');
+        expect(hub).toMatch(
+            /useActiveVoyageChartSync\(\s*setActiveChartRoute,\s*setActiveChartTrack,\s*passageOverlay,?\s*\)/,
+        );
         expect(hub).toContain(
             'useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) })',
         );

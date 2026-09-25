@@ -14,15 +14,18 @@ describe('Radio Console full-pane readback', () => {
         expect(dialogs).toContain('aria-label={`Close ${title.toLowerCase()}`}');
         expect(dialogs).not.toContain('scope="app"');
     });
-    it('fits ordinary scripts without truncating or shrinking below 14px', () => {
-        expect(dialogs).toContain('size > 14');
-        expect(dialogs).toContain('new ResizeObserver(fit)');
-        expect(dialogs).toContain('Long message — scroll within the transcript to read every word.');
+    it('fits ordinary scripts without truncating or going below the readable floor', () => {
+        expect(dialogs).toContain('const minimum = Math.max(16, rootSize)');
+        expect(dialogs).toContain('const maximum = Math.max(minimum, rootSize * 1.25)');
+        expect(dialogs).toContain('new ResizeObserver(measure)');
+        expect(dialogs).toContain('Scroll to continue');
+        expect(dialogs).toContain('aria-label="Call script"');
+        expect(dialogs).toContain('tabIndex={0}');
         expect(dialogs).toContain('overflow-y-auto overscroll-contain');
         expect(dialogs).not.toMatch(/line-clamp-|text-overflow:|text-ellipsis/);
         expect(dialogs.split('data-testid="dsc-transcript"')).toHaveLength(2);
     });
-    it('keeps one top call-selector slot ahead of variable console content and outside both dialog scrollers', () => {
+    it('keeps call choices pinned in preparation and one tap away during full-screen readback', () => {
         for (const label of ['LAT', 'LON', 'SOG', 'COG', 'UTC']) expect(page).toMatch(new RegExp(`>\\s*${label}\\s*<`));
         expect(page).toContain("paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)'");
         expect(page).toContain('<DscSelector mode={dscMode} onChange={chooseMode} mobActive={mobActive} />');
@@ -30,15 +33,18 @@ describe('Radio Console full-pane readback', () => {
         expect(page).toContain('aria-hidden={dialogStep !== null}');
         expect(page.match(/selectorAnchor={selectorAnchor}/g)).toHaveLength(2);
         expect(dialogs.indexOf('{selectors}')).toBeLessThan(dialogs.indexOf('{children}'));
-        expect(dialogs).toContain('paddingTop: (selectorAnchor?.top ?? 76) - dialogTop');
-        expect(dialogs).toContain('top: dialogTop');
-        expect(dialogs).toContain('marginLeft: selectorAnchor.left, width: selectorAnchor.width');
+        expect(dialogs).toContain('compactReadback');
+        expect(dialogs).toContain('aria-expanded={showCallTypes}');
+        expect(dialogs).toContain("'Change call'");
+        expect(dialogs).not.toContain('top: dialogTop');
+        expect(dialogs).toContain("paddingTop: pane ? '8px' : 'max(8px, env(safe-area-inset-top))'");
         for (const mode of ['routine', 'urgency', 'distress']) expect(page).toContain(`pill('${mode}'`);
     });
     it('keeps channel guidance without a universal hold time or acknowledgement gate', () => {
-        expect(page).toContain('Channel 70 is DSC only — never voice.');
+        expect(page).toContain('Ch 70: DSC only, never voice.');
         expect(page).toContain('DISTRESS button hold/countdown');
-        expect(page).toContain('This app does not transmit or confirm an alert.');
+        expect(page).toContain('This app does not transmit.');
+        expect(page).toContain('This app cannot confirm an alert was sent.');
         expect(page).toContain('DSC 8414.5 / 6312 / 4207.5 kHz, then voice 8291 / 6215 / 4125 kHz');
         expect(page).not.toMatch(/for 5 seconds|Wait for acknowledgement/);
     });

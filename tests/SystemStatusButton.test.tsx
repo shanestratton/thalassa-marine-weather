@@ -8,6 +8,9 @@ import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIden
 import type { NmeaConnectionStatus } from '../services/NmeaListenerService';
 import type { NmeaStoreState } from '../services/NmeaStore';
 import type { GpsPosition } from '../services/GpsService';
+import type { GpsReceiverStatus } from '../services/GpsReceiverStatusService';
+import type { ShoreAlarmSnapshot } from '../services/ShoreWatchAlarmService';
+import type { ShorePushReadiness } from '../services/AnchorWatchSyncService';
 import { publishPassageHudInfo, setPassageSquallInfoVisible } from '../stores/passageHudInfoStore';
 
 const instruments = vi.hoisted(() => ({
@@ -21,6 +24,35 @@ const instruments = vi.hoisted(() => ({
     retain: vi.fn(),
     release: vi.fn(),
     phoneCallback: null as null | ((position: GpsPosition) => void),
+    receiver: {} as GpsReceiverStatus,
+}));
+const shore = vi.hoisted(() => ({
+    watch: {} as ShoreAlarmSnapshot,
+    push: {} as ShorePushReadiness,
+    listeners: new Set<() => void>(),
+    pushListeners: new Set<(value: ShorePushReadiness) => void>(),
+    refreshPushReadiness: vi.fn(),
+    retryReminderAcknowledgement: vi.fn(),
+}));
+vi.mock('../services/ShoreWatchAlarmService', () => ({
+    ShoreWatchAlarmService: {
+        getSnapshot: () => shore.watch,
+        subscribe: (listener: () => void) => {
+            shore.listeners.add(listener);
+            return () => shore.listeners.delete(listener);
+        },
+        retryReminderAcknowledgement: shore.retryReminderAcknowledgement,
+    },
+}));
+vi.mock('../services/AnchorWatchSyncService', () => ({
+    AnchorWatchSyncService: {
+        getPushReadiness: () => shore.push,
+        refreshPushReadiness: shore.refreshPushReadiness,
+        onPushReadinessChange: (listener: (value: ShorePushReadiness) => void) => {
+            shore.pushListeners.add(listener);
+            return () => shore.pushListeners.delete(listener);
+        },
+    },
 }));
 
 vi.mock('../services/NmeaStore', () => ({
@@ -76,10 +108,12 @@ vi.mock('../services/GpsService', () => ({
         },
     },
 }));
-vi.mock('../services/GpsReceiverStatusService', () => {
-    const status = { active: false, kind: 'phone', label: 'Phone GPS', detail: 'No external receiver' };
-    return { GpsReceiverStatusService: { getStatus: () => status, refresh: async () => status } };
-});
+vi.mock('../services/GpsReceiverStatusService', () => ({
+    GpsReceiverStatusService: {
+        getStatus: () => instruments.receiver,
+        refresh: async () => instruments.receiver,
+    },
+}));
 vi.mock('../components/NmeaRateSparkline', () => ({
     NmeaRateSparkline: ({ label }: { label: string }) => <div>{label}</div>,
 }));
@@ -132,6 +166,20 @@ import { SystemStatusButton } from '../components/SystemStatusButton';
 describe('SystemStatusButton', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        shore.watch = {
+            sessionCode: null,
+            position: null,
+            lastContactAt: null,
+            stale: true,
+            cause: null,
+            muted: false,
+            audioError: null,
+        };
+        shore.push = { status: 'inactive', reason: null, checkedAt: null };
+        shore.listeners.clear();
+        shore.pushListeners.clear();
+        shore.refreshPushReadiness.mockResolvedValue(undefined);
+        shore.retryReminderAcknowledgement.mockResolvedValue(undefined);
         instruments.storeListeners.clear();
         instruments.socketListeners.clear();
         instruments.direct = 'disconnected';
@@ -139,6 +187,18 @@ describe('SystemStatusButton', () => {
         instruments.viaRemoteAccess = false;
         instruments.piReachable = false;
         instruments.phoneCallback = null;
+        instruments.receiver = {
+            active: false,
+            kind: 'phone',
+            label: 'Phone GPS',
+            detail: 'No external receiver',
+            isNmea: false,
+            satellites: null,
+            hdop: null,
+            avgAccuracy: null,
+            qualityLabel: null,
+            deviceName: null,
+        };
         instruments.store = emptyInstrumentState();
         setAuthIdentityScope(null);
         localStorage.clear();
@@ -161,6 +221,168 @@ describe('SystemStatusButton', () => {
     it('renders without crashing', () => {
         const { container } = render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
         expect(container).toBeDefined();
+    });
+
+    it('combines the boat receiver connection and diagnostics once, keeping weather and phone distinct', () => {
+        seedPi('lan');
+        const now = Date.now();
+        instruments.store.satellites = { value: 32, lastUpdated: now, freshness: 'live' };
+        instruments.receiver = {
+            ...instruments.receiver,
+            active: true,
+            kind: 'vessel-nmea',
+            label: 'On-board GPS',
+            detail: 'Live via the Pi · DGPS · 32 sats · HDOP 0.7',
+            qualityLabel: 'DGPS',
+        };
+        openStatus();
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
+        expect(screen.getAllByRole('heading', { name: 'Boat GPS · Pi LAN' })).toHaveLength(1);
+        expect(boat.getByText('Live via the Pi')).toBeVisible();
+        expect(boat.getByText('32')).toBeVisible();
+        expect(screen.queryByText('On-board GPS')).not.toBeInTheDocument();
+        expect(screen.queryByText('32 sats')).not.toBeInTheDocument();
+        expect(screen.getByText('Weather position')).toBeVisible();
+        expect(screen.getByRole('region', { name: 'Phone location' })).toBeVisible();
+        expect(within(screen.getByTestId('gps-quality-panel')).getByTestId('gps-source-row')).toBeVisible();
+    });
+
+    it('keeps the receiver waiting state inside the single Boat GPS section before the first fix', () => {
+        instruments.receiver = {
+            ...instruments.receiver,
+            active: true,
+            kind: 'vessel-nmea',
+            label: 'On-board GPS',
+            detail: 'Yacht Devices YDWG-02 connected · Waiting for GPS position',
+        };
+        openStatus();
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS' }));
+        expect(boat.getByText(/Waiting for GPS position/)).toBeVisible();
+        expect(boat.getByText('Position time unavailable')).toBeVisible();
+        expect(boat.getAllByText('Not reported')).toHaveLength(3);
+        expect(screen.queryByText('On-board GPS')).not.toBeInTheDocument();
+    });
+
+    it('retains an external iPhone receiver identity in the separate phone section', () => {
+        instruments.receiver = {
+            ...instruments.receiver,
+            active: true,
+            kind: 'ios-accessory',
+            label: 'Bad Elf GPS Pro',
+            detail: 'Connected to iPhone · iPhone GPS currently in use',
+        };
+        openStatus();
+        const phone = within(screen.getByRole('region', { name: 'Phone location' }));
+        expect(phone.getByText('Bad Elf GPS Pro · Connected to iPhone · iPhone GPS currently in use')).toBeVisible();
+        expect(screen.queryByRole('region', { name: /Boat GPS/ })).not.toBeInTheDocument();
+    });
+
+    it('moves fresh Shore Watch details into the info panel with a reduced-motion-aware blue halo', () => {
+        seedShoreWatch();
+        const navigate = vi.fn();
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={navigate} />);
+        const opener = screen.getByRole('button', { name: /Shore Watch: Receiving vessel data/ });
+        expect(opener).toHaveAttribute('data-shore-status', 'blue');
+        expect(opener).toHaveClass('from-sky-400');
+        expect(screen.getByTestId('system-status-halo')).toHaveClass('motion-safe:animate-pulse');
+        expect(screen.queryByRole('region', { name: 'Shore Watch status' })).not.toBeInTheDocument();
+        fireEvent.click(opener);
+        const panel = within(screen.getByRole('region', { name: 'Shore Watch status' }));
+        expect(panel.getByText('Receiving vessel data')).toBeInTheDocument();
+        expect(panel.getByText(/Sound still depends on phone settings and delivery/)).toBeInTheDocument();
+        fireEvent.click(panel.getByRole('button', { name: 'View Shore Watch' }));
+        expect(navigate).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('goes amber while waiting, red for lost contact, and returns to normal after leaving', () => {
+        shore.watch = { ...shore.watch, sessionCode: 'WATCHSESSION' };
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        const opener = screen.getByRole('button', { name: /System status:/ });
+        expect(opener).toHaveClass('from-amber-400');
+        expect(opener).toHaveAccessibleName(/Waiting for vessel data/);
+        emitShoreWatch({ cause: 'contact-lost', muted: true });
+        expect(opener).toHaveClass('from-red-400');
+        expect(opener).toHaveAccessibleName(/Vessel connection lost/);
+        fireEvent.click(opener);
+        expect(screen.getByRole('region', { name: 'Shore Watch status' })).toHaveTextContent(
+            'In-app sound is silenced',
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Close system status' }));
+        emitShoreWatch({ sessionCode: null });
+        expect(opener).not.toHaveAttribute('data-shore-status');
+        expect(opener).toHaveClass('from-sky-400');
+        expect(screen.queryByTestId('system-status-halo')).toBeNull();
+    });
+
+    it('keeps notification safety details collapsed until requested in the info panel', () => {
+        seedShoreWatch();
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /System status:/ }));
+        const panel = within(screen.getByRole('region', { name: 'Shore Watch status' }));
+        const summary = panel.getByText('Notifications & safety');
+        const registration = panel.getByText('Notification registration does not confirm delivery.');
+        expect(summary).toBeVisible();
+        expect(summary).toHaveAttribute('tabindex', '0');
+        expect(registration).not.toBeVisible();
+        expect(panel.getByText(/Phone notifications registered/)).toBeVisible();
+        expect(panel.queryByRole('button', { name: 'Retry notifications' })).not.toBeInTheDocument();
+
+        fireEvent.click(summary);
+        expect(registration).toBeVisible();
+        expect(panel.getByText(/Ordinary notifications do not bypass Silent mode/)).toBeVisible();
+        expect(panel.getByText(/Focus, volume and notification settings/)).toBeVisible();
+        expect(panel.getByText(/roughly every 1–2 minutes/)).toHaveTextContent('not an uninterrupted alarm');
+        expect(panel.getByText(/bundled 24-second siren/)).toHaveTextContent('may not play in full');
+        expect(panel.getByText(/Both the boat and phone need power and internet/)).toHaveTextContent(
+            '24 hours; start a new watch to continue',
+        );
+
+        fireEvent.click(summary);
+        expect(registration).not.toBeVisible();
+    });
+
+    it('does not conflate fresh vessel data with permission to deliver phone notifications', () => {
+        seedShoreWatch();
+        shore.push = { status: 'unavailable', reason: 'Notifications denied', checkedAt: Date.now() };
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        const opener = screen.getByRole('button', { name: /System status:/ });
+        expect(opener).toHaveAttribute('data-shore-status', 'blue');
+        fireEvent.click(opener);
+        expect(screen.getByText('Notifications denied')).toHaveClass('text-amber-300');
+        expect(screen.getByText('Notifications denied')).toBeVisible();
+        expect(screen.getByText('Notification registration does not confirm delivery.')).not.toBeVisible();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry notifications' }));
+        expect(shore.refreshPushReadiness).toHaveBeenCalledOnce();
+        act(() => {
+            shore.push = { status: 'checking', reason: null, checkedAt: null };
+            shore.pushListeners.forEach((listener) => listener(shore.push));
+        });
+        expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled();
+        expect(screen.getByText('Checking background notifications…')).toBeVisible();
+        emitShoreWatch({ stale: true });
+        expect(opener).toHaveAttribute('data-shore-status', 'yellow');
+        expect(screen.getByText('Waiting for fresh vessel data')).toBeInTheDocument();
+    });
+
+    it('keeps a failed reminder acknowledgement actionable without claiming remote reminders stopped', () => {
+        seedShoreWatch();
+        shore.watch = {
+            ...shore.watch,
+            cause: 'drag',
+            muted: true,
+            reminderError: 'Phone reminders could not be stopped. Retry when connected.',
+        };
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /System status:/ }));
+        expect(screen.getByRole('alert')).toHaveTextContent('Phone reminders could not be stopped');
+        fireEvent.click(screen.getByRole('button', { name: 'Retry stopping phone reminders' }));
+        expect(shore.retryReminderAcknowledgement).toHaveBeenCalledOnce();
+        emitShoreWatch({ reminderPending: true, reminderError: null });
+        expect(screen.getByRole('button', { name: 'Confirming…' })).toBeDisabled();
+        expect(screen.getByText(/Confirming that repeating notifications are stopped/)).toBeInTheDocument();
+        emitShoreWatch({ reminderPending: false, reminderError: null });
+        expect(screen.queryByRole('button', { name: 'Retry stopping phone reminders' })).not.toBeInTheDocument();
     });
 
     it('shows boat satellites and fix quality separately from the phone’s reported metre accuracy', () => {
@@ -463,6 +685,7 @@ function emptyInstrumentState(): NmeaStoreState {
         awa: metric(),
         stw: metric(),
         heading: metric(),
+        headingTrue: metric(),
         depth: metric(),
         sog: metric(),
         cog: metric(),
@@ -507,4 +730,29 @@ function seedPi(via: 'lan' | 'cloud') {
 function openStatus() {
     render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /System status:/ }));
+}
+
+function seedShoreWatch() {
+    const now = Date.now();
+    shore.watch = {
+        ...shore.watch,
+        sessionCode: 'WATCHSESSION',
+        stale: false,
+        lastContactAt: now,
+        position: {
+            type: 'position',
+            vessel: { latitude: -20.1, longitude: 148.8, accuracy: 3, heading: 0, speed: 0, timestamp: now },
+            anchor: { latitude: -20.1, longitude: 148.8, timestamp: now },
+            distance: 10,
+            swingRadius: 50,
+            isAlarm: false,
+            timestamp: now,
+        },
+    };
+    shore.push = { status: 'ready', reason: null, checkedAt: now };
+}
+
+function emitShoreWatch(patch: Partial<ShoreAlarmSnapshot>) {
+    shore.watch = { ...shore.watch, ...patch };
+    act(() => shore.listeners.forEach((listener) => listener()));
 }

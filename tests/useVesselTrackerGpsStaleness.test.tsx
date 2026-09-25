@@ -23,6 +23,7 @@ import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../services/shiplog/Posit
 
 interface MockMarker {
     element: HTMLElement;
+    options: { rotationAlignment?: string; pitchAlignment?: string };
     setLngLat: ReturnType<typeof vi.fn>;
     addTo: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
@@ -31,6 +32,7 @@ interface MockMarker {
 const mocks = vi.hoisted(() => {
     const markers: Array<{
         element: HTMLElement;
+        options: { rotationAlignment?: string; pitchAlignment?: string };
         setLngLat: ReturnType<typeof vi.fn>;
         addTo: ReturnType<typeof vi.fn>;
         remove: ReturnType<typeof vi.fn>;
@@ -49,18 +51,25 @@ const mocks = vi.hoisted(() => {
         getCurrentPosition: vi.fn().mockResolvedValue(null),
         getLastPosition: vi.fn(() => null),
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        anchorState: 'idle',
+        anchorCallbacks: new Set<() => void>(),
+        nmeaState: {} as Record<string, { value: number | null; lastUpdated: number; freshness: string }>,
+        nmeaCallbacks: new Set<() => void>(),
+        nmeaPositionCallbacks: new Set<() => void>(),
     };
 });
 
 vi.mock('mapbox-gl', () => {
     class Marker {
         element: HTMLElement;
+        options: { rotationAlignment?: string; pitchAlignment?: string };
         setLngLat = vi.fn().mockReturnThis();
         addTo = vi.fn().mockReturnThis();
         remove = vi.fn();
 
-        constructor(opts: { element: HTMLElement }) {
+        constructor(opts: { element: HTMLElement; rotationAlignment?: string; pitchAlignment?: string }) {
             this.element = opts.element;
+            this.options = opts;
             mocks.markers.push(this);
         }
     }
@@ -78,21 +87,57 @@ vi.mock('../services/BgGeoManager', () => ({
     BgGeoManager: { getLastPosition: mocks.getLastPosition },
 }));
 
+vi.mock('../services/AnchorWatchService', () => ({
+    AnchorWatchService: {
+        getSnapshot: () => ({ state: mocks.anchorState, gpsSource: 'native' }),
+        subscribe: (callback: () => void) => {
+            mocks.anchorCallbacks.add(callback);
+            callback();
+            return () => mocks.anchorCallbacks.delete(callback);
+        },
+    },
+}));
+vi.mock('../services/AnchorWatchSyncService', () => ({
+    AnchorWatchSyncService: {
+        getState: () => ({ role: 'vessel', sessionCode: null }),
+        onStateChange: () => () => {},
+    },
+}));
+vi.mock('../services/ShoreWatchAlarmService', () => ({
+    ShoreWatchAlarmService: {
+        getSnapshot: () => ({ sessionCode: null, position: null, stale: true, cause: null }),
+        subscribe: () => () => {},
+    },
+}));
+
 // PositionResolver is imported for real (it owns THE app-wide staleness
 // thresholds this suite pins); its service imports resolve to the mocks
 // above plus this stub.
 // The tracker now paints through the ownship arbiter (2026-08-31: the arrow
 // sat on the house while the boat streamed from her berth). These stubs keep
-// this suite about the STALENESS clock: no saved gateway, an empty NMEA
-// state, so the arbiter always falls through to the mocked phone GPS.
+// the original STALENESS cases on phone GPS. Direction cases below seed real
+// arbiter-shaped NMEA metrics, with independent position and heading callbacks.
 vi.mock('../services/NmeaGpsProvider', () => ({
-    NmeaGpsProvider: { onPosition: () => () => {}, start: vi.fn() },
+    NmeaGpsProvider: {
+        onPosition: (callback: () => void) => {
+            mocks.nmeaPositionCallbacks.add(callback);
+            return () => mocks.nmeaPositionCallbacks.delete(callback);
+        },
+        start: vi.fn(),
+    },
 }));
 vi.mock('../services/NmeaListenerService', () => ({
     NmeaListenerService: { getSavedConfig: () => null },
 }));
 vi.mock('../services/NmeaStore', () => ({
-    NmeaStore: { getState: () => ({}), start: vi.fn() },
+    NmeaStore: {
+        getState: () => mocks.nmeaState,
+        start: vi.fn(),
+        subscribe: (callback: () => void) => {
+            mocks.nmeaCallbacks.add(callback);
+            return () => mocks.nmeaCallbacks.delete(callback);
+        },
+    },
 }));
 
 // The real GpsReceiverStatusService drags in the NMEA/native-receiver
@@ -177,6 +222,7 @@ function mountTracker() {
         chip: () => part('.vessel-age-chip'),
         arrow: () => part('.vessel-arrow'),
         ring: () => part('.vessel-accuracy-ring'),
+        status: () => part('.vessel-sog-badge'),
     };
 }
 
@@ -212,6 +258,111 @@ beforeEach(() => {
     mocks.gpsCallbacks.length = 0;
     mocks.watchPosition.mockClear();
     mocks.watchUnsub.mockClear();
+    mocks.anchorState = 'idle';
+    mocks.anchorCallbacks.clear();
+    mocks.nmeaState = {};
+    mocks.nmeaCallbacks.clear();
+    mocks.nmeaPositionCallbacks.clear();
+});
+
+describe('useVesselTracker independent true-heading updates', () => {
+    const metric = (value: number | null, at = Date.now()) => ({ value, lastUpdated: at, freshness: 'live' });
+    const seedStoppedVessel = () => {
+        mocks.nmeaState = {
+            latitude: metric(-20.26),
+            longitude: metric(148.82),
+            sog: metric(0),
+            cog: metric(240),
+            heading: metric(180), // Unqualified legacy heading must never drive the bow.
+            headingTrue: metric(0),
+        };
+    };
+    const expectNeutral = (t: ReturnType<typeof mountTracker>) => {
+        expect(t.marker().element.dataset.directionSource).toBe('unknown');
+        expect(t.marker().element.getAttribute('aria-label')).toBe('Position; heading unavailable');
+        expect(t.arrow().querySelector<SVGElement>('.vessel-directional-shape')!.style.display).toBe('none');
+        expect(t.arrow().querySelector<SVGElement>('.vessel-neutral-shape')!.style.display).not.toBe('none');
+    };
+
+    it('draws a stationary vessel pointing true north at 0°, separate from cached COG', () => {
+        seedStoppedVessel();
+        const t = mountTracker();
+        expect(t.marker().element.dataset.source).toBe('vessel');
+        expect(t.marker().element.dataset.directionSource).toBe('heading');
+        expect(t.marker().element.getAttribute('aria-label')).toBe('Bow heading 0° true');
+        expect(t.arrow().style.transform).toBe('rotate(0deg)');
+        expect(t.arrow().querySelector<SVGElement>('.vessel-directional-shape')!.style.display).not.toBe('none');
+        expect(t.arrow().querySelector<SVGElement>('.vessel-neutral-shape')!.style.display).toBe('none');
+        expect(t.status().textContent).toBe('Stopped');
+    });
+
+    it('updates the bow from instrument callbacks without a new GPS fix or marker translation', () => {
+        seedStoppedVessel();
+        const t = mountTracker();
+        const translations = t.marker().setLngLat.mock.calls.length;
+        t.marker().element.style.transform = 'translate(100px, 200px) rotateZ(-30deg)';
+        act(() => {
+            mocks.nmeaState.headingTrue = metric(45);
+            mocks.nmeaCallbacks.forEach((callback) => callback());
+        });
+        expect(t.arrow().style.transform).toBe('rotate(45deg)');
+        expect(t.marker().setLngLat).toHaveBeenCalledTimes(translations);
+        expect(t.marker().element.style.transform).toBe('translate(100px, 200px) rotateZ(-30deg)');
+        expect(t.marker().options).toMatchObject({ rotationAlignment: 'map', pitchAlignment: 'map' });
+        t.view.unmount();
+        expect(mocks.nmeaCallbacks.size).toBe(0);
+        expect(mocks.nmeaPositionCallbacks.size).toBe(0);
+    });
+
+    it('retires expired heading to a neutral dot while newer position fixes remain fresh', () => {
+        seedStoppedVessel();
+        const t = mountTracker();
+        tick(12_000);
+        act(() => {
+            mocks.nmeaState.latitude = metric(-20.26);
+            mocks.nmeaState.longitude = metric(148.82);
+            mocks.nmeaPositionCallbacks.forEach((callback) => callback());
+        });
+        expect(t.marker().element.dataset.directionSource).toBe('heading');
+        tick(2_000);
+        expectNeutral(t);
+        expectLocked(t); // The position itself is still fresh, not a GPS failure.
+    });
+
+    it('crosses north directly without a CSS tween that sweeps the long way around', () => {
+        seedStoppedVessel();
+        mocks.nmeaState.headingTrue = metric(359);
+        const t = mountTracker();
+        expect(t.arrow().style.transform).toBe('rotate(359deg)');
+        expect(t.arrow().style.transition).not.toContain('transform');
+        expect(t.arrow().style.transition).not.toContain('all');
+        act(() => {
+            mocks.nmeaState.headingTrue = metric(1);
+            mocks.nmeaCallbacks.forEach((callback) => callback());
+        });
+        expect(t.arrow().style.transform).toBe('rotate(1deg)');
+        expect(t.marker().element.dataset.directionSource).toBe('heading');
+    });
+
+    it('keeps stopped phone GPS neutral rather than using its noisy COG or the vessel compass', () => {
+        mocks.nmeaState = { headingTrue: metric(75) };
+        const t = mountTracker();
+        t.emit({ speed: 0, heading: 240 });
+        expect(t.marker().element.dataset.source).toBe('phone');
+        expectNeutral(t);
+        t.emit({ speed: 0.2, heading: 170 });
+        expectNeutral(t);
+    });
+
+    it('uses and labels phone travel direction only while moving, then clears it on stopping', () => {
+        const t = mountTracker();
+        t.emit({ speed: 2, heading: 80 });
+        expect(t.marker().element.dataset.directionSource).toBe('course');
+        expect(t.arrow().style.transform).toBe('rotate(80deg)');
+        expect(t.marker().element.getAttribute('aria-label')).toContain('bow heading unavailable');
+        t.emit({ speed: 0, heading: 80 });
+        expectNeutral(t);
+    });
 });
 
 afterEach(() => {
@@ -220,6 +371,60 @@ afterEach(() => {
 });
 
 describe('useVesselTracker GPS-staleness clock', () => {
+    it('keeps stopped and underway badges below the AIS name without moving or rotating the GPS root', () => {
+        const t = mountTracker();
+        t.emit({ speed: 0 });
+        const root = t.marker().element;
+        root.style.transform = 'translate(310px, 240px) rotateZ(-30deg)';
+        const coordinates = t.marker().setLngLat.mock.lastCall;
+        const checkLayout = () => {
+            expect(t.status().style.top).toBe('calc(100% + 16px)');
+            expect(t.status().style.bottom).toBe('');
+            expect(t.status().style.transform).toBe('translateX(-50%)');
+            expect(root.style.width).toBe('48px');
+            expect(root.style.height).toBe('48px');
+            expect(root.style.position).toBe('');
+            expect(root.style.transform).toBe('translate(310px, 240px) rotateZ(-30deg)');
+            expect(t.marker().setLngLat.mock.lastCall).toEqual(coordinates);
+        };
+        expect(t.status().textContent).toBe('Stopped');
+        checkLayout();
+        t.emit({ speed: 3, heading: 75 });
+        expect(t.status().textContent).toBe('5.8 kts');
+        expect(t.arrow().style.transform).toBe('rotate(75deg)');
+        checkLayout();
+        act(() => {
+            mocks.anchorState = 'watching';
+            mocks.anchorCallbacks.forEach((callback) => callback());
+        });
+        expect(t.status().textContent).toBe('Anchored');
+        checkLayout();
+    });
+
+    it('updates anchor status on arm and stop without waiting for the next GPS fix', () => {
+        const t = mountTracker();
+        t.emit({ speed: 0 });
+        expect(t.status().textContent).toBe('Stopped');
+        act(() => {
+            mocks.anchorState = 'watching';
+            mocks.anchorCallbacks.forEach((callback) => callback());
+        });
+        expect(t.status().textContent).toBe('Anchored');
+        act(() => {
+            mocks.anchorState = 'idle';
+            mocks.anchorCallbacks.forEach((callback) => callback());
+        });
+        expect(t.status().textContent).toBe('Stopped');
+        t.view.unmount();
+        expect(mocks.anchorCallbacks.size).toBe(0);
+    });
+
+    it('does not turn a missing phone speed into an anchored or stopped claim', () => {
+        const t = mountTracker();
+        t.emit({ speed: null });
+        expect(t.status().textContent).toBe('SOG —');
+    });
+
     it('sanity: the pinned thresholds are the app-wide 60s / 5min tiers', () => {
         expect(GPS_STALE_LIMIT_MS).toBe(60_000);
         expect(GPS_VERY_STALE_MS).toBe(300_000);

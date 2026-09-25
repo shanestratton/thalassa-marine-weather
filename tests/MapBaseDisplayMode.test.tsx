@@ -30,9 +30,9 @@ function selectBase(label: 'Ocean' | 'Satellite' | 'Hybrid') {
     fireEvent.click(screen.getByRole('menuitemradio', { name: new RegExp(`^${label} `) }));
 }
 
-describe('OBS map defaults follow the resolved display mode', () => {
+describe('OBS starts on satellite in either display mode', () => {
     it.each([
-        [true, 'ocean'],
+        [true, 'satellite'],
         [false, 'satellite'],
     ] as const)('daylight=%s begins on %s', (daylightMode, expected) => {
         const { result } = renderHook(() => useMapBase(daylightMode));
@@ -40,13 +40,13 @@ describe('OBS map defaults follow the resolved display mode', () => {
         expect(Object.values(mapBaseVisibility(result.current.mapBase)).filter(Boolean)).toHaveLength(1);
     });
 
-    it('changes defaults on a mounted map when daylight changes, without a remount', () => {
+    it('stays on satellite when daylight changes, without a remount', () => {
         const { result, rerender } = renderHook(({ daylightMode }) => useMapBase(daylightMode), {
             initialProps: { daylightMode: false },
         });
         expect(result.current.mapBase).toBe('satellite');
         rerender({ daylightMode: true });
-        expect(result.current.mapBase).toBe('ocean');
+        expect(result.current.mapBase).toBe('satellite');
         rerender({ daylightMode: false });
         expect(result.current.mapBase).toBe('satellite');
     });
@@ -87,7 +87,7 @@ describe('OBS map defaults follow the resolved display mode', () => {
         first.unmount();
 
         const second = renderHook(() => useMapBase(true));
-        expect(second.result.current.mapBase).toBe('ocean');
+        expect(second.result.current.mapBase).toBe('satellite');
         expect(getItem).not.toHaveBeenCalled();
         expect(setItem).not.toHaveBeenCalled();
     });
@@ -102,7 +102,7 @@ describe('OBS map defaults follow the resolved display mode', () => {
 
     it('keeps the actual selector usable and in sync with independent day/dark choices', () => {
         const { rerender } = render(<Harness daylightMode />);
-        expect(screen.getByRole('button', { name: 'Map base: Ocean' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
         selectBase('Satellite');
         expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
 

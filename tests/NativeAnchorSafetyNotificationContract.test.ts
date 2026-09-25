@@ -23,7 +23,9 @@ describe('native Anchor Watch safety-notification contract', () => {
     it('sets the real iOS Time Sensitive level and never schedules a Critical Alert', () => {
         expect(nativePlugin).toContain('import UserNotifications');
         expect(nativePlugin).toContain('content.interruptionLevel = .timeSensitive');
-        expect(nativePlugin).toContain('content.sound = .default');
+        expect(nativePlugin).toContain(
+            'content.sound = UNNotificationSound(named: UNNotificationSoundName(Self.alarmSoundName))',
+        );
         expect(nativePlugin).not.toContain('content.interruptionLevel = .critical');
         expect(nativePlugin).not.toContain('UNNotificationInterruptionLevel.critical');
     });

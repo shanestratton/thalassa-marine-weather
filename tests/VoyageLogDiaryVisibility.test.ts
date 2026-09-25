@@ -11,23 +11,15 @@ function diaryQuerySource(): string {
 }
 
 describe('public Voyage Log diary visibility', () => {
-    /**
-     * The awaited query chain only — from `await diaryQuery` to the row cap.
-     *
-     * The public-only filter used to be asserted as the literal string
-     * "diaryQuery.eq('is_public', true)", which broke the moment the call was
-     * chained onto the next line instead of written inline. The filter itself
-     * never changed. What actually matters is that `.eq('is_public', true)`
-     * lands INSIDE the chain that gets awaited — so that is what we assert,
-     * tolerant of formatting but still red if the filter is deleted or hoisted
-     * out of the executed query.
-     */
+    /** Both the paginated overview and selected-track preview execute this fenced query builder. */
     const awaitedDiaryChain = (): string => {
         const src = diaryQuerySource();
-        const start = src.indexOf('const entriesRes = await diaryQuery');
-        const end = src.indexOf('.limit(MAX_ENTRIES)', start);
+        const start = src.indexOf('return diaryQuery');
+        const end = src.indexOf('const entriesRes =', start);
         expect(start).toBeGreaterThan(-1);
         expect(end).toBeGreaterThan(start);
+        expect(src).toContain('makeDiaryQuery().range(from, to)');
+        expect(src).toContain('makeDiaryQuery().limit(MAX_ENTRIES)');
         return src.slice(start, end);
     };
 
@@ -54,7 +46,7 @@ describe('public Voyage Log diary visibility', () => {
             diaryQuery.indexOf('if (boatId) diaryQuery'),
         );
 
-        expect(catchAllBranch).toContain(".in('user_id', entryUserIds)");
+        expect(catchAllBranch).toMatch(/\.in\(\s*'user_id',\s*entryUserIds,?\s*\)/);
         expect(awaitedDiaryChain()).toContain(".eq('is_public', true)");
         expect(catchAllBranch).not.toMatch(/\.(?:eq|neq|not)\('voyage_id'/);
     });

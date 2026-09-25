@@ -29,6 +29,7 @@ import { DEFAULT_TRACK_RULES, type TrackFix } from './trackRecorder.js';
 const MS_TO_KNOTS = 1.94384;
 const RAD_TO_DEG = 180 / Math.PI;
 const KELVIN_OFFSET = 273.15;
+export const TRUE_HEADING_MAX_AGE_MS = 15_000;
 
 /**
  * Walk a Signal K path, unwrapping its { meta, value, timestamp, $source }
@@ -87,6 +88,40 @@ export const knots = (msValue: number | null): number | null => (msValue === nul
 export function degrees(rad: number | null): number | null {
     if (rad === null) return null;
     return (((rad * RAD_TO_DEG) % 360) + 360) % 360;
+}
+
+/** Bow orientation is not COG. These explicitly true-north fields are separate
+ * from the legacy headingDeg, which historically allowed magnetic fallback.
+ * Signal K uses radians and true = magnetic + east-positive variation:
+ * https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
+ * A current GPS/HTTP timestamp cannot revive a cached heading sensor value. */
+function readTrueHeadingExtra(doc: unknown, nowMs: number): Record<string, number> {
+    const reading = (path: string, min: number, max: number) => {
+        const value = num(doc, path);
+        const at = timestampAt(doc, path, false);
+        if (
+            value === null ||
+            value < min ||
+            value > max ||
+            at === null ||
+            at <= 0 ||
+            at > nowMs ||
+            nowMs - at >= TRUE_HEADING_MAX_AGE_MS
+        )
+            return null;
+        return { value, at };
+    };
+    const direct = reading('navigation.headingTrue', 0, 2 * Math.PI);
+    if (direct) return { heading_true_deg: degrees(direct.value)!, heading_true_at_ms: direct.at };
+
+    const magnetic = reading('navigation.headingMagnetic', 0, 2 * Math.PI);
+    const variation = reading('navigation.magneticVariation', -Math.PI, Math.PI);
+    if (!magnetic || !variation) return {};
+    return {
+        heading_true_deg: degrees(magnetic.value + variation.value)!,
+        // Preserve the heading sensor's own time, never receipt/report time.
+        heading_true_at_ms: magnetic.at,
+    };
 }
 
 /**
@@ -267,7 +302,10 @@ function readGnssExtra(doc: unknown, nowMs: number): Record<string, number | str
  */
 export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
     const nowMs = now();
-    const extra: Record<string, number | string> = readGnssExtra(selfDocument, nowMs);
+    const extra: Record<string, number | string> = {
+        ...readGnssExtra(selfDocument, nowMs),
+        ...readTrueHeadingExtra(selfDocument, nowMs),
+    };
     // The wind record must deduplicate the actual sensor envelope, not a
     // freshly fetched copy of Signal K's cached value or its current GPS clock.
     const twsAt = timestampAt(selfDocument, 'environment.wind.speedTrue', false);

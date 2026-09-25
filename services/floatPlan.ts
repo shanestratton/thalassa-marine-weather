@@ -20,6 +20,7 @@
 
 import type { VesselProfile } from '../types/vessel';
 import { calculateBearing, calculateDistance } from '../utils/navigationCalculations';
+import { convertVolume } from './GlobalUnitService';
 
 export interface FloatPlanRoute {
     /** Route name, e.g. "Newport - Lady Musgrave". */
@@ -275,12 +276,14 @@ export function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
         ],
         '; ',
     );
+    // VesselTab stores capacities in US gallons, even when entered as litres.
+    // Float plans consistently use litres: convert the value, not just its label.
     const propulsion = joinParts([
-        typeof vessel?.fuelCapacity === 'number' && vessel.fuelCapacity > 0
-            ? `Fuel ${Math.round(vessel.fuelCapacity)} L`
+        typeof vessel?.fuelCapacity === 'number' && Number.isFinite(vessel.fuelCapacity) && vessel.fuelCapacity > 0
+            ? `Fuel ${Math.round(convertVolume(vessel.fuelCapacity, 'gal', 'L'))} L`
             : null,
-        typeof vessel?.waterCapacity === 'number' && vessel.waterCapacity > 0
-            ? `water ${Math.round(vessel.waterCapacity)} L`
+        typeof vessel?.waterCapacity === 'number' && Number.isFinite(vessel.waterCapacity) && vessel.waterCapacity > 0
+            ? `water ${Math.round(convertVolume(vessel.waterCapacity, 'gal', 'L'))} L`
             : null,
         typeof vessel?.cruisingSpeed === 'number' && vessel.cruisingSpeed > 0
             ? `cruise ${Math.round(vessel.cruisingSpeed)} kn`

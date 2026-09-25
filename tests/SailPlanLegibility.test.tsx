@@ -207,12 +207,9 @@ describe('nothing runs off the frame', () => {
 
 describe('legibility, in rendered pixels rather than viewBox units', () => {
     const src = readFileSync('components/nmea/gauges/SailPlanDiagram.tsx', 'utf8');
-    const glass = readFileSync('components/nmea/TheGlassPage.tsx', 'utf8');
-
-    it('sizes the viewBox to the real container so 1 unit is 1 pixel', () => {
+    it('retains its standalone 340-unit drawing geometry', () => {
         expect(src).toMatch(/const W = 340;/);
-        expect(glass).toContain('max-w-[420px]');
-        expect(glass).not.toContain('max-w-[260px]');
+        expect(mark(draw(), 'rig-diagram').getAttribute('viewBox')).toBe('0 0 340 390');
     });
 
     it('has no label smaller than 14', () => {

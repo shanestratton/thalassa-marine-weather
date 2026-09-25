@@ -3,6 +3,7 @@ import { satelliteModeBlocks } from '../../services/networkPolicy';
 import { setPassageOverlay } from '../../stores/chartPassageOverlay';
 import {
     isPassageHudEnabled,
+    usePassageHudActivation,
     setPassageHudEnabled,
     setPassageHudOpen,
     stopPassageLookAhead,
@@ -14,6 +15,7 @@ type ChartSource = NonNullable<NonNullable<RadialHelmMenuProps['chartsState']>['
 
 interface PassageHudLayerArgs {
     isFollowing: boolean;
+    hasRecording?: boolean;
     routeCoords: ReadonlyArray<{ lat: number; lon: number }>;
     enabled: boolean;
     weather: Pick<ReturnType<typeof useWeatherLayers>, 'setLayerVisibility'>;
@@ -22,26 +24,25 @@ interface PassageHudLayerArgs {
     setLightningVisible: (visible: boolean) => void;
     setCycloneVisible: (visible: boolean) => void;
     setSquallVisible: (visible: boolean) => void;
+    setAisVisible: (visible: boolean) => void;
 }
 
-/** Reconcile fresh toggles and restored preferences once per enabled passage session. */
+/** Apply the initial instruments/weather layers once per HUD activation. */
 export function usePassageHudLayerActivation(args: PassageHudLayerArgs): void {
-    const active = args.enabled && args.isFollowing && args.routeCoords.length >= 2;
-    const activatedRef = useRef(false);
+    const active = args.enabled && (args.hasRecording || (args.isFollowing && args.routeCoords.length >= 2));
+    const activation = usePassageHudActivation();
+    const activatedRef = useRef<number | null>(null);
     useEffect(() => {
-        if (!active) {
-            activatedRef.current = false;
-            return;
-        }
-        if (activatedRef.current) return;
+        if (!active || activatedRef.current === activation) return;
         // Mark first: the setters below re-render MapHub. Later manual weather
         // choices must remain choices, not get reapplied by this effect.
-        activatedRef.current = true;
+        activatedRef.current = activation;
         args.setWeatherInspectMode(false);
         args.closeWeatherInspect();
         // Wind excludes lightning; squall excludes the cyclone takeover.
         args.setLightningVisible(false);
         args.setCycloneVisible(false);
+        args.setAisVisible(true);
         args.weather.setLayerVisibility('wind', true);
         // Availability is the configured, permitted pipeline, not rainReady:
         // the existing rain loader only obtains its first frames after ON.
@@ -51,12 +52,12 @@ export function usePassageHudLayerActivation(args: PassageHudLayerArgs): void {
         }
         setPassageOverlay(true);
         // Preserve the restored open/collapsed preference; only the FAB opens it.
-    }, [active, args]);
+    }, [active, activation, args]);
 }
 
-/** One explicit entry into passage instruments and the weather around the followed Log route. */
+/** The manual switch for instruments around a followed route or current recording. */
 export function passageHudLayerSources(args: PassageHudLayerArgs): ChartSource[] {
-    if (!args.isFollowing || args.routeCoords.length < 2) return [];
+    if (!args.hasRecording && (!args.isFollowing || args.routeCoords.length < 2)) return [];
     return [
         {
             id: 'passage-hud',

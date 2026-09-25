@@ -435,6 +435,26 @@ describe('deleteEntryFromOfflineQueue', () => {
 });
 
 describe('deleteVoyageFromOfflineQueue', () => {
+    it('retains rows when automatic cleanup is cancelled before acceptance', async () => {
+        await queueOfflineEntry({ id: 'e1', voyageId: 'v1' });
+        const canDelete = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+        expect(await deleteVoyageFromOfflineQueue('v1', { cascadeLinkedPlan: false, canDelete })).toBe(false);
+        expect(canDelete).toHaveBeenCalledTimes(2);
+        expect(await getOfflineEntries()).toHaveLength(1);
+        await queueOfflineEntry({ id: 'e2', voyageId: 'v1' });
+        expect(await getOfflineEntries()).toHaveLength(2);
+    });
+
+    it('persists an accepted automatic deletion so queued rows cannot resurrect it', async () => {
+        await queueOfflineEntry({ id: 'e1', voyageId: 'v1' });
+        expect(await deleteVoyageFromOfflineQueue('v1', { cascadeLinkedPlan: false, canDelete: () => true })).toBe(
+            true,
+        );
+        __resetOfflineQueueForTests();
+        await expect(queueOfflineEntry({ id: 'late-e2', voyageId: 'v1' })).rejects.toThrow();
+        expect(await getOfflineEntries()).toEqual([]);
+    });
+
     it('removes all entries for a voyage', async () => {
         await queueOfflineEntry({ id: 'e1', voyageId: 'v1' });
         await queueOfflineEntry({ id: 'e2', voyageId: 'v1' });

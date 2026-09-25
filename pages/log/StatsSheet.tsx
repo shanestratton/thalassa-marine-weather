@@ -6,6 +6,7 @@ import React, { useRef } from 'react';
 import { OverlayPortal } from '../../components/ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { ShipLogEntry } from '../../types';
+import type { LifetimeVoyageStats } from '../../utils/lifetimeVoyageStats';
 
 interface StatsSheetProps {
     onClose: () => void;
@@ -16,6 +17,7 @@ interface StatsSheetProps {
     currentVoyageId: string | null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     voyageGroups: any[];
+    lifetimeStats: LifetimeVoyageStats;
 }
 
 export const StatsSheet: React.FC<StatsSheetProps> = ({
@@ -26,6 +28,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
     selectedVoyageId,
     currentVoyageId,
     voyageGroups,
+    lifetimeStats,
 }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const sheetRef = useFocusTrap<HTMLDivElement>(true, {
@@ -42,13 +45,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
     const voyageEntryCount =
         summaryFor(effectiveVoyageId)?.entryCount ??
         (effectiveVoyageId ? entries.filter((e) => e.voyageId === effectiveVoyageId).length : 0);
-    // All-Voyages aggregate count excludes suggested/planned routes so the
-    // "pts" total reflects sailed entries only (matches the gauge tiles).
-    const sailedEntryCount = voyageGroups
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((v: any) => !v.isPlannedRoute)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .reduce((sum: number, v: any) => sum + (v.entryCount || 0), 0);
+    const sailedEntryCount = lifetimeStats.entryCount;
 
     return (
         <OverlayPortal
@@ -103,12 +100,13 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                 <div className="space-y-4 max-w-2xl mx-auto w-full">
                     {/* Selected Voyage Card */}
                     <button
+                        disabled={!effectiveVoyageId}
                         onClick={() => {
                             onSelectVoyage(effectiveVoyageId);
                             onShowStats();
                             onClose();
                         }}
-                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-linear-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
+                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-linear-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none"
                     >
                         <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
                             <svg
@@ -165,7 +163,9 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                         </div>
                         <div className="flex-1 text-left">
                             <div className="text-white font-bold text-lg">All Voyages</div>
-                            <div className="text-slate-400 text-sm mt-1">Combined statistics across every voyage</div>
+                            <div className="text-slate-400 text-sm mt-1">
+                                Lifetime totals · includes archived voyages
+                            </div>
                         </div>
                         <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
                             {sailedEntryCount} entries

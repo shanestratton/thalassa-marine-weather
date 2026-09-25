@@ -45,6 +45,31 @@ const makeProps = (overrides: Partial<React.ComponentProps<typeof DiaryComposeFo
 });
 
 describe('DiaryComposeForm — text-first entry', () => {
+    it('offers an explicit trip choice and No trip without blocking offline text saves', () => {
+        const onChange = vi.fn();
+        const props = makeProps({
+            tripPicker: {
+                value: 'active',
+                choices: [{ voyageId: 'sailed', label: '24 Sept · 15.6 nm' }],
+                originalVoyageId: 'active',
+                originalLabel: 'Active recording',
+                disabled: false,
+                loading: false,
+                unavailable: true,
+                onChange,
+            },
+        });
+        const { rerender } = render(<DiaryComposeForm {...props} />);
+        const selector = screen.getByRole('combobox', { name: 'Diary trip' });
+        expect(selector).toHaveValue('active');
+        fireEvent.change(selector, { target: { value: 'sailed' } });
+        expect(onChange).toHaveBeenCalledWith('sailed');
+        fireEvent.change(selector, { target: { value: '' } });
+        expect(onChange).toHaveBeenCalledWith('');
+        expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+        rerender(<DiaryComposeForm {...props} saving />);
+        expect(selector).toBeDisabled();
+    });
     it('the body is a plain editable textarea and typing reaches onSetBody', () => {
         const onSetBody = vi.fn();
         render(<DiaryComposeForm {...makeProps({ onSetBody })} />);

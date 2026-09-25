@@ -75,8 +75,9 @@ import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
     getOfflineEntries as _getOfflineEntries,
+    getOfflineQueueDeadLetters,
 } from './shiplog/OfflineQueue';
-import { setCachedVoyageTrack } from './shiplog/VoyageTrackCache';
+import { setCachedVoyageTrack, clearCachedVoyageTrack } from './shiplog/VoyageTrackCache';
 import {
     getLogEntries as _getLogEntries,
     getArchivedEntries as _getArchivedEntries,
@@ -84,6 +85,7 @@ import {
     archiveVoyage as _archiveVoyage,
     unarchiveVoyage as _unarchiveVoyage,
     deleteVoyage as _deleteVoyage,
+    deleteVoyageLogOnly,
     deleteEntry as _deleteEntry,
     importGPXVoyage as _importGPXVoyage,
     type ImportGPXOptions,
@@ -93,7 +95,14 @@ import {
     getCachedVoyageSummaries as _getCachedVoyageSummaries,
     getVoyageEntries as _getVoyageEntries,
     type VoyageSummary,
+    summarizeEntries,
 } from './shiplog/VoyageSummary';
+import { cleanupUndepartedRecordings as cleanupUndeparted } from './shiplog/UndepartedRecordingCleanup';
+import { mergeCompleteRecordingEvidence } from './shiplog/completeRecordingEvidence';
+import {
+    getArchivedVoyageSummaries as _getArchivedVoyageSummaries,
+    getLifetimeVoyageSummaries as _getLifetimeVoyageSummaries,
+} from './shiplog/ArchivedVoyageSummary';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -212,11 +221,17 @@ class ShipLogServiceClass {
     /** Why the phone's fixes are refused for the track right now (the log follows the boat). */
     private phoneHold: PhoneHold | null = null;
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
+    /** Last lifecycle publication: excludes provisional state inside an unfinished start/recovery. */
+    private publishedTrackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
+    private publishedTrackingScope: AuthIdentityScope = getAuthIdentityScope();
     /** Exact auth generation that owns the visible/armed voyage. */
     private trackingOwnerScope: AuthIdentityScope | null = null;
     /** Invalidates overlapping start calls within one auth generation. */
     private startAttempt = 0;
     /** Same-scope callers join one transactional voyage start. */
+    // Only an uninterrupted, newly minted local-only recording can prove
+    // completeness without a cloud read. Resumed/reloaded tails cannot.
+    private freshLocalRecordingState?: TrackingState;
     private startOperation: {
         scope: AuthIdentityScope;
         voyageId?: string;
@@ -868,7 +883,13 @@ class ShipLogServiceClass {
             }
 
             this.registerLifecycleHandlers();
-            if (isAuthIdentityScopeCurrent(scope)) this.initializedGeneration = scope.generation;
+            if (isAuthIdentityScopeCurrent(scope)) {
+                this.initializedGeneration = scope.generation;
+                // Paused recovery takes the 'none' branch above. Publish it
+                // only after reconciliation so observers mounted before Log
+                // opens learn that the same recording remains resumable.
+                if (this.trackingState.isPaused) this.notifyTrackingChanged();
+            }
         } catch (error) {
             log.error('initialize failed', error);
         }
@@ -1480,6 +1501,8 @@ class ShipLogServiceClass {
             // written to the device only (offline queue) — zero network on the
             // capture path. The whole voyage uploads in the background at stop.
             setCaptureLocalOnly(true);
+            this.freshLocalRecordingState =
+                !continueVoyageId && !(resume && previousState.currentVoyageId) ? sessionState : undefined;
 
             // If this account was switched away mid-fix, replay its transition
             // batches before accepting fresh GPS points. A different account can
@@ -1893,6 +1916,36 @@ class ShipLogServiceClass {
         await this.saveTrackingState(scope);
         this.assertStopCurrent(scope, stoppedState, stopAttempt);
         this.pendingStop = null;
+
+        // A brand-new casual recording that demonstrably never departed is
+        // discarded before upload. Start/End plus the entire local-only
+        // capture are required; a resumed voyage's tail is never sufficient.
+        if (
+            this.freshLocalRecordingState === activeState &&
+            previousVoyageId &&
+            activeState.voyageStartTime &&
+            isCaptureLocalOnly()
+        ) {
+            try {
+                const rows = await _getOfflineEntries({ voyageId: previousVoyageId, expectedScope: scope });
+                this.assertStopCurrent(scope, stoppedState, stopAttempt);
+                const start = rows.find((entry) => entry.waypointName === 'Voyage Start');
+                const delta = start ? Date.parse(start.timestamp) - Date.parse(activeState.voyageStartTime) : NaN;
+                if (Number.isFinite(delta) && delta >= 0 && delta < 60_000) {
+                    await this.cleanupUndepartedRecordings(summarizeEntries(rows), {
+                        voyageId: previousVoyageId,
+                        rows,
+                    });
+                    this.assertStopCurrent(scope, stoppedState, stopAttempt);
+                }
+            } catch (error) {
+                // Cleanup is optional. A failed proof/storage write keeps all
+                // entries available for the normal upload/retry path below.
+                log.warn('never-departed recording cleanup deferred:', error);
+            }
+        }
+        this.assertStopCurrent(scope, stoppedState, stopAttempt);
+        this.freshLocalRecordingState = undefined;
         this.notifyTrackingChanged();
 
         void stopLiveTrickle(true, scope).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
@@ -2420,6 +2473,14 @@ class ShipLogServiceClass {
         return { ...this.trackingState };
     }
 
+    /** UI observers must not treat a pending start's optimistic state as a verified recording. */
+    getPublishedTrackingStatus(): TrackingState {
+        if (!isAuthIdentityScopeCurrent(this.publishedTrackingScope)) {
+            return { isTracking: false, isPaused: false, isRapidMode: false };
+        }
+        return { ...this.publishedTrackingState };
+    }
+
     /**
      * The latest fix that cleared the FULL shiplog acceptance gate
      * (accuracy, monotonic own-timestamp, anti-replay), or null. While a
@@ -2656,6 +2717,8 @@ class ShipLogServiceClass {
     }
 
     private notifyTrackingChanged(): void {
+        this.publishedTrackingState = { ...this.trackingState };
+        this.publishedTrackingScope = getAuthIdentityScope();
         const tracking = this.trackingState.isTracking === true;
         const paused = this.trackingState.isPaused === true;
         this.trackingListeners.forEach((fn) => {
@@ -2668,6 +2731,93 @@ class ShipLogServiceClass {
     }
 
     // --- DELEGATED CRUD METHODS (implementation in ./shiplog/EntryCrud.ts) ---
+
+    /** Bounded cleanup for completed casual recordings; no plans or passages. */
+    async cleanupUndepartedRecordings(
+        summaries: readonly VoyageSummary[],
+        completedLocal?: { voyageId: string; rows: ShipLogEntry[] },
+    ): Promise<string[]> {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return [];
+        const attempt = this.startAttempt;
+        const isCurrent = () => isAuthIdentityScopeCurrent(scope) && this.startAttempt === attempt;
+        const isIdle = async (voyageId: string) => {
+            if (!isCurrent() || this.startOperation) return false;
+            const busy = (state: TrackingState | null) =>
+                state?.currentVoyageId === voyageId &&
+                (state.isTracking || state.isPaused || !!state.nativeTeardownPending);
+            if (busy(this.trackingState)) return false;
+            const persisted = await loadTrackingState(scope);
+            if (!isCurrent() || busy(persisted)) return false;
+            if (!persisted) {
+                // The ordinary UI read returns null for BOTH missing and
+                // unreadable state. Only an actually absent record is idle.
+                const { value } = await Preferences.get({
+                    key: authScopedStorageKey('ship_log_tracking_state', scope),
+                });
+                if (value !== null) return false;
+            }
+            // A final flush can leave durable accepted fixes for later replay.
+            // Never classify without those points, even after Voyage End.
+            await this.captureHandoffTails.get(scope.key);
+            if (
+                !isCurrent() ||
+                this.pendingCaptureHandoffs.get(scope.key)?.some((batch) => batch.voyageId === voyageId)
+            )
+                return false;
+            const { value } = await Preferences.get({ key: this.captureHandoffStorageKey(scope) });
+            if (this.parseCaptureHandoffStore(value, scope).batches.some((batch) => batch.voyageId === voyageId))
+                return false;
+            // Failed upload rows are retained separately from the queue;
+            // their missing evidence must not authorize deleting a voyage.
+            const rejected = await getOfflineQueueDeadLetters(scope);
+            if (rejected.some((row) => row.entry.voyageId === voyageId)) return false;
+            return isCurrent() && !busy(this.trackingState);
+        };
+        return cleanupUndeparted(summaries, {
+            ownerId: scope.userId,
+            isCurrent,
+            isIdle,
+            readComplete: async (voyageId) => {
+                if (completedLocal?.voyageId === voyageId) return completedLocal.rows;
+                // A stopped recording may still be local after an app reload.
+                // Read BOTH stores, including archived cloud movement. Keep
+                // the initial queue snapshot in case upload drains it during
+                // pagination. A failed cloud read is not an empty voyage.
+                const queued = await _getOfflineEntries({ voyageId, expectedScope: scope });
+                if (!isCurrent()) return null;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 5_000);
+                try {
+                    const rows = await _getVoyageEntries(voyageId, true, {
+                        maxRows: 10_000,
+                        requireComplete: true,
+                        throwOnIncomplete: true,
+                        signal: controller.signal,
+                    });
+                    if (!isCurrent() || controller.signal.aborted) return null;
+                    const lateRows = await _getOfflineEntries({ voyageId, expectedScope: scope });
+                    return isCurrent() && !controller.signal.aborted
+                        ? mergeCompleteRecordingEvidence(queued, rows, lateRows)
+                        : null;
+                } finally {
+                    clearTimeout(timeout);
+                }
+            },
+            remove: async (voyageId, canDelete) => {
+                // Durable local deletion is the acceptance boundary. Cloud
+                // retries must not delay End Voyage on an offshore connection.
+                const accepted = await deleteVoyageLogOnly(voyageId, canDelete, { deferCloud: true });
+                if (accepted) {
+                    await clearCachedVoyageTrack(voyageId, scope).catch(() => undefined);
+                    if (!completedLocal && isCurrent()) {
+                        void this.syncOfflineQueueForScope(scope).catch(() => undefined);
+                    }
+                }
+                return accepted;
+            },
+        });
+    }
 
     async deleteVoyage(voyageId: string, onAccepted?: () => void): Promise<boolean> {
         return _deleteVoyage(voyageId, onAccepted);
@@ -2690,6 +2840,15 @@ class ShipLogServiceClass {
 
     async getArchivedEntries(limit?: number): Promise<ShipLogEntry[]> {
         return _getArchivedEntries(limit);
+    }
+
+    /** Complete archive cards; rejects unavailable/partial reads rather than hiding voyages. */
+    async getArchivedVoyageSummaries(): Promise<VoyageSummary[]> {
+        return _getArchivedVoyageSummaries();
+    }
+
+    async getLifetimeVoyageSummaries(): Promise<VoyageSummary[]> {
+        return _getLifetimeVoyageSummaries();
     }
 
     async getAllEntriesForCareer(): Promise<ShipLogEntry[]> {

@@ -61,7 +61,7 @@ describe('the Pi and the shore device speak the same language', () => {
         // A mismatch here would be silent: the Pi reports "delivered", the
         // shore device simply never hears anything.
         expect(relay).toMatch(/topic: `anchor-watch-\$\{sessionCode\}`/);
-        expect(relay).toMatch(/event: 'position'/);
+        expect(relay).toContain("const event = gpsAvailable ? 'position' : 'status'");
         expect(relay).toMatch(/private: true/);
         expect(sync).toMatch(/const channelName = `anchor-watch-\$\{sessionCode\}`/);
         expect(sync).toMatch(/channel\.on\('broadcast', \{ event: 'position' \}/);

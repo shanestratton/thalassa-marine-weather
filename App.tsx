@@ -9,6 +9,7 @@ import { useUI } from './context/UIContext';
 // entry import useAuthStore + SignInScreen directly where they need it.
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
+import { useHudRecordingActivation } from './hooks/useHudRecording';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { AisGuardAlert } from './components/map/AisGuardAlert';
@@ -29,6 +30,7 @@ import { canAccess, PUBLIC_BETA_ACCESS, TIER_INFO } from './services/Subscriptio
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
 import { GlobalAnchorAlarmGate } from './components/anchor-watch/GlobalAnchorAlarmGate';
+import { GlobalShoreWatchGate } from './components/anchor-watch/GlobalShoreWatchGate';
 import { PiPairingBanner } from './components/PiPairingBanner';
 import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
@@ -152,6 +154,7 @@ const App: React.FC = () => {
     const chartVisible = currentView === 'map';
     const passageHudOpen = usePassageHudOpen();
     const passageHudEnabled = usePassageHudEnabled();
+    useHudRecordingActivation();
 
     // --- AUTH: deferred to save-time, not boot-time. ---
     // authStore is consumed wherever identity matters (SignInScreen at
@@ -889,6 +892,7 @@ const App: React.FC = () => {
                     covers WHATEVER page is up, not just the anchor-watch
                     page it used to be local to. */}
                 <GlobalAnchorAlarmGate />
+                <GlobalShoreWatchGate showStatus={currentView !== 'compass'} onOpen={() => setPage('compass')} />
 
                 {/* Pi pairing offer — global, because the identity gate blocks
                     the ENC sync until the skipper pairs, and the offer used to

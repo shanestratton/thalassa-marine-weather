@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { passageHudLayerSources, usePassageHudLayerActivation } from '../components/map/passageHudLayer';
 import {
     __resetPassageHudForTests,
+    activatePassageHudForRecording,
     getPassageLookAhead,
     isPassageHudEnabled,
     isPassageHudOpen,
@@ -32,6 +33,7 @@ function deps(overrides: Partial<Parameters<typeof passageHudLayerSources>[0]> =
         setLightningVisible: vi.fn(),
         setCycloneVisible: vi.fn(),
         setSquallVisible: vi.fn(),
+        setAisVisible: vi.fn(),
         ...overrides,
     };
 }
@@ -79,6 +81,7 @@ describe('Passage HUD in the OBS layer FAB', () => {
         expect(controls.closeWeatherInspect).toHaveBeenCalledOnce();
         expect(controls.setLightningVisible).toHaveBeenCalledWith(false);
         expect(controls.setCycloneVisible).toHaveBeenCalledWith(false);
+        expect(controls.setAisVisible).toHaveBeenCalledExactlyOnceWith(true);
         expect(vi.mocked(controls.weather.setLayerVisibility).mock.calls).toEqual([
             ['wind', true],
             ['rain', true],
@@ -94,6 +97,45 @@ describe('Passage HUD in the OBS layer FAB', () => {
         expect(vi.mocked(controls.weather.setLayerVisibility).mock.calls).toEqual([['wind', true]]);
         expect(controls.setSquallVisible).not.toHaveBeenCalled();
         expect(isPassageHudOpen()).toBe(true);
+    });
+
+    it('offers and activates instruments, AIS and weather for a route-free recording', () => {
+        const controls = deps({ isFollowing: false, routeCoords: [], hasRecording: true });
+        const layer = mountLayer(controls);
+        act(() => layer.result.current[0].onToggle());
+        expect(isPassageHudEnabled()).toBe(true);
+        expect(isPassageHudOpen()).toBe(true);
+        expect(isPassageOverlayOn()).toBe(true);
+        expect(controls.setAisVisible).toHaveBeenCalledExactlyOnceWith(true);
+        expect(controls.weather.setLayerVisibility).toHaveBeenCalledWith('wind', true);
+        expect(controls.weather.setLayerVisibility).toHaveBeenCalledWith('rain', true);
+        expect(controls.weather.setLayerVisibility).not.toHaveBeenCalledWith('pressure', true);
+    });
+
+    it('does not reapply layer choices when the chart temporarily stands down', () => {
+        setPassageHudEnabled(true);
+        const controls = deps({ hasRecording: true });
+        const layer = renderHook(({ visible }) => usePassageHudLayerActivation({ ...controls, enabled: visible }), {
+            initialProps: { visible: true },
+        });
+        vi.mocked(controls.setAisVisible).mockClear();
+        vi.mocked(controls.weather.setLayerVisibility).mockClear();
+        layer.rerender({ visible: false });
+        layer.rerender({ visible: true });
+        expect(controls.setAisVisible).not.toHaveBeenCalled();
+        expect(controls.weather.setLayerVisibility).not.toHaveBeenCalled();
+    });
+
+    it('applies layers once for each new recording even when the HUD is already on', () => {
+        const controls = deps({ isFollowing: false, routeCoords: [], hasRecording: true });
+        mountLayer(controls);
+        act(() => activatePassageHudForRecording('recording-a'));
+        expect(controls.setAisVisible).toHaveBeenCalledTimes(1);
+        act(() => activatePassageHudForRecording('recording-a'));
+        expect(controls.setAisVisible).toHaveBeenCalledTimes(1);
+        act(() => activatePassageHudForRecording('recording-b'));
+        expect(controls.setAisVisible).toHaveBeenCalledTimes(2);
+        expect(controls.weather.setLayerVisibility).not.toHaveBeenCalledWith('pressure', true);
     });
 
     it('can request public radar without pretending the unconfigured squall service exists', () => {

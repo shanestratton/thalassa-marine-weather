@@ -17,7 +17,7 @@ import {
 } from './voyageLogApi';
 import { PUBLIC_POSITION_FRESH_MS } from './publicVoyageFreshness';
 import { usePublicInstrumentFeed } from './usePublicInstrumentFeed';
-import { hasUsablePublicRoute, shouldDefaultToAllDiary } from './publicDiaryDefaults';
+import { hasUsablePublicTrip, shouldDefaultToAllDiary } from './publicDiaryDefaults';
 
 // The lightbox (and the 74 KB tz-lookup chunk it drags in) is only needed
 // after a photo tap — keep it off the page's critical path.
@@ -103,6 +103,7 @@ export default function ThalassaDashboard() {
     // Only the first successful load chooses the default. Polling must never
     // override a visitor who explicitly picks Latest or a historic voyage.
     const initialTripDecided = useRef(false);
+    const initialOverviewPending = useRef(false);
     // The entry currently in focus — drives the map fly-to AND the
     // sidebar's master/detail mode (null = show the full feed).
     const [selectedEntry, setSelectedEntry] = useState<VoyageLogEntry | null>(null);
@@ -115,7 +116,8 @@ export default function ThalassaDashboard() {
     // Keep the viewer's choice across polling and folding the panel. Historic
     // trips always show their diary, never today's live instrument feed.
     const [panelView, setPanelView] = useState<PublicVoyagePanel | null>(null);
-    // Routed trips open on the map; a route-less first load opens its diary.
+    // Planned routes and recorded tracks open on the map. Only an empty
+    // voyage history defaults to the all-diary panel.
     // Changing views never remounts MapContainer: the viewer keeps their zoom,
     // position and chosen basemap.
     const [mobileView, setMobileView] = useState<'map' | 'panel'>('map');
@@ -163,11 +165,16 @@ export default function ThalassaDashboard() {
                 if (requestId !== requestSequence.current) return;
                 if (!initialTripDecided.current && trip === 'latest') {
                     initialTripDecided.current = true;
-                    if (!hasUsablePublicRoute(data)) setMobileView('panel');
                     if (shouldDefaultToAllDiary(data)) {
+                        initialOverviewPending.current = true;
                         setRequestedTrip('all-diary');
                         return;
                     }
+                    if (!hasUsablePublicTrip(data)) setMobileView('panel');
+                }
+                if (trip === 'all-diary' && initialOverviewPending.current) {
+                    initialOverviewPending.current = false;
+                    setMobileView(hasUsablePublicTrip(data) ? 'map' : 'panel');
                 }
                 const receivedAt = Date.now();
                 setState({ status: 'ready', data });
@@ -177,7 +184,7 @@ export default function ThalassaDashboard() {
                 setPanelView(
                     (previous) =>
                         previous ??
-                        (hasUsablePublicRoute(data) && data.instruments_shared === true ? 'instruments' : 'diary'),
+                        (hasUsablePublicTrip(data) && data.instruments_shared === true ? 'instruments' : 'diary'),
                 );
                 setLastSuccessfulAt(receivedAt);
                 setNowMs(receivedAt);
@@ -273,6 +280,10 @@ export default function ThalassaDashboard() {
 
     const handleTripChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
         initialTripDecided.current = true;
+        initialOverviewPending.current = false;
+        if (event.target.value === 'all-diary') {
+            setMobileView('map');
+        }
         setRequestedTrip(event.target.value);
     }, []);
 
@@ -370,9 +381,9 @@ export default function ThalassaDashboard() {
         nowMs - lastSuccessfulAt >= Math.max(expectedRefreshMs * 2, PUBLIC_POSITION_FRESH_MS);
     const connectionLost = pollFailed || responseOverdue;
     const selectedTripLabel = selectedTrip?.label ?? null;
-    const diaryTitle = isAllDiaryView ? 'All diary entries' : (selectedTripLabel ?? 'Voyage Log');
+    const diaryTitle = isAllDiaryView ? 'All trips & diary' : (selectedTripLabel ?? 'Voyage Log');
     const diaryContext = isAllDiaryView
-        ? 'Every public diary entry, including notes not assigned to a voyage.'
+        ? 'Shared tracks and every public diary entry, including stories between trips.'
         : selectedTripLabel
           ? `${selectedTrip?.active ? 'Live' : 'Historic'} trip diary`
           : undefined;
@@ -421,7 +432,7 @@ export default function ThalassaDashboard() {
                     lastSuccessfulAt={lastSuccessfulAt}
                     viewStatus={
                         isAllDiaryView
-                            ? 'All diary entries'
+                            ? 'All trips & diary'
                             : selectedTrip && !selectedTrip.active
                               ? 'Historic trip'
                               : undefined
@@ -456,12 +467,12 @@ export default function ThalassaDashboard() {
                                         </optgroup>
                                     )}
                                     {trips.some((trip) => trip.kind === 'all-diary') && (
-                                        <optgroup label="Diary">
+                                        <optgroup label="Whole journey">
                                             {trips
                                                 .filter((trip) => trip.kind === 'all-diary')
                                                 .map((trip) => (
                                                     <option key={trip.id} value={trip.id}>
-                                                        {trip.label}
+                                                        All trips &amp; diary
                                                     </option>
                                                 ))}
                                         </optgroup>
@@ -499,11 +510,12 @@ export default function ThalassaDashboard() {
                     className={`relative min-h-0 min-w-0 flex-1 bg-slate-950 ${mobileView === 'map' ? '' : 'hidden'} lg:block`}
                 >
                     <MapContainer
+                        allTrips={isAllDiaryView}
                         telemetry={scopedTelemetry}
-                        destination={destination}
+                        destination={isAllDiaryView ? null : destination}
                         track={track}
                         entries={entries}
-                        passageLine={passage?.plan_line ?? null}
+                        passageLine={isAllDiaryView ? null : (passage?.plan_line ?? null)}
                         waypoints={waypoints ?? EMPTY_WAYPOINTS}
                         waypointVoyageId={selectedTrip?.kind === 'track' ? selectedTrip.id : undefined}
                         nearbyVessels={showNearbyVessels ? (nearbyVessels ?? NO_VESSELS) : NO_VESSELS}

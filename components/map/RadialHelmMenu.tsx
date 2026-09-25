@@ -94,6 +94,8 @@ export interface RadialHelmMenuProps {
         onToggleTideStations?: () => void;
         anchorageVisible?: boolean;
         onToggleAnchorage?: () => void;
+        mooringsVisible?: boolean;
+        onToggleMoorings?: () => void;
         /** Launches the standalone Weather Window Check tool (navigation, not a toggle). */
         onOpenWeatherWindow?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
@@ -283,14 +285,6 @@ function buildCategories(
             action: tacticalState.onToggleSeamark,
         });
     }
-    if (tacticalState?.onToggleAnchorage) {
-        tactical.push({
-            id: 'anchorages',
-            label: 'Anchorages',
-            icon: <AnchorageIcon />,
-            action: tacticalState.onToggleAnchorage,
-        });
-    }
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onOpenWeatherWindow) {
         tactical.push({
             id: 'weatherwindow',
@@ -338,6 +332,31 @@ function buildCategories(
             // shared with the overlay drawer's picker).
             items: (
                 [
+                    ...(tacticalState?.onToggleMoorings
+                        ? [
+                              {
+                                  id: 'moorings',
+                                  label: 'Moorings',
+                                  icon: (
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                          <path d="m12 3 8 9-8 9-8-9Z" />
+                                          <path d="M5 10h14M5 14h14" />
+                                      </svg>
+                                  ),
+                                  action: tacticalState.onToggleMoorings,
+                              },
+                          ]
+                        : []),
+                    ...(tacticalState?.onToggleAnchorage
+                        ? [
+                              {
+                                  id: 'anchorages',
+                                  label: 'Anchorages',
+                                  icon: <AnchorageIcon />,
+                                  action: tacticalState.onToggleAnchorage,
+                              },
+                          ]
+                        : []),
                     ...(tacticalState?.onToggleTideStations
                         ? [
                               {
@@ -584,7 +603,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (restoreFocus) fabRef.current?.focus({ preventScroll: true });
     }, []);
 
+    const suppressDragClick = useRef(false);
     const handleTap = useCallback(() => {
+        if (suppressDragClick.current) {
+            suppressDragClick.current = false;
+            return;
+        }
         if (isDragging) return;
         if (isOpen) closeMenu();
         else setIsOpen(true);
@@ -612,6 +636,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     }, [activeCategory, hoveredItem]);
 
     const handlePointerDown = useCallback((e: React.PointerEvent) => {
+        suppressDragClick.current = false;
         if (holdTimer.current) clearTimeout(holdTimer.current);
         dragStartPos.current = { x: e.clientX, y: e.clientY };
         holdTimer.current = setTimeout(() => {
@@ -628,6 +653,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         }
 
         if (isDragging) {
+            suppressDragClick.current = true;
             // If hovering over an item, activate it
             if (hoveredItem) {
                 const cat = categories.find((c) => c.id === activeCategory);
@@ -746,6 +772,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
             if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
+            if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
             // Also clear any chart sources.
             chartsState?.sources?.forEach((s) => {
                 if (s.enabled) s.onToggle();
@@ -838,6 +865,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'seamark') return tacticalState?.seamarkVisible ?? false;
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
             if (item.id === 'anchorages') return tacticalState?.anchorageVisible ?? false;
+            if (item.id === 'moorings') return tacticalState?.mooringsVisible ?? false;
             if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
             if (item.id.startsWith('chart-')) {
@@ -860,6 +888,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.seamarkVisible) count++;
         if (tacticalState?.tideStationsVisible) count++;
         if (tacticalState?.anchorageVisible) count++;
+        if (tacticalState?.mooringsVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
         if (chartsState?.sources) {
             for (const s of chartsState.sources) if (s.enabled) count++;
@@ -875,7 +904,11 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
     // Capture pointer so drag gestures track beyond the FAB's bounding box
     const handleContainerPointerDown = useCallback((e: React.PointerEvent) => {
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        // Keep the original button as the click target. Capturing on the
+        // wrapper retargets ordinary taps to the wrapper, swallowing them.
+        // Drag events still bubble to this wrapper from the captured button.
+        const button = (e.target as Element).closest('button');
+        (button ?? e.currentTarget).setPointerCapture(e.pointerId);
     }, []);
 
     if (hidden) return null;

@@ -368,6 +368,39 @@ describe('content workflow dialog accessibility', () => {
         expect(opener).toHaveFocus();
     });
 
+    it('explains missing map coordinates without blocking publication or changing the saved location', async () => {
+        const unlocated = { ...diaryEntry, latitude: null, longitude: null, voyage_id: null };
+        const onPublishChange = vi.fn();
+        render(<DiaryPublishModal entry={unlocated} onClose={vi.fn()} onPublishChange={onPublishChange} />);
+
+        expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        const publish = screen.getByRole('button', { name: 'Publish this entry to your voyage log' });
+        expect(publish).toBeEnabled();
+        fireEvent.click(publish);
+
+        await screen.findByRole('heading', { name: 'Published to your Voyage Log' });
+        expect(onPublishChange).toHaveBeenCalledExactlyOnceWith({ ...unlocated, is_public: true });
+        expect(serviceMocks.setEntryPublished).toHaveBeenCalledExactlyOnceWith(unlocated.id, true);
+        expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
+    });
+
+    it('only reports missing map coordinates when one or both coordinates are absent', () => {
+        const { rerender } = render(
+            <DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={vi.fn()} />,
+        );
+        expect(screen.queryByText(/No map location/)).not.toBeInTheDocument();
+
+        rerender(
+            <DiaryPublishModal
+                entry={{ ...diaryEntry, longitude: null }}
+                onClose={vi.fn()}
+                onPublishChange={vi.fn()}
+            />,
+        );
+        expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
+    });
+
     it('does not claim a diary entry was published when the publish update fails', async () => {
         serviceMocks.setEntryPublished.mockResolvedValueOnce(false);
         const onPublishChange = vi.fn();

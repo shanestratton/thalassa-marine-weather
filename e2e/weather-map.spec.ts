@@ -51,8 +51,8 @@ for (const mode of ['light', 'dark', 'night'] as const) {
         });
 
         test('uses the display default and keeps a manual choice when revisiting Charts', async ({ page }) => {
-            const initialBase = mode === 'light' ? 'Ocean' : 'Satellite';
-            const chosenBase = mode === 'light' ? 'Satellite' : 'Ocean';
+            const initialBase = 'Satellite';
+            const chosenBase = 'Ocean';
             await page.goto('/');
             await page.getByRole('tab', { name: 'Navigate to Charts' }).click();
             await expect(page.getByTestId('map-hub')).toBeVisible();

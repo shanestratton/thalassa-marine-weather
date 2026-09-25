@@ -19,6 +19,8 @@
 import { useEffect, useState } from 'react';
 import { pruneMap } from '../../utils/boundedMap';
 import { createLogger } from '../../utils/createLogger';
+import { marineEndpointName, resolveDetailedEndpointName } from '../../services/marineEndpointName';
+import { withTimeout } from '../../utils/deadline';
 
 const log = createLogger('useEndpointNames');
 
@@ -38,7 +40,7 @@ const PLACE_CACHE_MAX = 300;
 
 /**
  * Resolve one position to a short local place name, or null.
- * Mapbox first (better on the coast), Nominatim at widening zooms after.
+ * Nearby marine reference first, then the app geocoder and a local fallback.
  */
 export async function reverseGeocodePlace(lat: number, lon: number): Promise<string | null> {
     const k = key(lat, lon);
@@ -47,10 +49,14 @@ export async function reverseGeocodePlace(lat: number, lon: number): Promise<str
     if (running) return running; // two cards + a sheet row must not fire three lookups
 
     const job = (async (): Promise<string | null> => {
+        // A weather district is not a useful voyage endpoint. Resolve nearby
+        // named islands/harbours/bays from our offline reference first.
+        const marineName = await marineEndpointName(lat, lon).catch(() => null);
+        if (marineName) return marineName;
         // 1. The app's own geocoder — Mapbox-backed, more reliable inshore.
         try {
             const { reverseGeocode: appGeocode } = await import('../../services/weatherService');
-            const name = await appGeocode(lat, lon);
+            const name = await withTimeout(appGeocode(lat, lon), null, 8_000);
             if (name) {
                 // "Newport, Redcliffe, QLD" → "Newport"
                 const parts = name
@@ -63,38 +69,15 @@ export async function reverseGeocodePlace(lat: number, lon: number): Promise<str
             log.warn('fall through to Nominatim:', e);
         }
 
-        // 2. Nominatim, widening out — coastal/offshore fixes often miss at z16.
-        for (const zoom of [16, 14, 10, 8, 5]) {
-            try {
-                const res = await fetch(
-                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=${zoom}&addressdetails=1`,
-                );
-                if (!res.ok) continue;
-                const data = await res.json();
-                const addr = data.address || {};
-                const local =
-                    addr.neighbourhood ||
-                    addr.suburb ||
-                    addr.village ||
-                    addr.town ||
-                    addr.city_district ||
-                    addr.city ||
-                    addr.hamlet ||
-                    addr.county ||
-                    null;
-                if (local) return local;
-            } catch (e) {
-                log.warn('geocode skip:', e);
-                continue;
-            }
-        }
-        return null;
+        // One paced local lookup, not five progressively broader district /
+        // county requests. Unknown water keeps the coordinate fallback.
+        return resolveDetailedEndpointName(lat, lon);
     })();
 
     inflight.set(k, job);
     try {
         const name = await job;
-        placeCache.set(k, name);
+        if (name) placeCache.set(k, name);
         pruneMap(placeCache, PLACE_CACHE_MAX);
         return name;
     } finally {

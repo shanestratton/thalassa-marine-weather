@@ -12,7 +12,7 @@
  * and every 60 s trail refresh, so clearing one in the picker undid itself.
  *
  * This is the one switch behind all three: OFF by default, flipped from the
- * layer FAB's "Passage" entry, remembered on this device. The Routes and
+ * layer FAB's "Passage" entry, remembered during this app session. The Routes and
  * Tracks pickers stay independent — a punter can pull up any route to read
  * the weather along it whether this is on or off.
  */
@@ -20,15 +20,9 @@ import { useSyncExternalStore } from 'react';
 
 const KEY = 'thalassa_chart_passage_overlay_v1';
 
-function read(): boolean {
-    try {
-        return localStorage.getItem(KEY) === '1';
-    } catch {
-        return false;
-    }
-}
-
-let value = read();
+// Display choice only: never restore a passage overlay on a fresh app start.
+// The underlying followed route/recording remains untouched.
+let value = false;
 const listeners = new Set<() => void>();
 
 export function isPassageOverlayOn(): boolean {
@@ -59,5 +53,5 @@ export function usePassageOverlay(): boolean {
 
 /** Test seam. */
 export function __resetPassageOverlayForTests(): void {
-    value = read();
+    value = false;
 }

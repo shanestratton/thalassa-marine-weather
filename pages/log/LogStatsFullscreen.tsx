@@ -8,12 +8,17 @@ import type { LogPageAction } from '../../hooks/useLogPageState';
 import type { ShipLogEntry } from '../../types';
 import { VoyageStatsPanel } from '../../components/VoyageStatsPanel';
 import { StatBox } from './LogSubComponents';
+import type { LifetimeVoyageStats } from '../../utils/lifetimeVoyageStats';
+import { VoyageTotalsTiles } from './VoyageTotalsTiles';
+import { PersonalRecordsStrip } from './PersonalRecordsStrip';
 
 export const LogStatsFullscreen: React.FC<{
     dispatch: (action: LogPageAction) => void;
     scopedStatsEntries: ShipLogEntry[];
     selectedVoyageId: string | null;
-}> = ({ dispatch, scopedStatsEntries, selectedVoyageId }) => (
+    lifetimeStats: LifetimeVoyageStats;
+    lifetimeStatsNotice?: string;
+}> = ({ dispatch, scopedStatsEntries, selectedVoyageId, lifetimeStats, lifetimeStatsNotice }) => (
     <div className="flex flex-col h-full">
         <div className="flex items-center justify-between p-4 border-b border-white/10">
             <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
@@ -28,49 +33,52 @@ export const LogStatsFullscreen: React.FC<{
             </button>
         </div>
         <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col justify-center md:max-w-3xl md:mx-auto">
-            {(() => {
-                // All-Voyages aggregate excludes suggested/
-                // planned routes (source='planned_route') so
-                // they don't inflate distance / speed / entry
-                // totals. A single selected voyage shows its
-                // own entries verbatim (the user explicitly
-                // drilled into it). 2026-05-20.
-                const scopedEntries = scopedStatsEntries;
+            {!selectedVoyageId ? (
+                <>
+                    <p className="mb-4 text-center text-sm font-semibold text-purple-200">
+                        Lifetime · includes archived voyages
+                    </p>
+                    {lifetimeStatsNotice && (
+                        <p role="status" className="mb-4 text-sm text-amber-200">
+                            {lifetimeStatsNotice}
+                        </p>
+                    )}
+                    <VoyageTotalsTiles voyageStats={lifetimeStats.totals} />
+                    {lifetimeStats.records.voyageCount > 0 && <PersonalRecordsStrip records={lifetimeStats.records} />}
+                    <p className="mt-4 text-center text-xs text-slate-400">
+                        {lifetimeStats.entryCount.toLocaleString()} recorded entries. Sea time is the sum of each
+                        voyage, excluding time between trips. Select a voyage for its speed and weather detail.
+                    </p>
+                </>
+            ) : (
+                <>
+                    {(() => {
+                        // Point-level detail is only for the explicitly
+                        // selected voyage, never a partial lifetime timeline.
+                        const scopedEntries = scopedStatsEntries;
 
-                let scopedDistance = 0;
-                if (selectedVoyageId) {
-                    // Single voyage: max cumulative distance
-                    for (const e of scopedEntries) {
-                        const d = e.cumulativeDistanceNM || 0;
-                        if (d > scopedDistance) scopedDistance = d;
-                    }
-                } else {
-                    // All voyages: sum each voyage's max cumulative distance
-                    const voyageMap = new Map<string, number>();
-                    scopedEntries.forEach((e) => {
-                        const vid = e.voyageId || 'default';
-                        const current = voyageMap.get(vid) || 0;
-                        voyageMap.set(vid, Math.max(current, e.cumulativeDistanceNM || 0));
-                    });
-                    voyageMap.forEach((d) => {
-                        scopedDistance += d;
-                    });
-                }
+                        let scopedDistance = 0;
+                        for (const e of scopedEntries) {
+                            const d = e.cumulativeDistanceNM || 0;
+                            if (d > scopedDistance) scopedDistance = d;
+                        }
 
-                const speedEntries = scopedEntries.filter((e) => e.speedKts && e.speedKts > 0);
-                const scopedAvgSpeed =
-                    speedEntries.length > 0
-                        ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
-                        : 0;
-                return (
-                    <div className="grid grid-cols-3 gap-3 mb-4">
-                        <StatBox label="Distance" value={`${(scopedDistance ?? 0).toFixed(1)} NM`} />
-                        <StatBox label="Avg Speed" value={`${(scopedAvgSpeed ?? 0).toFixed(1)} kts`} />
-                        <StatBox label="Entries" value={scopedEntries.length} />
-                    </div>
-                );
-            })()}
-            <VoyageStatsPanel entries={scopedStatsEntries} />
+                        const speedEntries = scopedEntries.filter((e) => e.speedKts && e.speedKts > 0);
+                        const scopedAvgSpeed =
+                            speedEntries.length > 0
+                                ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
+                                : 0;
+                        return (
+                            <div className="grid grid-cols-3 gap-3 mb-4">
+                                <StatBox label="Distance" value={`${(scopedDistance ?? 0).toFixed(1)} NM`} />
+                                <StatBox label="Avg Speed" value={`${(scopedAvgSpeed ?? 0).toFixed(1)} kts`} />
+                                <StatBox label="Entries" value={scopedEntries.length} />
+                            </div>
+                        );
+                    })()}
+                    <VoyageStatsPanel entries={scopedStatsEntries} />
+                </>
+            )}
         </div>
     </div>
 );

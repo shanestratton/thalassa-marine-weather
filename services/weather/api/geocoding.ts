@@ -264,13 +264,15 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         // municipality / city_district / hamlet / island), fall through
         // to the generalisation guard below and return null.
         const locality =
+            addr.marina ||
+            addr.harbour ||
+            addr.island ||
             addr.suburb ||
             addr.town ||
-            addr.city_district ||
             addr.village ||
             addr.city ||
             addr.hamlet ||
-            addr.island ||
+            addr.city_district ||
             addr.municipality;
         const stateFull = addr.state || addr.province || addr.region || '';
         const state = abbreviate(stateFull) || stateFull;

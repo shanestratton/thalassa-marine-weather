@@ -38,7 +38,8 @@ describe('iOS push-delivery contract', () => {
         // path. A temporary secret/configuration fault must return a normal
         // failed delivery so the claimed event can be released and retried.
         const guardedDelivery = edge.slice(edge.indexOf('async function sendApnsPush'));
-        expect(guardedDelivery.indexOf('try {')).toBeLessThan(guardedDelivery.indexOf('await createApnsJwt()'));
+        expect(guardedDelivery.indexOf('await createApnsJwt(')).toBeGreaterThanOrEqual(0);
+        expect(guardedDelivery.indexOf('try {')).toBeLessThan(guardedDelivery.indexOf('await createApnsJwt('));
         expect(edge).toContain("notification_type: 'anchor_alarm'");
     });
 });

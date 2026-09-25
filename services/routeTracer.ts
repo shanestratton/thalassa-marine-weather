@@ -26,6 +26,8 @@
  * trace session) and tideWindowLabelFor (WorldTides curve).
  */
 import type { Feature, LineString } from 'geojson';
+import { routeNameParts } from './routeNameParts';
+export { reverseRouteName } from './routeNameParts';
 import { buildNavGrid } from './engine/navGrid';
 import { buildNavGridAsync } from './engine/navGridWorkerHost';
 import { CAUTION, UNKNOWN_OPEN, M_PER_DEG_LAT } from './engine/constants';
@@ -1518,39 +1520,6 @@ export function traceHealth(verdicts: ReadonlyArray<TraceLegVerdict | null | und
     };
 }
 
-/**
- * "Newport - Lady Musgrave" → "Lady Musgrave - Newport" for the tracer's
- * ⇄ reverse (Shane 2026-07-15: flipping a saved route should flip its
- * name too). Only SPACED separators and arrows count, so hyphenated
- * place names ("Tin Can Bay") survive; multi-leg names reverse whole
- * ("A → B → C" → "C → B → A"); a name with no recognisable separator
- * returns unchanged. The user's separator style is preserved.
- */
-export function reverseRouteName(name: string): string {
-    const trimmed = name.trim();
-    if (!trimmed) return name;
-    // \s+ both sides, not single spaces — "newport  -  lady musgrave"
-    // (double space, easy on a phone keyboard) must still flip.
-    const SEPS: Array<{ re: RegExp; join: string }> = [
-        { re: /\s+—\s+/, join: ' — ' },
-        { re: /\s+–\s+/, join: ' – ' },
-        { re: /\s+-\s+/, join: ' - ' },
-        { re: /\s*→\s*/, join: ' → ' },
-        { re: /\s*->\s*/, join: ' -> ' },
-        { re: /\s+to\s+/i, join: ' to ' },
-    ];
-    for (const { re, join } of SEPS) {
-        if (!re.test(trimmed)) continue;
-        const parts = trimmed
-            .split(new RegExp(re.source, re.flags.includes('i') ? 'gi' : 'g'))
-            .map((p) => p.trim())
-            .filter(Boolean);
-        if (parts.length < 2) continue;
-        return parts.reverse().join(join);
-    }
-    return name;
-}
-
 // ── P4: save / load / flywheel / sail ──────────────────────────────────────
 
 export interface SavedTrace {
@@ -1852,14 +1821,10 @@ export function legBadgeOrdinal(name: string): number | null {
     return m ? Number(m[1]) : null;
 }
 
-/** Destination half of a "from - to" route name, badge stripped. The
- *  separator is " - " WITH spaces — hyphenated localities (Kippa-Ring)
- *  survive. Null when the name doesn't follow the convention. */
+/** Last port in a directional route name (dash, arrow or "to"), badge
+ *  stripped. Unspaced hyphens in localities such as Kippa-Ring survive. */
 export function destNameFromRouteName(name: string): string | null {
-    const parts = stripLegBadge(name).split(' - ');
-    if (parts.length < 2) return null;
-    const dest = parts[parts.length - 1].trim();
-    return dest.length > 0 ? dest : null;
+    return routeNameParts(stripLegBadge(name))?.places.at(-1) ?? null;
 }
 
 /** Everything the tracer needs to open "plot the next leg of this trip":
@@ -2115,12 +2080,9 @@ export function groupTracesByTrip(traces: readonly SavedTrace[]): TripGroup[] {
     });
 }
 
-/** First half of the "from - to" naming convention, badge stripped. */
+/** First port in the shared directional naming convention, badge stripped. */
 export function originNameFromRouteName(name: string): string | null {
-    const parts = stripLegBadge(name).split(' - ');
-    if (parts.length < 2) return null;
-    const origin = parts[0].trim();
-    return origin.length > 0 ? origin : null;
+    return routeNameParts(stripLegBadge(name))?.places[0] ?? null;
 }
 
 /** Standardised list label (Shane 2026-08-04): trip legs render as

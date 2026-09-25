@@ -38,6 +38,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { AnchorWatchStore } from './anchorWatchStore.js';
 
 /** Signal K's own discovery document tells us the API base; do not hardcode. */
 const SIGNALK_DISCOVERY_PATH = '/signalk';
@@ -180,10 +181,10 @@ export function readFix(selfDocument: unknown, now: number = Date.now()): Vessel
         const { latitude, longitude } = value;
         if (!isFiniteLat(latitude) || !isFiniteLon(longitude)) return null;
         const stamped = typeof node?.timestamp === 'string' ? Date.parse(node.timestamp) : NaN;
-        // No timestamp is not the same as a fresh one. Treat it as now only
-        // when Signal K gave us nothing to judge by, and let the age gate
-        // below decide.
-        return { latitude, longitude, timestamp: Number.isFinite(stamped) ? stamped : now, source };
+        // A receipt time cannot establish GPS freshness. Otherwise an old
+        // untimestamped position would remain "current" indefinitely.
+        if (!Number.isFinite(stamped)) return null;
+        return { latitude, longitude, timestamp: stamped, source };
     };
 
     // When Signal K retains a value per source, CHOOSE — do not accept its
@@ -195,6 +196,8 @@ export function readFix(selfDocument: unknown, now: number = Date.now()): Vessel
             .filter((f): f is VesselFix => f !== null);
         if (candidates.length > 0) {
             candidates.sort((a, b) => {
+                const byFreshness = Number(fixIsCurrent(b, now)) - Number(fixIsCurrent(a, now));
+                if (byFreshness !== 0) return byFreshness;
                 const byRank = rankSource(a.source) - rankSource(b.source);
                 return byRank !== 0 ? byRank : b.timestamp - a.timestamp;
             });
@@ -272,6 +275,8 @@ export function buildPositionPayload(assignment: AnchorWatchAssignment, fix: Ves
                 ? { rodeLength: assignment.rodeLength, waterDepth: assignment.waterDepth }
                 : undefined,
         source: 'pi',
+        gpsAvailable: true,
+        gpsTimestamp: fix.timestamp,
     };
 }
 
@@ -280,6 +285,14 @@ export interface BroadcastDeps {
     /** Base origin of Signal K on this Pi, e.g. http://127.0.0.1:3000 */
     signalkOrigin: string;
     now?: () => number;
+    signal?: AbortSignal;
+    isCurrent?: () => boolean;
+    onLease?: (lease: { expiresAt: number; sessionExpiresAt: number }) => void;
+}
+
+function requestSignal(deps: BroadcastDeps): AbortSignal {
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    return deps.signal ? AbortSignal.any([deps.signal, timeout]) : timeout;
 }
 
 export type BroadcastOutcome = 'sent' | 'no-fix' | 'stale-fix' | 'not-authorised' | 'unauthorised' | 'unreachable';
@@ -309,7 +322,7 @@ export async function fetchSignalkDocument(deps: BroadcastDeps, path: string): P
     let base: string;
     try {
         const discovery = await deps.fetchImpl(`${deps.signalkOrigin}${SIGNALK_DISCOVERY_PATH}`, {
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            signal: requestSignal(deps),
         });
         if (!discovery.ok) return null;
         const body = (await discovery.json()) as Record<string, unknown>;
@@ -323,7 +336,7 @@ export async function fetchSignalkDocument(deps: BroadcastDeps, path: string): P
 
     try {
         const response = await deps.fetchImpl(`${base}${path}`, {
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            signal: requestSignal(deps),
         });
         if (!response.ok) return null;
         return (await response.json()) as unknown;
@@ -334,8 +347,8 @@ export async function fetchSignalkDocument(deps: BroadcastDeps, path: string): P
 
 /** Ask Signal K where the boat is. Null on anything that is not a usable fix. */
 export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null> {
-    const now = deps.now?.() ?? Date.now();
     const doc = await fetchSelfDocument(deps);
+    const now = deps.now?.() ?? Date.now();
     return doc === null ? null : readFix(doc, now);
 }
 
@@ -346,6 +359,7 @@ export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null>
 /** Carried across ticks so a drag can be CONFIRMED rather than guessed from one fix. */
 export interface DragConfirmState {
     outsideCount: number;
+    lastTimestamp?: number;
 }
 
 export async function broadcastOnce(
@@ -354,20 +368,38 @@ export async function broadcastOnce(
     deps: BroadcastDeps,
     drag?: DragConfirmState,
 ): Promise<BroadcastOutcome> {
-    const now = deps.now?.() ?? Date.now();
     const fix = await currentFix(deps);
-    if (!fix) return 'no-fix';
-    if (!fixIsCurrent(fix, now)) return 'stale-fix';
+    const now = deps.now?.() ?? Date.now();
+    if (deps.signal?.aborted || deps.isCurrent?.() === false) return 'unreachable';
+    const unavailable = !fix ? 'no-fix' : !fixIsCurrent(fix, now) ? 'stale-fix' : null;
 
     // Confirmation needs the memory of previous fixes, which only a caller
     // holding DragConfirmState has. The running watch always passes one.
     let alarm: boolean | undefined;
-    if (drag) {
+    if (drag && fix && !unavailable) {
         const distance = distanceMetres(assignment.anchorLat, assignment.anchorLon, fix.latitude, fix.longitude);
-        const next = nextDragState(drag.outsideCount, distance, assignment.swingRadius);
+        // Re-reading one frozen outlier is not three distinct GPS fixes.
+        const next =
+            fix.timestamp > (drag.lastTimestamp ?? -Infinity)
+                ? nextDragState(drag.outsideCount, distance, assignment.swingRadius)
+                : { outsideCount: drag.outsideCount, alarm: drag.outsideCount >= ALARM_CONFIRM_COUNT };
         drag.outsideCount = next.outsideCount;
+        drag.lastTimestamp = Math.max(drag.lastTimestamp ?? -Infinity, fix.timestamp);
         alarm = next.alarm;
     }
+    if (drag && unavailable) drag.outsideCount = 0;
+    const payload = unavailable
+        ? {
+              type: 'status',
+              gpsAvailable: false,
+              gpsTimestamp: fix?.timestamp ?? null,
+              reason: unavailable,
+              source: 'pi',
+              timestamp: now,
+              anchor: { latitude: assignment.anchorLat, longitude: assignment.anchorLon },
+              swingRadius: assignment.swingRadius,
+          }
+        : buildPositionPayload(assignment, fix!, alarm);
 
     let response: Awaited<ReturnType<FetchLike>>;
     try {
@@ -381,18 +413,32 @@ export async function broadcastOnce(
                 Authorization: `Bearer ${credential.anonKey}`,
             },
             body: JSON.stringify({
+                action: 'broadcast',
                 relay_id: credential.relayId,
                 token: credential.token,
                 session_code: assignment.sessionCode,
-                payload: buildPositionPayload(assignment, fix, alarm),
+                payload,
             }),
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            signal: requestSignal(deps),
         });
     } catch {
         return 'unreachable';
     }
 
-    if (response.ok) return 'sent';
+    if (response.ok) {
+        try {
+            const body = (await response.json()) as Record<string, unknown>;
+            const expiresAt = typeof body.expires_at === 'string' ? Date.parse(body.expires_at) : NaN;
+            const sessionExpiresAt =
+                typeof body.session_expires_at === 'string' ? Date.parse(body.session_expires_at) : NaN;
+            if (expiresAt > now && sessionExpiresAt >= expiresAt && sessionExpiresAt <= now + 24 * 60 * 60_000) {
+                deps.onLease?.({ expiresAt, sessionExpiresAt });
+            }
+        } catch {
+            /* Older relays do not return lease metadata; no durable recovery in that case. */
+        }
+        return unavailable ?? 'sent';
+    }
     // 403 means the watch lapsed or was never authorised for this code — the
     // app must re-authorise. 401 means our credential is wrong, which no
     // amount of retrying fixes. The caller logs them differently on purpose.
@@ -412,6 +458,7 @@ export interface RunnerDeps extends BroadcastDeps {
     setIntervalImpl?: typeof setInterval;
     clearIntervalImpl?: typeof clearInterval;
     onOutcome?: (outcome: BroadcastOutcome) => void;
+    store?: AnchorWatchStore;
 }
 
 /**
@@ -419,10 +466,9 @@ export interface RunnerDeps extends BroadcastDeps {
  * assignment replaces the first rather than running two loops that would
  * report contradictory positions to the same shore device.
  *
- * The assignment is deliberately NOT persisted. If the Pi reboots mid-watch it
- * comes back knowing nothing, and the app re-assigns on its next authorise
- * sweep — which is the honest outcome, because a Pi that has just rebooted
- * cannot vouch for what happened while it was down.
+ * Recovery retains only a cloud-confirmed assignment until its finite lease
+ * expires. A reboot always reads a NEW GPS fix and revalidates with the relay;
+ * it never replays a position or claims to know what happened while offline.
  */
 export class AnchorWatchRunner {
     private assignment: AnchorWatchAssignment | null = null;
@@ -431,15 +477,29 @@ export class AnchorWatchRunner {
     /** Reset whenever a watch starts, so a new anchor never inherits old breaches. */
     private drag: DragConfirmState = { outsideCount: 0 };
     private lastOutcome: BroadcastOutcome | null = null;
+    private generation = 0;
+    private controller: AbortController | null = null;
+    private pendingGeneration: number | null = null;
+    private lease: { expiresAt: number; sessionExpiresAt: number } | null = null;
+    private lastPersistedAt = 0;
 
     constructor(private readonly deps: RunnerDeps) {}
 
     /** Replace whatever is running. Returns immediately; the first report is
      *  sent on the next tick so a caller is never blocked on the network. */
     start(assignment: AnchorWatchAssignment, credential: RelayCredential): void {
-        this.stop();
+        this.cancel();
+        this.clearSaved();
+        this.lease = null;
+        this.lastPersistedAt = 0;
+        this.lastOutcome = null;
+        this.run(assignment, credential);
+    }
+
+    private run(assignment: AnchorWatchAssignment, credential: RelayCredential): void {
         this.assignment = assignment;
         this.credential = credential;
+        this.controller = new AbortController();
         // A fresh anchor must never inherit breaches counted against the last one.
         this.drag = { outsideCount: 0 };
         const setIntervalFn = this.deps.setIntervalImpl ?? setInterval;
@@ -448,6 +508,44 @@ export class AnchorWatchRunner {
     }
 
     stop(): void {
+        const assignment = this.assignment;
+        const credential = this.credential;
+        this.cancel();
+        this.clearSaved();
+        this.lease = null;
+        if (assignment && credential) void this.revoke(assignment, credential);
+    }
+
+    /** Process shutdown preserves a confirmed lease; it does NOT end the watch. */
+    close(): void {
+        this.cancel();
+    }
+
+    restore(credential: RelayCredential): boolean {
+        const saved = this.deps.store?.read();
+        const now = this.deps.now?.() ?? Date.now();
+        if (
+            !saved ||
+            saved.relayId !== credential.relayId ||
+            saved.expiresAt <= now ||
+            saved.sessionExpiresAt <= now ||
+            saved.sessionExpiresAt > now + 24 * 60 * 60_000
+        ) {
+            this.clearSaved();
+            return false;
+        }
+        this.cancel();
+        this.lease = { expiresAt: saved.expiresAt, sessionExpiresAt: saved.sessionExpiresAt };
+        this.lastPersistedAt = 0;
+        this.lastOutcome = null;
+        this.run(saved.assignment, credential);
+        return true;
+    }
+
+    private cancel(): void {
+        this.generation++;
+        this.controller?.abort();
+        this.controller = null;
         if (this.timer) {
             (this.deps.clearIntervalImpl ?? clearInterval)(this.timer);
             this.timer = null;
@@ -456,16 +554,52 @@ export class AnchorWatchRunner {
         this.credential = null;
     }
 
+    private clearSaved(): void {
+        try {
+            this.deps.store?.clear();
+        } catch {
+            /* Cloud stop/expiry still enforce the authorisation. */
+        }
+    }
+
+    private async revoke(assignment: AnchorWatchAssignment, credential: RelayCredential): Promise<void> {
+        try {
+            await this.deps.fetchImpl(credential.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    apikey: credential.anonKey,
+                    Authorization: `Bearer ${credential.anonKey}`,
+                },
+                body: JSON.stringify({
+                    action: 'stop',
+                    relay_id: credential.relayId,
+                    token: credential.token,
+                    session_code: assignment.sessionCode,
+                }),
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            });
+        } catch {
+            /* Phone revoke and finite cloud expiry remain independent backstops. */
+        }
+    }
+
     isRunning(): boolean {
         return this.timer !== null;
     }
 
     /** Never includes the credential — this is safe to put in /status. */
-    describe(): { running: boolean; sessionCode: string | null; lastOutcome: BroadcastOutcome | null } {
+    describe(): {
+        running: boolean;
+        sessionCode: string | null;
+        lastOutcome: BroadcastOutcome | null;
+        sessionExpiresAt: number | null;
+    } {
         return {
             running: this.isRunning(),
             sessionCode: this.assignment?.sessionCode ?? null,
             lastOutcome: this.lastOutcome,
+            sessionExpiresAt: this.lease?.sessionExpiresAt ?? null,
         };
     }
 
@@ -473,13 +607,56 @@ export class AnchorWatchRunner {
         const assignment = this.assignment;
         const credential = this.credential;
         if (!assignment || !credential) return;
-        const outcome = await broadcastOnce(assignment, credential, this.deps, this.drag);
+        const generation = this.generation;
+        if (this.pendingGeneration === generation) return;
+        const now = this.deps.now?.() ?? Date.now();
+        if (this.lease && this.lease.sessionExpiresAt <= now) {
+            this.lastOutcome = 'not-authorised';
+            this.stop();
+            return;
+        }
+        this.pendingGeneration = generation;
+        const isCurrent = () => this.generation === generation;
+        let outcome: BroadcastOutcome;
+        try {
+            outcome = await broadcastOnce(
+                assignment,
+                credential,
+                {
+                    ...this.deps,
+                    signal: this.controller?.signal,
+                    isCurrent,
+                    onLease: (lease) => {
+                        if (!isCurrent()) return;
+                        this.lease = lease;
+                        // The six-hour lease has ample recovery slack. Avoid an
+                        // SD-card write for every ten-second position heartbeat.
+                        const persistedAt = this.deps.now?.() ?? Date.now();
+                        if (this.lastPersistedAt && persistedAt - this.lastPersistedAt < 5 * 60_000) return;
+                        try {
+                            this.deps.store?.save({ assignment, relayId: credential.relayId, ...lease });
+                            this.lastPersistedAt = persistedAt;
+                        } catch {
+                            /* Live monitoring continues, but reboot recovery is unavailable. */
+                        }
+                    },
+                },
+                this.drag,
+            );
+        } finally {
+            if (this.pendingGeneration === generation) this.pendingGeneration = null;
+        }
+        if (!isCurrent()) return;
         this.lastOutcome = outcome;
         this.deps.onOutcome?.(outcome);
         // A credential the relay rejects outright will never start working, and
         // retrying it every ten seconds is a stream of failed auth attempts
-        // against the skipper's own account. A LAPSED authorisation is
-        // different — the app renews it, so keep going.
-        if (outcome === 'unauthorised') this.stop();
+        // against the skipper's own account. Expired/revoked assignments need
+        // explicit app reauthorisation; they must never resume by themselves.
+        if (outcome === 'unauthorised' || outcome === 'not-authorised') {
+            this.cancel();
+            this.clearSaved();
+            this.lease = null;
+        }
     }
 }

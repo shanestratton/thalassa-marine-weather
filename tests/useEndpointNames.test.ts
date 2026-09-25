@@ -4,6 +4,18 @@ import { cleanup, renderHook, waitFor } from '@testing-library/react';
 vi.mock('../services/weatherService', () => ({
     reverseGeocode: vi.fn(),
 }));
+vi.mock('@capacitor/core', () => ({
+    CapacitorHttp: {
+        get: vi.fn().mockResolvedValue({
+            status: 200,
+            data: {
+                lat: '-20.347503',
+                lon: '148.949890',
+                address: { village: 'Hamilton Island', city_district: 'Whitsundays' },
+            },
+        }),
+    },
+}));
 
 import { reverseGeocode } from '../services/weatherService';
 import { formatEndpointCoordinates, useEndpointNames } from '../pages/log/useEndpointNames';
@@ -21,6 +33,19 @@ afterEach(() => {
 });
 
 describe('formatEndpointCoordinates', () => {
+    it('shows actual island endpoints in the Log rather than the weather district', async () => {
+        mockedReverseGeocode.mockResolvedValue('Whitsundays, QLD, AU');
+        const { result } = renderHook(() =>
+            useEndpointNames(
+                { latitude: -20.2543216666667, longitude: 148.815016666667 },
+                { latitude: -20.3475033333333, longitude: 148.949890666667 },
+            ),
+        );
+        await waitFor(() =>
+            expect(result.current).toEqual({ startLabel: 'Daydream Island', endLabel: 'Hamilton Island' }),
+        );
+        expect(mockedReverseGeocode).not.toHaveBeenCalled();
+    });
     it('uses both signed GPS coordinates at two decimal places when no place name is available', () => {
         expect(formatEndpointCoordinates({ latitude: -27.0142, longitude: 153.9216 })).toBe('-27.01, 153.92');
     });

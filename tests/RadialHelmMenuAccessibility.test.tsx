@@ -14,6 +14,30 @@ vi.mock('../components/map/cmemsFeatureAvailability', () => ({
 }));
 
 describe('RadialHelmMenu accessibility', () => {
+    it('offers independent Moorings and Anchorages together under Sea and clears both', async () => {
+        const onToggleMoorings = vi.fn(),
+            onToggleAnchorage = vi.fn();
+        render(
+            <RadialHelmMenu
+                activeLayers={new Set<WeatherLayer>()}
+                toggleLayer={vi.fn()}
+                selectInGroup={vi.fn()}
+                tacticalState={{ mooringsVisible: true, onToggleMoorings, anchorageVisible: true, onToggleAnchorage }}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Sea layers' }));
+        const moorings = await screen.findByRole('menuitemcheckbox', { name: 'Moorings, on' });
+        const anchorages = screen.getByRole('menuitemcheckbox', { name: 'Anchorages, on' });
+        expect(moorings).toHaveAttribute('aria-checked', 'true');
+        expect(anchorages).toHaveAttribute('aria-checked', 'true');
+        fireEvent.click(moorings);
+        expect(onToggleMoorings).toHaveBeenCalledOnce();
+        expect(onToggleAnchorage).not.toHaveBeenCalled();
+        fireEvent.click(anchorages);
+        expect(onToggleAnchorage).toHaveBeenCalledOnce();
+        expect(screen.getByRole('menu', { name: 'Sea layers' })).toBeInTheDocument();
+    });
     it('offers tide stations under Sea, not the Tactical category', async () => {
         const onToggleTideStations = vi.fn();
         render(

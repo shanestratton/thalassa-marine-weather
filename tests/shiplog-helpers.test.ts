@@ -13,6 +13,7 @@ import {
     fromDbFormat,
     getIntervalForZone,
     getIntervalForSpeed,
+    getSpeedTierLabel,
     getPlottingProfile,
     getZoneLabel,
     isTrackworthyEntry,
@@ -26,6 +27,10 @@ import {
 } from '../services/shiplog/helpers';
 
 // ---- Distance (Haversine) ----
+
+it('does not claim the anchor is down from the stationary logging speed tier', () => {
+    expect(getSpeedTierLabel('stationary')).toBe('Stationary (5min intervals)');
+});
 
 describe('calculateDistanceNM', () => {
     it('returns 0 for same position', () => {

@@ -11,19 +11,10 @@
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { maxOf } from '../utils/extremes';
-import { voyageElapsedMs } from '../utils/voyageTiming';
+import { lifetimeVoyageStats } from '../utils/lifetimeVoyageStats';
 
 const log = createLogger('useLogPageState');
 
-/**
- * Upper bound for the ONE remaining bulk-entry fetch: the opt-in
- * "All Voyages" statistics deep-dive (loadAllEntries). The list itself
- * and every stat tile now render from voyage SUMMARIES, so the default
- * Log open never pulls this many rows. Ordered newest-first, so the cap
- * keeps the freshest window; 50k bounds the pathological precision-GPS
- * case (1–10 Hz capture → hundreds of thousands of rows).
- */
-const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
 import { ShipLogService } from '../services/ShipLogService';
 import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
@@ -38,15 +29,11 @@ import {
 } from '../services/shiplog/VoyageTrackCache';
 import { supabase } from '../services/supabase';
 import { voyageHasRecordedFix } from '../services/shiplog/helpers';
+import { applyVoyageArchiveIntentOverlay, filterVoyageTombstonedEntries } from '../services/shiplog/OfflineQueue';
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntries } from '../utils/voyageData';
-import {
-    mergeSummariesWithLive,
-    careerTotalsFromSummaries,
-    isMaritimeVoyage,
-    type VoyageSummary,
-} from '../services/shiplog/VoyageSummary';
+import { mergeSummariesWithLive, type VoyageSummary } from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
@@ -477,7 +464,7 @@ function groupEntriesByVoyage(entries: ShipLogEntry[]) {
 
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
 
-export function useLogPageState() {
+export function useLogPageState(onTrackingStarted?: (voyageId: string) => void) {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const [storedState, rawDispatch] = useReducer(logPageReducer, identityScope, seededInitialState);
     const stateOwnerRef = useRef(identityScope);
@@ -544,10 +531,42 @@ export function useLogPageState() {
     ]);
 
     // ── Archive state (separate from main state to avoid re-renders on every poll) ──
-    const [archivedVoyages, setArchivedVoyages] = useState<ReturnType<typeof groupEntriesByVoyage>>([]);
+    const [archivedVoyages, setArchivedVoyages] = useState<VoyageSummary[]>([]);
+    const [archivesLoading, setArchivesLoading] = useState(false);
+    const [archiveError, setArchiveError] = useState<string | null>(null);
+    const archiveReadRef = useRef(0);
+    const [lifetimeSummaries, setLifetimeSummaries] = useState<VoyageSummary[]>([]);
+    const [lifetimeLoading, setLifetimeLoading] = useState(true);
+    const [lifetimeError, setLifetimeError] = useState<string | null>(null);
+    const [lifetimeLoaded, setLifetimeLoaded] = useState(false);
+    const lifetimeReadRef = useRef(0);
+    const archivedVoyagesRef = useRef(archivedVoyages);
+    archivedVoyagesRef.current = archivedVoyages;
+    // Accepted restores already have complete summaries. Keep them visible
+    // until a refreshed main list confirms them, even on a lost connection.
+    const recentRestoresRef = useRef(new Map<string, VoyageSummary>());
+    const summaryMutationRef = useRef(0);
     useEffect(() => {
+        archiveReadRef.current += 1;
+        lifetimeReadRef.current += 1;
+        summaryMutationRef.current += 1;
+        recentRestoresRef.current.clear();
         setArchivedVoyages([]);
+        setArchivesLoading(false);
+        setArchiveError(null);
+        setLifetimeSummaries([]);
+        setLifetimeLoading(true);
+        setLifetimeError(null);
+        setLifetimeLoaded(false);
     }, [identityScope]);
+
+    const forgetLifetimeVoyage = useCallback((voyageId: string) => {
+        // A response begun before an accepted durable delete must not restore
+        // the deleted voyage into the lifetime totals.
+        lifetimeReadRef.current += 1;
+        setLifetimeLoading(false);
+        setLifetimeSummaries((previous) => previous.filter((summary) => summary.voyageId !== voyageId));
+    }, []);
 
     // Guard: prevents loadData from overwriting optimistic tracking=false during stop
     const stoppingRef = useRef(false);
@@ -591,6 +610,7 @@ export function useLogPageState() {
 
     const loadDataInner = useCallback(async () => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        const summaryMutation = summaryMutationRef.current;
         // voyageId AT START is only used to choose which voyage's points to
         // fetch — the tracking STATUS we dispatch is re-read after the await
         // (see below) to avoid clobbering an optimistic start/stop.
@@ -625,18 +645,38 @@ export function useLogPageState() {
         // Without this, an auth-rehydrate reload wiped every cache-painted
         // card for several seconds — the "just the main log page" gap after a
         // delete. A skipped update here is healed by the next poll/retry.
-        if (summaries.length > 0) {
-            dispatch({ type: 'SET_SUMMARIES', summaries });
-        } else {
-            const readable = await voyageSummariesSessionReadable().catch(() => false);
-            if (!isAuthIdentityScopeCurrent(identityScope)) return;
-            if (readable) dispatch({ type: 'SET_SUMMARIES', summaries });
+        const readable = summaries.length > 0 || (await voyageSummariesSessionReadable().catch(() => false));
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        if (readable && summaryMutation === summaryMutationRef.current) {
+            for (const summary of summaries) recentRestoresRef.current.delete(summary.voyageId);
+            let complete = summaries;
+            if (recentRestoresRef.current.size) {
+                const pending = await filterVoyageTombstonedEntries(
+                    [...recentRestoresRef.current.values()].map((summary) => ({
+                        summary,
+                        voyageId: summary.voyageId,
+                        timestamp: summary.startedAt,
+                        archived: false,
+                    })),
+                    identityScope,
+                );
+                const visible = await applyVoyageArchiveIntentOverlay(pending, identityScope);
+                if (!isAuthIdentityScopeCurrent(identityScope)) return;
+                complete = [...summaries, ...visible.filter((row) => !row.archived).map((row) => row.summary)];
+            }
+            // A restore/archive accepted during the local-ledger await wins.
+            if (summaryMutation === summaryMutationRef.current)
+                dispatch({ type: 'SET_SUMMARIES', summaries: complete });
         }
 
         // Merge active + offline into whatever is already resident
         // (expanded voyages), purging volatile offline_* ids and deduping
         // by real id — same primitive the live poll uses.
-        const merged = mergeRecentEntries(entriesRef.current, [...activeEntries, ...offlineEntries]);
+        const merged = await filterVoyageTombstonedEntries(
+            mergeRecentEntries(entriesRef.current, [...activeEntries, ...offlineEntries]),
+            identityScope,
+        );
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
 
         // Re-read tracking status + voyage NOW, AFTER the network fetch.
         // Reading them at the top (pre-await) caused the first-start no-op:
@@ -696,8 +736,23 @@ export function useLogPageState() {
         // Load archived voyages and career entries in parallel (non-blocking)
         reloadCareerData();
 
-        // Loading history is read-only. Local rows may be only an unsynced
-        // tail of a complete cloud voyage, never evidence that it is empty.
+        // Paint first. A bounded maintenance sweep then verifies COMPLETE
+        // ended recordings, never inferring an empty voyage from local tails.
+        // Local-only stopped recordings have no server summary yet. Nominate
+        // them too; the service still proves the complete cloud + local history
+        // and idle state before accepting any deletion.
+        const removed = await ShipLogService.cleanupUndepartedRecordings(
+            mergeSummariesWithLive(summaries, offlineEntries),
+        );
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        for (const voyageId of removed) {
+            entriesRef.current = entriesRef.current.filter((entry) => entry.voyageId !== voyageId);
+            dispatch({ type: 'REMOVE_VOYAGE', voyageId });
+            forgetLifetimeVoyage(voyageId);
+        }
+        // Cleanup retired any read begun before its delete fence. Complete
+        // the first lifetime load too, rather than waiting for another poll.
+        if (removed.length > 0) void reloadCareerData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dispatch, identityScope]);
 
@@ -773,20 +828,50 @@ export function useLogPageState() {
     //   - be opt-in via a setting
     //   - announce itself with a toast / undo affordance
 
-    // Reusable archive-data refresh. (Career totals no longer need a
-    // separate entry fetch — they're derived from the voyage summaries.)
-    const reloadCareerData = useCallback(() => {
+    // Archives count whole voyages, not the newest N GPS points. Retain the
+    // last complete list on read failure; never present a partial list as truth.
+    const reloadCareerData = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        ShipLogService.getArchivedEntries()
-            .then((archived) => {
-                if (isAuthIdentityScopeCurrent(actionScope)) {
-                    setArchivedVoyages(groupEntriesByVoyage(archived));
+        const request = ++archiveReadRef.current;
+        const lifetimeRequest = ++lifetimeReadRef.current;
+        setArchivesLoading(true);
+        setArchiveError(null);
+        setLifetimeLoading(true);
+        setLifetimeError(null);
+        // Keep independent outcomes: a failed archive listing cannot discard
+        // valid lifetime totals (or vice versa). Both retain their last success.
+        await Promise.all([
+            (async () => {
+                try {
+                    const archived = await ShipLogService.getArchivedVoyageSummaries();
+                    if (!isAuthIdentityScopeCurrent(actionScope) || archiveReadRef.current !== request) return;
+                    setArchivedVoyages(archived);
+                } catch (error) {
+                    if (!isAuthIdentityScopeCurrent(actionScope) || archiveReadRef.current !== request) return;
+                    log.warn('Archive summary refresh failed', error);
+                    setArchiveError('Couldn’t refresh the archive. Your saved voyages have not been changed.');
+                } finally {
+                    if (isAuthIdentityScopeCurrent(actionScope) && archiveReadRef.current === request)
+                        setArchivesLoading(false);
                 }
-            })
-            .catch((e) => {
-                if (isAuthIdentityScopeCurrent(actionScope)) console.warn(`[useLogPageState]`, e);
-            });
+            })(),
+            (async () => {
+                try {
+                    const complete = await ShipLogService.getLifetimeVoyageSummaries();
+                    if (!isAuthIdentityScopeCurrent(actionScope) || lifetimeReadRef.current !== lifetimeRequest) return;
+                    setLifetimeSummaries(complete);
+                    setLifetimeLoaded(true);
+                } catch (error) {
+                    if (!isAuthIdentityScopeCurrent(actionScope) || lifetimeReadRef.current !== lifetimeRequest) return;
+                    log.warn('Lifetime summary refresh failed', error);
+                    setLifetimeError('Couldn’t refresh lifetime totals.');
+                } finally {
+                    if (isAuthIdentityScopeCurrent(actionScope) && lifetimeReadRef.current === lifetimeRequest)
+                        setLifetimeLoading(false);
+                }
+            })(),
+        ]);
     }, [identityScope]);
 
     useEffect(() => {
@@ -985,6 +1070,15 @@ export function useLogPageState() {
 
     // ── Tracking Handlers ───────────────────────────────────────────────────
 
+    const finishTrackingStart = useCallback(async () => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        const status = ShipLogService.getTrackingStatus();
+        // Commit the answer before loading/rendering history. This callback
+        // also runs if the skipper left Log while native GPS was starting.
+        if (status.isTracking && status.currentVoyageId) onTrackingStarted?.(status.currentVoyageId);
+        await loadData();
+    }, [identityScope, loadData, onTrackingStarted]);
+
     const handleStartTracking = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
@@ -1001,7 +1095,7 @@ export function useLogPageState() {
         startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking()
-            .then(() => (isAuthIdentityScopeCurrent(actionScope) ? loadData() : undefined))
+            .then(finishTrackingStart)
             .then(() => {
                 if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
             })
@@ -1011,7 +1105,7 @@ export function useLogPageState() {
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
-    }, [dispatch, identityScope, state.summaries, loadData, toast]);
+    }, [dispatch, identityScope, state.summaries, finishTrackingStart, toast]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
         const actionScope = identityScope;
@@ -1019,7 +1113,7 @@ export function useLogPageState() {
         startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking()
-            .then(() => (isAuthIdentityScopeCurrent(actionScope) ? loadData() : undefined))
+            .then(finishTrackingStart)
             .then(() => {
                 if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
             })
@@ -1029,7 +1123,7 @@ export function useLogPageState() {
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
-    }, [dispatch, identityScope, loadData, toast]);
+    }, [dispatch, identityScope, finishTrackingStart, toast]);
 
     const continueLastVoyage = useCallback(async () => {
         const actionScope = identityScope;
@@ -1038,7 +1132,7 @@ export function useLogPageState() {
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
         ShipLogService.startTracking(false, state.lastVoyageId || undefined)
-            .then(() => (isAuthIdentityScopeCurrent(actionScope) ? loadData() : undefined))
+            .then(finishTrackingStart)
             .then(() => {
                 if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
             })
@@ -1048,7 +1142,7 @@ export function useLogPageState() {
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to continue tracking');
             });
-    }, [dispatch, identityScope, state.lastVoyageId, loadData, toast]);
+    }, [dispatch, identityScope, state.lastVoyageId, finishTrackingStart, toast]);
 
     const handlePauseTracking = useCallback(async () => {
         const actionScope = identityScope;
@@ -1192,8 +1286,8 @@ export function useLogPageState() {
                 }
             }
 
-            // End Voyage retains every recorded track. Only an explicit
-            // Delete action may remove it, even when local rows look empty.
+            // The service discards proven never-departed casual recordings.
+            // Real movement, manual content and incomplete histories remain.
         } catch (e) {
             // Never rethrow: the track is stopped, which is what the button
             // promised. Anything unfinished here is recoverable from the
@@ -1252,13 +1346,15 @@ export function useLogPageState() {
             if (!success) {
                 toast.error('Failed to delete entry');
                 dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, entry] });
+            } else {
+                void reloadCareerData();
             }
         } catch (e) {
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             toast.error('Failed to delete entry');
             dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, entry] });
         }
-    }, [deletedEntry, dispatch, identityScope, toast]);
+    }, [deletedEntry, dispatch, identityScope, reloadCareerData, toast]);
 
     const handleUndoDeleteEntry = useCallback(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
@@ -1403,36 +1499,6 @@ export function useLogPageState() {
         },
         [dispatch, identityScope, loadVoyageEntries],
     );
-
-    // Opt-in heavy load: pulls a bounded window of ALL entries into state.
-    // Used only by the "All Voyages" statistics deep-dive (an explicit
-    // user action), so the default Log open never pays this cost.
-    const allEntriesLoadedRef = useRef(false);
-    useEffect(() => {
-        allEntriesLoadedRef.current = false;
-    }, [identityScope]);
-    const loadAllEntries = useCallback(async () => {
-        const actionScope = identityScope;
-        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        if (allEntriesLoadedRef.current || loadingRef.current) return;
-        loadingRef.current = true;
-        try {
-            const [dbEntries, offlineEntries] = await Promise.all([
-                ShipLogService.getLogEntries(MAX_LIST_ENTRIES),
-                ShipLogService.getOfflineEntries(),
-            ]);
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            dispatch({
-                type: 'UPDATE_ENTRIES',
-                updater: (prev) => mergeRecentEntries(prev, [...dbEntries, ...offlineEntries]),
-            });
-            allEntriesLoadedRef.current = true;
-        } catch (e) {
-            if (isAuthIdentityScopeCurrent(actionScope)) log.warn('loadAllEntries failed', e);
-        } finally {
-            if (isAuthIdentityScopeCurrent(actionScope)) loadingRef.current = false;
-        }
-    }, [dispatch, identityScope]);
 
     // ── Soft-delete voyage with undo ──
     // Holds the removed voyage's summary (so the card can be restored even
@@ -1602,6 +1668,7 @@ export function useLogPageState() {
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 accepted = true;
                 dispatch({ type: 'REMOVE_VOYAGE', voyageId });
+                forgetLifetimeVoyage(voyageId);
                 // A deleted voyage's cached track must not resurrect it.
                 void clearCachedVoyageTrack(voyageId);
                 loadedVoyagesRef.current.delete(voyageId);
@@ -1638,7 +1705,7 @@ export function useLogPageState() {
                 log.info('voyage delete accepted locally; cloud cleanup queued');
             }
         },
-        [dispatch, identityScope, toast, reloadCareerData],
+        [dispatch, identityScope, toast, reloadCareerData, forgetLifetimeVoyage],
     );
 
     const confirmDeleteSharedVoyage = useCallback(() => {
@@ -1880,23 +1947,14 @@ export function useLogPageState() {
         [state.summaries, state.entries],
     );
 
-    // Top gauge tiles + voyage count, aggregated from summaries so they are
-    // accurate across the user's ENTIRE history without loading any points.
-    // Suggested/planned routes excluded (aspirational, not sailed miles).
-    const voyageStats = useMemo(() => {
-        // Maritime only — exclude planned, imported AND land voyages (car
-        // drives / walks). A land track isn't sea miles or time at sea and
-        // shouldn't pad the voyage count. (Was excluding only planned, so
-        // land walks were padding all three tiles.)
-        const sailed = listVoyages.filter(isMaritimeVoyage);
-        let totalNm = 0;
-        let totalMs = 0;
-        for (const v of sailed) {
-            totalNm += v.totalDistanceNM || 0;
-            totalMs += voyageElapsedMs(v);
-        }
-        return { totalNm, totalMs, voyageCount: sailed.length };
-    }, [listVoyages]);
+    // One lifetime source for all six tiles, career totals and All Voyages.
+    // Archive/restore changes where a card lives, not its sailed miles. The
+    // synchronous identity guard prevents even one old-account archive frame.
+    const lifetimeStats = useMemo(
+        () => lifetimeVoyageStats(stateBelongsToCurrentIdentity ? lifetimeSummaries : [], [], state.entries),
+        [state.entries, stateBelongsToCurrentIdentity, lifetimeSummaries],
+    );
+    const voyageStats = lifetimeStats.totals;
 
     const hasNonDeviceEntries = useMemo(() => {
         const targetEntries = state.selectedVoyageId
@@ -1926,26 +1984,129 @@ export function useLogPageState() {
         return withSpeed.length > 0 ? withSpeed.reduce((sum, e) => sum + (e.speedKts || 0), 0) / withSpeed.length : 0;
     }, [filteredEntries]);
 
-    // ── Career Totals ───────────────────────────────────────────────────────
-    // Aggregated from voyage SUMMARIES (one row per voyage) rather than the
-    // old getAllEntriesForCareer projection, which capped at 10k entries and
-    // silently under-counted heavy histories. listVoyages includes the live
-    // active voyage, so career miles tick up in real time. Only the sailor's
-    // own maritime voyages count — imports/planned routes excluded, land
-    // tracks filtered by landFraction majority vote. See VoyageSummary.ts.
-    const careerTotals = useMemo(() => careerTotalsFromSummaries(listVoyages), [listVoyages]);
+    const careerTotals = lifetimeStats.careerTotals;
+    const passageArchiveSnapshotRef = useRef({ voyages: listVoyages, state });
+    passageArchiveSnapshotRef.current = { voyages: listVoyages, state };
+    const passageArchiveFlightRef = useRef<{ scope: AuthIdentityScope } | null>(null);
+    const restoreFlightRef = useRef<{ scope: AuthIdentityScope } | null>(null);
+
+    const rememberArchivedVoyage = useCallback((summary: VoyageSummary | undefined) => {
+        if (!summary) return;
+        summaryMutationRef.current += 1;
+        recentRestoresRef.current.delete(summary.voyageId);
+        archiveReadRef.current += 1;
+        setArchivesLoading(false);
+        setArchivedVoyages((previous) =>
+            [...previous.filter((voyage) => voyage.voyageId !== summary.voyageId), summary].sort(
+                (a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt),
+            ),
+        );
+    }, []);
 
     // ── Archive handlers ─────────────────────────────────────────────────────
+
+    const handleArchivePassage = useCallback(
+        async (
+            passageId: string,
+            requestedVoyageIds: string[],
+            externallyProtected?: (voyageId: string) => boolean,
+        ) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (passageArchiveFlightRef.current && isAuthIdentityScopeCurrent(passageArchiveFlightRef.current.scope))
+                return;
+            const voyageIds = [...new Set(requestedVoyageIds)];
+            const members = passageArchiveSnapshotRef.current.voyages.filter(
+                (voyage) => voyage.passageGroupId === passageId && !voyage.isPlannedRoute,
+            );
+            if (
+                !passageId ||
+                !voyageIds.length ||
+                members.length !== voyageIds.length ||
+                members.some((voyage) => !voyageIds.includes(voyage.voyageId))
+            ) {
+                toast.error('This passage has changed. Review its legs and try again.');
+                return;
+            }
+            const protectedNow = (voyageId: string) => {
+                const tracking = ShipLogService.getTrackingStatus();
+                const snapshot = passageArchiveSnapshotRef.current.state;
+                return (
+                    startingRef.current ||
+                    snapshot.startPending ||
+                    ((tracking.isTracking || tracking.isPaused) &&
+                        (tracking.currentVoyageId ?? ShipLogService.getCurrentVoyageId()) === voyageId) ||
+                    ((snapshot.isTracking || snapshot.isPaused) && snapshot.currentVoyageId === voyageId) ||
+                    externallyProtected?.(voyageId) === true
+                );
+            };
+            if (voyageIds.some(protectedNow)) {
+                toast.error('This passage is still recording. End the active voyage before archiving the passage.');
+                return;
+            }
+            const flight = { scope: actionScope };
+            passageArchiveFlightRef.current = flight;
+            let archived = 0;
+            let protectedCount = 0;
+            try {
+                for (const voyageId of voyageIds) {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (protectedNow(voyageId)) {
+                        protectedCount += 1;
+                        continue;
+                    }
+                    // Recheck each exact member after every await; a moved/deleted
+                    // card must not inherit this older passage confirmation.
+                    if (
+                        !passageArchiveSnapshotRef.current.voyages.some(
+                            (voyage) =>
+                                voyage.voyageId === voyageId &&
+                                voyage.passageGroupId === passageId &&
+                                !voyage.isPlannedRoute,
+                        )
+                    )
+                        continue;
+                    let accepted = false;
+                    try {
+                        accepted = await ShipLogService.archiveVoyage(voyageId);
+                    } catch (error) {
+                        if (isAuthIdentityScopeCurrent(actionScope)) log.warn('Passage leg archive failed', error);
+                    }
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (accepted) {
+                        archived += 1;
+                        rememberArchivedVoyage(members.find((voyage) => voyage.voyageId === voyageId));
+                        dispatch({ type: 'REMOVE_VOYAGE', voyageId });
+                    }
+                }
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                if (archived > 0) reloadCareerData();
+                if (archived === voyageIds.length) {
+                    toast.success(`Passage archived · ${archived} ${archived === 1 ? 'leg' : 'legs'}`);
+                } else {
+                    const remaining = voyageIds.length - archived;
+                    toast.error(
+                        `Archived ${archived} of ${voyageIds.length} legs. ${remaining} ${remaining === 1 ? 'leg remains' : 'legs remain'} in the Log.${protectedCount ? ' Active recording was left untouched.' : ' Please try the remaining legs again.'}`,
+                    );
+                }
+            } finally {
+                if (passageArchiveFlightRef.current === flight) passageArchiveFlightRef.current = null;
+            }
+        },
+        [dispatch, identityScope, reloadCareerData, rememberArchivedVoyage, toast],
+    );
 
     const handleArchiveVoyage = useCallback(
         async (voyageId: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            const summary = passageArchiveSnapshotRef.current.voyages.find((voyage) => voyage.voyageId === voyageId);
             const success = await ShipLogService.archiveVoyage(voyageId);
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (success) {
                 // Immediately remove from active view (summary card + any
                 // resident points for the voyage).
+                rememberArchivedVoyage(summary);
                 dispatch({ type: 'REMOVE_VOYAGE', voyageId });
                 toast.success('Voyage archived');
                 reloadCareerData();
@@ -1955,25 +2116,85 @@ export function useLogPageState() {
                 toast.error('Couldn’t archive this voyage. Try again.');
             }
         },
-        [dispatch, identityScope, toast, reloadCareerData],
+        [dispatch, identityScope, toast, reloadCareerData, rememberArchivedVoyage],
     );
 
-    const handleUnarchiveVoyage = useCallback(
-        async (voyageId: string) => {
+    const restoreArchivedVoyages = useCallback(
+        async (requestedVoyageIds: string[], passageId?: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const success = await ShipLogService.unarchiveVoyage(voyageId);
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            if (success) {
-                await loadData();
+            if (restoreFlightRef.current && isAuthIdentityScopeCurrent(restoreFlightRef.current.scope)) return;
+            const voyageIds = [...new Set(requestedVoyageIds)];
+            const snapshot = archivedVoyagesRef.current;
+            const members = passageId
+                ? snapshot.filter((voyage) => voyage.passageGroupId === passageId && !voyage.isPlannedRoute)
+                : snapshot.filter((voyage) => voyageIds.includes(voyage.voyageId) && !voyage.isPlannedRoute);
+            if (
+                !voyageIds.length ||
+                members.length !== voyageIds.length ||
+                members.some((voyage) => !voyageIds.includes(voyage.voyageId))
+            ) {
+                throw new Error('The archive has changed. Refresh it and try again.');
+            }
+            const flight = { scope: actionScope };
+            restoreFlightRef.current = flight;
+            let restored = 0;
+            try {
+                for (const voyageId of voyageIds) {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (
+                        !archivedVoyagesRef.current.some(
+                            (voyage) =>
+                                voyage.voyageId === voyageId &&
+                                !voyage.isPlannedRoute &&
+                                (!passageId || voyage.passageGroupId === passageId),
+                        )
+                    )
+                        continue;
+                    let accepted = false;
+                    try {
+                        accepted = await ShipLogService.unarchiveVoyage(voyageId);
+                    } catch (error) {
+                        if (isAuthIdentityScopeCurrent(actionScope)) log.warn('Voyage restore failed', error);
+                    }
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (accepted) {
+                        restored += 1;
+                        const summary = members.find((voyage) => voyage.voyageId === voyageId)!;
+                        summaryMutationRef.current += 1;
+                        recentRestoresRef.current.set(voyageId, summary);
+                        dispatch({ type: 'RESTORE_SUMMARY', summary });
+                        // Retire older reads immediately so they cannot put a
+                        // restored card back in the archive during a refresh.
+                        archiveReadRef.current += 1;
+                        setArchivesLoading(false);
+                        setArchivedVoyages((previous) => previous.filter((voyage) => voyage.voyageId !== voyageId));
+                    }
+                }
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                reloadCareerData();
-                toast.success('Voyage restored');
-            } else {
-                toast.error('Failed to unarchive voyage');
+                if (restored) {
+                    void loadData();
+                    void reloadCareerData();
+                }
+                if (restored !== voyageIds.length) {
+                    throw new Error(
+                        `Restored ${restored} of ${voyageIds.length} voyages. The remaining voyages are still archived; please try again.`,
+                    );
+                }
+                toast.success(passageId ? `Passage restored · ${restored} legs` : 'Voyage restored');
+            } finally {
+                if (restoreFlightRef.current === flight) restoreFlightRef.current = null;
             }
         },
-        [identityScope, loadData, reloadCareerData, toast],
+        [dispatch, identityScope, loadData, reloadCareerData, toast],
+    );
+    const handleUnarchiveVoyage = useCallback(
+        (voyageId: string) => restoreArchivedVoyages([voyageId]),
+        [restoreArchivedVoyages],
+    );
+    const handleRestorePassage = useCallback(
+        (passageId: string, voyageIds: string[]) => restoreArchivedVoyages(voyageIds, passageId),
+        [restoreArchivedVoyages],
     );
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -2034,8 +2255,11 @@ export function useLogPageState() {
         summaries: state.summaries,
         listVoyages,
         voyageStats,
+        lifetimeStats,
+        lifetimeLoading: !stateBelongsToCurrentIdentity || lifetimeLoading,
+        lifetimeError: stateBelongsToCurrentIdentity ? lifetimeError : null,
+        lifetimeLoaded: stateBelongsToCurrentIdentity && lifetimeLoaded,
         loadVoyageEntries,
-        loadAllEntries,
         hasNonDeviceEntries,
         totalDistance,
         avgSpeed,
@@ -2043,7 +2267,12 @@ export function useLogPageState() {
 
         // Archive
         archivedVoyages: stateBelongsToCurrentIdentity ? archivedVoyages : [],
+        archivesLoading: stateBelongsToCurrentIdentity && archivesLoading,
+        archiveError: stateBelongsToCurrentIdentity ? archiveError : null,
+        reloadArchivedVoyages: reloadCareerData,
         handleArchiveVoyage,
+        handleArchivePassage,
         handleUnarchiveVoyage,
+        handleRestorePassage,
     };
 }

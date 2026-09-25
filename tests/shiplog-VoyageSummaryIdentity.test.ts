@@ -338,6 +338,31 @@ describe('VoyageSummary exact identity isolation', () => {
         expect(calls[0].range).toEqual([0, 3]);
     });
 
+    it.each([true, false])(
+        'requires complete history on a later page failure only when requested: %s',
+        async (requireComplete) => {
+            const calls: QueryCall[] = [];
+            mocks.from.mockImplementation((table: string) =>
+                queryFor(
+                    table,
+                    Promise.resolve(
+                        calls.length === 0
+                            ? {
+                                  data: Array.from({ length: 1000 }, (_, i) => dbRow('account-a', 'route', i)),
+                                  error: null,
+                              }
+                            : { data: null, error: { message: 'connection lost' } },
+                    ),
+                    calls,
+                ),
+            );
+            const entries = await getVoyageEntries('route', true, { maxRows: 1001, requireComplete });
+            expect(calls).toHaveLength(2);
+            expect(entries).toHaveLength(requireComplete ? 0 : 1000);
+            if (requireComplete) expect(mocks.filterTombstones).not.toHaveBeenCalled();
+        },
+    );
+
     it('drops an aborted native result and never starts another page even if fetch ignored abort', async () => {
         const page = deferred<QueryResponse>();
         const calls: QueryCall[] = [];

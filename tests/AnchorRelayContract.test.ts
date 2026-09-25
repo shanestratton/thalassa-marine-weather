@@ -84,7 +84,7 @@ describe('device-to-device is untouched', () => {
         // The shore device cannot tell a Pi from a phone, which is exactly
         // what keeps the existing pairing working.
         expect(fn).toContain('topic: `anchor-watch-${sessionCode}`');
-        expect(fn).toContain("event: 'position'");
+        expect(fn).toContain("const event = gpsAvailable ? 'position' : 'status'");
         expect(sync).toContain("channel.on('broadcast', { event: 'position' }");
     });
 

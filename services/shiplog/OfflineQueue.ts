@@ -2985,21 +2985,25 @@ export async function getOfflineEntries(
  */
 export async function deleteVoyageFromOfflineQueue(
     voyageId: string,
-    options: { cascadeLinkedPlan?: boolean } = {},
+    options: { cascadeLinkedPlan?: boolean; canDelete?: () => boolean } = {},
 ): Promise<boolean> {
     const state = getQueueState();
-    if (!voyageId) return false;
+    if (!voyageId || options.canDelete?.() === false) return false;
     const cascadeLinkedPlan = options.cascadeLinkedPlan !== false;
-    bumpVoyageEpoch(state, voyageId);
+    if (!options.canDelete) bumpVoyageEpoch(state, voyageId);
     try {
         return await withVoyageOperationLock(state, voyageId, async () => {
             // Tombstone FIRST — even if nothing is queued locally, an
             // in-flight sync snapshot may still hold this voyage's entries.
-            await withVoyageTombstoneLock(state, async () => {
+            const accepted = await withVoyageTombstoneLock(state, async () => {
                 const stones = await loadTombstones(state);
                 if (!isAuthIdentityScopeCurrent(state.scope)) {
                     throw new Error('Account changed while voyage deletion was queued');
                 }
+                // Automatic cleanup can be cancelled by a resumed recording
+                // while these storage locks hydrate. Check at acceptance too.
+                if (options.canDelete?.() === false) return false;
+                if (options.canDelete) bumpVoyageEpoch(state, voyageId);
                 const previous = stones[voyageId];
                 const previousSnapshot = previous ? { ...previous } : null;
                 const deletedAt = Date.now();
@@ -3020,7 +3024,9 @@ export async function deleteVoyageFromOfflineQueue(
                     else delete stones[voyageId];
                     throw asError(error, 'Voyage deletion could not be queued durably');
                 }
+                return true;
             });
+            if (!accepted) return false;
             try {
                 await clearVoyageArchiveIntent(state, voyageId, state.scope);
             } catch (error) {

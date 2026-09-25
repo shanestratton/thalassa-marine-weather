@@ -664,12 +664,20 @@ export async function deleteVoyage(voyageId: string, onAccepted?: () => void): P
  * suppresses linked-plan cascade metadata so it can never delete a draft or
  * abort an active passage.
  */
-export async function deleteVoyageLogOnly(voyageId: string): Promise<boolean> {
+export async function deleteVoyageLogOnly(
+    voyageId: string,
+    canDelete?: () => boolean,
+    options: { deferCloud?: boolean } = {},
+): Promise<boolean> {
     const scope = getAuthIdentityScope();
-    if (!voyageId || !isAuthIdentityScopeCurrent(scope)) return false;
+    if (!voyageId || !isAuthIdentityScopeCurrent(scope) || canDelete?.() === false) return false;
 
     try {
-        await deleteVoyageFromOfflineQueue(voyageId, { cascadeLinkedPlan: false });
+        const accepted = await deleteVoyageFromOfflineQueue(voyageId, {
+            cascadeLinkedPlan: false,
+            ...(canDelete ? { canDelete } : {}),
+        });
+        if (!accepted) return false;
     } catch (error) {
         if (isAuthIdentityScopeCurrent(scope)) {
             log.error('deleteVoyageLogOnly: could not persist local deletion intent', error);
@@ -678,7 +686,7 @@ export async function deleteVoyageLogOnly(voyageId: string): Promise<boolean> {
     }
     if (!isAuthIdentityScopeCurrent(scope)) return false;
 
-    if (supabase) {
+    if (supabase && !options.deferCloud) {
         try {
             const authenticated = await verifyCurrentUser(scope);
             if (authenticated) {

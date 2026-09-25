@@ -9,6 +9,10 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileAnchorWatchStore, type SavedAnchorWatch } from './anchorWatchStore.js';
 import {
     AnchorWatchRunner,
     BROADCAST_INTERVAL_MS,
@@ -113,6 +117,8 @@ test('the payload is what a vessel PHONE sends, so shore cannot tell the differe
         'anchor',
         'config',
         'distance',
+        'gpsAvailable',
+        'gpsTimestamp',
         'isAlarm',
         'source',
         'swingRadius',
@@ -132,14 +138,21 @@ test('raises the alarm exactly when the boat is outside its swing circle', () =>
     assert.equal(outside.isAlarm, true);
 });
 
-test('no fix means no broadcast — silence beats a wrong position', async () => {
+test('no fix sends an explicit blind-watch status, never a false position', async () => {
     const { impl, calls } = fetcherFor({}, true);
     const outcome = await broadcastOnce(ASSIGNMENT, CREDENTIAL, {
         fetchImpl: impl,
         signalkOrigin: 'http://127.0.0.1:3000',
     });
     assert.equal(outcome, 'no-fix');
-    assert.equal(calls.filter((c) => c.url === CREDENTIAL.url).length, 0);
+    const post = calls.find((c) => c.url === CREDENTIAL.url);
+    assert.ok(post);
+    const { payload } = JSON.parse(String(post.init?.body));
+    assert.equal(payload.gpsAvailable, false);
+    assert.equal(payload.type, 'status');
+    assert.equal(payload.gpsTimestamp, null);
+    assert.equal(payload.vessel, undefined);
+    assert.equal(payload.isAlarm, undefined);
 });
 
 test('a 404 self document is the ashore state, handled as no-fix', async () => {
@@ -205,7 +218,10 @@ test('a relay fingerprint identifies a Pi in logs without leaking its id', () =>
 
 /* ── the running watch ─────────────────────────────────────────────────── */
 
-const runnerDeps = (post: { ok: boolean; status: number }, fixDoc: unknown = skDoc(-27.19, 153.1)) => {
+const runnerDeps = (
+    post: { ok: boolean; status: number },
+    fixDoc: unknown = skDoc(-27.19, 153.1, new Date().toISOString()),
+) => {
     const timers: Array<() => void> = [];
     const outcomes: string[] = [];
     const { impl } = fetcherFor(fixDoc, true, post);
@@ -253,14 +269,13 @@ test('stops itself on a credential the relay rejects outright', async () => {
     assert.equal(runner.isRunning(), false);
 });
 
-test('keeps going when the authorisation has merely lapsed', async () => {
-    // The app renews it; this is not a permanent failure.
+test('an expired or revoked authorisation requires an explicit new assignment', async () => {
     const { deps, tick } = runnerDeps({ ok: false, status: 403 });
     const runner = new AnchorWatchRunner(deps);
     runner.start(ASSIGNMENT, CREDENTIAL);
     await tick();
     await new Promise((r) => setTimeout(r, 10));
-    assert.equal(runner.isRunning(), true);
+    assert.equal(runner.isRunning(), false);
     runner.stop();
 });
 
@@ -421,4 +436,191 @@ test('the payload carries the CONFIRMED alarm, not the bare comparison', () => {
     assert.equal(unconfirmed.isAlarm, false);
     assert.ok(unconfirmed.distance > ASSIGNMENT.swingRadius, 'and it really is outside');
     assert.equal(buildPositionPayload(ASSIGNMENT, fix, true).isAlarm, true);
+});
+
+test('missing or invalid source timestamps cannot become fresh GPS fixes', () => {
+    assert.equal(readFix(skDoc(-27, 153)), null);
+    assert.equal(readFix(skDoc(-27, 153, 'not-a-time')), null);
+});
+
+test('a fresh backup is selected ahead of a stale preferred receiver', () => {
+    const now = Date.now();
+    const doc = {
+        navigation: {
+            position: {
+                values: {
+                    'ydwg-tcp.YD': {
+                        value: { latitude: -27, longitude: 153 },
+                        timestamp: new Date(now - 120_000).toISOString(),
+                    },
+                    'usb.GP': { value: { latitude: -27.1, longitude: 153 }, timestamp: new Date(now).toISOString() },
+                },
+            },
+        },
+    };
+    assert.equal(readFix(doc, now)?.source, 'usb.GP');
+});
+
+test('a frozen outside fix does not accumulate three confirmations', async () => {
+    const now = Date.now();
+    const { impl, calls } = fetcherFor(
+        skDoc(ASSIGNMENT.anchorLat + 0.001, ASSIGNMENT.anchorLon, new Date(now).toISOString()),
+    );
+    const drag = { outsideCount: 0 };
+    for (let i = 0; i < 4; i++)
+        await broadcastOnce(
+            ASSIGNMENT,
+            CREDENTIAL,
+            { fetchImpl: impl, signalkOrigin: 'http://localhost', now: () => now },
+            drag,
+        );
+    const posts = calls.filter((c) => c.url === CREDENTIAL.url).map((c) => JSON.parse(String(c.init?.body)));
+    assert.equal(drag.outsideCount, 1);
+    assert.ok(posts.every((p) => p.payload.isAlarm === false));
+});
+
+test('a stale GPS report is explicit and omits stale coordinates', async () => {
+    const now = Date.now();
+    const timestamp = now - 120_000;
+    const { impl, calls } = fetcherFor(skDoc(-27, 153, new Date(timestamp).toISOString()));
+    assert.equal(
+        await broadcastOnce(ASSIGNMENT, CREDENTIAL, {
+            fetchImpl: impl,
+            signalkOrigin: 'http://localhost',
+            now: () => now,
+        }),
+        'stale-fix',
+    );
+    const { payload } = JSON.parse(String(calls.find((c) => c.url === CREDENTIAL.url)?.init?.body));
+    assert.equal(payload.gpsAvailable, false);
+    assert.equal(payload.gpsTimestamp, timestamp);
+    assert.equal(payload.vessel, undefined);
+    assert.equal(payload.distance, undefined);
+});
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+test('confirmed assignment survives process shutdown, not explicit stop', async () => {
+    const now = Date.now();
+    let saved: SavedAnchorWatch | null = null;
+    const store = {
+        read: () => saved,
+        save: (v: SavedAnchorWatch) => {
+            saved = v;
+        },
+        clear: () => {
+            saved = null;
+        },
+    };
+    const { deps } = runnerDeps({ ok: true, status: 200 });
+    const original = deps.fetchImpl;
+    const requests: Record<string, unknown>[] = [];
+    const fetchImpl = async (url: string, init?: Record<string, unknown>) => {
+        if (url === CREDENTIAL.url) {
+            requests.push(JSON.parse(String(init?.body)));
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    expires_at: new Date(now + 6 * 3_600_000).toISOString(),
+                    session_expires_at: new Date(now + 24 * 3_600_000).toISOString(),
+                }),
+                text: async () => '',
+            };
+        }
+        return original(url, init);
+    };
+    const runner = new AnchorWatchRunner({ ...deps, now: () => now, store, fetchImpl });
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    await flush();
+    assert.ok(saved);
+    assert.ok(!JSON.stringify(saved).includes(CREDENTIAL.token));
+    assert.equal(runner.describe().sessionExpiresAt, now + 24 * 3_600_000);
+    runner.close();
+    assert.ok(saved, 'shutdown retains only the confirmed assignment');
+    assert.equal(
+        requests.some((r) => r.action === 'stop'),
+        false,
+    );
+    assert.equal(runner.restore(CREDENTIAL), true);
+    assert.equal(runner.describe().lastOutcome, null, 'restart does not replay a safe state');
+    await flush();
+    runner.stop();
+    assert.equal(saved, null);
+    assert.equal(requests.at(-1)?.action, 'stop');
+    assert.equal(requests.at(-1)?.session_code, ASSIGNMENT.sessionCode);
+});
+
+test('recovery refuses expired or another relay assignment', () => {
+    const now = Date.now();
+    const { deps } = runnerDeps({ ok: true, status: 200 });
+    for (const bad of [
+        { relayId: CREDENTIAL.relayId, expiresAt: now - 1 },
+        { relayId: 'different-relay-1234', expiresAt: now + 1_000 },
+    ]) {
+        let saved: SavedAnchorWatch | null = { assignment: ASSIGNMENT, sessionExpiresAt: now + 10_000, ...bad };
+        const runner = new AnchorWatchRunner({
+            ...deps,
+            now: () => now,
+            store: {
+                read: () => saved,
+                save: () => {},
+                clear: () => {
+                    saved = null;
+                },
+            },
+        });
+        assert.equal(runner.restore(CREDENTIAL), false);
+        assert.equal(runner.isRunning(), false);
+        assert.equal(saved, null);
+    }
+});
+
+test('stop during GPS read cannot send a late position or overwrite stopped state', async () => {
+    let resolveGps!: (doc: unknown) => void;
+    const gps = new Promise((resolve) => {
+        resolveGps = resolve;
+    });
+    const { deps } = runnerDeps({ ok: true, status: 200 });
+    const original = deps.fetchImpl;
+    const posts: Record<string, unknown>[] = [];
+    const runner = new AnchorWatchRunner({
+        ...deps,
+        fetchImpl: async (url, init) => {
+            if (url.endsWith('vessels/self')) return { ok: true, status: 200, json: () => gps, text: async () => '' };
+            if (url === CREDENTIAL.url) posts.push(JSON.parse(String(init?.body)));
+            return original(url, init);
+        },
+    });
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    await flush();
+    runner.stop();
+    resolveGps(skDoc(-27, 153, new Date().toISOString()));
+    await flush();
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].action, 'stop');
+    assert.equal(runner.describe().sessionCode, null);
+    assert.equal(runner.describe().lastOutcome, null);
+});
+
+test('assignment file is private, atomic and validates malformed recovery data', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'thalassa-anchor-watch-'));
+    try {
+        const store = fileAnchorWatchStore(dir);
+        const saved = {
+            assignment: ASSIGNMENT,
+            relayId: CREDENTIAL.relayId,
+            expiresAt: Date.now() + 1000,
+            sessionExpiresAt: Date.now() + 2000,
+        };
+        store.save(saved);
+        assert.deepEqual(store.read(), saved);
+        assert.equal(fs.statSync(path.join(dir, 'anchor-watch.json')).mode & 0o777, 0o600);
+        fs.writeFileSync(path.join(dir, 'anchor-watch.json'), '{');
+        assert.equal(store.read(), null);
+        store.clear();
+        assert.equal(store.read(), null);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });

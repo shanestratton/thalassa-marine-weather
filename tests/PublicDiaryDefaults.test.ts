@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { hasUsablePublicRoute, newestDiaryEntries, shouldDefaultToAllDiary } from '../src/publicDiaryDefaults';
+import {
+    hasUsablePublicRoute,
+    hasUsablePublicTrack,
+    newestDiaryEntries,
+    shouldDefaultToAllDiary,
+} from '../src/publicDiaryDefaults';
 import type { VoyageLogData, VoyageLogEntry } from '../src/voyageLogApi';
 
 const data = {
@@ -17,8 +22,67 @@ const data = {
 } as VoyageLogData;
 
 describe('public diary first-load defaults', () => {
-    it('chooses every diary entry when no planned route is loaded, even with a sailed track and route flag', () => {
-        expect(shouldDefaultToAllDiary(data)).toBe(true);
+    it('keeps a just-recorded trip visible without a planned route', () => {
+        expect(hasUsablePublicTrack(data)).toBe(true);
+        expect(shouldDefaultToAllDiary(data)).toBe(false);
+        expect(
+            shouldDefaultToAllDiary({ ...data, trips: data.trips.map((trip) => ({ ...trip, has_route: false })) }),
+        ).toBe(false);
+    });
+
+    it('defaults to all diary entries when neither a route nor recorded track exists', () => {
+        expect(shouldDefaultToAllDiary({ ...data, track: [] })).toBe(true);
+    });
+
+    it.each([
+        [],
+        [{ lat: -27, lon: 153 }],
+        [
+            { lat: -27, lon: 153 },
+            { lat: -27, lon: 153 },
+        ],
+        [
+            { lat: -27, lon: 153 },
+            { lat: 91, lon: 153 },
+        ],
+        [
+            { lat: -27, lon: 153 },
+            { lat: -26, lon: 181 },
+        ],
+        [
+            { lat: -27, lon: 153 },
+            { lat: Number.NaN, lon: 153 },
+        ],
+        [
+            { lat: -27, lon: 153 },
+            { lat: -26, lon: Infinity },
+        ],
+        [
+            { lat: -27, lon: 153 },
+            { lat: 0, lon: 0 },
+        ],
+    ])('does not use missing, stationary or invalid fixes as a sailed track: %j', (...track) => {
+        const payload = { ...data, track: track as VoyageLogData['track'] };
+        expect(hasUsablePublicTrack(payload)).toBe(false);
+        expect(shouldDefaultToAllDiary(payload)).toBe(true);
+    });
+
+    it('recognises tracks in the whole-journey view without redirecting its selection', () => {
+        const selected = { ...data, selected_trip: 'all-diary' };
+        expect(hasUsablePublicTrack(selected)).toBe(true);
+        expect(shouldDefaultToAllDiary(selected)).toBe(false);
+    });
+
+    it('does not treat two unrelated single-fix voyages as one sailed track', () => {
+        expect(
+            hasUsablePublicTrack({
+                ...data,
+                track: data.track.map((point, i) => ({
+                    ...point,
+                    voyage_id: `separate-${i}`,
+                })),
+            }),
+        ).toBe(false);
     });
 
     it('keeps the routed-trip default when actual usable planned geometry exists', () => {

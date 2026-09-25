@@ -187,6 +187,10 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
 export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
     return {
         id: row.id,
+        clientOperationId:
+            typeof row.client_operation_id === 'string' && row.client_operation_id.trim()
+                ? row.client_operation_id
+                : undefined,
         userId: row.user_id,
         boatId: row.boat_id ?? undefined,
         voyageId: row.voyage_id,
@@ -394,7 +398,7 @@ export function getIntervalForSpeed(sogMs: number): { interval: number; tier: Sp
 export function getSpeedTierLabel(tier: SpeedTier): string {
     switch (tier) {
         case 'stationary':
-            return 'Anchored (5min intervals)';
+            return 'Stationary (5min intervals)';
         case 'slow':
             return 'Sailing (60s intervals)';
         case 'medium':

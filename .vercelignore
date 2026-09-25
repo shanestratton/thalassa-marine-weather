@@ -15,6 +15,12 @@ test-results/
 
 # Test and development-only material
 tests/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+*.test.ts
+*.test.tsx
 docs/
 tools/
 icons_new/

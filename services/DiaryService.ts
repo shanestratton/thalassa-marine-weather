@@ -40,6 +40,7 @@ import {
 import { onConnectionChange } from './ConnectionPriorityService';
 import { VoyageLogService } from './VoyageLogService';
 import { ShipLogService } from './ShipLogService';
+import { validateDiaryTripSelection, type DiaryTripContext } from './diaryVoyageSelection';
 import { reconcileDiaryEntries } from './diaryEntryIdentity';
 import {
     savePhoto as idbSavePhoto,
@@ -577,25 +578,43 @@ class DiaryServiceClass {
 
     // ── Create (offline-first) ─────────────────────────────────
 
-    async createEntry(entry: {
-        title: string;
-        body: string;
-        mood: DiaryMood;
-        photos?: string[];
-        audio_url?: string | null;
-        video_url?: string | null;
-        latitude?: number | null;
-        longitude?: number | null;
-        location_name?: string;
-        weather_summary?: string;
-        weather_data?: DiaryWeatherData | null;
-        voyage_id?: string | null;
-        /** Internal/import compatibility: normal composer calls omit this and use the active vessel. */
-        boat_id?: string | null;
-        tags?: string[];
-        is_public?: boolean;
-    }): Promise<DiaryEntry> {
+    async createEntry(
+        entry: {
+            title: string;
+            body: string;
+            mood: DiaryMood;
+            photos?: string[];
+            audio_url?: string | null;
+            video_url?: string | null;
+            latitude?: number | null;
+            longitude?: number | null;
+            location_name?: string;
+            weather_summary?: string;
+            weather_data?: DiaryWeatherData | null;
+            voyage_id?: string | null;
+            /** Internal/import compatibility: normal composer calls omit this and use the active vessel. */
+            boat_id?: string | null;
+            tags?: string[];
+            is_public?: boolean;
+        },
+        options: { tripContext?: DiaryTripContext; shouldContinue?: () => boolean } = {},
+    ): Promise<DiaryEntry> {
         const scope = getAuthIdentityScope();
+        if (options.tripContext) {
+            if (options.tripContext.entryId || !isAuthIdentityScopeCurrent(options.tripContext.scope)) {
+                throw new Error('The diary account changed. Please reopen the entry.');
+            }
+            await validateDiaryTripSelection(
+                options.tripContext,
+                entry.voyage_id === undefined ? options.tripContext.originalVoyageId : entry.voyage_id,
+            );
+            if (options.shouldContinue?.() === false) throw new Error('This diary editor is no longer active.');
+            entry = {
+                ...entry,
+                voyage_id: entry.voyage_id === undefined ? options.tripContext.originalVoyageId : entry.voyage_id,
+                boat_id: options.tripContext.boatId,
+            };
+        }
         if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true, entry.video_url)) {
             throw new Error('Diary media is not owned by the active account');
         }
@@ -707,9 +726,10 @@ class DiaryServiceClass {
                 | 'weather_summary'
                 | 'tags'
                 | 'is_public'
+                | 'voyage_id'
             >
         >,
-        options: { shouldContinue?: () => boolean } = {},
+        options: { shouldContinue?: () => boolean; tripContext?: DiaryTripContext } = {},
     ): Promise<{ ok: boolean; audioUrl?: string | null }> {
         const scope = getAuthIdentityScope();
         const canContinue = () => isAuthIdentityScopeCurrent(scope) && (options.shouldContinue?.() ?? true);
@@ -754,6 +774,28 @@ class DiaryServiceClass {
         if (!current && !targetId.startsWith('offline-')) current = await this.getEntry(targetId);
         if (!current || !canContinue() || current.owner_user_id !== scope.userId) return { ok: false };
 
+        const tripContext = options.tripContext;
+        const voyageChanged = updates.voyage_id !== undefined && updates.voyage_id !== current.voyage_id;
+        if (tripContext || voyageChanged) {
+            if (
+                !tripContext ||
+                tripContext.entryId !== id ||
+                tripContext.boatId !== (current.boat_id ?? null) ||
+                tripContext.originalVoyageId !== current.voyage_id ||
+                !isAuthIdentityScopeCurrent(tripContext.scope)
+            )
+                return { ok: false };
+            try {
+                await validateDiaryTripSelection(
+                    tripContext,
+                    updates.voyage_id === undefined ? current.voyage_id : updates.voyage_id,
+                );
+            } catch {
+                return { ok: false };
+            }
+            if (!canContinue()) return { ok: false };
+        }
+
         let durablePhotos = photosWereSubmitted ? (updates.photos ?? []) : current.photos;
         let promotedPhotoRefs: string[] = [];
         if (photosWereSubmitted) {
@@ -768,6 +810,12 @@ class DiaryServiceClass {
         pending = this._getPendingEntries(scope);
         current = pending.find((entry) => entry.id === targetId) ?? current;
         if (!canContinue() || current.owner_user_id !== scope.userId) return { ok: false };
+        if (
+            tripContext &&
+            (tripContext.boatId !== (current.boat_id ?? null) || tripContext.originalVoyageId !== current.voyage_id)
+        ) {
+            return { ok: false };
+        }
 
         const currentRevision =
             typeof current.client_revision === 'number' &&

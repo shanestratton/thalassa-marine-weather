@@ -17,6 +17,7 @@ export function useOpenSeaMapRasterHide(
     chartsActive: boolean,
     encActive: boolean,
     activeLayers: ReadonlySet<WeatherLayer>,
+    seamarksVisible = true,
 ): void {
     // ── Hide OpenSeaMap raster overlays when another source draws navaids ──
     // Both raster overlays — 'openseamap-overlay' (baked into the map style,
@@ -36,7 +37,7 @@ export function useOpenSeaMapRasterHide(
         const hide = chartsActive || encActive;
         const apply = (): void => {
             setOpenSeaMapRasterVisibility(map, {
-                overlay: !hide,
+                overlay: !hide && seamarksVisible,
                 permanent: !hide && activeLayers.has('sea'),
             });
             // OSM seamark circles retire ENTIRELY while a real chart source
@@ -49,11 +50,18 @@ export function useOpenSeaMapRasterHide(
             // still the only marks a chartless region has.
             try {
                 if (map.getLayer('harbour-seamarks-circle')) {
-                    map.setLayoutProperty('harbour-seamarks-circle', 'visibility', hide ? 'none' : 'visible');
-                    if (!hide) map.setLayerZoomRange('harbour-seamarks-circle', 0, 24);
+                    const show = !hide && seamarksVisible;
+                    if (
+                        map.getLayoutProperty('harbour-seamarks-circle', 'visibility') !== (show ? 'visible' : 'none')
+                    ) {
+                        map.setLayoutProperty('harbour-seamarks-circle', 'visibility', show ? 'visible' : 'none');
+                    }
                 }
                 if (map.getLayer('harbour-seamarks-label')) {
-                    map.setLayerZoomRange('harbour-seamarks-label', hide ? 24 : 14, 24);
+                    const show = !hide && seamarksVisible;
+                    if (map.getLayoutProperty('harbour-seamarks-label', 'visibility') !== (show ? 'visible' : 'none')) {
+                        map.setLayoutProperty('harbour-seamarks-label', 'visibility', show ? 'visible' : 'none');
+                    }
                 }
             } catch {
                 /* style mid-swap — styledata re-applies */
@@ -81,5 +89,5 @@ export function useOpenSeaMapRasterHide(
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [mapRef, mapReady, chartsActive, encActive, activeLayers]);
+    }, [mapRef, mapReady, chartsActive, encActive, activeLayers, seamarksVisible]);
 }

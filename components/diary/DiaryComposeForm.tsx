@@ -37,6 +37,16 @@ interface DiaryComposeFormProps {
     /** Formatted "27.1234°S, 153.1234°E" once a fix (or photo EXIF) landed. */
     coordsLabel: string | null;
     polishStyle: PolishStyle;
+    tripPicker?: {
+        value: string;
+        choices: { voyageId: string; label: string }[];
+        originalVoyageId: string | null;
+        originalLabel: string;
+        disabled: boolean;
+        loading: boolean;
+        unavailable: boolean;
+        onChange: (value: string) => void;
+    };
     // Setters
     onSetTitle: (v: string) => void;
     onSetBody: (v: string) => void;
@@ -70,6 +80,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         gpsLoading,
         coordsLabel,
         polishStyle,
+        tripPicker,
         onSetTitle,
         onSetBody,
         onSetMood,
@@ -148,6 +159,46 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         }}
                         className="shrink-0 w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30 transition-colors"
                     />
+
+                    {tripPicker && (
+                        <div className="shrink-0 rounded-xl border border-purple-500/25 bg-purple-500/10 px-3 py-2">
+                            <label className="flex items-center gap-3 text-sm font-bold text-purple-300">
+                                Trip
+                                <select
+                                    aria-label="Diary trip"
+                                    value={tripPicker.value}
+                                    onChange={(event) => tripPicker.onChange(event.target.value)}
+                                    disabled={saving || tripPicker.disabled}
+                                    className="min-w-0 flex-1 rounded-lg bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-50"
+                                >
+                                    <option value="">No trip · general diary</option>
+                                    {tripPicker.originalVoyageId &&
+                                        !tripPicker.choices.some(
+                                            (choice) => choice.voyageId === tripPicker.originalVoyageId,
+                                        ) && (
+                                            <option value={tripPicker.originalVoyageId}>
+                                                {tripPicker.originalLabel}
+                                            </option>
+                                        )}
+                                    {tripPicker.choices.map((choice) => (
+                                        <option key={choice.voyageId} value={choice.voyageId}>
+                                            {choice.voyageId === tripPicker.originalVoyageId
+                                                ? `${tripPicker.originalLabel} · `
+                                                : ''}
+                                            {choice.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            {(tripPicker.loading || tripPicker.unavailable) && (
+                                <p className="mt-1 text-xs text-gray-400" role="status">
+                                    {tripPicker.loading
+                                        ? 'Loading recent trips…'
+                                        : 'No recent trips available. Your diary can still be saved.'}
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     {/* Mood selector */}
                     <div className="shrink-0 grid grid-cols-4 gap-1.5">

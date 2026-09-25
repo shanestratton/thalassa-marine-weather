@@ -7,6 +7,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useUI } from '../context/UIContext';
 import { pushForegroundToast } from '../components/PushToast';
+import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { startAnimationBudgetGuard } from '../utils/animationBudget';
 import { useAuthStore } from '../stores/authStore';
 import {
@@ -401,6 +402,9 @@ export function useAppBootstrap() {
         let active = true;
         let unbind: (() => void) | null = null;
         const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
+            if (notification.data?.notification_type === 'anchor_alarm') {
+                ShoreWatchAlarmService.receivePush(notification.data);
+            }
             pushForegroundToast(notification);
         };
         const tapHandler = (data: Readonly<Record<string, unknown>>) => {

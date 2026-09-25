@@ -82,6 +82,7 @@ export interface NmeaStoreState {
     awa: TimestampedMetric; // Apparent Wind Angle, signed, negative to port (°)
     stw: TimestampedMetric; // Speed Through Water (kts)
     heading: TimestampedMetric; // Heading (°)
+    headingTrue: TimestampedMetric; // Explicit true-north heading (°T), original sensor clock
     depth: TimestampedMetric; // Referenced depth (m); see depthReference
     depthSource: NmeaDepthSource | null;
     depthReference: NmeaDepthReference | null;
@@ -150,6 +151,10 @@ export interface RemoteInstrumentSnapshot {
     sogKts: number | null;
     cogDeg: number | null;
     headingDeg: number | null;
+    /** Qualified true-north heading, separate from the legacy headingDeg reference. */
+    headingTrueDeg?: number | null;
+    /** Original heading measurement time; row and receipt clocks are not substitutes. */
+    headingTrueAt?: number;
     stwKts: number | null;
     twsKts: number | null;
     /** Signed, negative to port. */
@@ -198,6 +203,7 @@ class NmeaStoreClass {
         subscribeAuthIdentityScope(() => {
             this.clearWindHistory();
             this.clearGpsDiagnostics();
+            this.clearTrueHeading();
             this.notify();
         });
     }
@@ -220,7 +226,10 @@ class NmeaStoreClass {
             }
             this.state.connectionStatus = status;
             if (status === 'connected') {
-                if (this.state.remote) this.clearGpsDiagnostics();
+                if (this.state.remote) {
+                    this.clearGpsDiagnostics();
+                    this.clearTrueHeading();
+                }
                 this.state.remote = null; // the boat itself wins
             }
             if (status !== 'connected') this.retireAllMetrics();
@@ -319,8 +328,8 @@ class NmeaStoreClass {
      * Feed the store from the cloud snapshot. Refused while a gateway socket is
      * connected — the boat's own bus always wins — and never touches the
      * socket's own status machine otherwise. Every metric is stamped with the
-     * time this phone read it, except GNSS diagnostics which retain their own
-     * sensor time so polling cached quality cannot make it look current.
+     * time this phone read it, except GNSS diagnostics and true heading which
+     * retain their sensor times so polling cached data cannot make it current.
      */
     ingestRemote(snapshot: RemoteInstrumentSnapshot): boolean {
         if (NmeaListenerService.getStatus() === 'connected' || this.state.connectionStatus === 'connected')
@@ -350,6 +359,7 @@ class NmeaStoreClass {
         put(this.state.awa, snapshot.awaDeg);
         put(this.state.stw, snapshot.stwKts);
         put(this.state.heading, snapshot.headingDeg);
+        this.ingestTrueHeading(snapshot.headingTrueDeg, snapshot.headingTrueAt, now);
         put(this.state.depth, snapshot.depthM);
         put(this.state.sog, snapshot.sogKts);
         put(this.state.cog, snapshot.cogDeg);
@@ -458,6 +468,7 @@ class NmeaStoreClass {
         if (sample.awa != null) this.updateMetric(this.state.awa, sample.awa, now);
         if (sample.stw !== null) this.updateMetric(this.state.stw, sample.stw, now);
         if (sample.heading !== null) this.updateMetric(this.state.heading, sample.heading, now);
+        this.ingestTrueHeading(sample.headingTrue, sample.headingTrueAt, Date.now());
         if (sample.rpm !== null) this.updateMetric(this.state.rpm, sample.rpm, now);
         if (sample.rudder !== null) {
             this.updateMetric(this.state.rudder, sample.rudder, now);
@@ -500,6 +511,29 @@ class NmeaStoreClass {
         this.remoteWindHistory = null;
         this.remoteWindSensor = null;
         this.remoteWindSensorAt = 0;
+    }
+
+    private clearTrueHeading(): void {
+        this.state.headingTrue.value = null;
+        this.state.headingTrue.lastUpdated = 0;
+        this.state.headingTrue.freshness = 'dead';
+    }
+
+    private ingestTrueHeading(value: number | null | undefined, at: number | undefined, now: number): void {
+        // A sample is a complete report for this qualified metric. Missing,
+        // unknown or expired data must not borrow another lane's heading.
+        this.clearTrueHeading();
+        if (
+            typeof value !== 'number' ||
+            !Number.isFinite(value) ||
+            value < 0 ||
+            value >= 360 ||
+            typeof at !== 'number' ||
+            getNmeaFreshness(at, now) === 'dead'
+        )
+            return;
+        this.updateMetric(this.state.headingTrue, value, at);
+        this.state.headingTrue.freshness = getNmeaFreshness(at, now);
     }
 
     private clearGpsDiagnostics(): void {
@@ -650,6 +684,7 @@ class NmeaStoreClass {
             this.state.awa,
             this.state.stw,
             this.state.heading,
+            this.state.headingTrue,
             this.state.depth,
             this.state.sog,
             this.state.cog,
@@ -699,6 +734,7 @@ class NmeaStoreClass {
             this.state.awa,
             this.state.stw,
             this.state.heading,
+            this.state.headingTrue,
             this.state.depth,
             this.state.sog,
             this.state.cog,
@@ -743,6 +779,7 @@ class NmeaStoreClass {
             awa: emptyMetric(),
             stw: emptyMetric(),
             heading: emptyMetric(),
+            headingTrue: emptyMetric(),
             depth: emptyMetric(),
             depthSource: null,
             depthReference: null,

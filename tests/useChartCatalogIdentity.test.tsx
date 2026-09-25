@@ -99,4 +99,31 @@ describe('useChartCatalog identity boundary', () => {
         await waitFor(() => expect(sources.has('chart-catalog-linz-charts')).toBe(true));
         expect(rendered.result.current.hasEnabledCharts).toBe(true);
     });
+
+    it('OBS starts empty without erasing chart configuration, and enables charts only on request', () => {
+        const { mapRef, sources } = mapHarness();
+        const rendered = renderHook(({ visible }) => useChartCatalog(mapRef, true, visible, true), {
+            initialProps: { visible: true },
+        });
+        expect(sources.size).toBe(0);
+        expect(rendered.result.current.hasEnabledCharts).toBe(false);
+        expect(ChartCatalogService.getSources().find((source) => source.id === 'linz-charts')?.enabled).toBe(true);
+        act(() => rendered.result.current.toggleSource('linz-charts'));
+        expect(sources.has('chart-catalog-linz-charts')).toBe(true);
+        rendered.rerender({ visible: false });
+        expect(sources.size).toBe(0);
+        rendered.rerender({ visible: true });
+        expect(sources.has('chart-catalog-linz-charts')).toBe(true);
+        act(() => {
+            rendered.result.current.disableAll();
+            rendered.result.current.toggleSource('linz-charts');
+        });
+        expect(sources.has('chart-catalog-linz-charts')).toBe(true);
+        act(() => setAuthIdentityScope(`chart-clean-b-${crypto.randomUUID()}`));
+        expect(sources.size).toBe(0);
+        expect(rendered.result.current.hasEnabledCharts).toBe(false);
+        rendered.unmount();
+        const fresh = renderHook(() => useChartCatalog(mapRef, true, true, true));
+        expect(fresh.result.current.hasEnabledCharts).toBe(false);
+    });
 });

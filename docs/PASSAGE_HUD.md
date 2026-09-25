@@ -15,6 +15,36 @@ instruments show dashes, the phone never stands in for SOG/COG; (3) the forecast
 
 ## Phase 1 — the live strip (built 2026-09-18)
 
+### Route-free recording — 2026-09-25
+
+A successful recording start opens the HUD in LIVE, with or without a followed
+route. Manual layer and collapse choices still apply for that recording. A
+paused recording keeps its HUD and saved track available, explicitly marked
+“Recording paused”; Stop removes the recording-only HUD unless a route remains
+followed. Merely having an active voyage card is not an active recording.
+
+Without a route, the pane shows the same six boat instruments plus **Sailed**
+and **Since departure**. Sailed is the recorder's saved cumulative distance,
+labelled with its age; it never estimates new miles from speed or a planned
+line. Elapsed time starts at the Log's movement-confirmed departure (three
+moving GPS fixes spanning at least 30 seconds and 30 metres), with **Awaiting
+departure** until there is evidence. It is wall time since departure, including
+pauses, rather than engine-running or moving time. Recording arm time and a
+legacy summary's start time are not substituted for departure.
+
+Metrics use the current account and voyage only: the local saved accumulator
+refreshes every 30 seconds without overlapping requests. Local current-voyage
+queue evidence is read only until departure is confirmed; an explicit cached
+departure can preserve a continued voyage's earlier start. No cloud or career
+history is polled. Missing evidence remains unavailable. Dead instrument values
+are dashes, and stale instrument readings are dimmed and marked OLD.
+
+There is no destination, To go, ETA, Ahead control or forecast boat in route-free
+mode. The chart's ordinary weather timeline stays available, including while
+readings are collapsed, for viewing forecast fields at the actual vessel
+position. Instrument readings remain LIVE and are not relabelled as forecasts.
+Following a route retains the existing route progress, ETA and look-ahead.
+
 ### Departure planning, ETA and suggested windows — 2026-09-21
 
 **Ahead now opens a departure picker**, with Leave now or device-local date/time
@@ -66,8 +96,8 @@ HUD/scrubber/weather synchronization. Responsive synthetic layout fixture:
 
 ### On-water corrections — 2026-09-20
 
-**Current entry: OBS → Layers → Passage HUD.** It is available only with a route
-being followed from Log; the Settings switch has been removed. Activation opens
+**Entry: OBS → Layers → Passage HUD.** It is available with a route
+being followed from Log or an active/paused recording; the Settings switch has been removed. Activation opens
 the HUD and Passage overlay, disables Inspect and enables wind plus available
 rain/squalls. These overlays do not take over the passage camera. Current squall
 snapshots are not future predictions and must retain their own-time warning.
@@ -75,8 +105,8 @@ snapshots are not future predictions and must retain their own-time warning.
 **Hide readings, keep the forecast.** Collapsing the HUD preserves the scrubber,
 playback, forecast boat and selected time. The scrubber has an explicit LIVE
 button. Disabling the layer, leaving the chart, changing/stopping the followed
-route, or a MOB clears the forecast. A route-less active recording alone does
-not make the layer available.
+route, or a MOB clears the forecast. A route-less active recording uses LIVE
+readings and the ordinary chart weather timeline, as described above.
 
 **Start at actual GPS.** Even a small off-route position is retained exactly at
 NOW. A separate dashed amber line describes the unchecked, straight joining
@@ -106,7 +136,8 @@ without repeatedly promoting above each other.
 
 The older phase notes below describe the original layout and dashed-line design.
 
-**Off by default.** OBS → Layers → Passage HUD, while following a route from Log.
+**Manual entry.** OBS → Layers → Passage HUD, while following a route from Log
+or recording. Successful recording starts also open the LIVE HUD.
 
 | Piece                                                                          | File                                     |
 | ------------------------------------------------------------------------------ | ---------------------------------------- |

@@ -44,7 +44,12 @@ interface ScopedSources {
     sources: ChartSource[];
 }
 
-export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, visible = true) {
+export function useChartCatalog(
+    mapRef: MutableRefObject<mapboxgl.Map | null>,
+    mapReady: boolean,
+    visible = true,
+    sessionSelection = false,
+) {
     const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
     const hydratedSources = useMemo(() => {
         ChartCatalogService.initialize(identityScope);
@@ -54,7 +59,20 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         scope: identityScope,
         sources: hydratedSources,
     }));
-    const sources = sameScope(storedSources.scope, identityScope) ? storedSources.sources : hydratedSources;
+    const configuredSources = sameScope(storedSources.scope, identityScope) ? storedSources.sources : hydratedSources;
+    // OBS opens with no chart overlays, without changing the account's chart
+    // catalogue, credentials or opacity preferences. Choices live on this map.
+    const [selection, setSelection] = useState(() => ({ scope: identityScope, ids: new Set<ChartSourceId>() }));
+    const sources = useMemo(
+        () =>
+            sessionSelection
+                ? configuredSources.map((source) => ({
+                      ...source,
+                      enabled: sameScope(selection.scope, identityScope) && selection.ids.has(source.id),
+                  }))
+                : configuredSources,
+        [configuredSources, sessionSelection, selection, identityScope],
+    );
     const addedLayersRef = useRef<Set<string>>(new Set());
     const sourceUrlsRef = useRef<Map<string, string>>(new Map());
 
@@ -249,15 +267,30 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
     // Toggle a source
     const toggleSource = useCallback(
         (id: ChartSourceId) => {
+            if (sessionSelection) {
+                setSelection((current) => {
+                    const ids = sameScope(current.scope, identityScope)
+                        ? new Set(current.ids)
+                        : new Set<ChartSourceId>();
+                    if (ids.has(id)) ids.delete(id);
+                    else ids.add(id);
+                    return { scope: identityScope, ids };
+                });
+                return;
+            }
             ChartCatalogService.toggleSource(id, identityScope);
         },
-        [identityScope],
+        [identityScope, sessionSelection],
     );
 
     // Disable every source — used by the single-select chart picker.
     const disableAll = useCallback(() => {
+        if (sessionSelection) {
+            setSelection({ scope: identityScope, ids: new Set() });
+            return;
+        }
         ChartCatalogService.disableAll(identityScope);
-    }, [identityScope]);
+    }, [identityScope, sessionSelection]);
 
     // Set opacity
     const setOpacity = useCallback(

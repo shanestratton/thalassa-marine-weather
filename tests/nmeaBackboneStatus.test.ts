@@ -22,6 +22,7 @@ function emptyStore(overrides: Partial<NmeaStoreState> = {}): NmeaStoreState {
         awa: metric(),
         stw: metric(),
         heading: metric(),
+        headingTrue: metric(),
         depth: metric(),
         depthSource: null,
         depthReference: null,

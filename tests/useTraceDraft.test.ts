@@ -101,4 +101,65 @@ describe('useTraceDraft', () => {
         expect(sessionStorage.getItem(authScopedStorageKey(keys.name, accountAScope))).toBe('Account A private route');
         expect(sessionStorage.getItem(authScopedStorageKey(keys.name, accountBScope))).toBe('Account B route');
     });
+
+    it('reverses geometry, endpoint frame and generated name together, including persistence', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        const from = { lat: -21.1, lon: 149.2, name: 'Mackay Harbour' };
+        const to = { lat: -20.2, lon: 148.8, name: 'Whitsundays' };
+        act(() => {
+            result.current.setCapturedCoords([from, to]);
+            result.current.setTraceName('Mackay Harbour → Whitsundays');
+            result.current.lastAutoNameRef.current = 'Mackay Harbour → Whitsundays';
+            result.current.setTraceOrigin(from);
+            result.current.setTraceDest(to);
+        });
+        act(() => result.current.reverseDirection());
+        expect(result.current.capturedCoords).toEqual([to, from]);
+        expect(result.current.traceName).toBe('Whitsundays → Mackay Harbour');
+        expect(result.current.lastAutoNameRef.current).toBe('Whitsundays → Mackay Harbour');
+        expect(result.current.traceOrigin).toEqual(to);
+        expect(result.current.traceDest).toEqual(from);
+        expect(sessionStorage.getItem(key(keys.name))).toBe('Whitsundays → Mackay Harbour');
+        expect(JSON.parse(sessionStorage.getItem(key(keys.origin))!)).toEqual(to);
+        act(() => result.current.reverseDirection());
+        expect(result.current.traceName).toBe('Mackay Harbour → Whitsundays');
+        expect(result.current.capturedCoords).toEqual([from, to]);
+    });
+
+    it('preserves custom titles and refuses to reverse locked trip legs', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        const points = [
+            { lat: -21.1, lon: 149.2 },
+            { lat: -20.2, lon: 148.8 },
+        ];
+        act(() => {
+            result.current.setCapturedCoords(points);
+            result.current.setTraceName('Our winter holiday');
+        });
+        act(() => result.current.reverseDirection());
+        expect(result.current.traceName).toBe('Our winter holiday');
+        expect(result.current.capturedCoords).toEqual([...points].reverse());
+        act(() => result.current.setLegAnchor({ tripId: 'trip', ordinal: 2, fromName: 'Port', anchor: points[1] }));
+        act(() => result.current.reverseDirection());
+        expect(result.current.capturedCoords).toEqual([...points].reverse());
+    });
+
+    it('rejects a reverse action captured by a previous account without changing the new account auto-name', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        act(() =>
+            result.current.setCapturedCoords([
+                { lat: -21, lon: 149 },
+                { lat: -20, lon: 148 },
+            ]),
+        );
+        const staleReverse = result.current.reverseDirection;
+        act(() => setAuthIdentityScope('account-b'));
+        act(() => {
+            result.current.setTraceName('B origin → B destination');
+            result.current.lastAutoNameRef.current = 'B origin → B destination';
+        });
+        act(() => staleReverse());
+        expect(result.current.traceName).toBe('B origin → B destination');
+        expect(result.current.lastAutoNameRef.current).toBe('B origin → B destination');
+    });
 });

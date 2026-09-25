@@ -420,6 +420,11 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                           ? 'This entry is still syncing. It can be shared once Thalassa confirms it online.'
                                           : 'Share this entry on your public voyage page.'}
                                 </p>
+                                {!hasCoords && (
+                                    <p className="mt-2 text-[11px] leading-relaxed text-amber-200/90">
+                                        No map location — this entry won’t appear on the map.
+                                    </p>
+                                )}
                             </div>
                             <button
                                 role="switch"

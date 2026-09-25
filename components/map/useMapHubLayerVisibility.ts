@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
-import { usePersistedState } from '../../hooks/usePersistedState';
 import { MobService } from '../../services/MobService';
 import { useActiveCyclones } from './useActiveCyclones';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -23,33 +22,25 @@ export function useMapHubLayerVisibility({
     mapRef: MutableRefObject<mapboxgl.Map | null>;
     planningSurface: boolean;
 }) {
-    // Map state persisted across Charts tab switches so the user comes
-    // back to exactly what they left on. Time-critical overlays that
-    // are meant to be session-only (cyclone / squall / weather inspect)
-    // deliberately stay as plain useState.
-    const [aisVisible, setAisVisible] = usePersistedState('thalassa_map_ais_visible', false);
-    const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
+    // OBS starts clean on each fresh map. The app keeps this map alive across
+    // tab switches, so deliberate toggles still survive ordinary navigation.
+    // Never restore yesterday's overlays from device storage.
+    const [aisVisible, setAisVisible] = useState(false);
+    const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
-    // Vessel tracking now defaults to TRUE so a new user always sees
-    // their own boat on the chart from the first frame — without having
-    // to discover the toggle in the radial menu. Existing users who
-    // explicitly turned it off keep their preference (usePersistedState
-    // reads localStorage first). Toggle still works to dim down to the
-    // simpler GPS dot via useLocationDot.
-    const [vesselTrackingVisible] = usePersistedState('thalassa_map_vessel_tracking_visible', true);
-    const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
-    const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
+    // Ownship is the one thing the clean starting view must show.
+    const vesselTrackingVisible = true;
+    const [seamarkVisible, setSeamarkVisible] = useState(false);
+    const [anchorageVisible, setAnchorageVisible] = useState(false);
+    const [mooringsVisible, setMooringsVisible] = useState(false);
     // Active-MOB flag for the radial menu's MOB item highlight. MobService
     // emits ~1 Hz while active; setState with an unchanged boolean bails
     // before re-render, so this costs nothing in steady state.
     const [mobActive, setMobActive] = useState<boolean>(() => MobService.isActive());
     useEffect(() => MobService.subscribe((s) => setMobActive(s.active !== null)), []);
-    const [tideStationsVisible, setTideStationsVisible] = usePersistedState(
-        'thalassa_map_tide_stations_visible',
-        false,
-    );
-    const [lightningVisible, setLightningVisible] = usePersistedState('thalassa_map_lightning_visible', false);
+    const [tideStationsVisible, setTideStationsVisible] = useState(false);
+    const [lightningVisible, setLightningVisible] = useState(false);
 
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
     const skipAutoFlyRef = useRef(false);
@@ -97,6 +88,7 @@ export function useMapHubLayerVisibility({
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
     const browseAnchorageVisible = anchorageVisible && !planningSurface;
+    const browseMooringsVisible = mooringsVisible && !planningSurface;
     const browseTideStationsVisible = tideStationsVisible && !planningSurface;
     const browseLightningVisible = lightningVisible && !planningSurface;
 
@@ -114,6 +106,8 @@ export function useMapHubLayerVisibility({
         setSeamarkVisible,
         anchorageVisible,
         setAnchorageVisible,
+        mooringsVisible,
+        setMooringsVisible,
         mobActive,
         tideStationsVisible,
         setTideStationsVisible,
@@ -133,6 +127,7 @@ export function useMapHubLayerVisibility({
         browseSquallVisible,
         browseSeamarkVisible,
         browseAnchorageVisible,
+        browseMooringsVisible,
         browseTideStationsVisible,
         browseLightningVisible,
     };

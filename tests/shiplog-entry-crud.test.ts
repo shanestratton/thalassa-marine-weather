@@ -391,6 +391,7 @@ describe('deleteVoyage', () => {
 describe('deleteVoyageLogOnly', () => {
     it('uses a non-cascading tombstone while preserving durable cloud deletion', async () => {
         mockAuthUser('user-1');
+        mockDeleteVoyageOffline.mockResolvedValueOnce(true);
 
         await expect(deleteVoyageLogOnly('planned_1750000000000_route')).resolves.toBe(true);
         expect(mockDeleteVoyageOffline).toHaveBeenCalledWith('planned_1750000000000_route', {
