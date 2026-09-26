@@ -2,7 +2,7 @@
  * VesselTab — Vessel configuration: type, name, dimensions, performance, capacity.
  * Extracted from SettingsModal monolith (63 lines → standalone component).
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
@@ -439,6 +439,7 @@ function MetricInput({
     onChangeUnit,
     placeholder,
     isEstimated,
+    autoInStandard,
 }: {
     label: string;
     valInStandard: number;
@@ -449,10 +450,23 @@ function MetricInput({
     onChangeUnit: (u: string) => void;
     placeholder?: string;
     isEstimated?: boolean;
+    /** The derived figure (in the standard unit) used while nothing is stored.
+     *  Shown as the placeholder in the DISPLAY unit, flagged with an "Auto" chip. */
+    autoInStandard?: number;
 }) {
+    const inputId = useId();
     // Convert from standard (stored) unit → display unit
     const toDisplay = UNIT_CONVERSIONS[standardUnit]?.[unitType];
     const displayVal = toDisplay ? toDisplay(valInStandard) : valInStandard;
+    // No length yet means nothing to derive from: say '--', not a made-up 0.
+    const hasAuto = autoInStandard !== undefined && autoInStandard > 0;
+    const isAuto = hasAuto && !(valInStandard > 0);
+    const autoPlaceholder =
+        autoInStandard === undefined
+            ? undefined
+            : hasAuto
+              ? String(Math.round((toDisplay ? toDisplay(autoInStandard) : autoInStandard) * 10) / 10)
+              : '--';
 
     const [localVal, setLocalVal] = useState(displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '');
     // Track whether the user is mid-edit so we never overwrite their
@@ -493,13 +507,27 @@ function MetricInput({
 
     return (
         <div>
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+            <label
+                htmlFor={inputId}
+                className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5 mb-1.5"
+            >
                 {label}
-                {isEstimated && <span className="text-amber-400/70 ml-1 text-[11px]">(est.)</span>}
+                {isEstimated && <span className="text-amber-400/70 text-xs normal-case tracking-normal">(est.)</span>}
+                {/* The placeholder alone read as a typed value in a disabled field. */}
+                {isAuto && (
+                    <span
+                        id={`${inputId}-auto`}
+                        className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 text-xs font-bold normal-case tracking-normal text-emerald-300"
+                    >
+                        Auto
+                    </span>
+                )}
             </label>
             <div className="flex gap-1.5 min-w-0">
                 <input
+                    id={inputId}
                     aria-label={label}
+                    aria-describedby={isAuto ? `${inputId}-auto` : undefined}
                     type="number"
                     inputMode="decimal"
                     value={localVal}
@@ -508,13 +536,14 @@ function MetricInput({
                     }}
                     onChange={handleChange}
                     onBlur={handleBlur}
-                    placeholder={placeholder}
-                    className={`flex-1 min-w-0 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
+                    placeholder={autoPlaceholder ?? placeholder}
+                    className={`flex-1 min-w-0 min-h-11 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
                 />
                 <select
+                    aria-label={`${label} unit`}
                     value={unitType}
                     onChange={(e) => onChangeUnit(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-[11px] text-gray-400 font-bold uppercase outline-hidden focus:border-sky-500 shrink-0"
+                    className="min-h-11 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-xs text-gray-400 font-bold uppercase outline-hidden focus:border-sky-500 shrink-0"
                 >
                     {unitOptions.map((u) => (
                         <option key={u} value={u}>
@@ -613,6 +642,23 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isObserver = vessel?.type === 'observer';
     const keyboardHeight = useKeyboardOffset();
+    // Ties each visible label to its field (htmlFor / id) so no field is named by its placeholder.
+    const fid = useId();
+
+    // A unit select with nothing stored yet follows Settings → Preferences →
+    // Units instead of a hard 'ft'. Display only: stored figures stay ft / lbs /
+    // gal, and nothing is written until the skipper picks a unit.
+    const lengthUnit = settings.vesselUnits?.length || settings.units?.length || 'ft';
+    const beamUnit = settings.vesselUnits?.beam || settings.units?.length || 'ft';
+    const draftUnit = settings.vesselUnits?.draft || settings.units?.length || 'ft';
+    const displacementUnit = settings.vesselUnits?.displacement || (settings.units?.length === 'm' ? 'kg' : 'lbs');
+    const volumeUnit = settings.vesselUnits?.volume || settings.units?.volume || 'gal';
+    // The hull wave limit's select writes the vessel LENGTH unit (as before);
+    // until one is chosen it follows the Seas preference, like the Comfort Zone.
+    const hullWaveUnit = settings.vesselUnits?.length || settings.units?.waveHeight || 'ft';
+    const hullWaveAutoFt = vesselMaxWaveHeightFt({ ...vessel, maxWaveHeight: 0 });
+    // The Reset hint speaks the unit beside the field (it used to say 'ft' under a metre select).
+    const hullWaveAutoDisplay = Math.round((hullWaveUnit === 'm' ? hullWaveAutoFt * 0.3048 : hullWaveAutoFt) * 10) / 10;
 
     useEffect(
         () => () => {
@@ -930,10 +976,13 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             // No entry animation here: `animate-in` leaves a transform on the wrapper,
             // which makes it the containing block for the FIXED Save bar below — the
             // bar then scrolled away with the form (UX scorecard 2026-09-25).
-            // Bottom padding = save bar + its clearance, so the last field scrolls
-            // clear of the fixed bar.
-            className="w-full max-w-2xl mx-auto pb-[calc(152px+env(safe-area-inset-bottom))]"
-            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 120}px` : 120 }}
+            // No bottom padding of our own while the keyboard is down: SettingsModal's
+            // scroller already reserves pb-48, which clears the fixed Save bar (it
+            // overlaps the scroller by only ~50px). A second 120px reserve left ~275pt
+            // of empty page above the bar (UX scorecard run 5). If that pb-48 is ever
+            // trimmed, reserve the bar's overlap + 8px here instead.
+            className="w-full max-w-2xl mx-auto"
+            style={keyboardHeight > 0 ? { paddingBottom: `${keyboardHeight + 120}px` } : undefined}
         >
             {/* Observer upgrade banner */}
             {isObserver && (
@@ -1174,9 +1223,15 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <Section title="Vessel Configuration">
                     <Row>
                         <div>
-                            <label className="text-sm text-white font-medium block">Vessel Type</label>
+                            <p id={`${fid}-type`} className="text-sm text-white font-medium block">
+                                Vessel Type
+                            </p>
                         </div>
-                        <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
+                        <div
+                            role="group"
+                            aria-labelledby={`${fid}-type`}
+                            className="flex bg-black/40 p-1 rounded-lg border border-white/10"
+                        >
                             <button
                                 aria-label="Set vessel type to sail"
                                 onClick={() => updateVessel('type', 'sail')}
@@ -1195,10 +1250,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </Row>
                     <Row>
                         <div className={`w-full ${isObserver ? 'opacity-40' : ''}`}>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                            <label
+                                htmlFor={`${fid}-name`}
+                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2"
+                            >
                                 Vessel Name
                             </label>
                             <input
+                                id={`${fid}-name`}
                                 type="text"
                                 value={isObserver ? '' : vessel?.name || ''}
                                 onChange={(e) => updateVessel('name', e.target.value)}
@@ -1221,10 +1280,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-registration`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     Registration No.
                                 </label>
                                 <input
+                                    id={`${fid}-registration`}
                                     type="text"
                                     value={vessel?.registration || ''}
                                     onChange={(e) => updateVessel('registration', e.target.value)}
@@ -1233,10 +1296,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-mmsi`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     MMSI
                                 </label>
                                 <input
+                                    id={`${fid}-mmsi`}
                                     type="text"
                                     inputMode="numeric"
                                     maxLength={9}
@@ -1268,10 +1335,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 )}
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-callsign`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     Call Sign
                                 </label>
                                 <input
+                                    id={`${fid}-callsign`}
                                     type="text"
                                     value={vessel?.callSign || ''}
                                     onChange={(e) => updateVessel('callSign', e.target.value.toUpperCase())}
@@ -1301,10 +1372,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div className="sm:col-span-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-epirb`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     EPIRB Hex ID
                                 </label>
                                 <input
+                                    id={`${fid}-epirb`}
                                     type="text"
                                     inputMode="text"
                                     maxLength={15}
@@ -1323,10 +1398,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-raftcap`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     Liferaft Capacity
                                 </label>
                                 <input
+                                    id={`${fid}-raftcap`}
                                     type="text"
                                     inputMode="numeric"
                                     value={vessel?.liferaftCapacity ? String(vessel.liferaftCapacity) : ''}
@@ -1339,10 +1418,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-raftserviced`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     Raft Serviced
                                 </label>
                                 <input
+                                    id={`${fid}-raftserviced`}
                                     type="date"
                                     value={vessel?.liferaftServiceDate || ''}
                                     onChange={(e) => updateVessel('liferaftServiceDate', e.target.value)}
@@ -1350,10 +1433,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-flares`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     Flares Expire
                                 </label>
                                 <input
+                                    id={`${fid}-flares`}
                                     type="date"
                                     value={vessel?.flaresExpiry || ''}
                                     onChange={(e) => updateVessel('flaresExpiry', e.target.value)}
@@ -1381,10 +1468,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </summary>
                             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                                 <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-hailing`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Hailing Port
                                     </label>
                                     <input
+                                        id={`${fid}-hailing`}
                                         type="text"
                                         value={vessel?.hailingPort || ''}
                                         onChange={(e) => updateVessel('hailingPort', e.target.value)}
@@ -1393,10 +1484,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-hullmaterial`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Hull Material
                                     </label>
                                     <input
+                                        id={`${fid}-hullmaterial`}
                                         type="text"
                                         value={vessel?.hullMaterial || ''}
                                         onChange={(e) => updateVessel('hullMaterial', e.target.value)}
@@ -1405,10 +1500,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-trim`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Trim / Deck Colour
                                     </label>
                                     <input
+                                        id={`${fid}-trim`}
                                         type="text"
                                         value={vessel?.trimColor || ''}
                                         onChange={(e) => updateVessel('trimColor', e.target.value)}
@@ -1417,10 +1516,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-radios`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Radios Monitored
                                     </label>
                                     <input
+                                        id={`${fid}-radios`}
                                         type="text"
                                         value={vessel?.radiosMonitored || ''}
                                         onChange={(e) => updateVessel('radiosMonitored', e.target.value)}
@@ -1429,10 +1532,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-satphone`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Sat Phone
                                     </label>
                                     <input
+                                        id={`${fid}-satphone`}
                                         type="text"
                                         value={vessel?.satPhone || ''}
                                         onChange={(e) => updateVessel('satPhone', e.target.value)}
@@ -1441,10 +1548,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-tender`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Tender / Dinghy
                                     </label>
                                     <input
+                                        id={`${fid}-tender`}
                                         type="text"
                                         value={vessel?.tenderDescription || ''}
                                         onChange={(e) => updateVessel('tenderDescription', e.target.value)}
@@ -1453,10 +1564,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div className="sm:col-span-2">
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-features`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Prominent Features
                                     </label>
                                     <input
+                                        id={`${fid}-features`}
                                         type="text"
                                         value={vessel?.prominentFeatures || ''}
                                         onChange={(e) => updateVessel('prominentFeatures', e.target.value)}
@@ -1470,10 +1585,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     the step that heads off most false alarms, because usually somebody
                                     has already heard from the boat. Float plan only, never public. */}
                                 <div className="sm:col-span-2">
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-shore1`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Shore Contact 1
                                     </label>
                                     <input
+                                        id={`${fid}-shore1`}
                                         type="text"
                                         value={vessel?.shoreContact1 || ''}
                                         onChange={(e) => updateVessel('shoreContact1', e.target.value)}
@@ -1482,10 +1601,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     />
                                 </div>
                                 <div className="sm:col-span-2">
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    <label
+                                        htmlFor={`${fid}-shore2`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                    >
                                         Shore Contact 2
                                     </label>
                                     <input
+                                        id={`${fid}-shore2`}
                                         type="text"
                                         value={vessel?.shoreContact2 || ''}
                                         onChange={(e) => updateVessel('shoreContact2', e.target.value)}
@@ -1496,10 +1619,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </div>
                         </details>
                         <div className="mt-3">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                            <label
+                                htmlFor={`${fid}-mobile`}
+                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                            >
                                 Skipper Mobile
                             </label>
                             <input
+                                id={`${fid}-mobile`}
                                 type="tel"
                                 value={vessel?.contactPhone || ''}
                                 onChange={(e) => updateVessel('contactPhone', e.target.value)}
@@ -1508,10 +1635,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             />
                         </div>
                         <div className="mt-3">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                            <label
+                                htmlFor={`${fid}-safetygear`}
+                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                            >
                                 Other Safety Gear
                             </label>
                             <textarea
+                                id={`${fid}-safetygear`}
                                 value={vessel?.safetyNotes || ''}
                                 onChange={(e) => updateVessel('safetyNotes', e.target.value)}
                                 placeholder="PLB ×2, drogue, grab bag, Starlink…"
@@ -1529,17 +1660,24 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <Section title="Hull & Keel">
                     <Row>
                         <div className="w-full">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                            <p
+                                id={`${fid}-hull`}
+                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2"
+                            >
                                 Hull Type
-                            </label>
-                            <div className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
+                            </p>
+                            <div
+                                role="group"
+                                aria-labelledby={`${fid}-hull`}
+                                className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5"
+                            >
                                 {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
                                     <button
                                         aria-label={`Hull type: ${ht}`}
                                         aria-pressed={vessel?.hullType === ht}
                                         key={ht}
                                         onClick={() => updateVessel('hullType', ht)}
-                                        className={`flex-1 px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                                        className={`flex-1 min-h-11 px-2 py-2 rounded-lg text-xs font-bold transition-all ${vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                                     >
                                         {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
                                     </button>
@@ -1549,21 +1687,34 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </Row>
                     <Row>
                         <div className="w-full">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                            <p
+                                id={`${fid}-keel`}
+                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2"
+                            >
                                 Keel Type
-                            </label>
-                            <div className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
-                                {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
-                                    <button
-                                        aria-label={`Keel type: ${kt}`}
-                                        aria-pressed={vessel?.keelType === kt}
-                                        key={kt}
-                                        onClick={() => updateVessel('keelType', kt)}
-                                        className={`px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
-                                    >
-                                        {kt === 'centerboard' ? 'C/Board' : kt}
-                                    </button>
-                                ))}
+                            </p>
+                            {/* Title Case, not uppercase: 'CENTREBOARD' in capitals overflows a
+                                third of a phone-width row. The stored key stays 'centerboard'. */}
+                            <div
+                                role="group"
+                                aria-labelledby={`${fid}-keel`}
+                                className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5"
+                            >
+                                {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => {
+                                    const keelLabel =
+                                        kt === 'centerboard' ? 'Centreboard' : kt.charAt(0).toUpperCase() + kt.slice(1);
+                                    return (
+                                        <button
+                                            aria-label={`Keel type: ${keelLabel}`}
+                                            aria-pressed={vessel?.keelType === kt}
+                                            key={kt}
+                                            onClick={() => updateVessel('keelType', kt)}
+                                            className={`min-h-11 px-1 py-2 rounded-lg text-xs font-bold transition-all ${vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                                        >
+                                            {keelLabel}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     </Row>
@@ -1603,7 +1754,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 label="Length"
                                 valInStandard={vessel?.length || 0}
                                 standardUnit="ft"
-                                unitType={settings.vesselUnits?.length || 'ft'}
+                                unitType={lengthUnit}
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('length', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
@@ -1614,7 +1765,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 label="Beam"
                                 valInStandard={vessel?.beam || 0}
                                 standardUnit="ft"
-                                unitType={settings.vesselUnits?.beam || 'ft'}
+                                unitType={beamUnit}
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('beam', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ beam: u as LengthUnit })}
@@ -1625,7 +1776,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 label="Draft"
                                 valInStandard={vessel?.draft || 0}
                                 standardUnit="ft"
-                                unitType={settings.vesselUnits?.draft || 'ft'}
+                                unitType={draftUnit}
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('draft', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ draft: u as LengthUnit })}
@@ -1636,7 +1787,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 label="Displacement"
                                 valInStandard={vessel?.displacement || 0}
                                 standardUnit="lbs"
-                                unitType={settings.vesselUnits?.displacement || 'lbs'}
+                                unitType={displacementUnit}
                                 unitOptions={['lbs', 'kg', 'tonnes']}
                                 onChangeValue={(v) => updateVessel('displacement', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ displacement: u as WeightUnit })}
@@ -1647,7 +1798,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 label="Air Draft"
                                 valInStandard={vessel?.airDraft || 0}
                                 standardUnit="ft"
-                                unitType={settings.vesselUnits?.length || 'ft'}
+                                unitType={lengthUnit}
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('airDraft', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
@@ -1690,13 +1841,13 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     unitOptions={['kts']}
                                     onChangeValue={(v) => updateVessel('cruisingSpeed', v)}
                                     onChangeUnit={() => {}}
-                                    placeholder={String(Math.round(vesselCruisingSpeedKts(vessel) * 10) / 10)}
+                                    autoInStandard={vesselCruisingSpeedKts({ ...vessel, cruisingSpeed: 0 })}
                                 />
                                 {Number(vessel?.cruisingSpeed) > 0 && (
                                     <button
                                         type="button"
                                         onClick={() => updateVessel('cruisingSpeed', 0)}
-                                        className="mt-1.5 min-h-[44px] text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                                        className="mt-1.5 min-h-[44px] text-xs font-bold text-sky-400 hover:text-sky-300"
                                     >
                                         ↻ Reset to auto (
                                         {Math.round(vesselCruisingSpeedKts({ ...vessel, cruisingSpeed: 0 }) * 10) / 10}{' '}
@@ -1705,27 +1856,28 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 )}
                             </div>
                             <div>
+                                {/* 'Hull Wave Limit', not 'Max Wave Height': the Comfort Zone
+                                    below has its own Max Wave Height (the crew's limit), and two
+                                    controls with one name read as a duplicate. */}
                                 <MetricInput
-                                    label="Max Wave Height"
+                                    label="Hull Wave Limit"
                                     valInStandard={
                                         Number(vessel?.maxWaveHeight) > 0 ? Number(vessel?.maxWaveHeight) : 0
                                     }
                                     standardUnit="ft"
-                                    unitType={settings.vesselUnits?.length || 'ft'}
+                                    unitType={hullWaveUnit}
                                     unitOptions={['ft', 'm']}
                                     onChangeValue={(v) => updateVessel('maxWaveHeight', v)}
                                     onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
-                                    placeholder={String(Math.round(vesselMaxWaveHeightFt(vessel) * 10) / 10)}
+                                    autoInStandard={hullWaveAutoFt}
                                 />
                                 {Number(vessel?.maxWaveHeight) > 0 && (
                                     <button
                                         type="button"
                                         onClick={() => updateVessel('maxWaveHeight', 0)}
-                                        className="mt-1.5 min-h-[44px] text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                                        className="mt-1.5 min-h-[44px] text-xs font-bold text-sky-400 hover:text-sky-300"
                                     >
-                                        ↻ Reset to auto (
-                                        {Math.round(vesselMaxWaveHeightFt({ ...vessel, maxWaveHeight: 0 }) * 10) / 10}{' '}
-                                        ft)
+                                        ↻ Reset to auto ({hullWaveAutoDisplay} {hullWaveUnit})
                                     </button>
                                 )}
                             </div>
@@ -1755,7 +1907,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         {/* Max Wind Speed */}
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                <label
+                                    htmlFor={`${fid}-comfortwind`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                >
                                     Max Wind
                                 </label>
                                 <span
@@ -1767,6 +1922,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 </span>
                             </div>
                             <input
+                                id={`${fid}-comfortwind`}
                                 aria-label="Max Wind"
                                 type="range"
                                 min={10}
@@ -1793,7 +1949,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         {/* Max Wave Height */}
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                <label
+                                    htmlFor={`${fid}-comfortwave`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                >
                                     Max Wave Height
                                 </label>
                                 <span
@@ -1805,6 +1964,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 </span>
                             </div>
                             <input
+                                id={`${fid}-comfortwave`}
                                 aria-label="Max Wave Height"
                                 type="range"
                                 min={0.5}
@@ -1831,7 +1991,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         {/* Max Gust */}
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                <label
+                                    htmlFor={`${fid}-comfortgust`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                >
                                     Max Gust
                                 </label>
                                 <span
@@ -1843,6 +2006,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 </span>
                             </div>
                             <input
+                                id={`${fid}-comfortgust`}
                                 aria-label="Max Gust"
                                 type="range"
                                 min={15}
@@ -1921,20 +2085,20 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <MetricInput
-                                label="Fuel Cap."
+                                label="Fuel Capacity"
                                 valInStandard={vessel?.fuelCapacity || 0}
                                 standardUnit="gal"
-                                unitType={settings.vesselUnits?.volume || 'gal'}
+                                unitType={volumeUnit}
                                 unitOptions={['gal', 'l']}
                                 onChangeValue={(v) => updateVessel('fuelCapacity', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ volume: u as VolumeUnit })}
                                 placeholder="0"
                             />
                             <MetricInput
-                                label="Water Cap."
+                                label="Water Capacity"
                                 valInStandard={vessel?.waterCapacity || 0}
                                 standardUnit="gal"
-                                unitType={settings.vesselUnits?.volume || 'gal'}
+                                unitType={volumeUnit}
                                 unitOptions={['gal', 'l']}
                                 onChangeValue={(v) => updateVessel('waterCapacity', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ volume: u as VolumeUnit })}
@@ -1942,10 +2106,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             />
                         </div>
                         <div className="mt-4">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                            <label
+                                htmlFor={`${fid}-crew`}
+                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                            >
                                 Crew Aboard (incl. Skipper)
                             </label>
                             <input
+                                id={`${fid}-crew`}
                                 type="number"
                                 min="1"
                                 max="99"
@@ -2021,10 +2189,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         {vessel?.type === 'sail' && (
                             <div className="mt-4">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                <label
+                                    htmlFor={`${fid}-closehauled`}
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
+                                >
                                     Closest to the wind (° true)
                                 </label>
                                 <input
+                                    id={`${fid}-closehauled`}
                                     type="number"
                                     min="25"
                                     max="70"
