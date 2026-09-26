@@ -97,13 +97,8 @@ const CalypsoParkedPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
                     Calypso&rsquo;s voice still reads MAYDAY calls, DSC and radio position reports aloud — those are on
                     the Radio and MOB pages and are unaffected.
                 </p>
-                <button
-                    type="button"
-                    onClick={onBack}
-                    className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
-                >
-                    Back
-                </button>
+                {/* No in-card Back: the PageHeader chevron above already does it,
+                    and a second Back on a page with nothing else to do was noise. */}
             </div>
         </div>
     </div>

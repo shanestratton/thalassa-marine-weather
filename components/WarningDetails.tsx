@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WarningDetails');
-import { AlertTriangleIcon } from './Icons';
+import { AlertTriangleIcon, CheckCircleIcon } from './Icons';
 import { PageHeader } from './ui/PageHeader';
+import { formatAge } from './ui/DataFreshness';
 import { useUI } from '../context/UIContext';
 
 interface WarningDetailsProps {
@@ -27,11 +28,19 @@ const CRITICAL_PATTERNS = [
 const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
 
 export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedAt }) => {
+    // Age, not clock time: 'checked at 08:01' read as this morning after a
+    // night with the app closed. Re-rendered each minute so it stays honest.
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!checkedAt) return;
+        const id = window.setInterval(() => setNow(Date.now()), 60_000);
+        return () => window.clearInterval(id);
+    }, [checkedAt]);
     const checkedLabel = (() => {
         if (!checkedAt) return null;
         const d = new Date(checkedAt);
         if (Number.isNaN(d.getTime())) return null;
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return formatAge(Math.max(0, now - d.getTime()));
     })();
     const { setPage } = useUI();
     const [dismissed, setDismissed] = useState<Set<string>>(() => {
@@ -71,18 +80,20 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
     return (
         <div className="flex flex-col h-full bg-slate-950 text-white animate-in fade-in slide-in-from-right-4 duration-300">
             {/* Header — the shared PageHeader (h1 + back), the same chrome as
-                every other sub-page. The triangle is decoration: red while
-                anything is active, quiet once the list is clear. */}
+                every other sub-page. While anything is active a red count pill
+                sits under the title; once the list is clear there is no
+                triangle at all (a lone triangle sat where icon buttons sit). */}
             <div className="shrink-0 border-b border-white/10 bg-slate-950">
                 <PageHeader
                     title="Active Warnings"
                     onBack={() => setPage('dashboard')}
                     status={
-                        <span aria-hidden="true" className="flex items-center">
-                            <AlertTriangleIcon
-                                className={`w-5 h-5 ${activeAlerts.length > 0 ? 'text-red-500' : 'text-slate-500'}`}
-                            />
-                        </span>
+                        activeAlerts.length > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black">
+                                <AlertTriangleIcon className="w-3.5 h-3.5" />
+                                {activeAlerts.length} active
+                            </span>
+                        ) : undefined
                     }
                     action={
                         dismissableCount > 1 ? (
@@ -144,12 +155,14 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                     ))
                 ) : (
                     <div className="flex flex-col items-center justify-center h-full pb-20" role="status">
-                        <div className="bg-white/5 p-6 rounded-full mb-4 opacity-50">
-                            <AlertTriangleIcon className="w-12 h-12 text-gray-400" />
+                        {/* A check, not the warning triangle: the clear state must not
+                            wear the same glyph as the alarm. */}
+                        <div className="bg-white/5 p-6 rounded-full mb-4">
+                            <CheckCircleIcon className="w-12 h-12 text-emerald-400" />
                         </div>
                         <p className="text-gray-400 font-medium">No active warnings.</p>
                         <p className="mt-1 text-xs text-gray-500">
-                            {checkedLabel ? `Forecast checked at ${checkedLabel}` : 'Forecast not checked yet'}
+                            {checkedLabel ? `Forecast checked ${checkedLabel}` : 'Forecast not checked yet'}
                         </p>
                         {dismissed.size > 0 && (
                             <p className="text-gray-400 text-sm mt-2">

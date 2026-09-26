@@ -867,14 +867,22 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 <div className="absolute inset-2 rounded-2xl border border-sky-200/10" />
                                 <MusicIcon className="relative h-9 w-9 text-sky-300" />
                             </div>
-                            <div className="text-[11px] font-black uppercase tracking-[0.2em] text-sky-300/75">
+                            <p className="text-xs font-black uppercase tracking-[0.2em] text-sky-300/75">
                                 Onboard audio
-                            </div>
-                            <div className="mt-2 text-xl font-extrabold text-white">Connect Apple Music</div>
-                            <div className="mt-2 max-w-xs text-sm leading-relaxed text-slate-300">
-                                Give Calypso access to your library, playlists, and proper hands-free playback while you
-                                sail.
-                            </div>
+                            </p>
+                            {/* Real h2/p, not stacked divs that read as one run. Off the
+                                iPhone app there is nothing to connect, so the heading says
+                                where Apple Music lives instead of promising an action. */}
+                            <h2 className="mt-2 text-xl font-extrabold text-white">
+                                {authStatus === 'unsupported'
+                                    ? 'Apple Music lives in the iPhone app'
+                                    : 'Connect Apple Music'}
+                            </h2>
+                            <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-300">
+                                {authStatus === 'unsupported'
+                                    ? 'Open Thalassa on your iPhone to play your library and playlists hands-free while you sail.'
+                                    : 'Give Thalassa access to your library, playlists, and proper hands-free playback while you sail.'}
+                            </p>
                             {musicAccessNeedsSettings ? (
                                 <div
                                     role="alert"
@@ -893,11 +901,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                         Open Music settings
                                     </button>
                                 </div>
-                            ) : authStatus === 'unsupported' ? (
-                                <div className="mt-6 max-w-xs rounded-2xl border border-white/10 bg-white/4 px-4 py-3 text-xs leading-relaxed text-slate-300">
-                                    Apple Music controls are available in the Thalassa iPhone app.
-                                </div>
-                            ) : (
+                            ) : authStatus === 'unsupported' ? null : (
                                 <button
                                     onClick={() => void handleGrantAccess()}
                                     className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-2xl bg-sky-600 px-5 py-3 text-sm font-extrabold text-white shadow-xl transition-all hover:bg-sky-500 active:scale-[0.97]"
@@ -910,11 +914,14 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 Your library stays yours. Thalassa only uses access to play and organise the music you
                                 choose.
                             </p>
-                            {authStatus && authStatus !== 'notDetermined' && !musicAccessNeedsSettings && (
-                                <div className="mt-4 text-xs text-slate-500">
-                                    Status: <code>{authStatus}</code>
-                                </div>
-                            )}
+                            {authStatus &&
+                                authStatus !== 'notDetermined' &&
+                                authStatus !== 'unsupported' &&
+                                !musicAccessNeedsSettings && (
+                                    <div className="mt-4 text-xs text-slate-500">
+                                        Status: <code>{authStatus}</code>
+                                    </div>
+                                )}
                         </div>
                     )}
 
