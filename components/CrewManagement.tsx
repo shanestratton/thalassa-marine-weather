@@ -112,7 +112,7 @@ import {
     tripPassageRollupRows,
 } from './crewManagement/voyageRows';
 import { CrewCastOffPanel } from './crewManagement/CrewCastOffPanel';
-import { CrewSignInPrompt } from './crewManagement/CrewSignInPrompt';
+import { CREW_PAGE_SUBTITLE, CrewSignInPrompt } from './crewManagement/CrewSignInPrompt';
 import { DepartureCastOffRow } from './crewManagement/DepartureCastOffRow';
 import { EditCrewAccessForm } from './crewManagement/EditCrewAccessForm';
 import { SavedRoutesSelector } from './crewManagement/SavedRoutesSelector';
@@ -1874,7 +1874,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     if (!authChecked) {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                <PageHeader title="Crew & Float Plan" onBack={onBack} />
+                <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
                 <div className="flex-1" />
             </div>
         );
@@ -1886,7 +1886,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     if (isAuthed && !privateIdentityMatches) {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                <PageHeader title="Crew & Float Plan" onBack={onBack} />
+                <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
                 <div className="flex-1" />
             </div>
         );
@@ -1899,7 +1899,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            <PageHeader title="Crew & Float Plan" onBack={onBack} />
+            <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
             {/* The "+ Invite Crew" action lives inside the My Crew section
                 header below — it was crowding the page title in the
                 PageHeader's action slot. */}

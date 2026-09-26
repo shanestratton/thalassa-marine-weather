@@ -22,18 +22,35 @@ export const VoyageListSkeleton: React.FC = () => (
     </div>
 );
 
-export const VoyageListEmptyState: React.FC = () => (
-    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-8">
+export const VoyageListEmptyState: React.FC<{
+    /** A status card or line heads the page (a failed history read): the
+     *  watermark shrinks, and goes on short phones, so it is not cut in half
+     *  by the slide bar under the words. */
+    compact?: boolean;
+}> = ({ compact = false }) => (
+    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 pt-6 pb-8">
+        {/* The words come first: under the two status cards the heading sat
+            below the fold at 393 and 375, behind a watermark (UX scorecard
+            run 7). */}
+        <h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>
+        <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
+            Every great voyage starts with a single position. Slide below to begin GPS tracking.
+        </p>
         {/* Watermark — the Thalassa mark, big and faint, where the little
             compass used to be (Shane 2026-09-06: "the thalassa icon in a
             watermark look. do it big"). The PNG is opaque on near-black:
             `lighten` lets the page ground win under it and a radial mask
             feathers the square away, so only the rose and the wave remain.
-            Height and width shrink only on SHORT screens (clamp on dvh): at
-            375x667 a fixed 280 px pushed "Begin your log" below the fold
-            (UX audit run 5). From ~760 px tall it is the full 280/380. */}
+            It is sized to the room left above the slide bar (clamp on dvh) and
+            smaller while a status card heads the page; on a short phone it
+            stays, at 110 px (Shane asked for it big, so it never disappears on
+            the plain empty page). */}
         <div
-            className="relative mb-2 h-[clamp(140px,calc(100dvh-500px),280px)] w-full max-w-[380px]"
+            className={`relative mt-4 w-full max-w-[380px] ${
+                compact
+                    ? 'h-[clamp(120px,calc(100dvh-650px),240px)] [@media(max-height:760px)]:hidden'
+                    : 'h-[clamp(110px,calc(100dvh-565px),380px)]'
+            }`}
             aria-hidden="true"
             data-testid="log-watermark"
         >
@@ -41,16 +58,16 @@ export const VoyageListEmptyState: React.FC = () => (
                 src="/thalassa-icon.png"
                 alt=""
                 draggable={false}
-                className="pointer-events-none absolute left-1/2 top-1/2 w-[380px] max-w-[clamp(190px,calc((100dvh-500px)*1.36),380px)] -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.16] mix-blend-lighten"
+                className={`pointer-events-none absolute left-1/2 top-0 w-[380px] -translate-x-1/2 select-none opacity-[0.16] mix-blend-lighten ${
+                    compact
+                        ? 'max-w-[clamp(120px,calc(100dvh-650px),240px)]'
+                        : 'max-w-[clamp(110px,calc(100dvh-565px),380px)]'
+                }`}
                 style={{
                     maskImage: 'radial-gradient(circle at 50% 50%, black 52%, transparent 76%)',
                     WebkitMaskImage: 'radial-gradient(circle at 50% 50%, black 52%, transparent 76%)',
                 }}
             />
         </div>
-        <h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>
-        <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
-            Every great voyage starts with a single position. Slide below to begin GPS tracking.
-        </p>
     </div>
 );

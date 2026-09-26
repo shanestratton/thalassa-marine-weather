@@ -54,12 +54,21 @@ export const LogPageHeader: React.FC<{
     const portalTarget = usePanePortalTarget();
     const noLoggedData = loggedVoyages.length === 0 && loggedEntries.length === 0;
     const statsDisabled = !hasLifetimeVoyages && noLoggedData;
-    // Every row but Import waits on a recorded voyage. Say so once, under the
-    // rows, rather than leaving four dead rows to explain themselves.
+    // Every row but Import waits on a recorded voyage. Say so once, above the
+    // rows, rather than leaving dead rows to explain themselves. With only
+    // archived voyages, Statistics works and the other three still wait, so
+    // the line names them (the rows no longer carry a clock; run 7).
     const allRowsLocked = statsDisabled && !FEATURE_VISIBILITY.communityTrackSharing;
+    const waitingText = allRowsLocked
+        ? 'Record your first voyage to use these.'
+        : statsDisabled
+          ? 'Record your first voyage to use Statistics, Track map, Export and Share.'
+          : noLoggedData
+            ? 'Track map, Export and Share need a voyage in your current log.'
+            : null;
     const titleId = `${overflowMenuId}-title`;
     const reasonId = `${overflowMenuId}-reason`;
-    const waitingReason = allRowsLocked ? reasonId : undefined;
+    const waitingReason = waitingText ? reasonId : undefined;
     return (
         <PageHeader
             title="Ship's Log"
@@ -103,7 +112,7 @@ export const LogPageHeader: React.FC<{
                         onClick={() => setShowMenu(!showMenu)}
                         className="flex min-h-[44px] min-w-[44px] items-center justify-center p-2 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
                     >
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <svg aria-hidden="true" className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                             <circle cx="12" cy="5" r="1.5" />
                             <circle cx="12" cy="12" r="1.5" />
                             <circle cx="12" cy="19" r="1.5" />
@@ -152,9 +161,9 @@ export const LogPageHeader: React.FC<{
                                     </div>
                                     {/* The reason sits under the title, before the rows it
                                         explains, not after all four (UX scorecard run 6). */}
-                                    {allRowsLocked && (
+                                    {waitingText && (
                                         <p id={reasonId} className="px-3 pb-2 text-xs text-slate-400">
-                                            Record your first voyage to use these.
+                                            {waitingText}
                                         </p>
                                     )}
                                     {/* Rapid Mode + Precision Mode toggles were removed
@@ -184,7 +193,7 @@ export const LogPageHeader: React.FC<{
                                             setShowMenu(false);
                                         }}
                                         disabled={statsDisabled}
-                                        describedBy={waitingReason}
+                                        describedBy={statsDisabled ? waitingReason : undefined}
                                     />
                                     <MenuBtn
                                         icon={<MapIcon className="w-4 h-4" />}

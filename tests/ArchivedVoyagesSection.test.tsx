@@ -81,7 +81,10 @@ describe('ArchivedVoyagesSection', () => {
 
     it('collapses cards while keeping the full voyage count visible', () => {
         render(<Archive voyages={[voyage('trip')]} />);
-        const header = screen.getByRole('button', { name: 'Archived voyages 1 voyage Hide' });
+        // Named by its title, with the status as the description and the
+        // Show/Hide hint out of the name, as Voyage stats is (UX scorecard run 7).
+        const header = screen.getByRole('button', { name: 'Archived voyages' });
+        expect(header).toHaveAccessibleDescription('1 voyage');
         fireEvent.click(header);
         expect(header).toHaveAttribute('aria-expanded', 'false');
         expect(screen.queryByRole('article')).not.toBeInTheDocument();
@@ -97,7 +100,7 @@ describe('ArchivedVoyagesSection', () => {
         expect(screen.queryByText('No archived voyages')).not.toBeInTheDocument();
         rerender(<Archive error="Archive could not be loaded." onRetry={retry} />);
         expect(screen.getByRole('alert')).toHaveTextContent('Archive could not be loaded.');
-        expect(screen.getByText('Archive unavailable')).toBeVisible();
+        expect(screen.getByText('Archive didn’t load')).toBeVisible();
         expect(screen.queryByText('No archived voyages')).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Refresh archive' }));
         expect(retry).toHaveBeenCalledOnce();
@@ -121,15 +124,36 @@ describe('ArchivedVoyagesSection', () => {
             );
         };
         render(<Collapsed />);
-        expect(screen.getByText('Archive unavailable')).toBeVisible();
+        expect(screen.getByText('Archive didn’t load')).toBeVisible();
+        // One failure phrase and one disclosure word across the Log's cards.
+        const header = screen.getByRole('button', { name: 'Archived voyages' });
+        expect(header).toHaveAccessibleDescription('Archive didn’t load');
+        expect(header).toHaveTextContent('Show');
+        expect(header).not.toHaveTextContent('Details');
         const retryButton = screen.getByRole('button', { name: 'Retry' });
-        expect(retryButton).toHaveAccessibleDescription('Archive unavailable');
+        expect(retryButton).toHaveAccessibleDescription('Archive didn’t load');
         fireEvent.click(retryButton);
         expect(retry).toHaveBeenCalledOnce();
         // Expanded, the full error carries its own Refresh archive.
         fireEvent.click(screen.getByRole('button', { name: /Archived voyages/ }));
         expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Refresh archive' })).toBeEnabled();
+    });
+
+    it('leaves the Retry to the page while it shows the shared history line', () => {
+        render(
+            <ArchivedVoyagesSection
+                loggedArchivedVoyages={[]}
+                showArchived={false}
+                setShowArchived={vi.fn()}
+                handleUnarchiveVoyage={vi.fn()}
+                error="Couldn’t refresh the archive."
+                onRetry={vi.fn()}
+                collapsedRetry={false}
+            />,
+        );
+        expect(screen.getByText('Archive didn’t load')).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     });
 
     it('keeps current cards visible during refresh, with explicit updating feedback', () => {

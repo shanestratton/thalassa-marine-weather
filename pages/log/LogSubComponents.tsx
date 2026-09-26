@@ -16,7 +16,6 @@ import { publishFollowedRouteDetailed } from '../../services/shiplog/publishFoll
 import { VoyageLogService } from '../../services/VoyageLogService';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
-import { ClockIcon } from '../../components/Icons';
 import {
     groupEntriesByDate,
     groupEntriesByNoonWindow,
@@ -39,10 +38,13 @@ export const StatBox: React.FC<{ label: string; value: string | number }> = Reac
 // ── MenuBtn — one row of the Log actions dialog ──
 //
 // A plain button, not role="menuitem": the Log kebab opens the same titled
-// dialog as the Route Planner's (UX audit run 5). Disabled rows stay legible
-// (slate-400, no opacity fade — the old slate-500 at 40% measured ~2.95:1 and
-// read as "broken") and carry a clock so they read as "not yet", not "gone".
-// Not a lock: the app's lock means "pay to unlock" (UX scorecard run 6).
+// dialog as the Route Planner's (UX audit run 5). Disabled rows keep a legible
+// label (slate-400, no opacity fade — the old slate-500 at 40% measured
+// ~2.95:1 and read as "broken") against the enabled rows' brighter slate-200,
+// and only their decorative icon dims. The reason line above the rows says
+// why they wait. The trailing clock went: it read as "history" or
+// "scheduled", not "not yet" (UX scorecard run 7). Not a lock either: the
+// app's lock means "pay to unlock" (run 6).
 
 export const MenuBtn: React.FC<{
     /** Glyph shown before the label — the app's stroke SVG icons, not emoji. */
@@ -68,18 +70,16 @@ export const MenuBtn: React.FC<{
                   ? 'text-red-400 hover:bg-red-500/10'
                   : accent
                     ? 'text-amber-400 hover:bg-amber-500/10'
-                    : 'text-slate-300 hover:bg-white/5'
+                    : 'text-slate-200 hover:bg-white/5'
         }`}
     >
-        <span className="w-5 h-5 flex items-center justify-center shrink-0" aria-hidden="true">
+        <span
+            className={`w-5 h-5 flex items-center justify-center shrink-0 ${disabled ? 'opacity-40' : ''}`}
+            aria-hidden="true"
+        >
             {icon}
         </span>
         {label}
-        {disabled && (
-            <span className="ml-auto shrink-0" aria-hidden="true">
-                <ClockIcon className="h-3.5 w-3.5" />
-            </span>
-        )}
     </button>
 ));
 

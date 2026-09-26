@@ -118,6 +118,7 @@ import { LiveVoyageCard } from './log/LiveVoyageCard';
 import { LogPageHeader } from './log/LogPageHeader';
 import { LogStatsFullscreen } from './log/LogStatsFullscreen';
 import { VoyageStatsRollup } from './log/VoyageStatsRollup';
+import { HistoryStatusLine } from './log/HistoryStatusLine';
 import { PropulsionNudge } from './log/PropulsionNudge';
 import { StartTrackingFooter } from './log/StartTrackingFooter';
 import { TrackingFooterControls } from './log/TrackingFooterControls';
@@ -1371,6 +1372,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     }, []);
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(() => showArchivedMemo);
+    /** The shared history line's Retry is running (see historyUnreachable). */
+    const [historyRetryPending, setHistoryRetryPending] = useState(false);
 
     // Stable identity for the TrackMapViewer prop — the old inline
     // .filter() minted a new array every render, defeating the viewer's
@@ -1971,6 +1974,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setPreStartSheetOpen(false);
         setShowMenu(false);
         setShowArchived(false);
+        setHistoryRetryPending(false);
         setEngineRunningState(undefined);
         setNudgeDismiss(null);
         setLiveMapExpanded(false);
@@ -1994,6 +1998,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return <div className="h-full bg-slate-950" aria-busy="true" aria-label="Switching ship log account" />;
     }
 
+    // Both account-history reads (lifetime totals and the archive) share one
+    // reload and, almost always, one cause. When both have failed, the page
+    // says so once, with one Retry, and the two cards keep only their short
+    // status lines (UX scorecard run 7). A Retry clears both errors while it
+    // runs, so the line and the "this phone only" reading are held until the
+    // loads settle rather than flickering to "includes archived".
+    const historyRetrying = lifetimeLoading || archivesLoading;
+    if (historyRetryPending && !historyRetrying) setHistoryRetryPending(false);
+    const heldForRetry = historyRetryPending && historyRetrying;
+    const lifetimeUnavailable = (!!lifetimeError || heldForRetry) && !lifetimeLoaded;
+    const archiveUnavailable = !!archiveError && loggedArchivedVoyages.length === 0 && !archivesLoading;
+    const historyUnreachable =
+        !isTracking && ((!!lifetimeError && !lifetimeLoaded && archiveUnavailable) || heldForRetry);
+    const retryHistory = () => {
+        if (historyRetryPending) return;
+        setHistoryRetryPending(true);
+        void reloadArchivedVoyages();
+    };
+
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden">
             {/* Fullscreen Statistics View */}
@@ -2004,7 +2027,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     selectedVoyageId={selectedVoyageId}
                     lifetimeStats={lifetimeStats}
                     lifetimeStatsNotice={lifetimeStatsNotice}
-                    lifetimeUnavailable={!!lifetimeError && !lifetimeLoaded}
+                    lifetimeUnavailable={lifetimeUnavailable}
                 />
             ) : (
                 <div className="flex flex-col h-full">
@@ -2053,13 +2076,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         />
                     )}
 
+                    {historyUnreachable && <HistoryStatusLine onRetry={retryHistory} retrying={historyRetryPending} />}
+
                     {/* Career totals and records stay available without crowding the log. */}
                     <VoyageStatsRollup
                         voyageStats={voyageStats}
                         records={records}
                         notice={lifetimeStatsNotice}
-                        lifetimeUnavailable={!!lifetimeError && !lifetimeLoaded}
-                        onRetry={reloadArchivedVoyages}
+                        lifetimeUnavailable={lifetimeUnavailable}
+                        onRetry={historyUnreachable ? undefined : reloadArchivedVoyages}
                         retrying={lifetimeLoading}
                     />
 
@@ -2164,7 +2189,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     handleRestorePassage={handleRestorePassage}
                                     loading={archivesLoading}
                                     error={archiveError}
-                                    onRetry={reloadArchivedVoyages}
+                                    onRetry={historyUnreachable ? retryHistory : reloadArchivedVoyages}
+                                    collapsedRetry={!historyUnreachable}
                                 />
 
                                 {/* Past Voyage Cards */}
@@ -2178,7 +2204,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 : 'No voyages in your current log.'}
                                         </p>
                                     ) : (
-                                        <VoyageListEmptyState />
+                                        <VoyageListEmptyState
+                                            compact={historyUnreachable || lifetimeUnavailable || archiveUnavailable}
+                                        />
                                     )
                                 ) : (
                                     <PassageLogList

@@ -64,7 +64,7 @@ test('archive cards and passage restoration stay readable on small phones and de
     await page.getByRole('button', { name: 'Restore 3 legs' }).click();
     await expect(page.getByRole('article')).toHaveCount(2);
     await expect(page.getByText('2 voyages', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Archived voyages 2 voyages Hide' }).click();
+    await page.getByRole('button', { name: 'Archived voyages', exact: true }).click();
     await expect(page.getByRole('article')).toHaveCount(0);
     expect(errors).toEqual([]);
 });

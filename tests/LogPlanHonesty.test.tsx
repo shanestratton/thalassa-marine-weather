@@ -20,7 +20,7 @@ vi.mock('../utils/system', async (importOriginal) => ({
 afterEach(cleanup);
 
 /** LogPage's wiring for the kebab, reduced to what the header needs. */
-const LogHeaderHarness: React.FC = () => {
+const LogHeaderHarness: React.FC<{ hasLifetimeVoyages?: boolean }> = ({ hasLifetimeVoyages }) => {
     const [showMenu, setShowMenu] = useState(false);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
@@ -41,6 +41,7 @@ const LogHeaderHarness: React.FC = () => {
             closeOverflowMenu={close}
             dispatch={vi.fn()}
             loggedVoyages={[]}
+            hasLifetimeVoyages={hasLifetimeVoyages}
             loggedEntries={[]}
         />
     );
@@ -70,6 +71,22 @@ describe('Log actions dialog', () => {
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(screen.queryByRole('dialog', { name: 'Log actions' })).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
+    });
+
+    it('names the waiting rows when only archived voyages exist (no trailing clocks; UX scorecard run 7)', () => {
+        render(<LogHeaderHarness hasLifetimeVoyages />);
+        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
+        const dialog = screen.getByRole('dialog', { name: 'Log actions' });
+        const reason = 'Track map, Export and Share need a voyage in your current log.';
+        expect(within(dialog).getByText(reason)).toBeVisible();
+        const stats = within(dialog).getByRole('button', { name: 'Statistics' });
+        expect(stats).toBeEnabled();
+        expect(stats).not.toHaveAccessibleDescription(reason);
+        for (const label of ['Track map', 'Export', 'Share']) {
+            const row = within(dialog).getByRole('button', { name: label });
+            expect(row).toBeDisabled();
+            expect(row).toHaveAccessibleDescription(reason);
+        }
     });
 });
 
@@ -170,6 +187,12 @@ describe('Departure Now button', () => {
         expect(now).toBeEnabled();
         expect(now).toHaveAttribute('aria-pressed', 'true');
         expect(screen.getByText('Departure')).toBeInTheDocument();
+        // The card is a named group, and pressed Now is a neutral outline:
+        // the LEAVING NOW chip carries the emerald (UX scorecard run 7).
+        const group = screen.getByRole('group', { name: 'Departure' });
+        expect(group).toContainElement(now);
+        expect(group).toContainElement(screen.getByLabelText('Departure date'));
+        expect(now.className).not.toContain('emerald');
 
         const later = new Date(Date.now() + 3 * 86_400_000);
         const pad = (value: number) => String(value).padStart(2, '0');

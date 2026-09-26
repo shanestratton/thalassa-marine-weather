@@ -3,7 +3,8 @@ import type { PersonalRecords } from '../../services/shiplog/VoyageSummary';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { PersonalRecordsStrip } from './PersonalRecordsStrip';
 import { VoyageTotalsTiles } from './VoyageTotalsTiles';
-import { LIFETIME_PHONE_ONLY, lifetimeUnavailableNotice } from './logPageHelpers';
+import { LIFETIME_PHONE_ONLY, LOG_CARD_SHELL, LOG_CARD_TITLE, lifetimeUnavailableNotice } from './logPageHelpers';
+import { StatsIcon } from './LogPageIcons';
 
 export const VoyageStatsRollup: React.FC<{
     voyageStats: React.ComponentProps<typeof VoyageTotalsTiles>['voyageStats'];
@@ -49,8 +50,9 @@ export const VoyageStatsRollup: React.FC<{
     );
     return (
         // Same card material as Plan's Departure card, so the first card on
-        // sibling tabs matches in daylight too (UX scorecard run 6).
-        <section className="shrink-0 mx-4 mb-3 overflow-hidden rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 shadow-[0_0_20px_rgba(14,165,233,0.08)]">
+        // sibling tabs matches in daylight too (UX scorecard run 6), and the
+        // same recipe as Archived voyages below it (run 7).
+        <section className={`shrink-0 mx-4 mb-3 ${LOG_CARD_SHELL}`}>
             <button
                 type="button"
                 aria-expanded={expanded}
@@ -60,20 +62,25 @@ export const VoyageStatsRollup: React.FC<{
                 onClick={() => setExpanded((open) => !open)}
                 className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-sky-400"
             >
-                <span>
-                    <span id={titleId} className="block text-xs font-black uppercase tracking-widest text-amber-300">
-                        Voyage stats
+                <span className="flex min-w-0 items-center gap-3">
+                    <span aria-hidden="true" className="shrink-0 text-sky-300">
+                        <StatsIcon className="h-5 w-5" />
                     </span>
-                    {/* Never claim "includes archived" over totals that could
+                    <span className="min-w-0">
+                        <span id={titleId} className={LOG_CARD_TITLE}>
+                            Voyage stats
+                        </span>
+                        {/* Never claim "includes archived" over totals that could
                         not include it (UX audit run 5: a skipper with forty
                         archived voyages read "0.0 nm lifetime"). */}
-                    {showSubline && (
-                        <span id={sublineId} className="mt-1 block text-xs text-slate-400">
-                            {unavailable ? LIFETIME_PHONE_ONLY : 'Lifetime · includes archived'}
-                        </span>
-                    )}
+                        {showSubline && (
+                            <span id={sublineId} className="mt-1 block text-xs text-slate-400">
+                                {unavailable ? LIFETIME_PHONE_ONLY : 'Lifetime · includes archived'}
+                            </span>
+                        )}
+                    </span>
                 </span>
-                <span aria-hidden="true" className="flex items-center gap-2 text-xs font-bold text-sky-200">
+                <span aria-hidden="true" className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-sky-200">
                     {expanded ? 'Hide' : 'Show'}
                     <svg
                         width="16"
@@ -82,7 +89,7 @@ export const VoyageStatsRollup: React.FC<{
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
-                        className={expanded ? 'rotate-180' : ''}
+                        className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
                     >
                         <path d="m6 9 6 6 6-6" />
                     </svg>
