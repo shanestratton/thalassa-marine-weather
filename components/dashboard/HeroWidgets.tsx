@@ -385,15 +385,19 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             // Previously this always matched "right now", so every future hour showed the same rain %.
             const targetTime = cardTime ?? Date.now();
             const currentHour = hourly.find((h) => Math.abs(new Date(h.time).getTime() - targetTime) < 90 * 60_000);
-            if (currentHour?.precipChance !== undefined) return currentHour.precipChance;
-            // If no precipChance, fall back to that hour's precipitation amount
-            if (currentHour?.precipitation !== undefined) return safeRound(currentHour.precipitation);
+            // A chance or '--', never the hour's millimetres: this cell's unit
+            // is %, so a 5 mm hour used to read 'CHANCE 5 %' (UX scorecard run 7).
+            if (currentHour) {
+                return typeof currentHour.precipChance === 'number' && Number.isFinite(currentHour.precipChance)
+                    ? Math.round(currentHour.precipChance)
+                    : '--';
+            }
         }
-        // Fallback: use the active data's own precipChance or precipitation, not the live observation
-
-        if (data.precipChance !== undefined) return data.precipChance;
-        return safeRound(data.precipitation);
-    }, [isLive, hourly, data.precipitation, data.precipChance, cardTime, units.temp]);
+        // Fallback: the active data's own chance, not the live observation.
+        return typeof data.precipChance === 'number' && Number.isFinite(data.precipChance)
+            ? Math.round(data.precipChance)
+            : '--';
+    }, [isLive, hourly, data.precipChance, cardTime, units.temp]);
     const rainUnit = isLive ? (units.temp === 'F' ? '' : 'mm') : '%';
 
     const isOffshore = locationType === 'offshore';

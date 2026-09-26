@@ -119,8 +119,9 @@ export function computeCardDisplayValues(
                 if (cardData.precipitation == null) return '--';
                 return convertPrecip(cardData.precipitation, units.temp) ?? '0';
             }
+            // A missing chance is '--', not a confident 0 % (UX scorecard run 7).
             const chance = cardData.precipChance;
-            return chance !== undefined && chance !== null ? Math.round(chance) : 0;
+            return typeof chance === 'number' && Number.isFinite(chance) ? Math.round(chance) : '--';
         })(),
         precipUnit: !isHourly && index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
         pressure: cardData.pressure && !isNaN(cardData.pressure) ? Math.round(cardData.pressure) : '--',
@@ -708,10 +709,11 @@ export function computeDisplayValues(
         gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
         precip: (() => {
             if (index === 0) {
+                if (displayData.precipitation == null) return '--';
                 return convertPrecip(displayData.precipitation, units.temp) ?? '0';
             }
             const chance = displayData.precipChance;
-            return chance !== undefined && chance !== null ? Math.round(chance) : 0;
+            return typeof chance === 'number' && Number.isFinite(chance) ? Math.round(chance) : '--';
         })(),
         precipUnit: index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
         pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
