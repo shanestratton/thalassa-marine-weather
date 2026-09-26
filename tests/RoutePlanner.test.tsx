@@ -91,7 +91,7 @@ vi.mock('../services/savedRouteLibrary', () => ({
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchSeaVoyageChoices: plannerMocks.fetchSeaVoyageChoices,
 }));
-// Exercise the real planner/slider and existing library handoffs here; the
+// Exercise the real planner CTA and existing library handoffs here; the
 // dialog's actual entitlement, portal, focus and Auto workspace live in its
 // own suite. This child intentionally has no page or tracer callback for Auto.
 vi.mock('../components/autorouting/RoutingModeDialog', () => ({
@@ -206,7 +206,7 @@ describe('RoutePlanner', () => {
         expect(screen.queryByText('Import GPX')).toBeNull();
 
         // Behind the kebab.
-        fireEvent.click(screen.getByLabelText('Page actions'));
+        fireEvent.click(screen.getByRole('button', { name: 'Route Planner actions' }));
         const item = await screen.findByText('Import GPX');
 
         // The dialog obeys the standing centred-modal rule.
@@ -222,6 +222,56 @@ describe('RoutePlanner', () => {
 
         fireEvent.click(item);
         expect(plannerMocks.setPage).toHaveBeenCalledWith('gpx-import');
+    });
+
+    it('names the front-door cards by title, describes them by what is actually there, and groups them', async () => {
+        // UX scorecard run 6: "Open one" showed with nothing saved, and the
+        // card names ran title and subline together.
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+
+        expect(screen.getByRole('group', { name: 'Or start from' })).toBeInTheDocument();
+        const saved = screen.getByRole('button', { name: 'Saved routes' });
+        const voyages = screen.getByRole('button', { name: 'From a past voyage' });
+        expect(saved).toHaveAccessibleDescription('None saved on this device yet');
+        expect(voyages).toHaveAccessibleDescription('Turn a logged voyage into a route');
+
+        // Once the library has actually loaded, the card says so.
+        fireEvent.click(saved);
+        expect(await screen.findByRole('heading', { name: 'Saved routes' })).toBeInTheDocument();
+        await waitFor(() => expect(saved).toHaveAccessibleDescription('None saved yet'));
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+        plannerMocks.fetchSeaVoyageChoices.mockResolvedValue([
+            {
+                voyageId: 'v1',
+                label: 'Newport → Tangalooma',
+                sublabel: '9 Sept · 18 NM',
+                timestamp: 1,
+                distanceNm: 18,
+                isLocal: false,
+            },
+        ]);
+        fireEvent.click(voyages);
+        expect(await screen.findByRole('heading', { name: 'Past voyages' })).toBeInTheDocument();
+        await waitFor(() => expect(voyages).toHaveAccessibleDescription('1 voyage to reuse'));
+    });
+
+    it('counts saved routes already on this device before the library opens', () => {
+        plannerMocks.savedTraces = [
+            {
+                id: 'local-a',
+                name: 'Newport - Musgrave',
+                createdAt: '2026-09-09T00:00:00Z',
+                points: [
+                    { lat: -27.2, lon: 153.1 },
+                    { lat: -23.9, lon: 152.4 },
+                ],
+            },
+        ];
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 'Saved routes' })).toHaveAccessibleDescription(
+            '1 saved · timings refreshed for today’s tide',
+        );
     });
 
     it('renders without crashing', () => {
@@ -290,11 +340,11 @@ describe('RoutePlanner', () => {
                 expect(await screen.findByRole('dialog', { name: /Saved routes/i })).toBeInTheDocument();
                 fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
-                const plot = screen.getByRole('button', { name: 'Slide to Start Plotting' });
-                expect(plot).toHaveAttribute('aria-disabled', 'false');
+                const plot = screen.getByRole('button', { name: 'Start plotting' });
+                expect(plot).toBeEnabled();
                 const previousHandoffs = plannerMocks.requestTracerOpen.mock.calls.length;
                 const previousNavigations = plannerMocks.setPage.mock.calls.length;
-                fireEvent.keyDown(plot, { key: 'Enter' });
+                fireEvent.click(plot);
                 expect(screen.getByRole('dialog', { name: 'Routing mode choice' })).toBeInTheDocument();
                 expect(plannerMocks.requestTracerOpen).toHaveBeenCalledTimes(previousHandoffs);
                 expect(plannerMocks.setPage).toHaveBeenCalledTimes(previousNavigations);
@@ -312,7 +362,7 @@ describe('RoutePlanner', () => {
         },
     );
 
-    it('opens a routing choice only after the slider, and closing/reopening preserves the planner and departure', async () => {
+    it('opens a routing choice only after Start plotting, and closing/reopening preserves the planner and departure', async () => {
         await awaitSettingsLoaded();
         const departureKey = authScopedStorageKey('thalassa_trace_departure_ms');
         const previousDeparture = sessionStorage.getItem(departureKey);
@@ -325,7 +375,7 @@ describe('RoutePlanner', () => {
             const savedDeparture = sessionStorage.getItem(departureKey);
 
             for (let attempt = 0; attempt < 2; attempt++) {
-                fireEvent.keyDown(screen.getByRole('button', { name: 'Slide to Start Plotting' }), { key: 'Enter' });
+                fireEvent.click(screen.getByRole('button', { name: 'Start plotting' }));
                 expect(screen.getByRole('dialog', { name: 'Routing mode choice' })).toHaveAttribute(
                     'data-mapbox-token',
                     'test-token',
@@ -350,14 +400,14 @@ describe('RoutePlanner', () => {
 
     it('does not stage a tracer action or navigate when Auto stays in its isolated child workspace', () => {
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Slide to Start Plotting' }), { key: 'Enter' });
+        fireEvent.click(screen.getByRole('button', { name: 'Start plotting' }));
         fireEvent.click(screen.getByRole('button', { name: 'Auto Routing' }));
         expect(screen.getByRole('region', { name: 'Isolated auto workspace' })).toBeInTheDocument();
         expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
         expect(plannerMocks.setPage).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Close routing choice' }));
         expect(screen.queryByRole('region', { name: 'Isolated auto workspace' })).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Slide to Start Plotting' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Start plotting' })).toBeInTheDocument();
         expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
         expect(plannerMocks.setPage).not.toHaveBeenCalled();
     });

@@ -16,6 +16,7 @@
 import React from 'react';
 import type { SavedRoutePickerRow } from '../../services/savedRouteOrder';
 import { triggerHaptic } from '../../utils/system';
+import { CompassIcon, MapPinIcon } from '../icons/NavigationIcons';
 
 /**
  * The whole-trip row is a HEADING, not a choice (Shane 2026-08-27: "the punter
@@ -27,8 +28,13 @@ export const SavedRoutePassageHeading: React.FC<{ row: SavedRoutePickerRow }> = 
         role="presentation"
         className="flex items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/8 px-3 py-2.5"
     >
-        <span aria-hidden="true" className="text-base leading-none">
-            🧭
+        {/* Same marks as the Plan library: a compass for a whole passage,
+            the ↳ dog-leg for a leg, a pin for a day sail — drawn, not emoji. */}
+        <span
+            aria-hidden="true"
+            className="flex h-5 w-5 shrink-0 items-center justify-center text-base leading-none text-violet-300"
+        >
+            <CompassIcon className="h-4 w-4" rotation={0} />
         </span>
         <span className="flex-1 min-w-0">
             <span className="block truncate text-sm font-black text-violet-100">{row.name}</span>
@@ -65,8 +71,11 @@ export const SavedRouteOptionRow: React.FC<{
             selected ? 'bg-violet-500/[0.14] border-violet-400/40' : 'bg-white/3 border-white/8 hover:bg-white/6'
         }`}
     >
-        <span aria-hidden="true" className="text-base leading-none">
-            {row.kind === 'leg' ? '↳' : '📍'}
+        <span
+            aria-hidden="true"
+            className="flex h-5 w-5 shrink-0 items-center justify-center text-base leading-none text-gray-400"
+        >
+            {row.kind === 'leg' ? '↳' : <MapPinIcon className="h-4 w-4" />}
         </span>
         <span className="flex-1 min-w-0">
             <span className="flex items-baseline gap-1.5 text-sm font-semibold text-slate-100">

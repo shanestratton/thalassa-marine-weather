@@ -117,27 +117,9 @@ function setSession(userId: string | null, authChecked = true) {
     mocks.auth = { user: userId ? { id: userId } : null, authChecked };
 }
 
-function slideToChoose() {
-    const slider = screen.getByRole('button', { name: 'Slide to Start Plotting' });
-    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({
-        left: 0,
-        top: 0,
-        right: 300,
-        bottom: 56,
-        width: 300,
-        height: 56,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-    });
-    // MouseEvents preserve coordinates in jsdom's absent PointerEvent API.
-    for (const [type, clientX] of [
-        ['pointerdown', 28],
-        ['pointermove', 290],
-        ['pointerup', 290],
-    ] as const) {
-        fireEvent(slider, new MouseEvent(type, { bubbles: true, cancelable: true, clientX }));
-    }
+function startPlotting() {
+    // A plain tap: Start plotting only opens the reversible routing choice.
+    fireEvent.click(screen.getByRole('button', { name: 'Start plotting' }));
     return screen.getByRole('dialog', { name: 'Choose routing mode' });
 }
 
@@ -190,7 +172,7 @@ describe('/plan autorouting entry', () => {
         act(() => setSession('plan-skipper'));
         rerender(<PlanEntry />);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Slide to Start Plotting' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Start plotting' })).toBeInTheDocument();
         expect(mocks.status).not.toHaveBeenCalled();
         expectNoRouteHandoff();
     });
@@ -201,7 +183,7 @@ describe('/plan autorouting entry', () => {
         setSession('plan-skipper');
         render(<PlanEntry />);
 
-        const dialog = slideToChoose();
+        const dialog = startPlotting();
         expect(dialog).toHaveTextContent('Checking Auto routing availability… Manual is ready.');
         expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Manual routing' })).toBeEnabled();
@@ -231,7 +213,7 @@ describe('/plan autorouting entry', () => {
             mocks.status.mockResolvedValue({ enabled: true, ready });
             setSession('plan-skipper');
             render(<PlanEntry />);
-            slideToChoose();
+            startPlotting();
             const auto = screen.getByRole('button', { name: 'Auto routing' });
             await waitFor(() => expect(auto).toBeEnabled());
             fireEvent.click(auto);
@@ -243,7 +225,7 @@ describe('/plan autorouting entry', () => {
             expectNoRouteHandoff();
             fireEvent.click(screen.getByRole('button', { name: 'Close trial workspace' }));
             expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-            expect(screen.getByRole('button', { name: 'Slide to Start Plotting' })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Start plotting' })).toBeInTheDocument();
             expectNoRouteHandoff();
         },
     );
@@ -253,7 +235,7 @@ describe('/plan autorouting entry', () => {
         mocks.status.mockReturnValue(new Promise<AutoroutingTrialStatus>((resolve) => (resolveStatus = resolve)));
         setSession('plan-skipper');
         const { rerender } = render(<PlanEntry />);
-        slideToChoose();
+        startPlotting();
         const signal = mocks.status.mock.calls[0][0] as AbortSignal;
 
         act(() => setSession(null));

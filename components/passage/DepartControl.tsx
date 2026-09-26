@@ -102,62 +102,66 @@ export const DepartControl: React.FC = () => {
                     </span>
                 )}
             </div>
-            <div className="flex gap-2">
-                <input
-                    type="date"
-                    value={dateStr || todayStr}
-                    min={todayStr} // the past is greyed out — can't plan to leave yesterday
-                    onChange={(e) => {
-                        triggerHaptic('light');
-                        if (!e.target.value) {
-                            setDeparture(null);
-                            return;
-                        }
-                        const time = timeStr || msToLocal(Date.now()).slice(11, 16);
-                        const t = new Date(`${e.target.value}T${time}`).getTime();
-                        if (Number.isFinite(t)) setDeparture(t);
-                    }}
-                    aria-label="Departure date"
-                    className="h-11 min-w-0 flex-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
-                />
-                {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
+            {/* Short landscape (852x393): Now rides on the date/time line so both
+                front-door card titles clear the pinned CTA (~52 pt saved). */}
+            <div className="[@media(orientation:landscape)_and_(max-height:500px)]:flex [@media(orientation:landscape)_and_(max-height:500px)]:gap-2">
+                <div className="flex gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:flex-1">
+                    <input
+                        type="date"
+                        value={dateStr || todayStr}
+                        min={todayStr} // the past is greyed out — can't plan to leave yesterday
+                        onChange={(e) => {
+                            triggerHaptic('light');
+                            if (!e.target.value) {
+                                setDeparture(null);
+                                return;
+                            }
+                            const time = timeStr || msToLocal(Date.now()).slice(11, 16);
+                            const t = new Date(`${e.target.value}T${time}`).getTime();
+                            if (Number.isFinite(t)) setDeparture(t);
+                        }}
+                        aria-label="Departure date"
+                        className="h-11 min-w-0 flex-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
+                    />
+                    {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
                     clipped in the card) — wheels on iOS, dropdowns on desktop. */}
-                <TimePicker24
-                    value={timeStr ? { h: Number(timeStr.slice(0, 2)), m: Number(timeStr.slice(3, 5)) } : null}
-                    dateStr={dateStr}
-                    onChange={(h, m) => {
-                        triggerHaptic('light');
-                        const date = dateStr || todayStr;
-                        const p = (n: number) => String(n).padStart(2, '0');
-                        const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
-                        if (Number.isFinite(t)) setDeparture(t);
-                    }}
-                    selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
-                />
-            </div>
-            <div className="mt-2 flex gap-2">
-                {/* Now stays ENABLED even when already leaving now (Shane
+                    <TimePicker24
+                        value={timeStr ? { h: Number(timeStr.slice(0, 2)), m: Number(timeStr.slice(3, 5)) } : null}
+                        dateStr={dateStr}
+                        onChange={(h, m) => {
+                            triggerHaptic('light');
+                            const date = dateStr || todayStr;
+                            const p = (n: number) => String(n).padStart(2, '0');
+                            const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
+                            if (Number.isFinite(t)) setDeparture(t);
+                        }}
+                        selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
+                    />
+                </div>
+                <div className="mt-2 flex gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:mt-0 [@media(orientation:landscape)_and_(max-height:500px)]:w-28 [@media(orientation:landscape)_and_(max-height:500px)]:shrink-0">
+                    {/* Now stays ENABLED even when already leaving now (Shane
                     2026-09-09, cee90a53: it replaced OK, so it must still
                     dismiss an open native picker; the e2e spec pins this).
                     What changes is that it says so: pressed + the pill's
                     emerald while departure is now, so a live grey button no
                     longer contradicts the LEAVING NOW pill (UX audit run 5). */}
-                <button
-                    type="button"
-                    aria-pressed={leavingNow}
-                    onClick={() => {
-                        triggerHaptic('light');
-                        (document.activeElement as HTMLElement | null)?.blur?.();
-                        setDeparture(null);
-                    }}
-                    className={`min-h-[44px] flex-1 rounded-xl text-[11px] font-black uppercase tracking-widest active:scale-95 ${
-                        leavingNow
-                            ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                            : 'border border-transparent bg-white/10 text-gray-300'
-                    }`}
-                >
-                    Now
-                </button>
+                    <button
+                        type="button"
+                        aria-pressed={leavingNow}
+                        onClick={() => {
+                            triggerHaptic('light');
+                            (document.activeElement as HTMLElement | null)?.blur?.();
+                            setDeparture(null);
+                        }}
+                        className={`min-h-[44px] flex-1 rounded-xl text-[11px] font-black uppercase tracking-widest active:scale-95 ${
+                            leavingNow
+                                ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                : 'border border-transparent bg-white/10 text-gray-300'
+                        }`}
+                    >
+                        Now
+                    </button>
+                </div>
             </div>
         </div>
     );

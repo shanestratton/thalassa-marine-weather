@@ -16,7 +16,7 @@ test('planner parks the comfort card without hiding departure or route controls'
     await expect(planner.getByRole('button', { name: /From a past voyage/i })).toBeVisible();
     await expect(planner.getByRole('button', { name: /Saved routes/i })).toBeVisible();
 
-    await planner.getByRole('button', { name: 'Page actions', exact: true }).click();
+    await planner.getByRole('button', { name: 'Route Planner actions', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Route Planner actions' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Import GPX/i })).toBeEnabled();
 });
@@ -56,7 +56,7 @@ test('departure has one persistent Now action and no OK button', async ({ page }
 test.describe('routing choice entry', () => {
     test.use({ serviceWorkers: 'block' });
 
-    test('Start Plotting opens routing choice before Manual opens the existing tracer', async ({
+    test('Start plotting opens routing choice before Manual opens the existing tracer', async ({
         page,
         baseURL,
     }, info) => {
@@ -90,18 +90,14 @@ test.describe('routing choice entry', () => {
         await page.routeWebSocket('**/*', (socket) => socket.close());
         await page.goto('/');
         await page.getByRole('tab', { name: 'Navigate to Plan', exact: true }).click();
-        const slider = page.getByRole('button', { name: 'Slide to Start Plotting', exact: true });
-        await expect(slider).toBeVisible();
+        // A tap, not a slide: it only opens the reversible routing choice.
+        const startPlotting = page.getByRole('button', { name: 'Start plotting', exact: true });
+        await expect(startPlotting).toBeVisible();
         await expect(page.getByRole('dialog', { name: 'Choose routing mode', exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: /Autorouting · Trial/i })).toHaveCount(0);
-        await slider.scrollIntoViewIfNeeded();
+        await startPlotting.scrollIntoViewIfNeeded();
         await page.evaluate(() => document.fonts.ready);
-        // Use the actual pointer gesture, not a synthetic callback or Enter.
-        const box = (await slider.boundingBox())!;
-        await page.mouse.move(box.x + 24, box.y + box.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(box.x + box.width - 32, box.y + box.height / 2, { steps: 10 });
-        await page.mouse.up();
+        await startPlotting.click();
         const choice = page.getByRole('dialog', { name: 'Choose routing mode', exact: true });
         await expect(choice).toBeVisible();
         await expect(choice.getByRole('button', { name: 'Manual routing', exact: true })).toBeEnabled();

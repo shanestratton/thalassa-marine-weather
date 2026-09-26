@@ -46,6 +46,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../theme', () => ({
+    // The sign-in view's Button (via useThemeStore) resolves tokens per
+    // environment, so the theme mock answers for the module, not just `t`.
+    getThemeForEnvironment: () => ({
+        button: { primary: 'primary', secondary: 'secondary', danger: 'danger', ghost: 'ghost' },
+    }),
+    touchTarget: { button: 'min-h-[44px]', buttonSm: 'min-h-[36px]', icon: 'w-11 h-11' },
     t: {
         colors: { bg: { base: 'bg-slate-950' } },
         border: { default: 'border border-white/10' },

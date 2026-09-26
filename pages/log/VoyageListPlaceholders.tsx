@@ -1,13 +1,13 @@
 /**
  * VoyageListPlaceholders — the two non-list states of the Ship's Log voyage
  * list, extracted verbatim from pages/LogPage.tsx: the hydrating skeleton and
- * the "Begin Your Log" empty state. The caller keeps the ternary that chooses
+ * the "Begin your log" empty state. The caller keeps the ternary that chooses
  * between them and the real cards.
  */
 import React from 'react';
 
 /* History still hydrating (cache miss / first network
-   load) — skeleton cards, NOT the "Begin Your Log"
+   load) — skeleton cards, NOT the "Begin your log"
    empty state, and never a page-wide spinner: the
    Start control below is live the whole time. */
 export const VoyageListSkeleton: React.FC = () => (
@@ -30,7 +30,7 @@ export const VoyageListEmptyState: React.FC = () => (
             `lighten` lets the page ground win under it and a radial mask
             feathers the square away, so only the rose and the wave remain.
             Height and width shrink only on SHORT screens (clamp on dvh): at
-            375x667 a fixed 280 px pushed "Begin Your Log" below the fold
+            375x667 a fixed 280 px pushed "Begin your log" below the fold
             (UX audit run 5). From ~760 px tall it is the full 280/380. */}
         <div
             className="relative mb-2 h-[clamp(140px,calc(100dvh-500px),280px)] w-full max-w-[380px]"
@@ -48,7 +48,7 @@ export const VoyageListEmptyState: React.FC = () => (
                 }}
             />
         </div>
-        <p className="text-base font-bold text-white mb-1.5">Begin Your Log</p>
+        <h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>
         <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
             Every great voyage starts with a single position. Slide below to begin GPS tracking.
         </p>

@@ -58,6 +58,8 @@ export const LogPageHeader: React.FC<{
     // rows, rather than leaving four dead rows to explain themselves.
     const allRowsLocked = statsDisabled && !FEATURE_VISIBILITY.communityTrackSharing;
     const titleId = `${overflowMenuId}-title`;
+    const reasonId = `${overflowMenuId}-reason`;
+    const waitingReason = allRowsLocked ? reasonId : undefined;
     return (
         <PageHeader
             title="Ship's Log"
@@ -119,7 +121,7 @@ export const LogPageHeader: React.FC<{
                         createPortal(
                             <div
                                 role="presentation"
-                                className="fixed inset-0 z-10070 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                                className="fixed inset-0 z-10070 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                                 onClick={closeOverflowMenu}
                             >
                                 <div
@@ -128,13 +130,13 @@ export const LogPageHeader: React.FC<{
                                     role="dialog"
                                     aria-modal={portalTarget.tagName === 'BODY' ? true : undefined}
                                     aria-labelledby={titleId}
-                                    className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
+                                    className="w-full max-w-sm max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
                                     onClick={(e) => e.stopPropagation()}
                                 >
                                     <div className="flex items-center justify-between pl-3 pr-1">
                                         <h2
                                             id={titleId}
-                                            className="text-[11px] font-black uppercase tracking-widest text-gray-400"
+                                            className="text-xs font-black uppercase tracking-widest text-gray-400"
                                         >
                                             Log actions
                                         </h2>
@@ -148,6 +150,13 @@ export const LogPageHeader: React.FC<{
                                             <XIcon className="h-5 w-5" />
                                         </button>
                                     </div>
+                                    {/* The reason sits under the title, before the rows it
+                                        explains, not after all four (UX scorecard run 6). */}
+                                    {allRowsLocked && (
+                                        <p id={reasonId} className="px-3 pb-2 text-xs text-slate-400">
+                                            Record your first voyage to use these.
+                                        </p>
+                                    )}
                                     {/* Rapid Mode + Precision Mode toggles were removed
                                                 from this menu 2026-05-17. Precision Mode is now
                                                 always-on whenever tracking is active (the
@@ -175,15 +184,17 @@ export const LogPageHeader: React.FC<{
                                             setShowMenu(false);
                                         }}
                                         disabled={statsDisabled}
+                                        describedBy={waitingReason}
                                     />
                                     <MenuBtn
                                         icon={<MapIcon className="w-4 h-4" />}
-                                        label="Track Map"
+                                        label="Track map"
                                         onClick={() => {
                                             dispatch({ type: 'SHOW_TRACK_MAP', show: true });
                                             setShowMenu(false);
                                         }}
                                         disabled={noLoggedData}
+                                        describedBy={waitingReason}
                                     />
                                     <MenuBtn
                                         icon={<ExportIcon className="w-4 h-4" />}
@@ -193,6 +204,7 @@ export const LogPageHeader: React.FC<{
                                             setShowMenu(false);
                                         }}
                                         disabled={noLoggedData}
+                                        describedBy={waitingReason}
                                     />
                                     {FEATURE_VISIBILITY.communityTrackSharing && (
                                         <MenuBtn
@@ -212,12 +224,8 @@ export const LogPageHeader: React.FC<{
                                             setShowMenu(false);
                                         }}
                                         disabled={noLoggedData}
+                                        describedBy={waitingReason}
                                     />
-                                    {allRowsLocked && (
-                                        <p className="px-4 pb-2 pt-1 text-xs text-slate-400">
-                                            Record a voyage to unlock these.
-                                        </p>
-                                    )}
                                 </div>
                             </div>,
                             portalTarget,
