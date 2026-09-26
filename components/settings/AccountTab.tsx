@@ -8,9 +8,11 @@ import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitive
 import { CloudIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
 import { useAuth } from '../../context/AuthContext';
-import { checkStormglassStatus, isStormglassKeyPresent } from '../../services/weather/keys';
+import { checkStormglassStatus } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
+import { Button } from '../ui/Button';
 import {
     ACCOUNT_DELETION_PRIVACY_EMAIL,
     ACCOUNT_DELETION_PRIVACY_MAILTO,
@@ -44,70 +46,36 @@ const isMapboxConfigured = () => {
 const isOpenMeteoConfigured = () => isSupabaseConfigured();
 
 // ── Status Row sub-component ──
-// A STATE, never an instruction: the green "Set up" beside a service read as a
-// tappable "Set up →" (it is not a button) and meant the opposite of what it
-// said. Configured services read "Ready"; the live forecast check reads
-// "Working"; a service with nothing behind it reads "Not set up" — except the
-// marine forecast, whose missing key really does mean the free fallback.
-const StatusRow = ({
-    label,
-    isConnected,
-    status,
-    details,
-    loading,
-    freeFallback,
-    onTest,
-}: {
-    label: string;
-    isConnected?: boolean;
-    status?: string;
-    details?: string;
-    loading?: boolean;
-    /** Missing means "running on the free source", not "not set up". */
-    freeFallback?: boolean;
-    onTest?: () => void;
-}) => {
-    const isMissing = status === 'MISSING_KEY' || (!isConnected && !status);
-    const isActive = status === 'OK' || isConnected;
-    let indicatorColor = 'bg-red-500 shadow-red-500/20';
-    let textColor = 'text-red-400';
-    let displayText = details || (isActive ? 'Ready' : 'Not set up');
+// A STATE, never an instruction, and never more than is known. Nothing on this
+// page probes a service: checkStormglassStatus() returns OK without a request
+// (it will not spend paid quota to paint Settings), and the rest only read
+// whether a key or URL is present. So a set-up service reads a neutral
+// "Configured" with a grey dot — the green "Ready"/"Working" pair read as two
+// live checks, and "Cloud sync: Ready" glowed green while signed out (UX
+// scorecard run 6). Green is kept for a real check; none runs here yet.
+type ServiceState = 'configured' | 'missing' | 'free' | 'checking' | 'error' | 'paused' | 'signedOut';
 
-    if (loading) {
-        indicatorColor = 'bg-yellow-500 animate-pulse';
-        textColor = 'text-yellow-400';
-        displayText = 'CHECKING...';
-    } else if (isActive) {
-        indicatorColor = 'bg-emerald-500 shadow-emerald-500/50';
-        textColor = 'text-emerald-400';
-    } else if (isMissing && freeFallback) {
-        indicatorColor = 'bg-sky-500 shadow-sky-500/50';
-        textColor = 'text-sky-300';
-        displayText = 'FREE MODE';
-    } else if (isMissing) {
-        indicatorColor = 'bg-slate-500';
-        textColor = 'text-slate-300';
-        displayText = 'Not set up';
-    }
+const SERVICE_STATE: Record<ServiceState, { dot: string; text: string; word: string }> = {
+    configured: { dot: 'bg-slate-400', text: 'text-gray-300', word: 'Configured' },
+    missing: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Not set up' },
+    // The marine forecast without its key runs on the free sources.
+    free: { dot: 'bg-sky-500', text: 'text-sky-300', word: 'Free mode' },
+    checking: { dot: 'bg-yellow-500 animate-pulse', text: 'text-yellow-400', word: 'Checking…' },
+    error: { dot: 'bg-red-500', text: 'text-red-400', word: 'Not working' },
+    paused: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Paused' },
+    signedOut: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Sign in to sync' },
+};
 
+/** One flat row in the Services list: plain sentence-case name, state on the right. */
+const StatusRow = ({ label, state, details }: { label: string; state: ServiceState; details?: string }) => {
+    const look = SERVICE_STATE[state];
     return (
-        <li className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">
-            <div className="flex items-center gap-3">
-                <div aria-hidden="true" className={`w-2.5 h-2.5 rounded-full shadow-lg ${indicatorColor}`}></div>
-                <span className="text-xs font-bold text-white uppercase tracking-wider">{label}</span>
+        <li className="flex min-h-[44px] items-center justify-between gap-3 px-4 py-3 border-b border-white/5 last:border-0">
+            <div className="flex min-w-0 items-center gap-3">
+                <span aria-hidden="true" className={`w-2.5 h-2.5 shrink-0 rounded-full ${look.dot}`} />
+                <span className="text-sm font-bold text-white">{label}</span>
             </div>
-            <div className="flex items-center gap-3">
-                <span className={`text-xs font-semibold ${textColor}`}>{displayText}</span>
-                {onTest && (
-                    <button
-                        aria-label="Test push notification delivery"
-                        onClick={onTest}
-                        className="hit-target-44 px-2 py-1 rounded-sm bg-white/5 border border-white/10 text-xs font-bold text-white uppercase"
-                    >
-                        Test
-                    </button>
-                )}
-            </div>
+            <span className={`text-right text-sm font-medium ${look.text}`}>{details || look.word}</span>
         </li>
     );
 };
@@ -204,7 +172,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         {/* h2, like every section heading below it — as an h3 it
                             sat under the Network Mode / Services h2s in the outline. */}
                         <h2 className="text-lg font-bold text-white">
-                            {user ? 'Connected to Cloud' : 'Cloud Connection'}
+                            {user ? 'Connected to the cloud' : 'Cloud connection'}
                         </h2>
                         <p className="text-sm text-gray-400 max-w-md mt-1">
                             {user
@@ -213,13 +181,9 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         </p>
                     </div>
                     {!user ? (
-                        <button
-                            aria-label="Sign in"
-                            onClick={() => setAuthOpen(true)}
-                            className="min-h-11 bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
-                        >
-                            Sign In
-                        </button>
+                        <Button variant="primary" onClick={() => setAuthOpen(true)} className="px-8">
+                            Sign in
+                        </Button>
                     ) : (
                         <div className="flex flex-col gap-3 items-center w-full">
                             <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
@@ -242,15 +206,16 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 <CloudIcon className="w-5 h-5" />
                             </div>
                             <div>
-                                <p className="text-white font-bold text-sm">Cloud Sync</p>
-                                <p className="text-[11px] text-emerald-400 uppercase tracking-wide font-bold">
-                                    Connected
-                                </p>
+                                <p className="text-white font-bold text-sm">Cloud sync</p>
+                                <p className="text-xs text-emerald-400 font-bold">Signed in</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
-                            <span className="text-xs text-emerald-400 font-bold">ACTIVE</span>
+                            <div
+                                className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"
+                                aria-hidden="true"
+                            ></div>
+                            <span className="text-xs text-emerald-400 font-bold">Active</span>
                         </div>
                     </Row>
                     <Row>
@@ -261,18 +226,21 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                             </p>
                         </div>
                         <div
-                            className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${isSupabaseConfigured() ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}
+                            className={`px-3 py-1 rounded-full text-xs font-bold ${isSupabaseConfigured() ? 'bg-white/5 border border-white/10 text-gray-300' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}
                         >
-                            {isSupabaseConfigured() ? 'Ready' : 'Missing'}
+                            {isSupabaseConfigured() ? 'Configured' : 'Missing'}
                         </div>
                     </Row>
                 </Section>
             )}
 
             {/* Satellite Mode */}
+            {/* The switch sits straight in the section card, like every other
+                settings row — it used to be a bordered card inside the section
+                card. The amber wash still marks the mode as on. */}
             <Section title="Network Mode">
                 <div
-                    className={`mx-3 mt-2 mb-3 rounded-xl border p-4 transition-all duration-500 ${settings.satelliteMode ? 'bg-linear-to-br from-amber-500/15 to-orange-500/10 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'bg-white/3 border-white/5'}`}
+                    className={`p-4 transition-colors duration-500 ${settings.satelliteMode ? 'bg-linear-to-br from-amber-500/15 to-orange-500/10' : ''}`}
                 >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -317,8 +285,11 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 does — five small JSON calls every three hours.
                                 "StormGlass only" was never true; the cadence is
                                 the saving, and the cadence is what is promised. */}
-                            <div className="flex items-center gap-2 text-[11px]">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <div
+                                    className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
+                                    aria-hidden="true"
+                                ></div>
                                 <span className="text-amber-200/70">Weather updates every 3 hours</span>
                             </div>
                             {/* Rendered FROM the policy module, so what this list
@@ -327,19 +298,28 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 Weather only" while GRIBs, radar, AIS and video
                                 uploads ran exactly as on WiFi. */}
                             {SATELLITE_MODE_ENFORCED.map((entry) => (
-                                <div key={entry.kind} className="flex items-center gap-2 text-[11px]">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                                <div key={entry.kind} className="flex items-center gap-2 text-xs">
+                                    <div
+                                        className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
+                                        aria-hidden="true"
+                                    ></div>
                                     <span className="text-amber-200/70">{entry.label}</span>
                                 </div>
                             ))}
-                            <div className="flex items-center gap-2 text-[11px]">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <div
+                                    className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
+                                    aria-hidden="true"
+                                ></div>
                                 <span className="text-amber-200/70">
                                     Log entries stored on-device until back on land
                                 </span>
                             </div>
-                            <div className="flex items-center gap-2 text-[11px]">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <div
+                                    className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
+                                    aria-hidden="true"
+                                ></div>
                                 <span className="text-amber-200/70">
                                     Diary relay uploads pause until normal network mode resumes
                                 </span>
@@ -392,63 +372,67 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             )}
 
             <Section title="Services">
-                <ul className="p-3 space-y-2" role="list" aria-label="Service status">
+                <ul role="list" aria-label="Service status">
                     <StatusRow
                         label="Marine forecast"
-                        isConnected={isStormglassKeyPresent()}
-                        status={sgStatus?.status}
-                        details={sgStatus ? (sgStatus.status === 'OK' ? 'Working' : sgStatus.message) : undefined}
-                        loading={sgStatus?.status === 'LOADING'}
-                        freeFallback
+                        state={
+                            !sgStatus || sgStatus.status === 'LOADING'
+                                ? 'checking'
+                                : sgStatus.status === 'MISSING_KEY'
+                                  ? 'free'
+                                  : sgStatus.status === 'ERROR'
+                                    ? 'error'
+                                    : 'configured'
+                        }
+                        details={sgStatus?.status === 'ERROR' ? sgStatus.message : undefined}
                     />
+                    {/* The assistant is Calypso, whose console is parked
+                        (FEATURE_VISIBILITY.calypsoConsole): a configured key does
+                        not make him available. */}
                     <StatusRow
                         label="Assistant"
-                        isConnected={isGeminiConfigured()}
-                        details={isGeminiConfigured() ? 'Ready' : 'Not set up'}
+                        state={
+                            !FEATURE_VISIBILITY.calypsoConsole
+                                ? 'paused'
+                                : isGeminiConfigured()
+                                  ? 'configured'
+                                  : 'missing'
+                        }
                     />
-                    <StatusRow
-                        label="Charts"
-                        isConnected={isMapboxConfigured()}
-                        details={isMapboxConfigured() ? 'Ready' : 'Not set up'}
-                    />
+                    <StatusRow label="Charts" state={isMapboxConfigured() ? 'configured' : 'missing'} />
+                    {/* Sync needs a session, not just a configured backend. */}
                     <StatusRow
                         label="Cloud sync"
-                        isConnected={isSupabaseConfigured()}
-                        details={isSupabaseConfigured() ? 'Ready' : 'Not set up'}
+                        state={!isSupabaseConfigured() ? 'missing' : user ? 'configured' : 'signedOut'}
                     />
-                    <StatusRow
-                        label="Weather models"
-                        isConnected={!!isOpenMeteoConfigured()}
-                        details={isOpenMeteoConfigured() ? 'Ready' : 'Not set up'}
-                    />
+                    <StatusRow label="Weather models" state={isOpenMeteoConfigured() ? 'configured' : 'missing'} />
                 </ul>
+                <p className="px-4 pb-4 pt-1 text-xs leading-relaxed text-gray-400">
+                    Configured means the service is set up in this app. It isn&apos;t tested from this screen.
+                </p>
             </Section>
 
             {/* Account Actions */}
             {user && (
                 <Section title="Account">
                     <Row>
-                        <button
-                            aria-label="Sign out"
-                            onClick={() => void handleLogout()}
-                            className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors active:scale-95"
-                        >
+                        <Button variant="danger" onClick={() => void handleLogout()} className="w-full">
                             <LockIcon className="w-4 h-4" />
-                            Sign Out
-                        </button>
+                            Sign out
+                        </Button>
                     </Row>
                     <Row>
                         {ACCOUNT_DELETION_PUBLIC_BETA_ENABLED ? (
                             <div className="w-full space-y-2">
-                                <button
-                                    type="button"
+                                <Button
+                                    variant="danger"
                                     aria-label="Permanently delete account"
                                     onClick={() => setDeleteAccountOpen(true)}
-                                    className="w-full rounded-xl border border-red-500/30 bg-red-950/30 py-3 text-xs font-bold uppercase text-red-300 transition-colors hover:bg-red-950/60 active:scale-95"
+                                    className="w-full"
                                 >
-                                    Delete Account and Data
-                                </button>
-                                <p className="text-center text-[11px] leading-relaxed text-gray-500">
+                                    Delete account and data
+                                </Button>
+                                <p className="text-center text-xs leading-relaxed text-gray-400">
                                     Permanently removes your account, synced data, uploads, and shared content.
                                 </p>
                             </div>

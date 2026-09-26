@@ -25,6 +25,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon, XIcon, MinusIcon } from '../Icons';
 import { Toggle } from './SettingsPrimitives';
+import { Button } from '../ui/Button';
 
 type InputTab = 'import' | 'manual';
 
@@ -219,48 +220,35 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
 
             {/* Polar Chart Visualization */}
             <div className="mt-4 shrink-0 bg-white/2 border border-white/6 rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex flex-col items-start gap-1">
-                        <h2 className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</h2>
-                        {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
-                        {!boatModel && (
-                            <span className="text-xs text-gray-400">
-                                No yacht selected —{' '}
-                                {onOpenVesselProfile ? (
-                                    <button
-                                        type="button"
-                                        onClick={onOpenVesselProfile}
-                                        className="inline-flex min-h-11 items-center font-bold text-sky-300 underline underline-offset-2"
-                                    >
-                                        choose one in Settings → Vessel Profile
-                                    </button>
-                                ) : (
-                                    'choose one in Settings → Vessel Profile'
-                                )}
-                            </span>
-                        )}
-                    </div>
-                    {/* 3-dot menu for advanced input */}
-                    <button
-                        type="button"
-                        onClick={() => setShowAdvancedInput(true)}
-                        className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
-                        title="Advanced polar input"
-                        aria-label="Advanced polar input"
-                    >
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <circle cx="10" cy="4" r="1.5" />
-                            <circle cx="10" cy="10" r="1.5" />
-                            <circle cx="10" cy="16" r="1.5" />
-                        </svg>
-                    </button>
+                {/* A named button, not an unlabelled ⋮, is the way in to typing or
+                    importing figures (UX scorecard run 6). */}
+                <div className="mb-4 flex flex-col items-start gap-1">
+                    <h2 className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar diagram</h2>
+                    {boatModel ? (
+                        <span className="text-base font-black text-white">{boatModel}</span>
+                    ) : (
+                        <>
+                            <p className="text-sm text-gray-400">No boat design chosen</p>
+                            {onOpenVesselProfile ? (
+                                <button
+                                    type="button"
+                                    onClick={onOpenVesselProfile}
+                                    className="inline-flex min-h-11 items-center text-xs font-bold text-sky-300 underline underline-offset-2"
+                                >
+                                    Choose one in Settings → Vessel profile
+                                </button>
+                            ) : (
+                                <p className="text-xs text-gray-400">Choose one in Settings → Vessel profile</p>
+                            )}
+                        </>
+                    )}
+                    <Button variant="secondary" onClick={() => setShowAdvancedInput(true)} className="mt-2 text-white">
+                        <EditIcon className="w-4 h-4" />
+                        <span>Enter polar figures</span>
+                    </Button>
                 </div>
                 <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
-                    <PolarChart
-                        data={polarData}
-                        overlayData={smartPolarData}
-                        emptyLabel="No polar yet — tap ⋮ to enter figures"
-                    />
+                    <PolarChart data={polarData} overlayData={smartPolarData} emptyLabel="No polar yet" />
                 </div>
 
                 {/* Save status */}
@@ -281,7 +269,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
             </div>
 
             {/* ═══════════════════════════════════════════ */}
-            {/* ADVANCED POLAR INPUT — Overlay Card        */}
+            {/* ENTER POLAR FIGURES — Overlay Card          */}
             {/* ═══════════════════════════════════════════ */}
             {showAdvancedInput && (
                 <OverlayPortal
@@ -301,19 +289,16 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                         <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 rounded-t-2xl">
                             <div className="flex items-center gap-2">
                                 <div className="w-1 h-4 rounded-full bg-sky-500" />
-                                <h2
-                                    id={advancedTitleId}
-                                    className="text-sm font-bold text-white uppercase tracking-wider"
-                                >
-                                    Advanced Polar Input
+                                <h2 id={advancedTitleId} className="text-base font-bold text-white">
+                                    Enter polar figures
                                 </h2>
                             </div>
                             <button
                                 type="button"
                                 ref={advancedCloseRef}
                                 onClick={() => setShowAdvancedInput(false)}
-                                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
-                                aria-label="Close advanced polar input"
+                                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                                aria-label="Close polar figures"
                             >
                                 <svg
                                     className="w-5 h-5"
@@ -431,13 +416,18 @@ const SmartPolarsCard: React.FC<{
 
     const status = nmeaStatusConfig[nmeaStatus];
     const isDisconnected = nmeaStatus === 'disconnected';
+    // Same condition under which flipping the switch used to divert to NMEA setup.
+    const switchBlocked = !smartEnabled && isDisconnected && !!onNavigateToNmea;
+    const blockedCaptionId = useId();
     const fillPercent = smartStats ? Math.round((smartStats.filledBuckets / smartStats.totalBuckets) * 100) : 0;
 
     return (
         <div
             className={`rounded-2xl p-4 transition-all ${
                 isDisconnected
-                    ? 'bg-white/2 border border-white/6 opacity-70'
+                    ? // Dim the chrome only: opacity-70 on the card put its daylight
+                      // text at 3.45–4.3:1 (UX scorecard run 6).
+                      'bg-white/2 border border-white/6'
                     : 'bg-linear-to-br from-emerald-500/5 to-sky-500/5 border border-emerald-500/20'
             }`}
         >
@@ -457,18 +447,32 @@ const SmartPolarsCard: React.FC<{
                     )}
                 </div>
                 {/* Smart Polars Toggle — the shared settings switch (role=switch,
-                    same geometry and colour as every other settings toggle). */}
-                <Toggle
-                    checked={smartEnabled}
-                    label="Smart Polars"
-                    onChange={(next) => {
-                        if (next && nmeaStatus === 'disconnected' && onNavigateToNmea) {
-                            onNavigateToNmea();
-                            return;
-                        }
-                        onToggleSmart(next);
-                    }}
-                />
+                    same geometry and colour as every other settings toggle).
+                    With no NMEA feed it cannot turn on, so it is shown disabled
+                    with the reason, instead of a live-looking switch that
+                    quietly opened NMEA setup; the link below still goes there. */}
+                {switchBlocked ? (
+                    <div className="flex items-center gap-2">
+                        <span id={blockedCaptionId} className="text-xs text-gray-400">
+                            Needs NMEA gateway
+                        </span>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={false}
+                            aria-label="Smart Polars"
+                            aria-describedby={blockedCaptionId}
+                            disabled
+                            className="relative inline-flex items-center py-2.5 px-2 -mr-2 cursor-not-allowed"
+                        >
+                            <div className="w-11 h-6 rounded-full bg-slate-700 opacity-50" aria-hidden="true">
+                                <div className="absolute top-3.5 left-3 w-4 h-4 bg-white rounded-full" />
+                            </div>
+                        </button>
+                    </div>
+                ) : (
+                    <Toggle checked={smartEnabled} label="Smart Polars" onChange={onToggleSmart} />
+                )}
             </div>
 
             {/* Explanation when disabled */}
@@ -482,18 +486,20 @@ const SmartPolarsCard: React.FC<{
                     <p className="text-xs text-gray-400 mt-1.5">
                         {nmeaStatus === 'disconnected' ? (
                             <>
-                                <span className="text-amber-400 inline-flex items-center gap-1">
-                                    <AlertTriangleIcon className="w-3 h-3" />
+                                {/* Amber on the glyph only: amber text measured under AA
+                                    on this box in daylight (UX scorecard run 6). */}
+                                <span className="text-gray-200 font-bold inline-flex items-center gap-1">
+                                    <AlertTriangleIcon className="w-3 h-3 text-amber-400" />
                                     <span>Not connected</span>
                                 </span>{' '}
                                 —{' '}
                                 {onNavigateToNmea ? (
                                     <button
-                                        aria-label="Configure NMEA gateway connection"
+                                        type="button"
                                         onClick={onNavigateToNmea}
                                         className="inline-flex min-h-11 items-center text-sky-400 underline underline-offset-2 font-bold"
                                     >
-                                        Set up NMEA Gateway
+                                        Set up NMEA gateway
                                     </button>
                                 ) : (
                                     'configure your NMEA gateway first'

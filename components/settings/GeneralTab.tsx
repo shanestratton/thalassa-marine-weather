@@ -8,9 +8,29 @@ import { FleetSharingSection } from './FleetSharingSection';
 import { AestheticsSections } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { CompassIcon, TrashIcon } from '../Icons';
+import { Button } from '../ui/Button';
 import type { LengthUnit, OffshoreModel } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
 import { canAccess } from '../../services/SubscriptionService';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * 'Version 1.2.0 · built 26 Sep, 16:47' — the bundle stamp in the phone's own
+ * time, not the UTC developer stamp 'bundle 2026-09-26 06:47Z' (UX scorecard
+ * run 6). It still dates the JavaScript actually running, so a stale install
+ * shows at a glance. A stamp that will not parse shows '--', never a guess.
+ */
+function formatVersionLine(version: string | undefined, stamp: string): string {
+    const v = version?.trim() || '--';
+    // __BUILD_STAMP__ is 'YYYY-MM-DD HH:MMZ'; spell it as full ISO for Safari.
+    const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})Z$/.exec(stamp.trim());
+    const built = m ? new Date(`${m[1]}T${m[2]}:00Z`) : null;
+    if (!built || Number.isNaN(built.getTime())) return `Version ${v} · built --`;
+    const hh = String(built.getHours()).padStart(2, '0');
+    const mm = String(built.getMinutes()).padStart(2, '0');
+    return `Version ${v} · built ${built.getDate()} ${MONTHS[built.getMonth()]}, ${hh}:${mm}`;
+}
 
 interface GeneralTabProps extends SettingsTabProps {
     onLocationSelect: (location: string) => void;
@@ -28,7 +48,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Location & Time">
                 <Row>
                     <div className="flex-1">
-                        <label className="text-sm text-white font-medium block">Default Port</label>
+                        <label className="text-sm text-white font-medium block">Default port</label>
                     </div>
                     <div className="flex gap-2">
                         <div className="relative">
@@ -257,14 +277,17 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Section>
             )}
 
+            {/* Legal and Beta Support are plain rows in their section card, like
+                every section above — each used to sit in a bordered card of its
+                own inside the section card (UX scorecard run 6). */}
             <Section title="Legal">
-                <div className="p-4">
-                    <button
-                        aria-label="Open Terms of Service and Privacy Policy"
-                        onClick={() => void openExternalUrl(THALASSA_TERMS_URL)}
-                        className="w-full flex items-center gap-3 p-3 bg-white/3 border border-white/5 rounded-xl hover:bg-white/[0.07] hover:border-white/10 transition-all active:scale-[0.98] text-left"
-                    >
-                        <div className="p-2 bg-white/5 rounded-lg">
+                <Row
+                    onClick={() => void openExternalUrl(THALASSA_TERMS_URL)}
+                    label="Open Terms of Service and Privacy Policy"
+                    className="min-h-[44px]"
+                >
+                    <div className="flex flex-1 min-w-0 items-center gap-3">
+                        <div className="shrink-0 p-2 bg-white/5 rounded-lg" aria-hidden="true">
                             <svg
                                 className="w-4 h-4 text-gray-400"
                                 fill="none"
@@ -279,25 +302,24 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 />
                             </svg>
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                             <p className="text-sm text-white font-bold">Terms of Service & Privacy Policy</p>
                             <p className="text-xs text-gray-300 mt-0.5">
                                 View our terms, conditions, and data practices
                             </p>
                         </div>
-                        <RowChevron />
-                    </button>
-                </div>
+                    </div>
+                    <RowChevron />
+                </Row>
             </Section>
             <Section title="Beta Support">
-                <div className="p-4">
-                    <button
-                        type="button"
-                        aria-label="Report a bug or request a feature"
-                        onClick={() => void openFeedbackDestination()}
-                        className="flex w-full items-center gap-3 rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-left transition-all hover:border-sky-400/30 hover:bg-sky-500/15 active:scale-[0.98]"
-                    >
-                        <div className="rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
+                <Row
+                    onClick={() => void openFeedbackDestination()}
+                    label="Report a bug or request a feature"
+                    className="min-h-[44px]"
+                >
+                    <div className="flex flex-1 min-w-0 items-center gap-3">
+                        <div className="shrink-0 rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path
                                     strokeLinecap="round"
@@ -307,32 +329,35 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 />
                             </svg>
                         </div>
-                        <div className="flex-1">
-                            <p className="text-sm font-bold text-white">Send Beta Feedback</p>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white">Send beta feedback</p>
                             <p className="mt-0.5 text-xs text-gray-300">
                                 Report a bug or tell us what needs improving; version and platform are pre-filled.
                             </p>
                         </div>
-                        <RowChevron className="h-4 w-4 text-sky-300" />
-                    </button>
-                </div>
+                    </div>
+                    <RowChevron />
+                </Row>
             </Section>
             <Section title="Danger Zone" tone="danger">
                 <div className="p-4">
-                    <button
+                    <Button
+                        variant="danger"
                         aria-label="Factory reset all settings and data"
                         onClick={onShowFactoryReset}
-                        className="w-full min-h-11 py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"
+                        className="w-full"
                     >
-                        <TrashIcon className="w-4 h-4" /> Factory Reset
-                    </button>
+                        <TrashIcon className="w-4 h-4" /> Factory reset
+                    </Button>
                 </div>
             </Section>
-            {/* The web-bundle build stamp — NOT the App Store version. This
-                dates the JavaScript actually running, so a stale install is
-                visible at a glance. If this does not match roughly when you
-                last pressed Run in Xcode, the phone is running old code. */}
-            <p className="pb-2 pt-1 text-center text-xs tracking-wide text-white/50">bundle {__BUILD_STAMP__}</p>
+            {/* The web-bundle build time, in local time — it dates the
+                JavaScript actually running, so a stale install is visible at a
+                glance. If this does not match roughly when you last pressed Run
+                in Xcode, the phone is running old code. */}
+            <p className="pb-2 pt-1 text-center text-xs tracking-wide text-white/50">
+                {formatVersionLine(import.meta.env.VITE_APP_VERSION, __BUILD_STAMP__)}
+            </p>
         </div>
     );
 };

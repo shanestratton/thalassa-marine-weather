@@ -101,9 +101,37 @@ export function clockInZone(when: Date, timeZone: string): ZoneClock {
     }
 }
 
+/**
+ * Zones the device database still lists under their pre-rename IANA IDs
+ * (ICU keeps "Asia/Calcutta" as the canonical key), so the list read
+ * "Calcutta", "Saigon", "Kiev". DISPLAY ONLY: the stored value stays the ID
+ * the device gave, so a saved choice still matches its option.
+ */
+const RENAMED_ZONES: Record<string, string> = {
+    'Asia/Calcutta': 'Asia/Kolkata',
+    'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+    'Asia/Katmandu': 'Asia/Kathmandu',
+    'Asia/Rangoon': 'Asia/Yangon',
+    'Europe/Kiev': 'Europe/Kyiv',
+    'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+    'America/Godthab': 'America/Nuuk',
+    'Atlantic/Faeroe': 'Atlantic/Faroe',
+    'Pacific/Truk': 'Pacific/Chuuk',
+    'Pacific/Ponape': 'Pacific/Pohnpei',
+    'Pacific/Enderbury': 'Pacific/Kanton',
+    'America/Indianapolis': 'America/Indiana/Indianapolis',
+    'America/Louisville': 'America/Kentucky/Louisville',
+};
+
+/** The current IANA name to SHOW for a zone ID — never to store. */
+export function displayZoneId(timeZone: string): string {
+    return RENAMED_ZONES[timeZone] ?? timeZone;
+}
+
 /** "Australia/Brisbane" → "Brisbane", for a dropdown that has to fit a phone. */
 export function zoneDisplayName(timeZone: string): string {
     if (timeZone === 'UTC') return 'UTC';
-    const tail = timeZone.split('/').slice(-1)[0] ?? timeZone;
+    const shown = displayZoneId(timeZone);
+    const tail = shown.split('/').slice(-1)[0] ?? shown;
     return tail.replace(/_/g, ' ');
 }

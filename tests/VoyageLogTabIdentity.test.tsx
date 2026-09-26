@@ -294,13 +294,13 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         );
         renderTab();
 
-        expect(await screen.findByRole('switch', { name: 'Public voyage log on/off' })).toHaveAttribute(
+        expect(await screen.findByRole('switch', { name: 'Public voyage log' })).toHaveAttribute(
             'aria-checked',
             'true',
         );
-        expect(screen.getByRole('switch', { name: 'Show my current track on/off' })).toBeInTheDocument();
-        expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toBeInTheDocument();
-        expect(screen.getByRole('switch', { name: 'Show shipping around me on/off' })).toBeInTheDocument();
+        expect(screen.getByRole('switch', { name: 'Show my current track' })).toBeInTheDocument();
+        expect(screen.getByRole('switch', { name: 'Share my instruments' })).toBeInTheDocument();
+        expect(screen.getByRole('switch', { name: 'Show shipping around me' })).toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Public tracks' })).not.toBeInTheDocument();
         expect(screen.queryByRole('switch', { name: /Show voyage/ })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Passage:|Plan A|Unlink|Replace/ })).not.toBeInTheDocument();
@@ -316,7 +316,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.setEnabled.mockReturnValueOnce(disable.promise).mockReturnValueOnce(enable.promise);
         const onSave = vi.fn();
         renderTab(onSave);
-        const toggle = await screen.findByRole('switch', { name: 'Public voyage log on/off' });
+        const toggle = await screen.findByRole('switch', { name: 'Public voyage log' });
 
         fireEvent.click(toggle);
         expect(mocks.setEnabled).toHaveBeenLastCalledWith(false);
@@ -325,7 +325,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         await act(async () => disable.resolve({ ...enabledConfig, enabled: false }));
         expect(toggle).toHaveAttribute('aria-checked', 'false');
         expect(toggle).not.toBeDisabled();
-        expect(screen.queryByRole('switch', { name: 'Share my instruments on/off' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('switch', { name: 'Share my instruments' })).not.toBeInTheDocument();
 
         fireEvent.click(toggle);
         expect(mocks.setEnabled).toHaveBeenLastCalledWith(true);
@@ -334,10 +334,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         await act(async () => enable.resolve(enabledConfig));
         expect(toggle).toHaveAttribute('aria-checked', 'true');
         expect(toggle).not.toBeDisabled();
-        expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toHaveAttribute(
-            'aria-checked',
-            'false',
-        );
+        expect(screen.getByRole('switch', { name: 'Share my instruments' })).toHaveAttribute('aria-checked', 'false');
         expect(mocks.setPublicInstrumentsEnabled).not.toHaveBeenCalled();
         expect(onSave).not.toHaveBeenCalled();
         expectNoPerVoyageAccess();
@@ -347,7 +344,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.getConfig.mockResolvedValue(config('account-a', 'boat-a', enabled));
         mocks.setEnabled.mockResolvedValueOnce(null);
         renderTab();
-        const toggle = await screen.findByRole('switch', { name: 'Public voyage log on/off' });
+        const toggle = await screen.findByRole('switch', { name: 'Public voyage log' });
 
         fireEvent.click(toggle);
         await waitFor(() => expect(toggle).not.toBeDisabled());
@@ -362,7 +359,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         async (sharing) => {
             const onSave = vi.fn();
             renderTab(onSave, { ...settings, liveTrackShare: sharing });
-            const toggle = await screen.findByRole('switch', { name: 'Show my current track on/off' });
+            const toggle = await screen.findByRole('switch', { name: 'Show my current track' });
 
             fireEvent.click(toggle);
             expect(onSave).toHaveBeenCalledWith({ liveTrackShare: !sharing });
@@ -370,7 +367,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
                 expect(sharing ? mocks.purgeLiveTrack : mocks.markLiveTrickleFreshStart).toHaveBeenCalledOnce(),
             );
             expect(sharing ? mocks.markLiveTrickleFreshStart : mocks.purgeLiveTrack).not.toHaveBeenCalled();
-            expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toHaveAttribute(
+            expect(screen.getByRole('switch', { name: 'Share my instruments' })).toHaveAttribute(
                 'aria-checked',
                 'false',
             );
@@ -387,15 +384,12 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         });
         const onSave = vi.fn();
         renderTab(onSave);
-        const toggle = await screen.findByRole('switch', { name: 'Show shipping around me on/off' });
+        const toggle = await screen.findByRole('switch', { name: 'Show shipping around me' });
 
         fireEvent.click(toggle);
         await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
         expect(mocks.setPublicAisEnabled).toHaveBeenCalledWith(false);
-        expect(screen.getByRole('switch', { name: 'Share my instruments on/off' })).toHaveAttribute(
-            'aria-checked',
-            'false',
-        );
+        expect(screen.getByRole('switch', { name: 'Share my instruments' })).toHaveAttribute('aria-checked', 'false');
         expect(mocks.setPublicInstrumentsEnabled).not.toHaveBeenCalled();
         expect(mocks.setEnabled).not.toHaveBeenCalled();
         expect(onSave).not.toHaveBeenCalled();
@@ -406,7 +400,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         const save = deferred<VoyageLogConfig | null>();
         mocks.setPublicInstrumentsEnabled.mockReturnValueOnce(save.promise);
         renderTab();
-        const toggle = await screen.findByRole('switch', { name: 'Share my instruments on/off' });
+        const toggle = await screen.findByRole('switch', { name: 'Share my instruments' });
         expect(toggle).toHaveAttribute('aria-checked', 'false');
         fireEvent.click(toggle);
         expect(mocks.setPublicInstrumentsEnabled).toHaveBeenCalledWith(true, {
@@ -423,7 +417,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
     it('does not claim consent was saved when the server rejects it', async () => {
         mocks.setPublicInstrumentsEnabled.mockResolvedValueOnce(null);
         renderTab();
-        const toggle = await screen.findByRole('switch', { name: 'Share my instruments on/off' });
+        const toggle = await screen.findByRole('switch', { name: 'Share my instruments' });
         fireEvent.click(toggle);
         await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
         expect(toggle).toHaveAttribute('aria-checked', 'false');
@@ -541,7 +535,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.getConfig.mockResolvedValueOnce(config('account-a', 'boat-a')).mockResolvedValueOnce(null);
 
         renderTab();
-        const instrumentToggle = await screen.findByRole('switch', { name: 'Share my instruments on/off' });
+        const instrumentToggle = await screen.findByRole('switch', { name: 'Share my instruments' });
         fireEvent.click(instrumentToggle);
         expect(instrumentToggle).toHaveAttribute('aria-checked', 'false');
         const hapticsAtSwitch = mocks.haptic.mock.calls.length;
@@ -555,6 +549,33 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         expect(await screen.findByRole('button', { name: 'Set up your voyage log' })).toBeInTheDocument();
         expect(mocks.toastError).not.toHaveBeenCalled();
         expect(mocks.haptic).toHaveBeenCalledTimes(hapticsAtSwitch);
-        expect(screen.queryByRole('switch', { name: 'Share my instruments on/off' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('switch', { name: 'Share my instruments' })).not.toBeInTheDocument();
+    });
+
+    it('signed out, points at Account & Cloud instead of offering a Set up that can only fail', async () => {
+        // UX scorecard run 6: Set up was offered with no hint an account is needed.
+        setAuthIdentityScope(null);
+        mocks.authUserId = '';
+        mocks.getConfig.mockResolvedValue(null);
+        const onOpenAccount = vi.fn();
+        render(<VoyageLogTab settings={settings} onSave={vi.fn()} onOpenAccount={onOpenAccount} />);
+
+        const signIn = await screen.findByRole('button', { name: /Sign in to set up your Voyage Log/ });
+        expect(screen.queryByRole('button', { name: 'Set up your voyage log' })).not.toBeInTheDocument();
+        fireEvent.click(signIn);
+        expect(onOpenAccount).toHaveBeenCalledTimes(1);
+        expect(mocks.ensureConfigured).not.toHaveBeenCalled();
+    });
+
+    it('words a setup failure plainly and keeps the server reason under details', async () => {
+        mocks.getConfig.mockResolvedValue(null);
+        mocks.ensureConfigured.mockResolvedValueOnce(null);
+        renderTab();
+        fireEvent.click(await screen.findByRole('button', { name: 'Set up your voyage log' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent("Couldn't set up your Voyage Log");
+        expect(alert).toHaveTextContent("The server didn't accept the request.");
+        expect(screen.getByText('Details for support')).toBeInTheDocument();
     });
 });

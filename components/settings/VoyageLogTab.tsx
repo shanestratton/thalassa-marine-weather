@@ -20,7 +20,9 @@ import {
 import { supabase } from '../../services/supabase';
 import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
-import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { Row, RowChevron, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { Button } from '../ui/Button';
+import { EyeIcon, LockIcon } from '../Icons';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -50,7 +52,27 @@ const publicUrlForHandle = (handle: string) => `https://${handle}.thalassawx.app
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 
-export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+/**
+ * The setup failure in the skipper's words. VoyageLogService.lastError is a
+ * server reason ('Couldn't create Voyage Log config: <postgres message>'); it
+ * stays available under "Details for support", but it no longer leads.
+ */
+const plainSetupError = (reason: string): string => {
+    if (/sign in|sign-in/i.test(reason)) {
+        return 'You need to be signed in. Sign in on Account & Cloud, then try again.';
+    }
+    if (/offline|signal|network|fetch|unavailable/i.test(reason)) {
+        return "Thalassa couldn't reach the server. Check your signal and try again.";
+    }
+    return "The server didn't accept the request. Try again in a minute; if it keeps failing, send the details below through Beta support.";
+};
+
+interface VoyageLogTabProps extends SettingsTabProps {
+    /** Opens Account & Cloud — where a signed-out skipper signs in. */
+    onOpenAccount?: () => void;
+}
+
+export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, onOpenAccount }) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
     /**
      * Data is rendered only when it was reset/loaded for this exact generation.
@@ -465,7 +487,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
 
     if (loading || dataGeneration !== identityScope.generation) {
         return (
-            <div className="px-4 pb-8">
+            <div className="pb-8">
                 <div className="h-24 rounded-2xl bg-white/3 border border-white/6 animate-pulse" />
             </div>
         );
@@ -541,45 +563,64 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         );
 
     // ── Not set up yet ─────────────────────────────────────────────
+    // No outer px-4 on any branch: the Settings scroller already pads 16 pt,
+    // and the two together inset this page 32 pt (UX scorecard run 6).
     if (!config) {
+        const signedOut = !identityScope.userId;
         return (
-            <div className="px-4 pb-8">
+            <div className="pb-8">
                 <p className="text-sm text-gray-400 mb-6">
                     Your Voyage Log is a public page where the folks at home can follow your passage — your published
                     diary entries, your track on a map, and your latest position and barometer reading.
                 </p>
                 {renderCrewSection()}
                 <Section title="Get started">
-                    <Row>
-                        <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Set up your own Voyage Log</div>
-                            <div className="text-xs text-gray-400 mt-1">
-                                Reserves your public handle with the page switched off. Nothing is published until you
-                                turn the page on or explicitly publish a diary entry.
-                            </div>
-                        </div>
-                        <button
-                            onClick={() => void handleSetUp()}
-                            disabled={busy}
-                            aria-label="Set up your voyage log"
-                            className="shrink-0 min-h-[44px] text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1.5 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors disabled:opacity-50"
+                    {signedOut ? (
+                        // The page lives on the skipper's account, so a signed-out
+                        // Set up could only fail. Point at the sign-in instead.
+                        <Row
+                            onClick={onOpenAccount}
+                            label="Sign in to set up your Voyage Log. Opens Account and Cloud."
+                            className="min-h-[44px]"
                         >
-                            {busy ? 'Setting up…' : 'Set up'}
-                        </button>
-                    </Row>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-sm text-white font-bold">Sign in to set up your Voyage Log</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Your Voyage Log belongs to your Thalassa account. Sign in on Account &amp; Cloud,
+                                    then come back here.
+                                </div>
+                            </div>
+                            {onOpenAccount && <RowChevron />}
+                        </Row>
+                    ) : (
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Set up your own Voyage Log</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Reserves your public handle with the page switched off. Nothing is published until
+                                    you turn the page on or explicitly publish a diary entry.
+                                </div>
+                            </div>
+                            <Button
+                                variant="primary"
+                                onClick={() => void handleSetUp()}
+                                disabled={busy}
+                                aria-label="Set up your voyage log"
+                                className="shrink-0"
+                            >
+                                {busy ? 'Setting up…' : 'Set up'}
+                            </Button>
+                        </Row>
+                    )}
                 </Section>
                 {setupError && (
-                    <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
-                        <div className="text-[10px] font-black text-red-300 uppercase tracking-[0.2em] mb-2">
-                            Setup failed
-                        </div>
-                        <div className="text-xs text-red-100 leading-relaxed font-mono wrap-break-word">
-                            {setupError}
-                        </div>
-                        <div className="text-[11px] text-red-200/70 mt-2">
-                            Screenshot this and send it via Settings → Beta Support — it is the reason the server
-                            refused the request.
-                        </div>
+                    <div role="alert" className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                        <p className="text-sm font-bold text-red-200">Couldn&apos;t set up your Voyage Log</p>
+                        <p className="mt-1 text-sm leading-relaxed text-red-100">{plainSetupError(setupError)}</p>
+                        <details className="mt-1 text-xs text-red-200/70">
+                            <summary className="cursor-pointer py-3.5 leading-4">Details for support</summary>
+                            <p className="wrap-break-word leading-relaxed">{setupError}</p>
+                        </details>
                     </div>
                 )}
             </div>
@@ -591,13 +632,13 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     const apiUrl = voyageLogApiUrl(config.handle);
 
     return (
-        <div className="px-4 pb-8">
+        <div className="pb-8">
             {/* Hero — distinguish a reserved private handle from an actually
                 enabled public page. */}
             <div className="mb-5 rounded-2xl border border-sky-500/25 bg-linear-to-br from-sky-500/10 to-cyan-500/4 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xl">{config.enabled ? '🌐' : '🔒'}</span>
-                    <span className="text-[10px] font-black text-sky-300/80 uppercase tracking-[0.2em]">
+                <div className="flex items-center gap-2 mb-3 text-sky-300">
+                    {config.enabled ? <EyeIcon className="w-4 h-4" /> : <LockIcon className="w-4 h-4" />}
+                    <span className="text-xs font-black text-sky-300/80 uppercase tracking-[0.2em]">
                         {config.enabled ? 'Your Voyage Log is live' : 'Your Voyage Log is switched off'}
                     </span>
                 </div>
@@ -638,12 +679,10 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 new users is realising publish is opt-in per entry, so it
                 gets billing here. */}
             <div className="mb-6 rounded-xl border border-white/6 bg-white/2 p-4">
-                <div className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] mb-3">
-                    What to do next
-                </div>
+                <div className="text-xs font-black text-gray-300 uppercase tracking-[0.2em] mb-3">What to do next</div>
                 <ol className="space-y-2.5 text-xs text-gray-300 leading-relaxed list-none">
                     <li className="flex gap-3">
-                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold flex items-center justify-center">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-bold flex items-center justify-center">
                             1
                         </span>
                         <span>
@@ -652,7 +691,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         </span>
                     </li>
                     <li className="flex gap-3">
-                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold flex items-center justify-center">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-bold flex items-center justify-center">
                             2
                         </span>
                         <span>
@@ -663,7 +702,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         </span>
                     </li>
                     <li className="flex gap-3">
-                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold flex items-center justify-center">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-bold flex items-center justify-center">
                             3
                         </span>
                         <span>
@@ -689,7 +728,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         <Toggle
                             checked={config.enabled}
                             onChange={(v) => void handleToggle(v)}
-                            label="Public voyage log on/off"
+                            label="Public voyage log"
                         />
                     </Row>
                     {config.enabled && (
@@ -705,7 +744,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             <Toggle
                                 checked={settings.liveTrackShare === true}
                                 onChange={handleLiveTrackShare}
-                                label="Show my current track on/off"
+                                label="Show my current track"
                             />
                         </Row>
                     )}
@@ -722,7 +761,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             <Toggle
                                 checked={config.public_instruments_enabled === true}
                                 onChange={(v) => void handleTogglePublicInstruments(v)}
-                                label="Share my instruments on/off"
+                                label="Share my instruments"
                             />
                         </Row>
                     )}
@@ -740,7 +779,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             <Toggle
                                 checked={config.public_ais_enabled !== false}
                                 onChange={(v) => void handleTogglePublicAis(v)}
-                                label="Show shipping around me on/off"
+                                label="Show shipping around me"
                             />
                         </Row>
                     )}

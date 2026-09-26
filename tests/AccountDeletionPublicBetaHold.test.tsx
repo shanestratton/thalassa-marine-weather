@@ -66,7 +66,7 @@ describe('account deletion public-beta hold', () => {
     it('shows an honest privacy-contact boundary without rendering a destructive control or dialog', async () => {
         render(<AccountTab settings={{ satelliteMode: false } as UserSettings} onSave={vi.fn()} />);
 
-        await screen.findByText('FREE MODE');
+        await screen.findByText('Free mode');
         expect(screen.getByText('Account deletion temporarily unavailable')).toBeInTheDocument();
         expect(screen.getByText(/destructive in-app flow is paused/i)).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Permanently delete account' })).not.toBeInTheDocument();

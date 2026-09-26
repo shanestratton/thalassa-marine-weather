@@ -64,12 +64,12 @@ describe('PolarManagerTab advanced input accessibility', () => {
             await Promise.resolve();
         });
 
-        const opener = screen.getByRole('button', { name: 'Advanced polar input' });
+        const opener = screen.getByRole('button', { name: 'Enter polar figures' });
         opener.focus();
         fireEvent.click(opener);
 
-        const dialog = screen.getByRole('dialog', { name: 'Advanced Polar Input' });
-        const closeButton = screen.getByRole('button', { name: 'Close advanced polar input' });
+        const dialog = screen.getByRole('dialog', { name: 'Enter polar figures' });
+        const closeButton = screen.getByRole('button', { name: 'Close polar figures' });
         const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
         expect(dialog.getAttribute('aria-modal')).toBe('true');
         expect(overlay?.parentElement).toBe(document.body);
@@ -77,7 +77,7 @@ describe('PolarManagerTab advanced input accessibility', () => {
         expect(document.activeElement).toBe(closeButton);
 
         fireEvent.keyDown(closeButton, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: 'Advanced Polar Input' })).toBeNull();
+        expect(screen.queryByRole('dialog', { name: 'Enter polar figures' })).toBeNull();
         expect(document.activeElement).toBe(opener);
     });
 
@@ -86,7 +86,7 @@ describe('PolarManagerTab advanced input accessibility', () => {
         await act(async () => {
             await Promise.resolve();
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Advanced polar input' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Enter polar figures' }));
 
         const importButton = screen.getByRole('button', { name: 'Import' });
         const manualButton = screen.getByRole('button', { name: 'Manual' });

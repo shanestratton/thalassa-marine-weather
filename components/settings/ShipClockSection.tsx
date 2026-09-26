@@ -14,7 +14,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Row, Section, Toggle } from './SettingsPrimitives';
 import { ShipsBellChime } from '../../services/ShipsBellChime';
 import { bellsAt, bellsSpoken } from '../../utils/shipsBells';
-import { clockInZone, deviceTimeZone, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
+import { clockInZone, deviceTimeZone, displayZoneId, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { toast } from '../Toast';
 import {
@@ -49,13 +49,30 @@ function utcOffsetLabel(timeZone: string, when: Date): string {
 function zoneOptionLabel(timeZone: string, when: Date): string {
     const etc = /^Etc\/(?:GMT|UTC)([+-])(\d{1,2})$/.exec(timeZone);
     if (etc) return `Fixed offset (UTC${etc[2] === '0' || etc[1] === '-' ? '+' : '−'}${etc[2]})`;
-    const parts = timeZone.split('/');
+    // Renamed zones show their current name ("Kolkata", "Kyiv"); the ID
+    // stored stays the one the device gave.
+    const parts = displayZoneId(timeZone).split('/');
     const place =
         parts.length > 2
             ? `${zoneDisplayName(timeZone)}, ${parts[parts.length - 2].replace(/_/g, ' ')}`
             : zoneDisplayName(timeZone);
     const offset = utcOffsetLabel(timeZone, when);
     return offset && timeZone !== 'UTC' ? `${place} (${offset})` : place;
+}
+
+/**
+ * The "Ship's position" option names the zone it is keeping, not a place:
+ * "Ship's position (Brisbane)" read as where the boat IS (UX referee
+ * 2026-09-26). The abbreviation where Intl has one, then the offset —
+ * "AEST, UTC+10" — or just the offset where the abbreviation is itself only an
+ * offset ("GMT+10").
+ */
+function autoZoneOptionLabel(timeZone: string, when: Date): string {
+    const offset = utcOffsetLabel(timeZone, when);
+    if (!offset) return 'Ship’s position';
+    const abbr = clockInZone(when, timeZone).label;
+    const parts = [/^(GMT|UTC)/.test(abbr) ? '' : abbr, offset].filter(Boolean);
+    return `Ship’s position (${parts.join(', ')})`;
 }
 
 /**
@@ -198,9 +215,9 @@ export const ShipClockSection: React.FC = () => {
                         className="thalassa-select mt-3 w-full min-w-0 min-h-[44px] appearance-none rounded-xl border border-white/10 bg-black/40 pl-3 pr-9 text-sm text-white"
                     >
                         <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
-                            {`Ship’s position (${zoneDisplayName(shipZone ?? deviceTimeZone())})`}
+                            {autoZoneOptionLabel(shipZone ?? deviceTimeZone(), new Date())}
                         </option>
-                        <optgroup label="Suggested">
+                        <optgroup label="Suggested" aria-label="Suggested">
                             {zoneGroups.head.map((z) => (
                                 <option key={z.id} value={z.id} className="bg-slate-900">
                                     {z.label}
@@ -208,7 +225,7 @@ export const ShipClockSection: React.FC = () => {
                             ))}
                         </optgroup>
                         {zoneGroups.regions.map(({ region, zones }) => (
-                            <optgroup key={region} label={region}>
+                            <optgroup key={region} label={region} aria-label={region}>
                                 {zones.map((z) => (
                                     <option key={z.id} value={z.id} className="bg-slate-900">
                                         {z.label}

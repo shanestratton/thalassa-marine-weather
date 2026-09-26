@@ -527,7 +527,11 @@ function MetricInput({
                 <input
                     id={inputId}
                     aria-label={label}
-                    aria-describedby={isAuto ? `${inputId}-auto` : undefined}
+                    aria-describedby={
+                        [isAuto ? `${inputId}-auto` : '', unitOptions.length > 1 ? '' : `${inputId}-unit`]
+                            .filter(Boolean)
+                            .join(' ') || undefined
+                    }
                     type="number"
                     inputMode="decimal"
                     value={localVal}
@@ -539,18 +543,28 @@ function MetricInput({
                     placeholder={autoPlaceholder ?? placeholder}
                     className={`flex-1 min-w-0 min-h-11 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
                 />
-                <select
-                    aria-label={`${label} unit`}
-                    value={unitType}
-                    onChange={(e) => onChangeUnit(e.target.value)}
-                    className="min-h-11 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-xs text-gray-400 font-bold uppercase outline-hidden focus:border-sky-500 shrink-0"
-                >
-                    {unitOptions.map((u) => (
-                        <option key={u} value={u}>
-                            {u}
-                        </option>
-                    ))}
-                </select>
+                {unitOptions.length > 1 ? (
+                    <select
+                        aria-label={`${label} unit`}
+                        value={unitType}
+                        onChange={(e) => onChangeUnit(e.target.value)}
+                        className="min-h-11 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-xs text-gray-400 font-bold uppercase outline-hidden focus:border-sky-500 shrink-0"
+                    >
+                        {unitOptions.map((u) => (
+                            <option key={u} value={u}>
+                                {u}
+                            </option>
+                        ))}
+                    </select>
+                ) : (
+                    // One unit is a fact, not a choice: a static suffix, no picker chevrons.
+                    <span
+                        id={`${inputId}-unit`}
+                        className="flex min-h-11 shrink-0 items-center px-1.5 text-xs font-bold text-gray-400"
+                    >
+                        {unitType}
+                    </span>
+                )}
             </div>
         </div>
     );
@@ -1889,16 +1903,18 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                 </div>
 
-                {/* Comfort Zone — Safety Parameters */}
+                {/* Comfort Zone — Safety Parameters. The ordinary cyan-dot section
+                    heading: the red bar belongs to destructive sections (Danger
+                    Zone), and these are comfort limits, not a warning. */}
                 <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-red-500" />
-                        <span className="text-[11px] font-bold text-red-400 uppercase tracking-widest">
-                            Comfort Zone
-                        </span>
-                        <span className="text-[11px] text-gray-400 ml-auto">Passage Safety Limits</span>
-                    </div>
-                    <div className="bg-red-500/3 border border-red-500/10 rounded-2xl p-4 space-y-5">
+                    <h2 className="ui-section-heading uppercase tracking-[0.15em] px-1 flex items-center gap-2 text-sky-300 mb-3">
+                        <span
+                            className="w-1.5 h-1.5 shrink-0 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"
+                            aria-hidden="true"
+                        />
+                        Comfort zone
+                    </h2>
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4 space-y-5">
                         <p className="text-[11px] text-gray-400 leading-relaxed">
                             Set your crew's comfort thresholds. The passage planner will route around zones that exceed
                             these limits, treating them as obstacles.
@@ -1923,6 +1939,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </div>
                             <input
                                 id={`${fid}-comfortwind`}
+                                // The top stop means no limit: say so, not the raw number.
+                                aria-valuetext={
+                                    (settings.comfortParams?.maxWindKts ?? 60) >= 60
+                                        ? 'Off'
+                                        : `${settings.comfortParams?.maxWindKts} kts`
+                                }
                                 aria-label="Max Wind"
                                 type="range"
                                 min={10}
@@ -1965,6 +1987,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </div>
                             <input
                                 id={`${fid}-comfortwave`}
+                                // The top stop means no limit: say so, not the raw number.
+                                aria-valuetext={
+                                    (settings.comfortParams?.maxWaveM ?? 8) >= 8
+                                        ? 'Off'
+                                        : `${settings.comfortParams?.maxWaveM?.toFixed(1)} m`
+                                }
                                 aria-label="Max Wave Height"
                                 type="range"
                                 min={0.5}
@@ -2007,6 +2035,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </div>
                             <input
                                 id={`${fid}-comfortgust`}
+                                // The top stop means no limit: say so, not the raw number.
+                                aria-valuetext={
+                                    (settings.comfortParams?.maxGustKts ?? 80) >= 80
+                                        ? 'Off'
+                                        : `${settings.comfortParams?.maxGustKts} kts`
+                                }
                                 aria-label="Max Gust"
                                 type="range"
                                 min={15}
@@ -2051,15 +2085,15 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             <div className="flex-1 min-w-0">
                                 <div className="text-sm font-bold text-white">High-fidelity ocean currents</div>
                                 <p className="text-[11px] text-gray-400 mt-0.5">
-                                    Use OSCAR near-real-time data (5-day-old, actual eddies) instead of monthly
-                                    climatology. Helps on Gulf Stream / Agulhas timing-critical passages.
+                                    Use recent ocean currents (about 5 days old) instead of monthly averages. Helps
+                                    where a strong current decides your timing.
                                 </p>
                             </div>
                             <button
                                 type="button"
                                 role="switch"
                                 aria-checked={settings.currentNrtEnabled === true}
-                                aria-label="Toggle high-fidelity ocean currents"
+                                aria-label="High-fidelity ocean currents"
                                 onClick={() => onSave({ currentNrtEnabled: !settings.currentNrtEnabled })}
                                 className={`hit-target-44 shrink-0 relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-hidden ${
                                     settings.currentNrtEnabled ? 'bg-cyan-500' : 'bg-slate-700'
@@ -2131,57 +2165,73 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             area to add a punters name and age and rank … those
                             names should auto xfer across to the float plan"). The
                             Float Plan seeds its persons roster from these first. */}
-                        <div className="mt-3 space-y-2" data-testid="vessel-crew-roster">
+                        <div className="mt-3 space-y-3" data-testid="vessel-crew-roster">
                             {crewRosterRows.map((person, index) => (
                                 <div
                                     key={index}
                                     // Stacked, not three across (Shane 2026-09-09: "just stack
                                     // them claude. never enough space"): the name gets the whole
-                                    // line, age and rank share the one below.
-                                    className="rounded-xl border border-white/6 bg-white/2 p-2 space-y-2"
+                                    // line, age and rank share the one below. No card of its own
+                                    // (it sat three levels deep) and visible labels, not
+                                    // placeholder-only fields (UX scorecard run 6).
+                                    className={`space-y-2 ${index > 0 ? 'border-t border-white/5 pt-3' : ''}`}
                                     data-testid={`vessel-crew-person-${index + 1}`}
                                 >
-                                    <input
-                                        type="text"
-                                        aria-label={`Person ${index + 1} name`}
-                                        value={person.name}
-                                        onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
-                                        placeholder={index === 0 ? 'Skipper’s name' : `Person ${index + 1}`}
-                                        className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
-                                    />
-                                    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+                                    <label className="block">
+                                        <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
+                                            Name
+                                        </span>
                                         <input
-                                            type="number"
-                                            inputMode="numeric"
-                                            min="0"
-                                            max="120"
-                                            aria-label={`Person ${index + 1} age`}
-                                            value={
-                                                typeof person.age === 'number' && Number.isFinite(person.age)
-                                                    ? person.age
-                                                    : ''
-                                            }
-                                            onChange={(e) => {
-                                                const n = parseInt(e.target.value, 10);
-                                                updateVesselRoster(index, {
-                                                    age: Number.isFinite(n) && n > 0 ? n : undefined,
-                                                });
-                                            }}
-                                            placeholder="Age"
-                                            className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 tabular-nums"
+                                            type="text"
+                                            aria-label={`Person ${index + 1} name`}
+                                            value={person.name}
+                                            onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
+                                            placeholder={index === 0 ? 'Skipper’s name' : `Person ${index + 1}`}
+                                            className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
                                         />
-                                        <select
-                                            aria-label={`Person ${index + 1} rank`}
-                                            value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
-                                            onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
-                                            className="min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
-                                        >
-                                            {FLOAT_PLAN_ROLES.map((role) => (
-                                                <option key={role} value={role}>
-                                                    {role}
-                                                </option>
-                                            ))}
-                                        </select>
+                                    </label>
+                                    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+                                        <label className="block min-w-0">
+                                            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
+                                                Age
+                                            </span>
+                                            <input
+                                                type="number"
+                                                inputMode="numeric"
+                                                min="0"
+                                                max="120"
+                                                aria-label={`Person ${index + 1} age`}
+                                                value={
+                                                    typeof person.age === 'number' && Number.isFinite(person.age)
+                                                        ? person.age
+                                                        : ''
+                                                }
+                                                onChange={(e) => {
+                                                    const n = parseInt(e.target.value, 10);
+                                                    updateVesselRoster(index, {
+                                                        age: Number.isFinite(n) && n > 0 ? n : undefined,
+                                                    });
+                                                }}
+                                                className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 tabular-nums"
+                                            />
+                                        </label>
+                                        <label className="block min-w-0">
+                                            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
+                                                Rank
+                                            </span>
+                                            <select
+                                                aria-label={`Person ${index + 1} rank`}
+                                                value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
+                                                onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
+                                                className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                            >
+                                                {FLOAT_PLAN_ROLES.map((role) => (
+                                                    <option key={role} value={role}>
+                                                        {role}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
                                     </div>
                                 </div>
                             ))}
@@ -2299,7 +2349,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             fleetAvailable &&
                             (!fleetSurface.syncVesselFleet || fleetBusyAction !== null || syncStatus.busy)
                         }
-                        className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
+                        className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
                             fleetBusyAction === 'sync' || syncStatus.busy
                                 ? 'bg-linear-to-r from-sky-700 to-cyan-700 text-white shadow-lg shadow-sky-500/20'
                                 : !fleetAvailable
@@ -2312,12 +2362,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         {fleetBusyAction === 'sync' || syncStatus.busy ? (
                             <span className="inline-flex items-center gap-1.5 justify-center">
                                 <RefreshIcon className="w-4 h-4 animate-spin" />
-                                <span>Syncing Fleet</span>
+                                <span>Syncing fleet</span>
                             </span>
                         ) : saved ? (
                             <span className="inline-flex items-center gap-1.5 justify-center">
                                 <CheckIcon className="w-4 h-4" />
-                                <span>{fleetAvailable ? 'Cloud Check Complete' : 'Saved on this phone'}</span>
+                                <span>{fleetAvailable ? 'Cloud check complete' : 'Saved on this phone'}</span>
                             </span>
                         ) : (
                             <span className="inline-flex items-center gap-1.5 justify-center">
@@ -2326,7 +2376,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 ) : (
                                     <CheckIcon className="w-4 h-4" />
                                 )}
-                                <span>{fleetAvailable ? 'Sync Vessel Fleet' : 'Saved on this phone'}</span>
+                                <span>{fleetAvailable ? 'Sync vessel fleet' : 'Saved on this phone'}</span>
                             </span>
                         )}
                     </button>
