@@ -10,14 +10,16 @@ const mocks = vi.hoisted(() => ({
     speakSafetyMessage: vi.fn(),
     clipboardWrite: vi.fn(),
     vessel: { name: 'Test Vessel', type: 'sail' } as Record<string, unknown> | undefined,
+    // false: the hook reports no position and no acquisition, the page's 'No fix'.
+    radioHasFix: true,
 }));
 
 vi.mock('../hooks/useRadioPosition', () => ({
     useRadioPosition: () => ({
-        position: { lat: -27.4, lon: 153.1, timestamp: Date.now(), sourceLabel: 'Phone' },
-        ageMs: 1000,
-        isLive: true,
-        isFresh: true,
+        position: mocks.radioHasFix ? { lat: -27.4, lon: 153.1, timestamp: Date.now(), sourceLabel: 'Phone' } : null,
+        ageMs: mocks.radioHasFix ? 1000 : null,
+        isLive: mocks.radioHasFix,
+        isFresh: mocks.radioHasFix,
         acquiring: false,
         refreshing: false,
         error: false,
@@ -70,6 +72,7 @@ describe('MobPage activation feedback', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.vessel = { name: 'Test Vessel', type: 'sail' };
+        mocks.radioHasFix = true;
         mocks.speakSafetyMessage.mockReturnValue({
             done: Promise.resolve(),
             cancel: vi.fn(),
@@ -98,11 +101,24 @@ describe('MobPage activation feedback', () => {
         const browserAlert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
         render(<MobPage onBack={vi.fn()} />);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Activate Man Overboard' }));
+        fireEvent.click(screen.getByRole('button', { name: 'MOB, mark position' }));
 
         expect(await screen.findByRole('alert')).toHaveTextContent('no valid GPS position is available');
         expect(browserAlert).not.toHaveBeenCalled();
         browserAlert.mockRestore();
+    });
+
+    it('names the MOB button by its visible word and carries the no-fix warning (UX scorecard run 7)', () => {
+        const { unmount } = render(<MobPage onBack={vi.fn()} />);
+        // Starts with "MOB", so Voice Control's "Tap MOB" finds it.
+        expect(screen.getByRole('button', { name: 'MOB, mark position' })).toBeInTheDocument();
+        unmount();
+
+        mocks.radioHasFix = false;
+        render(<MobPage onBack={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 'MOB, mark position, no GPS fix' })).toHaveTextContent(
+            /Tap to mark\s*·\s*No fix/,
+        );
     });
 
     it('locks duplicate activation while the emergency GPS request is pending', async () => {
@@ -114,7 +130,7 @@ describe('MobPage activation feedback', () => {
         );
         render(<MobPage onBack={vi.fn()} />);
 
-        const button = screen.getByRole('button', { name: 'Activate Man Overboard' });
+        const button = screen.getByRole('button', { name: 'MOB, mark position' });
         fireEvent.click(button);
         fireEvent.click(button);
         expect(mocks.activate).toHaveBeenCalledTimes(1);

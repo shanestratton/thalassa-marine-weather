@@ -4,10 +4,12 @@ import { DISCLAIMER_STORAGE, ONBOARDED_STORAGE } from './helpers/storageState';
 async function openMobDirectlyFromChart(page: Page) {
     await page.goto('/');
 
-    const chartsTab = page.getByRole('tab', { name: 'Navigate to Charts' });
+    const chartsTab = page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Obs', exact: true });
     await expect(chartsTab).toBeEnabled();
     await chartsTab.click();
-    await expect(chartsTab).toHaveAttribute('aria-selected', 'true');
+    await expect(chartsTab).toHaveAttribute('aria-current', 'page');
     await expect(page.getByTestId('map-hub')).toBeVisible({ timeout: 30_000 });
 
     // MOB is a direct chart action: the skipper must not first discover or
@@ -31,15 +33,21 @@ test.describe('Critical Path', () => {
 
     test('anonymous browsing exposes the primary navigation', async ({ page }) => {
         await page.goto('/');
-        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeVisible();
-        await expect(page.getByRole('tab', { name: 'Navigate to Charts' })).toBeEnabled();
+        await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
+        await expect(
+            page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'Obs', exact: true }),
+        ).toBeEnabled();
     });
 
     test('anonymous user can move from the Glass to Charts', async ({ page }) => {
         await page.goto('/');
-        const chartsTab = page.getByRole('tab', { name: 'Navigate to Charts' });
+        const chartsTab = page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Obs', exact: true });
         await chartsTab.click();
-        await expect(chartsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(chartsTab).toHaveAttribute('aria-current', 'page');
         await expect(page.locator('#main-content')).toBeVisible();
     });
 });
@@ -55,7 +63,7 @@ test.describe('Chart MOB emergency journey', () => {
         test.setTimeout(60_000);
         await openMobDirectlyFromChart(page);
 
-        await expect(page.getByRole('button', { name: 'Activate Man Overboard' })).toBeVisible();
+        await expect(page.getByRole('button', { name: /^MOB, mark position/ })).toBeVisible();
     });
 
     test.describe('browser GPS integration', () => {
@@ -96,7 +104,7 @@ test.describe('Chart MOB emergency journey', () => {
                     }),
             );
             expect(browserFix.accuracy).toBe(250);
-            await page.getByRole('button', { name: 'Activate Man Overboard' }).click();
+            await page.getByRole('button', { name: /^MOB, mark position/ }).click();
 
             await expect(page.getByRole('heading', { name: 'MOB ACTIVE' })).toBeVisible();
             await expect(page.getByText('Approximate search area')).toBeVisible();

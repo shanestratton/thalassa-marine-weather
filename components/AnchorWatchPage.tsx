@@ -14,7 +14,7 @@
  */
 
 import { useRadioPosition } from '../hooks/useRadioPosition';
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useId } from 'react';
 import { useWeather } from '../context/WeatherContext';
 import { t } from '../theme';
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
@@ -93,12 +93,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const radio = useRadioPosition();
     const fixWord =
         radio.position && radio.isFresh && !radio.error ? 'Ready' : radio.acquiring ? 'Finding GPS…' : 'No fix';
+    // Said on the arming bar before the slide, not only after it: arming waits
+    // for a fix (UX scorecard run 7).
+    const armWaitHint = fixWord === 'Ready' ? null : fixWord === 'Finding GPS…' ? 'Finding GPS…' : 'Waits for GPS';
+    const armWaitHintId = useId();
+    // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
+    // tint that measured 4.55:1 (UX scorecard run 7).
     const fixTone =
         radio.position && radio.isFresh && !radio.error
             ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
             : radio.acquiring
               ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-              : 'border-red-500/30 bg-red-500/10 text-red-400';
+              : 'border-red-500/30 bg-red-500/10 text-red-400 [.display-light_&]:bg-red-50! [.display-light_&]:text-red-800!';
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
     const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -799,13 +805,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     title="Anchor Watch"
                     onBack={onBack}
                     // Under the title, not beside it: three things in the title row
-                    // squeezed ANCHOR WATCH to a clipped column at 393 pt.
-                    subtitle={
+                    // squeezed ANCHOR WATCH to a clipped column at 393 pt. The
+                    // status slot, as MOB, Radio and NMEA use: as a subtitle the
+                    // pill stretched the width of the title column.
+                    status={
                         <span
                             role="status"
-                            className={`mt-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixTone}`}
+                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixTone}`}
                         >
-                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
                             {fixWord}
                         </span>
                     }
@@ -1030,7 +1038,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         : scopeQuality === 'adequate'
                                           ? 'Adequate'
                                           : 'Poor'}{' '}
-                                    {scopeRatio.toFixed(0)}:1
+                                    {/* One decimal, as the dial prints it: rounded, 4.6
+                                        read "Poor 5:1" (UX scorecard run 7). */}
+                                    {scopeRatio.toFixed(1)}:1
                                 </span>
                             </div>
                         </div>
@@ -1098,6 +1108,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     role="button"
                                     tabIndex={0}
                                     aria-label="Drop anchor and arm Anchor Watch"
+                                    aria-describedby={armWaitHint ? armWaitHintId : undefined}
                                     onKeyDown={(event) => {
                                         if (event.key !== 'Enter' && event.key !== ' ') return;
                                         event.preventDefault();
@@ -1138,8 +1149,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                             opacity: 1 - slideX / slideTrackRectRef.current.maxTravel,
                                         }}
                                     >
-                                        <span className="text-sm font-bold text-amber-300/70 tracking-wider uppercase">
-                                            Slide to drop anchor
+                                        <span className="flex flex-col items-center leading-tight">
+                                            <span className="text-sm font-bold text-amber-300/70 tracking-wider uppercase">
+                                                Slide to drop anchor
+                                            </span>
+                                            {armWaitHint && (
+                                                <span
+                                                    id={armWaitHintId}
+                                                    className="mt-0.5 text-xs font-semibold text-amber-200/80"
+                                                >
+                                                    {armWaitHint}
+                                                </span>
+                                            )}
                                         </span>
                                     </div>
 

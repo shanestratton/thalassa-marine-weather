@@ -113,12 +113,14 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
         radio.position && radio.isFresh && !radio.error ? 'Ready' : radio.acquiring ? 'Finding GPS…' : 'No fix';
     // The same bordered pill Radio Console and Anchor Watch use, in the
     // header's status row, rather than a floating red word (UX scorecard run 6).
+    // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
+    // tint that measured 4.55:1 (UX scorecard run 7).
     const fixPill =
         radio.position && radio.isFresh && !radio.error
             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
             : radio.acquiring
               ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-              : 'bg-red-500/10 border-red-500/30 text-red-400';
+              : 'bg-red-500/10 border-red-500/30 text-red-400 [.display-light_&]:bg-red-50! [.display-light_&]:text-red-800!';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const vessel = (settings as any)?.vessel;
     const vesselName = emergencyIdentity(vessel?.name);
@@ -381,7 +383,10 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         type="button"
                         onClick={handleActivate}
                         disabled={activating}
-                        aria-label="Activate Man Overboard"
+                        // Starts with the visible word, so "Tap MOB" works in
+                        // Voice Control, and carries the no-fix warning the
+                        // caption shows (UX scorecard run 7).
+                        aria-label={fixWord === 'No fix' ? 'MOB, mark position, no GPS fix' : 'MOB, mark position'}
                         className="relative w-56 h-56 [@media(max-height:700px)]:w-48 [@media(max-height:700px)]:h-48 rounded-full flex items-center justify-center active:scale-[0.97] transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
                         style={{
                             // The highlight stays top-left; from just under the
@@ -400,6 +405,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             emergency control must look the same by day and by night. */}
                         <div className="flex flex-col items-center gap-1" style={{ color: '#ffffff' }}>
                             <svg
+                                aria-hidden="true"
                                 width="48"
                                 height="48"
                                 viewBox="0 0 24 24"
@@ -420,8 +426,17 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             {/* Still tappable with no fix (the tap takes the best position the
                                 phone holds and says why if there is none), but the caption warns
                                 before the tap rather than after it. */}
-                            <span className="text-xs font-bold tracking-widest uppercase">
-                                {fixWord === 'No fix' ? 'Tap to Mark · No fix' : 'Tap to Mark'}
+                            {/* On short screens the no-fix caption breaks onto two
+                                lines at a tighter tracking: on one line it ran
+                                into the rim at 375×667 (UX scorecard run 7). */}
+                            <span className="text-center text-xs font-bold tracking-widest uppercase [@media(max-height:700px)]:tracking-wider">
+                                Tap to mark
+                                {fixWord === 'No fix' && (
+                                    <>
+                                        <span className="[@media(max-height:700px)]:hidden"> · </span>
+                                        <span className="[@media(max-height:700px)]:block">No fix</span>
+                                    </>
+                                )}
                             </span>
                         </div>
                     </button>
@@ -459,7 +474,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 action={
                     <div
                         role="status"
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold uppercase tracking-widest ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-extrabold uppercase tracking-widest ${
                             ownPositionFresh
                                 ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
                                 : 'bg-amber-500/15 border-amber-400/40 text-amber-200'
@@ -515,18 +530,18 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 bearing, 22px stats, py-2.5 stat boxes. Same content,
                 ~30% less vertical real estate. */}
             <div className="shrink-0 px-5 py-3 text-center">
-                <div className="text-[10px] font-extrabold tracking-[0.25em] uppercase text-red-300/70 mb-0.5">
+                <div className="text-xs font-extrabold tracking-[0.25em] uppercase text-red-300/70 mb-0.5">
                     Bearing to MOB
                 </div>
                 <div className="text-[52px] font-black text-white leading-none font-mono tracking-tight">
                     {displayedBearing !== null ? `${Math.round(displayedBearing).toString().padStart(3, '0')}°` : '—'}
                 </div>
-                <div className="text-[10px] font-bold tracking-widest uppercase text-red-300/70 mt-0.5">True</div>
+                <div className="text-xs font-bold tracking-widest uppercase text-red-300/70 mt-0.5">True</div>
             </div>
 
             <div className="shrink-0 mx-5 rounded-2xl border border-red-400/20 bg-red-950/30 backdrop-blur-xs grid grid-cols-2 divide-x divide-red-400/15">
                 <div className="px-3 py-2.5 text-center">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
+                    <div className="text-xs font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
                         Distance
                     </div>
                     <div className="text-[22px] font-black text-white font-mono">
@@ -534,7 +549,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     </div>
                 </div>
                 <div className="px-3 py-2.5 text-center">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
+                    <div className="text-xs font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
                         Elapsed
                     </div>
                     <div className="text-[22px] font-black text-white font-mono tracking-wider">
@@ -546,7 +561,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
             {/* Positions */}
             <div className="shrink-0 mx-5 mt-3 rounded-2xl border border-white/6 bg-white/2 overflow-hidden">
                 <div className="px-4 py-3 border-b border-white/6">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/80 mb-1.5">
+                    <div className="text-xs font-extrabold tracking-[0.2em] uppercase text-red-300/80 mb-1.5">
                         MOB Fix
                     </div>
                     <div className="font-mono text-[15px] font-bold text-white leading-tight">
@@ -560,7 +575,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     </div>
                 </div>
                 <div className="px-4 py-3">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-sky-400/80 mb-1.5">
+                    <div className="text-xs font-extrabold tracking-[0.2em] uppercase text-sky-400/80 mb-1.5">
                         Own Position · {ownPositionFresh ? 'Live GPS' : 'Last Known'}
                     </div>
                     <div className="font-mono text-[15px] font-bold text-white leading-tight">
@@ -611,7 +626,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                      *  of poor signal). */}
                     {lastVoiceEngine && !speaking && (
                         <span
-                            className={`text-[9px] font-medium normal-case tracking-normal ${
+                            className={`text-xs font-medium normal-case tracking-normal ${
                                 lastVoiceEngine === 'calypso' ? 'text-red-300/80' : 'text-amber-300/80'
                             }`}
                         >
@@ -691,7 +706,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     onPointerCancel={cancelClearHold}
                     onContextMenu={(e) => e.preventDefault()}
                     aria-label="Hold to clear MOB"
-                    className="relative w-full py-3.5 rounded-xl border border-white/10 bg-white/3 text-[11px] font-extrabold uppercase tracking-widest text-slate-400 overflow-hidden select-none"
+                    className="relative w-full py-3.5 rounded-xl border border-white/10 bg-white/3 text-xs font-extrabold uppercase tracking-widest text-slate-400 overflow-hidden select-none"
                     style={{
                         // iOS long-press defaults — magnifier loupe, text
                         // selection, Copy/Look-Up context sheet — were

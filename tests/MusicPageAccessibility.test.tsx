@@ -561,4 +561,21 @@ describe('MusicPage modal accessibility', () => {
         expect(screen.getByRole('button', { name: 'Open Music settings' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Connect Apple Music' })).not.toBeInTheDocument();
     });
+
+    it('off the iPhone app, says what the app does (speakers too) and offers a way back (UX scorecard run 7)', async () => {
+        music.getAuthorizationStatus.mockResolvedValue({ granted: false, status: 'unsupported' });
+        const onBack = vi.fn();
+
+        render(<MusicPage onBack={onBack} />);
+
+        expect(
+            await screen.findByRole('heading', { name: 'Apple Music needs the Thalassa iPhone app' }),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent(/AirPlay or Bluetooth speaker/);
+        // The header no longer repeats "iPhone app only" over the card.
+        expect(screen.queryByText(/iPhone app only/i)).not.toBeInTheDocument();
+        // A way out inside the card, not only the header chevron.
+        fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+        expect(onBack).toHaveBeenCalledTimes(1);
+    });
 });

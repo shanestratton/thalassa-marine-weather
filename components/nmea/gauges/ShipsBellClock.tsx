@@ -228,9 +228,9 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                         );
                     })}
 
-                    {/* fontSize 11, not 9: the face renders ~1.12× at 375 pt wide,
-                    so 9 came out ~10 px — under the 12 px floor. 11 clears it
-                    and still sits inside the 10 and the 2. */}
+                    {/* fontSize 12, the floor itself: 11 still scanned as 11 px
+                    (UX scorecard run 7). Tracking eased to 2 so it stays
+                    inside the 10 and the 2. */}
                     <text
                         className="bell-legend"
                         aria-hidden="true"
@@ -238,9 +238,9 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                         y={CY - 52}
                         textAnchor="middle"
                         fill={BRASS_DARK}
-                        fontSize="11"
+                        fontSize="12"
                         fontWeight="700"
-                        letterSpacing="2.5"
+                        letterSpacing="2"
                         fontFamily="Georgia, 'Times New Roman', serif"
                     >
                         SHIP&apos;S BELL
@@ -248,16 +248,17 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
 
                     {/* The zone this face is keeping. Lost in a layout edit and put
                     back: a clock showing a time without saying WHICH time is
-                    the one thing a clock must never do. */}
+                    the one thing a clock must never do. The caption under the
+                    dial repeats it, where no hand can cover it. */}
                     {zoneLabel && (
                         <text
                             className="bell-legend"
                             aria-hidden="true"
                             x={CX}
-                            y={CY - 36}
+                            y={CY - 35}
                             textAnchor="middle"
                             fill={BRASS_DARK}
-                            fontSize="11"
+                            fontSize="12"
                             fontWeight="700"
                             letterSpacing="1.2"
                         >
@@ -265,7 +266,9 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                         </text>
                     )}
 
-                    {/* The bell row, filled to the current count. */}
+                    {/* The bell row, filled to the current count. At CY + 60, not
+                        + 72: there the first dot touched the 7 and the last
+                        the 5 (UX scorecard run 7). */}
                     {bellMarks.map((m) => {
                         const lit = m.index <= bells;
                         return (
@@ -273,7 +276,7 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                                 key={`b-${m.index}`}
                                 className={lit ? 'bell-mark bell-mark-lit' : 'bell-mark'}
                                 cx={m.x}
-                                cy={CY + 72}
+                                cy={CY + 60}
                                 r={lit ? 3.4 : 2.4}
                                 fill={lit ? BRASS_DARK : 'none'}
                                 stroke={BRASS_DARK}
@@ -324,6 +327,7 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                 <span className="block font-serif text-lg font-bold text-gray-200">{bellsSpoken(bells)}</span>
                 <span className="mt-0.5 block text-xs font-bold uppercase tracking-[0.15em] text-amber-300">
                     {watch.name}
+                    {zoneLabel ? ` · ${zoneLabel}` : ''}
                 </span>
             </p>
         </div>

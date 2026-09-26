@@ -250,12 +250,23 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                         {scopeRatio.toFixed(1)}:1
                     </text>
                 </svg>
-                {/* Quality and swing radius in HTML so they stay 13 px at any dial size. */}
-                <p className="shrink-0 text-center text-[13px] leading-tight" aria-hidden="true">
+                {/* Quality and swing radius in HTML so they stay 13 px at any dial size.
+                    One line, always: in the 200 px landscape column it wrapped
+                    and "radius" was painted under the floating nav toggle, so
+                    there it says "swing 35 m" (UX scorecard run 7). */}
+                <p className="shrink-0 whitespace-nowrap text-center text-[13px] leading-tight" aria-hidden="true">
                     <span className="font-bold tracking-[0.08em]" style={{ color: qualityFill }}>
                         {qualityWord}
                     </span>
-                    <span className="text-slate-300"> · {formatDistance(swingRadiusPreview)} swing radius</span>
+                    <span className="text-slate-300">
+                        {' · '}
+                        <span className="[@media(orientation:landscape)_and_(max-height:500px)]:hidden">
+                            {formatDistance(swingRadiusPreview)} swing radius
+                        </span>
+                        <span className="hidden [@media(orientation:landscape)_and_(max-height:500px)]:inline">
+                            swing {formatDistance(swingRadiusPreview)}
+                        </span>
+                    </span>
                 </p>
             </div>
         );

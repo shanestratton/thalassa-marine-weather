@@ -20,9 +20,25 @@ const app = readFileSync('App.tsx', 'utf8');
 
 describe('the Instrument Panel CTA', () => {
     it('is pinned, not the tail of the scroller', () => {
-        expect(nmea).toMatch(/className="fixed left-0 right-0 z-800 px-4"/);
+        expect(nmea).toMatch(/className="fixed left-0 right-0 z-800 px-4 \[@media\(max-height:700px\)\]:hidden"/);
         // Under the nav, over the page.
         expect(app).toMatch(/className="fixed bottom-0 left-0 right-0 z-900/);
+    });
+
+    it('flows after Connect on short screens instead of covering it (UX scorecard run 7)', () => {
+        // At 375×667 the pinned bar hid Connect and the foot of Host IP / Port.
+        // Below 700 px tall the pinned copy hides and an in-flow copy shows,
+        // after the connection card.
+        expect(nmea).toContain('<div className="mb-3 hidden [@media(max-height:700px)]:block">');
+        expect(nmea.indexOf('hidden [@media(max-height:700px)]:block')).toBeGreaterThan(
+            nmea.indexOf('aria-label="Connect NMEA"'),
+        );
+        expect(nmea.match(/<InstrumentPanelButton quiet=\{connectShowing\}/g)).toHaveLength(2);
+    });
+
+    it('is the quiet button while Connect is the next step, so one primary shows', () => {
+        expect(nmea).toContain('const connectShowing = !isConnected && !isConnecting && !rolledUp;');
+        expect(nmea).toMatch(/variant="primary"\s+onClick=\{handleConnect\}\s+aria-label="Connect NMEA"/);
     });
 
     it('sits 8px above the top of the menu, derived from the nav itself', () => {
@@ -36,9 +52,14 @@ describe('the Instrument Panel CTA', () => {
     it('the scroller clears the pinned button, so no card hides behind it', () => {
         // Nav + inset + the 8px gap + the button's own height + 12px (UX
         // scorecard run 6), with the button's height named once and shared.
+        // The gap + button is a reserve that drops to zero on short screens,
+        // where the button is in the flow (UX scorecard run 7).
         expect(nmea).toContain('const CTA_HEIGHT_PX = 52;');
         expect(nmea).toContain(
-            'paddingBottom: `calc(4rem + env(safe-area-inset-bottom) + 8px + ${CTA_HEIGHT_PX}px + 12px)`',
+            "const CTA_RESERVE_CLASS = '[--nmea-cta-reserve:60px] [@media(max-height:700px)]:[--nmea-cta-reserve:0px]'; // 60 = 8 + CTA_HEIGHT_PX",
+        );
+        expect(nmea).toMatch(
+            /paddingBottom:\s+'calc\(4rem \+ env\(safe-area-inset-bottom\) \+ var\(--nmea-cta-reserve, 0px\) \+ 12px\)'/,
         );
         expect(nmea).toContain('style={{ minHeight: CTA_HEIGHT_PX }}');
     });

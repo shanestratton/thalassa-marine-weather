@@ -95,9 +95,17 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
     const needle = polarToCart(CX, CY, RADIUS - 26, needleAngle);
     const needleTail = polarToCart(CX, CY, 18, needleAngle + 180);
 
+    // A sentence with the reading ("Barometer, 1013.2 hPa"), not the bare word
+    // "Barometer" over tick noise (UX scorecard run 7). The caller's readout
+    // is already in the unit it chose; with no readout, the hPa it was given
+    // is spoken in hPa, never in a readoutUnit that may say inHg.
+    const spokenValue = dead || readout === '--' || readout === '' ? null : (readout ?? (hpa as number).toFixed(1));
+    const spokenUnit = readout === undefined ? 'hPa' : readoutUnit;
+    const spokenLabel = spokenValue === null ? 'Barometer, no data' : `Barometer, ${spokenValue} ${spokenUnit}`;
+
     return (
         <div className="nmea-instrument relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
-            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Barometer">
+            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={spokenLabel}>
                 <defs>
                     <radialGradient id="baro-face" cx="50%" cy="42%" r="72%">
                         <stop offset="0%" stopColor="#1e293b" />
@@ -140,6 +148,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                     return (
                         <text
                             key={`${band.label}-label`}
+                            aria-hidden="true"
                             x={p.x}
                             y={p.y}
                             textAnchor="middle"
@@ -185,6 +194,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                         return (
                             <text
                                 key={`n-${tick.label}`}
+                                aria-hidden="true"
                                 x={p.x}
                                 y={p.y}
                                 textAnchor="middle"
@@ -248,6 +258,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                             CY+66 — a readout at CY+52 in 26px collided with
                             960-990 and buried both. */}
                         <text
+                            aria-hidden="true"
                             x={CX}
                             y={CY + 33}
                             textAnchor="middle"
@@ -260,6 +271,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                             {readout}
                         </text>
                         <text
+                            aria-hidden="true"
                             x={CX}
                             y={CY + 46}
                             textAnchor="middle"

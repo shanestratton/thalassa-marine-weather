@@ -149,8 +149,11 @@ async function openRadio(
         { ...viewport, vesselName, gpsUnavailable },
     );
     await page.goto('/');
-    await page.getByRole('tab', { name: 'Navigate to Vessel', exact: true }).click();
-    await page.getByRole('button', { name: 'Open radio position reporting', exact: true }).click();
+    await page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Vessel', exact: true })
+        .click();
+    await page.getByRole('button', { name: 'Radio, position reporting', exact: true }).click();
     await expect(page.getByTestId('radio-console-page')).toBeVisible();
     await expect(page.getByRole('dialog', { name: 'VHF instructions', exact: true })).toHaveCount(0);
     await expect(page.getByRole('dialog', { name: 'Voice transcript', exact: true })).toHaveCount(0);

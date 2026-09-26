@@ -20,7 +20,8 @@ afterEach(() => {
 
 function showBarometer() {
     fireEvent.click(screen.getByRole('button', { name: 'Barometer' }));
-    expect(within(screen.getByRole('img', { name: 'Barometer' })).getByText('1012.0')).toBeInTheDocument();
+    // The dial names itself with its reading since UX scorecard run 7.
+    expect(within(screen.getByRole('img', { name: /^Barometer, 1012\.0 / })).getByText('1012.0')).toBeInTheDocument();
 }
 
 function telemetry(updatedAt = new Date(NOW).toISOString()): VoyageLogTelemetry & VoyageLogInstruments {
@@ -169,7 +170,7 @@ describe('public voyage status honesty', () => {
         expect(screen.getByRole('status')).toHaveTextContent('Last successful update 2 min ago');
         expect(screen.queryByText('Live')).not.toBeInTheDocument();
         expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('img', { name: 'Barometer' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('img', { name: /^Barometer\b/ })).not.toBeInTheDocument();
         expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
     });
 });
@@ -222,7 +223,7 @@ describe('champagne card honesty — idle is told truthfully, two ways', () => {
         );
         expect(screen.getByRole('status')).toHaveTextContent('Waiting for the next report');
         expect(screen.queryByRole('group', { name: 'Choose instrument' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('img', { name: 'Barometer' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('img', { name: /^Barometer\b/ })).not.toBeInTheDocument();
         expect(screen.queryByText('1012.0')).not.toBeInTheDocument();
         expect(screen.queryByText('Live')).not.toBeInTheDocument();
     });

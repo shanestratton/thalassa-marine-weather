@@ -332,7 +332,17 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     return (
         <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
-            <PageHeader title="Boat Network" subtitle="Ship's Office" onBack={onBack} />
+            {/* The hub row's words, short enough for one line at 375 pt;
+                "Ship's Office" named a section the hub calls Boat Binder,
+                and this page is not in it. It opens from the Vessel hub's
+                Connections & music group, so the trail (and the chevron's
+                name, "Back to Vessel") names the Vessel. */}
+            <PageHeader
+                title="Boat Network"
+                subtitle="The Pi & boat devices"
+                onBack={onBack}
+                breadcrumbs={['Vessel', 'Boat Network']}
+            />
 
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-32">
                 {/* ═══ BOAT NETWORK HERO ═══ */}
@@ -675,8 +685,16 @@ export const AvNavPage: React.FC<AvNavPageProps> = (props) => {
     if (PI_INTEGRATION_ENABLED) return <AvNavPageDevelopment {...props} />;
     return (
         <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
-            {/* Says what to use instead, like the card below (UX scorecard run 6). */}
-            <PageHeader title="Boat Network" subtitle="iPhone app only" onBack={props.onBack} />
+            {/* The hub row's words, not "iPhone app only": the card below says
+                that in its heading, and saying it three times read as noise
+                (UX scorecard run 7, as on Music). One line at 375 pt. The
+                trail names the Vessel hub it opens from. */}
+            <PageHeader
+                title="Boat Network"
+                subtitle="The Pi & boat devices"
+                onBack={props.onBack}
+                breadcrumbs={['Vessel', 'Boat Network']}
+            />
             <div className="flex-1 overflow-y-auto">
                 <PiPublicBetaUnavailable onOpenEncLibrary={props.onOpenEncLibrary} />
             </div>

@@ -30,7 +30,12 @@ function Fixture() {
                 data-split-pane={pane ? 'vessel' : undefined}
             >
                 <div className="shrink-0" data-testid="boat-network-header">
-                    <PageHeader title="Boat Network" subtitle="Ship's Office" onBack={() => {}} />
+                    <PageHeader
+                        title="Boat Network"
+                        subtitle="The Pi & boat devices"
+                        onBack={() => {}}
+                        breadcrumbs={['Vessel', 'Boat Network']}
+                    />
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32" data-testid="boat-network-scroll">
                     <div className="mb-3 rounded-2xl border border-white/6 bg-white/3 p-4">
