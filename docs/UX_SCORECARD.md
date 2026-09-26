@@ -26,20 +26,24 @@ ordering within a screen.
 
 ## Runs
 
-| Run                                                                        | Build    | Score    | L      | T      | Y      | C    | F    | N    | A      | W    |
-| -------------------------------------------------------------------------- | -------- | -------- | ------ | ------ | ------ | ---- | ---- | ---- | ------ | ---- |
-| Baseline                                                                   | 8644ca8c | 72.7     | 7.24   | 7.50\* | 7.05   | 7.03 | 7.07 | 7.81 | 7.49   | 7.19 |
-| After batches 1–2                                                          | 06a8c3e3 | 72.7     | 7.96   | 7.50\* | 7.12   | 6.78 | 6.52 | 7.65 | 7.70   | 7.01 |
-| After batch 3                                                              | 705b9103 | **75.4** | 8.10   | 8.06   | 7.26   | 7.13 | 6.85 | 7.91 | 7.56   | 7.60 |
-| Run 4: Glass unfreeze, null carry-through, presentational batches 4–5      | 64e5016e | 75.4     | 7.50\* | 8.17   | 7.59   | 7.15 | 7.00 | 7.95 | 7.66   | 7.31 |
-| Run 5: radar size, honest forecast days, named controls, confirm on remove | 77809ab2 | **78.4** | 8.39   | 8.34   | 7.50\* | 7.46 | 7.61 | 8.24 | 7.50\* | 7.46 |
+| Run                                                                        | Build    | Score    | L      | T      | Y      | C    | F      | N    | A      | W    |
+| -------------------------------------------------------------------------- | -------- | -------- | ------ | ------ | ------ | ---- | ------ | ---- | ------ | ---- |
+| Baseline                                                                   | 8644ca8c | 72.7     | 7.24   | 7.50\* | 7.05   | 7.03 | 7.07   | 7.81 | 7.49   | 7.19 |
+| After batches 1–2                                                          | 06a8c3e3 | 72.7     | 7.96   | 7.50\* | 7.12   | 6.78 | 6.52   | 7.65 | 7.70   | 7.01 |
+| After batch 3                                                              | 705b9103 | **75.4** | 8.10   | 8.06   | 7.26   | 7.13 | 6.85   | 7.91 | 7.56   | 7.60 |
+| Run 4: Glass unfreeze, null carry-through, presentational batches 4–5      | 64e5016e | 75.4     | 7.50\* | 8.17   | 7.59   | 7.15 | 7.00   | 7.95 | 7.66   | 7.31 |
+| Run 5: radar size, honest forecast days, named controls, confirm on remove | 77809ab2 | **78.4** | 8.39   | 8.34   | 7.50\* | 7.46 | 7.61   | 8.24 | 7.50\* | 7.46 |
+| Run 6: tap-to-add, coach marks, opaque chrome, PageHeader status row       | ad941278 | **79.9** | 7.50\* | 8.79   | 7.50\* | 7.84 | 7.50\* | 8.78 | 8.29   | 8.19 |
 
 \* capped at 7.5 by a HIGH defect. Baseline and run 2: the anchor watch arming
 bar (touch). Run 4: the anchor radar readouts at 7–9 px on a tall phone
 (legibility, raw 8.28; uncapped score 76.5). Run 5: a stylesheet comment I had
 left unopened swallowed the 375×667 radar rule (layout, raw 7.55) and the
 slide-to-add control has no click for assistive tech (accessibility, raw 7.71;
-uncapped 78.7). No cap bites in run 3.
+uncapped 78.7). Run 6: the anchor radar text fell to 8.6 px on a 375×667 phone
+(legibility, raw 8.71), the Warnings clear state read as an official all-clear
+(feedback, raw 8.13) and every Settings page opened at the last page's scroll
+offset (layout, raw 7.94); uncapped 83.3. No cap bites in run 3.
 
 Automated scan, all capture sets, baseline → run 3: text under 12 px 1,191 →
 41 (the Vessel hub safety words at 9.5 px — kept on Shane's 2026-09-05 call so
