@@ -136,7 +136,9 @@ export function MapBaseSelector({
                     id={menuId}
                     role="menu"
                     aria-label="Map base"
-                    className="mt-2 w-[min(280px,calc(100vw-152px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl"
+                    // Opaque (thalassa-popover-solid): at /95 + blur the chart's coach
+                    // mark read through behind the Hybrid row (UX scorecard run 5).
+                    className="thalassa-popover-solid mt-2 w-[min(280px,calc(100vw-152px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
                 >
                     {MAP_BASE_OPTIONS.map((option, index) => {
                         const checked = option.id === value;

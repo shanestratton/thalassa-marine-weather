@@ -378,7 +378,7 @@ describe('useVesselTracker GPS-staleness clock', () => {
         root.style.transform = 'translate(310px, 240px) rotateZ(-30deg)';
         const coordinates = t.marker().setLngLat.mock.lastCall;
         const checkLayout = () => {
-            expect(t.status().style.top).toBe('calc(100% + 16px)');
+            expect(t.status().style.top).toBe('calc(100% + 30px)');
             expect(t.status().style.bottom).toBe('');
             expect(t.status().style.transform).toBe('translateX(-50%)');
             expect(root.style.width).toBe('48px');

@@ -238,7 +238,9 @@ export const LocationStarMenu: React.FC = () => {
                         role="menu"
                         aria-label="Saved locations"
                         tabIndex={-1}
-                        className="rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
+                        // Opaque (thalassa-popover-solid): at /95 + blur the Glass's
+                        // forecast text ghosted under the rows (UX scorecard run 5).
+                        className="thalassa-popover-solid rounded-2xl bg-slate-900/95 border border-white/10 shadow-2xl overflow-hidden"
                     >
                         <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 border-b border-white/10">
                             Locations
