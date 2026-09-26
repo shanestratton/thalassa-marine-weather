@@ -721,6 +721,106 @@ input[type='date']::-webkit-calendar-picker-indicator {
     /* slate-900 */
 }
 
+/* ── Daylight: a white label on a saturated fill stays white ──────────────
+   UX scorecard run 6. The rule above turns labels navy for the pale page,
+   and it used to be undone fill by fill (red, emerald, sky-600 …), so any
+   fill missing from those short lists got a navy label: 2.86:1 on the NMEA
+   Instrument Panel CTA's blue, against 7.2:1 at night. Inverted here: a
+   .text-white element on its own chromatic fill (bg-* or from-*, shade
+   500–900, any hue) keeps white by day, because the fill does not change by
+   day either. Where white is too faint on a stop, the element's own palette
+   steps down: 400–600 of the light hues (sky, cyan, emerald, amber …) to
+   700, and 400–500 of the deep hues (red, blue, violet …) to 600. That is
+   the deeper fill the solid actions already use, and white clears 4.5:1 on
+   every listed fill (a gradient's 400–600 to- stop steps down with it).
+   Neutral fills (slate, gray, zinc, neutral, stone) are not listed: daylight
+   turns those into light surfaces, so their labels still go navy. Disabled
+   controls keep the navy label.
+   tests/DaylightFilledLabels.test.ts pins the grid and the contrast. */
+/* prettier-ignore */
+.display-light
+    :is(
+        .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-red-900,
+        .from-red-500, .from-red-600, .from-red-700, .from-red-800, .from-red-900,
+        .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800, .bg-orange-900,
+        .from-orange-500, .from-orange-600, .from-orange-700, .from-orange-800, .from-orange-900,
+        .bg-amber-500, .bg-amber-600, .bg-amber-700, .bg-amber-800, .bg-amber-900,
+        .from-amber-500, .from-amber-600, .from-amber-700, .from-amber-800, .from-amber-900,
+        .bg-yellow-500, .bg-yellow-600, .bg-yellow-700, .bg-yellow-800, .bg-yellow-900,
+        .from-yellow-500, .from-yellow-600, .from-yellow-700, .from-yellow-800, .from-yellow-900,
+        .bg-lime-500, .bg-lime-600, .bg-lime-700, .bg-lime-800, .bg-lime-900,
+        .from-lime-500, .from-lime-600, .from-lime-700, .from-lime-800, .from-lime-900,
+        .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-green-900,
+        .from-green-500, .from-green-600, .from-green-700, .from-green-800, .from-green-900,
+        .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-emerald-900,
+        .from-emerald-500, .from-emerald-600, .from-emerald-700, .from-emerald-800, .from-emerald-900,
+        .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-teal-900,
+        .from-teal-500, .from-teal-600, .from-teal-700, .from-teal-800, .from-teal-900,
+        .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-cyan-900,
+        .from-cyan-500, .from-cyan-600, .from-cyan-700, .from-cyan-800, .from-cyan-900,
+        .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-sky-900,
+        .from-sky-500, .from-sky-600, .from-sky-700, .from-sky-800, .from-sky-900,
+        .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-blue-900,
+        .from-blue-500, .from-blue-600, .from-blue-700, .from-blue-800, .from-blue-900,
+        .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900,
+        .from-indigo-500, .from-indigo-600, .from-indigo-700, .from-indigo-800, .from-indigo-900,
+        .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-violet-900,
+        .from-violet-500, .from-violet-600, .from-violet-700, .from-violet-800, .from-violet-900,
+        .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-purple-900,
+        .from-purple-500, .from-purple-600, .from-purple-700, .from-purple-800, .from-purple-900,
+        .bg-fuchsia-500, .bg-fuchsia-600, .bg-fuchsia-700, .bg-fuchsia-800, .bg-fuchsia-900,
+        .from-fuchsia-500, .from-fuchsia-600, .from-fuchsia-700, .from-fuchsia-800, .from-fuchsia-900,
+        .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-pink-900,
+        .from-pink-500, .from-pink-600, .from-pink-700, .from-pink-800, .from-pink-900,
+        .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-rose-900,
+        .from-rose-500, .from-rose-600, .from-rose-700, .from-rose-800, .from-rose-900
+    ).text-white:not(:disabled, [aria-disabled='true']) {
+    color: #ffffff;
+    --color-red-400: var(--color-red-600);
+    --color-red-500: var(--color-red-600);
+    --color-orange-400: var(--color-orange-700);
+    --color-orange-500: var(--color-orange-700);
+    --color-orange-600: var(--color-orange-700);
+    --color-amber-400: var(--color-amber-700);
+    --color-amber-500: var(--color-amber-700);
+    --color-amber-600: var(--color-amber-700);
+    --color-yellow-400: var(--color-yellow-700);
+    --color-yellow-500: var(--color-yellow-700);
+    --color-yellow-600: var(--color-yellow-700);
+    --color-lime-400: var(--color-lime-700);
+    --color-lime-500: var(--color-lime-700);
+    --color-lime-600: var(--color-lime-700);
+    --color-green-400: var(--color-green-700);
+    --color-green-500: var(--color-green-700);
+    --color-green-600: var(--color-green-700);
+    --color-emerald-400: var(--color-emerald-700);
+    --color-emerald-500: var(--color-emerald-700);
+    --color-emerald-600: var(--color-emerald-700);
+    --color-teal-400: var(--color-teal-700);
+    --color-teal-500: var(--color-teal-700);
+    --color-teal-600: var(--color-teal-700);
+    --color-cyan-400: var(--color-cyan-700);
+    --color-cyan-500: var(--color-cyan-700);
+    --color-cyan-600: var(--color-cyan-700);
+    --color-sky-400: var(--color-sky-700);
+    --color-sky-500: var(--color-sky-700);
+    --color-sky-600: var(--color-sky-700);
+    --color-blue-400: var(--color-blue-600);
+    --color-blue-500: var(--color-blue-600);
+    --color-indigo-400: var(--color-indigo-600);
+    --color-indigo-500: var(--color-indigo-600);
+    --color-violet-400: var(--color-violet-600);
+    --color-violet-500: var(--color-violet-600);
+    --color-purple-400: var(--color-purple-600);
+    --color-purple-500: var(--color-purple-600);
+    --color-fuchsia-400: var(--color-fuchsia-600);
+    --color-fuchsia-500: var(--color-fuchsia-600);
+    --color-pink-400: var(--color-pink-600);
+    --color-pink-500: var(--color-pink-600);
+    --color-rose-400: var(--color-rose-600);
+    --color-rose-500: var(--color-rose-600);
+}
+
 /* gray-200 is HIGH-emphasis body text in dark mode — map it darker than
    the gray-300/400 secondary tier, not into it. */
 .display-light .text-gray-200 {
@@ -3486,7 +3586,7 @@ body,
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
     color: rgba(148, 163, 184, 0.85);
-    font-size: 9px;
+    font-size: 12px; /* the app's 12 px text floor: 9 px was unreadable (UX scorecard run 6) */
     font-weight: 600;
     line-height: 1.6;
     letter-spacing: 0.02em;
@@ -3533,7 +3633,7 @@ body,
     color: rgba(148, 163, 184, 0.9);
 }
 .thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact.is-open {
-    font-size: 9px; /* the restore: full credit line, tap again to collapse */
+    font-size: 12px; /* the restore: full credit line, tap again to collapse */
     cursor: pointer;
 }
 .thalassa-log-leaflet-map .leaflet-popup-content-wrapper {
@@ -3632,6 +3732,28 @@ body,
 .thalassa-chart-map .mapboxgl-ctrl-scale {
     font-size: var(--text-micro);
     line-height: 1.4;
+}
+
+/* The scale as a chart chip on the 16 px rail (UX scorecard run 6): Mapbox's
+   light-grey box sat 10 px in against the 16 px rail. Only the scale is named
+   here; the attribution and logo beside it are never touched. Its sides and
+   bottom stay drawn, because they are the ruler. Vertical padding stays 0 so
+   the chip's height is unchanged and nothing stacked with it moves.
+   (The three-class selector beats mapbox-gl.css's bottom-right margin whatever
+   the load order; Mapbox's `border-top: #333` shorthand leaves the top border
+   style as none, so only the sides and bottom show.) */
+.thalassa-chart-map .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-scale {
+    margin-right: max(16px, env(safe-area-inset-right));
+    padding: 0 6px;
+    background-color: rgb(15 23 42 / 0.85);
+    color: #e2e8f0;
+    border-color: rgb(226 232 240 / 0.75);
+    border-radius: 0 0 6px 6px;
+}
+.display-light .thalassa-chart-map .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-scale {
+    background-color: rgb(255 255 255 / 0.9);
+    color: #0f172a;
+    border-color: rgb(15 23 42 / 0.6);
 }
 
 /* Keep the coverage notice below the top/MOB/layer controls, not bottom-anchored
@@ -4341,6 +4463,12 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     .display-light .route-planner-cta::before {
         background: linear-gradient(to bottom, rgb(226 232 240 / 0), rgb(226 232 240));
     }
+    /* The slide keeps to the cards' column: 36rem (above) less that column's
+       1rem gutters. At a full 36rem it overhung the cards by 16 pt a side
+       (UX scorecard run 6). */
+    .route-planner-cta > * {
+        max-width: 34rem;
+    }
 
     .radial-helm-menu {
         top: max(64px, calc(env(safe-area-inset-top) + 52px)) !important;
@@ -4349,10 +4477,11 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     /* There is no room ABOVE the menu in landscape — it starts at 64px and
        the status row occupies 8-56px — so MOB moves sideways instead. top:0
        is relative to the menu, i.e. 64px absolute, giving y 64..116: clear of
-       the status row above and of the right rail's own buttons at 128px. */
+       the status row above and of the right rail's own buttons at 128px.
+       right 72px keeps 24px between MOB and the layers FAB (UX scorecard run 6). */
     .radial-helm-mob {
         top: 0 !important;
-        right: 60px !important;
+        right: 72px !important;
     }
 
     /* MOB's landscape anchor is the menu's own top, so match it literally. */
@@ -5248,6 +5377,29 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     background-color: rgb(28 25 23);
 }
 .display-light .thalassa-popover-solid {
+    background-color: #ffffff;
+}
+
+/* Dialog panels: opaque too (UX scorecard run 6). The Glass dialogs (system
+   status, pin a metric, weather model) paint a bg-slate-900/95 panel, and
+   with the dim behind it the page's big numbers still read through at about
+   1.5:1. Keyed on the dialog role, so every panel (and sticky dialog header)
+   using the /95 wash turns solid without each component opting in. Same
+   colours, onshore and daylight order as the popovers above. */
+:is([role='dialog'], [role='alertdialog']):is(.bg-slate-900\/95),
+:is([role='dialog'], [role='alertdialog']) .bg-slate-900\/95 {
+    background-color: rgb(15 23 42);
+}
+:is([role='dialog'], [role='alertdialog']):is(.bg-slate-950\/95),
+:is([role='dialog'], [role='alertdialog']) .bg-slate-950\/95 {
+    background-color: rgb(2 6 23);
+}
+:where(.theme-onshore) :is([role='dialog'], [role='alertdialog']):is(.bg-slate-900\/95),
+:where(.theme-onshore) :is([role='dialog'], [role='alertdialog']) .bg-slate-900\/95 {
+    background-color: rgb(28 25 23);
+}
+.display-light :is([role='dialog'], [role='alertdialog']):is(.bg-slate-900\/95, .bg-slate-950\/95),
+.display-light :is([role='dialog'], [role='alertdialog']) :is(.bg-slate-900\/95, .bg-slate-950\/95) {
     background-color: #ffffff;
 }
 

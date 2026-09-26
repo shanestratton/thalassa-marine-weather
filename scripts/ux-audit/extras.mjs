@@ -150,8 +150,9 @@ if (SECTIONS.includes('A')) {
             // Long pages: a second shot scrolled to the bottom shows the tail.
             await scrollEnd(p);
             await capture(p, `settings-${slug}-end`);
-            // The tab screens use PageHeader now: a 'Back to Settings' crumb and a 'Go back' chevron.
-            if (!(await tap(p, 'Back to Settings', 900))) await tap(p, 'Go back', 900);
+            // The tab screens use PageHeader: the 'Go back' chevron. The old
+            // 'Back to Settings' crumb is now the title caption, not a button.
+            await tap(p, 'Go back', 900);
         }
     }
     // The Glass's sheets
@@ -215,8 +216,10 @@ if (SECTIONS.includes('A')) {
     await capture(p, 'voyage-end');
     // Vessel hub: expand the two collapsed sections
     await go(p, 'vessel', 2000);
-    for (const sec of ['Atmosphere', 'Settings & Connect']) {
-        const b = p.getByRole('button', { name: new RegExp(sec, 'i') }).first();
+    // 'Atmosphere' is now 'Music'. Anchored, so it hits the section header
+    // rather than the Music row or another Music control.
+    for (const sec of ['Music', 'Settings & Connect']) {
+        const b = p.getByRole('button', { name: new RegExp('^' + sec + '$', 'i') }).first();
         if (await b.count()) await b.click({ timeout: 2000 }).catch(() => {});
         await p.waitForTimeout(600);
     }

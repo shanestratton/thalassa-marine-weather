@@ -84,9 +84,10 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                 <button
                     onClick={onClose}
                     className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                    aria-label="Close modal"
+                    aria-label="Close"
                 >
                     <svg
+                        aria-hidden="true"
                         className="w-5 h-5 text-gray-400"
                         fill="none"
                         viewBox="0 0 24 24"

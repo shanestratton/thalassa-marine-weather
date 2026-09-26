@@ -132,7 +132,7 @@ describe('PanePortalScope', () => {
         right.focus();
         fireEvent.keyDown(right, { key: 'Tab' });
         expect(right).toHaveFocus();
-        fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
         expect(right).toHaveFocus();
         expect(screen.getByTestId('left')).not.toHaveAttribute('inert');
     });
@@ -184,7 +184,7 @@ describe('PanePortalScope', () => {
         const last = screen.getByRole('button', { name: 'Last control' });
         last.focus();
         fireEvent.keyDown(last, { key: 'Tab' });
-        expect(screen.getByRole('button', { name: 'Close modal' })).toHaveFocus();
+        expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
         fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
         expect(close).toHaveBeenCalledOnce();
     });

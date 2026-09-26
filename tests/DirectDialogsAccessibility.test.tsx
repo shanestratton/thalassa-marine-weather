@@ -90,11 +90,11 @@ describe('direct dialog accessibility', () => {
         fireEvent.click(opener);
 
         const close = screen.getByRole('button', { name: 'Close rain forecast detail' });
-        expectModalBodyPortal(screen.getByRole('dialog', { name: 'Rain Forecast' }));
+        expectModalBodyPortal(screen.getByRole('dialog', { name: 'Rain forecast' }));
         expect(close).toHaveFocus();
         expect(document.body.style.overflow).toBe('hidden');
         fireEvent.keyDown(close, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: 'Rain Forecast' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Rain forecast' })).not.toBeInTheDocument();
         expect(document.body.style.overflow).toBe('clip');
         expect(opener).toHaveFocus();
 
