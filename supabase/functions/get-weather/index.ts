@@ -84,9 +84,9 @@ interface StandardHourly {
     time: string; // ISO
     temperature: number;
     windSpeed: number; // kts
-    windDirection: number; // deg
+    windDirection: number | null; // deg
     windGust: number | null;
-    precipitation: number; // mm
+    precipitation: number | null; // mm
     precipProbability: number; // %
     condition: string;
     pressure: number | null;
@@ -101,7 +101,7 @@ interface StandardDaily {
     windSpeedMax: number; // kts
     windGustMax: number | null;
     condition: string;
-    precipSum: number; // mm
+    precipSum: number | null; // mm
     precipProbability: number | null;
     sunrise: string;
     sunset: string;
@@ -141,8 +141,8 @@ interface MinifiedWeatherResponse {
         // hourly (next 24h only)
         t: number; // hours from now
         w: number; // wind kts
-        wd: number; // wind dir
-        r: number; // precip mm
+        wd: number | null; // wind dir — null when the model had none
+        r: number | null; // precip mm — null when the model had none
     }[];
 }
 
@@ -935,8 +935,10 @@ function minify(full: StandardWeatherResponse): MinifiedWeatherResponse {
         h: full.hourly.slice(0, 24).map((h, i) => ({
             t: i,
             w: Math.round(h.windSpeed),
-            wd: Math.round(h.windDirection),
-            r: Math.round(h.precipitation * 10) / 10,
+            // null stays null: Math.round(null) is 0, which is the invented reading
+            // the full response stopped sending.
+            wd: h.windDirection != null ? Math.round(h.windDirection) : null,
+            r: h.precipitation != null ? Math.round(h.precipitation * 10) / 10 : null,
         })),
     };
 
