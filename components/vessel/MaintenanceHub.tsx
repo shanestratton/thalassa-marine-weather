@@ -271,6 +271,21 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         [tasksWithStatus],
     );
 
+    // The chips read to VoiceOver as one run ('3 due 36 ok 1 needs hours'), so
+    // assistive tech gets this sentence instead and the chips are hidden from
+    // it (UX scorecard run 7).
+    const countsSummary = useMemo(() => {
+        const parts: string[] = [];
+        if (counts.red > 0) parts.push(`${counts.red} overdue`);
+        if (counts.yellow > 0) parts.push(`${counts.yellow} due soon`);
+        if (tasksWithStatus.length > 0) parts.push(`${counts.green} up to date`);
+        if (counts.needsHours > 0)
+            parts.push(`${counts.needsHours} ${counts.needsHours === 1 ? 'needs' : 'need'} engine hours`);
+        if (counts.unscheduled > 0) parts.push(`${counts.unscheduled} unscheduled`);
+        if (counts.paused > 0) parts.push(`${counts.paused} paused`);
+        return parts.length > 0 ? `Tasks: ${parts.join(', ')}.` : '';
+    }, [counts, tasksWithStatus.length]);
+
     // ── Log Service ──
     const handleLogService = useCallback(async () => {
         if (!sheetTask) return;
@@ -568,14 +583,16 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Maintenance"
-                    subtitle="Tasks & Expiry"
+                    subtitle="Tasks & expiry"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Maintenance']}
+                    breadcrumbs={['Boat Binder', 'Maintenance']}
                     status={
                         <>
                             <OfflineBadge />
+                            {countsSummary && <span className="sr-only">{countsSummary}</span>}
                             {counts.red > 0 && (
                                 <span
+                                    aria-hidden="true"
                                     className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black"
                                     title="Overdue"
                                 >
@@ -584,20 +601,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             )}
                             {counts.yellow > 0 && (
                                 <span
+                                    aria-hidden="true"
                                     className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black"
                                     title="Due soon"
                                 >
                                     {counts.yellow} due
                                 </span>
                             )}
-                            <span
-                                className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black"
-                                title="Up to date"
-                            >
-                                {counts.green} ok
-                            </span>
+                            {tasksWithStatus.length > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black"
+                                    title="Up to date"
+                                >
+                                    {counts.green} ok
+                                </span>
+                            )}
                             {counts.needsHours > 0 && (
                                 <span
+                                    aria-hidden="true"
                                     className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
                                     title="Due by engine hours — enter current engine hours"
                                 >
@@ -606,6 +628,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             )}
                             {counts.unscheduled > 0 && (
                                 <span
+                                    aria-hidden="true"
                                     className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
                                     title="No due date or engine hours set"
                                 >
@@ -614,6 +637,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             )}
                             {counts.paused > 0 && (
                                 <span
+                                    aria-hidden="true"
                                     className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
                                     title="Paused"
                                 >
@@ -630,6 +654,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 aria-label="Page actions"
                             >
                                 <svg
+                                    aria-hidden="true"
                                     className="w-5 h-5 text-gray-400"
                                     fill="none"
                                     viewBox="0 0 24 24"
@@ -647,8 +672,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        {/* Named by their visible words (the glyphs are
+                                            decoration), so Voice Control's "Tap Blank
+                                            checklist PDF" finds them; "Export blank
+                                            maintenance checklist PDF" did not start with
+                                            them. */}
                                         <button
-                                            aria-label="Export blank maintenance checklist PDF"
+                                            type="button"
                                             onClick={() => {
                                                 handleExport('checklist', taskData.identity);
                                                 setMenuOpen(false);
@@ -656,6 +686,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
                                         >
                                             <svg
+                                                aria-hidden="true"
                                                 className="w-4 h-4 text-sky-400"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
@@ -668,10 +699,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"
                                                 />
                                             </svg>
-                                            Blank Checklist PDF
+                                            Blank checklist PDF
                                         </button>
                                         <button
-                                            aria-label="Export service history PDF"
+                                            type="button"
                                             onClick={() => {
                                                 handleExport('history', taskData.identity);
                                                 setMenuOpen(false);
@@ -679,6 +710,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
                                         >
                                             <svg
+                                                aria-hidden="true"
                                                 className="w-4 h-4 text-amber-400"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
@@ -691,7 +723,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
                                                 />
                                             </svg>
-                                            Service History PDF
+                                            Service history PDF
                                         </button>
                                     </div>
                                 </>
@@ -738,7 +770,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </div>
                                 <div>
                                     <p className="text-label text-sky-400/70 font-bold uppercase tracking-widest">
-                                        Current Engine Hours
+                                        Current engine hours
                                     </p>
                                     {isEditingHours ? (
                                         <input
@@ -829,9 +861,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 return (
                                     <div key={group.category}>
                                         <h2 className="flex items-center gap-2 mb-2 mt-1">
-                                            <span className="text-sm" aria-hidden="true">
-                                                {catConfig?.icon}
-                                            </span>
+                                            {catConfig && <catConfig.Icon className="h-4 w-4 shrink-0 text-gray-400" />}
                                             <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                                 {catConfig?.label}
                                             </span>
@@ -948,7 +978,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     <ModalSheet
                         isOpen={true}
                         onClose={() => setShowHistory(false)}
-                        title="Service History"
+                        title="Service history"
                         zIndex="z-1000"
                     >
                         {historyItems.length === 0 ? (
@@ -968,7 +998,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         />
                                     </svg>
                                 }
-                                title="No Service History"
+                                title="No service history"
                                 subtitle="Service records will appear here after you log your first maintenance task."
                                 className="py-8"
                             />
@@ -1013,7 +1043,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Option A: Blank Checklist */}
                         <button
-                            aria-label="Export blank maintenance checklist PDF"
+                            type="button"
+                            // Starts with the visible words, as the menu item does.
+                            aria-label="Print blank checklist PDF"
                             onClick={() => handleExport('checklist', taskData.identity)}
                             disabled={exporting}
                             className="w-full mb-3 p-4 bg-linear-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
@@ -1035,7 +1067,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </svg>
                                 </div>
                                 <div>
-                                    <p className="text-sm font-black text-white">Print Blank Checklist</p>
+                                    <p className="text-sm font-black text-white">Print blank checklist</p>
                                     <p className="text-label text-gray-400 mt-0.5">
                                         Printable clipboard for the engine room
                                     </p>
@@ -1067,7 +1099,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </svg>
                                 </div>
                                 <div>
-                                    <p className="text-sm font-black text-white">Export Service History</p>
+                                    <p className="text-sm font-black text-white">Export service history</p>
                                     <p className="text-label text-gray-400 mt-0.5">
                                         Formal ledger of all completed work
                                     </p>
@@ -1078,7 +1110,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         {exporting && (
                             <div className="flex items-center justify-center gap-2 mt-4">
                                 <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs text-sky-400 font-bold">Generating PDF...</span>
+                                <span className="text-xs text-sky-400 font-bold">Generating PDF…</span>
                             </div>
                         )}
                     </ModalSheet>

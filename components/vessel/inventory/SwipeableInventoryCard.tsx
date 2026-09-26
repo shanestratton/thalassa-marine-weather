@@ -8,6 +8,7 @@ import React from 'react';
 import type { InventoryItem } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { AlertTriangleIcon, ClockIcon, MapPinIcon } from '../../Icons';
 
 interface SwipeableInventoryCardProps {
     item: InventoryItem;
@@ -36,18 +37,30 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     const daysUntilExpiry = expiryMs ? Math.ceil((expiryMs - now) / 86_400_000) : null;
     const isExpired = daysUntilExpiry !== null && daysUntilExpiry <= 0;
     const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry > 0 && daysUntilExpiry <= 90;
+    const revealed = swipeOffset > 0;
+    const confirmDelete = () => {
+        resetSwipe();
+        onDelete();
+    };
 
     return (
         <div className="relative overflow-hidden rounded-lg">
-            {/* Delete button (revealed on swipe) */}
+            {/* Delete button (revealed on swipe). Hidden from assistive tech
+                until the swipe reveals it, like the maintenance cards. */}
             <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => {
-                    resetSwipe();
-                    onDelete();
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                aria-hidden={revealed ? undefined : true}
+                role={revealed ? 'button' : undefined}
+                aria-label={revealed ? `Delete ${item.item_name}` : undefined}
+                tabIndex={revealed ? 0 : -1}
+                onClick={confirmDelete}
+                onKeyDown={(e) => {
+                    if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                    e.preventDefault();
+                    confirmDelete();
                 }}
             >
-                <div className="text-center text-white">
+                <div className="text-center text-white" aria-hidden="true">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path
                             strokeLinecap="round"
@@ -75,15 +88,25 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
                             {item.location_zone && (
-                                <p className="text-label text-gray-400 truncate">
-                                    📍 {item.location_zone}
-                                    {item.location_specific ? ` — ${item.location_specific}` : ''}
+                                <p className="flex items-center gap-1 text-label text-gray-400">
+                                    <MapPinIcon className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">
+                                        {item.location_zone}
+                                        {item.location_specific ? ` — ${item.location_specific}` : ''}
+                                    </span>
                                 </p>
                             )}
-                            {isExpired && <p className="text-label font-bold text-red-400 mt-0.5">⚠️ Expired</p>}
+                            {/* Line icons, not ⚠️ ⏳ (UX scorecard run 7). */}
+                            {isExpired && (
+                                <p className="flex items-center gap-1 text-label font-bold text-red-400 mt-0.5">
+                                    <AlertTriangleIcon className="h-3 w-3 shrink-0" />
+                                    Expired
+                                </p>
+                            )}
                             {isExpiringSoon && (
-                                <p className="text-label font-bold text-amber-400 mt-0.5">
-                                    ⏳ Expires in {daysUntilExpiry}d
+                                <p className="flex items-center gap-1 text-label font-bold text-amber-400 mt-0.5">
+                                    <ClockIcon className="h-3 w-3 shrink-0" />
+                                    Expires in {daysUntilExpiry} {daysUntilExpiry === 1 ? 'day' : 'days'}
                                 </p>
                             )}
                         </div>
@@ -102,9 +125,10 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                 onEdit();
                             }}
                             className="hit-target-44 p-1.5 -mr-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
-                            aria-label="Edit item"
+                            aria-label={`Edit ${item.item_name}`}
                         >
                             <svg
+                                aria-hidden="true"
                                 className="w-4 h-4 text-slate-400"
                                 fill="none"
                                 viewBox="0 0 24 24"
@@ -143,7 +167,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                             )}
                             {item.expiry_date && (
                                 <div>
-                                    <span className="text-gray-400">Expiry / Service</span>
+                                    <span className="text-gray-400">Expiry / service</span>
                                     <p
                                         className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}
                                     >
@@ -162,7 +186,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                     onQuantityAdjust(item.id, -1);
                                 }}
                                 disabled={item.quantity <= 0}
-                                className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
+                                className="w-11 h-11 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
                             >
                                 −
                             </button>
@@ -175,15 +199,16 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                     e.stopPropagation();
                                     onQuantityAdjust(item.id, 1);
                                 }}
-                                className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
+                                className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
                             >
                                 +
                             </button>
                         </div>
 
                         {isLow && (
-                            <p className="text-label text-amber-400 font-bold mt-2">
-                                ⚠️ Below minimum ({item.min_quantity})
+                            <p className="flex items-center gap-1 text-label text-amber-400 font-bold mt-2">
+                                <AlertTriangleIcon className="h-3 w-3 shrink-0" />
+                                Below minimum ({item.min_quantity})
                             </p>
                         )}
                     </div>

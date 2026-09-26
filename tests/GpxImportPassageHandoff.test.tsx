@@ -83,7 +83,7 @@ describe('GpxImportPage passage handoff', () => {
             target: { files: [new File(['<gpx />'], 'route.gpx', { type: 'application/gpx+xml' })] },
         });
 
-        const routeButton = await screen.findByRole('button', { name: /Route to Passage Planner/ });
+        const routeButton = await screen.findByRole('button', { name: /Route to passage planner/ });
         vi.useFakeTimers();
         fireEvent.click(routeButton);
 

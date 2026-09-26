@@ -22,8 +22,9 @@ import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
-import { WrenchIcon } from '../Icons';
+import { CheckIcon, WrenchIcon, XIcon } from '../Icons';
 import { ModalSheet } from '../ui/ModalSheet';
+import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
@@ -410,13 +411,13 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         if (failCount > 0) {
             toast.error(`Checklist complete — ${failCount} item${failCount > 1 ? 's' : ''} failed`);
         } else if (passCount === total) {
-            toast.success('✅ All items passed!');
+            toast.success('All items passed');
         } else {
             toast.success(`Checklist complete — ${passCount}/${total} checked`);
         }
 
         if (flagged.length > 0) {
-            toast.info(`🔧 ${flagged.length} item${flagged.length > 1 ? 's' : ''} added to Repairs & Maintenance`);
+            toast.info(`${flagged.length} repair${flagged.length > 1 ? 's' : ''} added to Maintenance`);
         }
     }, [currentOperation, runItems, runId]);
 
@@ -445,14 +446,15 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 <PageHeader
                     title="Checklists"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Checklists']}
+                    breadcrumbs={['Boat Binder', 'Checklists']}
                     status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {/* One term for one thing (UX scorecard run 6): a heading IS a
-                                checklist — pre-departure, anchoring — and its rows are items. */}
-                            {headings.length} checklist{headings.length !== 1 ? 's' : ''} · {totalDetails} item
-                            {totalDetails !== 1 ? 's' : ''}
+                                checklist — pre-departure, anchoring — and its rows are items.
+                                One count while there are none (run 7). */}
+                            {headings.length} checklist{headings.length !== 1 ? 's' : ''}
+                            {headings.length > 0 && ` · ${totalDetails} item${totalDetails !== 1 ? 's' : ''}`}
                         </p>
                     }
                     action={
@@ -464,7 +466,12 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
                             >
-                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                <svg
+                                    aria-hidden="true"
+                                    className="w-5 h-5 text-gray-400"
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                >
                                     <circle cx="12" cy="5" r="1.5" />
                                     <circle cx="12" cy="12" r="1.5" />
                                     <circle cx="12" cy="19" r="1.5" />
@@ -494,7 +501,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                     d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                                                 />
                                             </svg>
-                                            Run Checklist
+                                            Run checklist
                                         </button>
                                     </div>
                                 </>
@@ -503,16 +510,20 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     }
                 />
 
-                {/* Search */}
-                <div className="shrink-0 px-4 pb-3">
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search checklists and items…"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
-                    />
-                </div>
+                {/* Search — only once there is something to search (UX scorecard
+                    run 7: a live field sat over an empty list). */}
+                {(visibleEntries.length > 0 || searchQuery) && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <input
+                            type="text"
+                            aria-label="Search checklists"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search checklists and items…"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
 
                 {/* Checklist entries (scrollable, grouped) */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-4">
@@ -543,7 +554,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Start with a pre-departure, anchoring or heavy-weather checklist. Tap Add checklist or item below.'
+                                    : 'Start with a pre-departure, anchoring or heavy-weather checklist. Tap New checklist below.'
                             }
                             className="py-16"
                         />
@@ -582,7 +593,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Add checklist or item"
+                        // Items live in a checklist, so with none yet the only thing
+                        // this can add is a checklist (UX scorecard run 7).
+                        label={headings.length === 0 ? 'New checklist' : 'Add checklist or item'}
                         icon={
                             <svg
                                 className="w-4 h-4"
@@ -615,7 +628,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 ? editEntry.type === 'heading'
                                     ? 'Edit checklist'
                                     : 'Edit item'
-                                : 'Add to checklists'
+                                : headings.length === 0
+                                  ? 'New checklist'
+                                  : 'Add to checklists'
                         }
                     >
                         {/* Type toggle — Heading or Detail */}
@@ -626,16 +641,17 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
-                                        aria-label="Add a checklist"
                                         aria-pressed={formType === 'heading'}
                                         onClick={() => setFormType('heading')}
-                                        className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${
+                                        type="button"
+                                        className={`min-h-[44px] py-3 rounded-xl text-sm font-black transition-all ${
                                             formType === 'heading'
                                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/5'
                                         }`}
                                     >
                                         <svg
+                                            aria-hidden="true"
                                             className="w-5 h-5 mx-auto mb-1"
                                             fill="none"
                                             viewBox="0 0 24 24"
@@ -651,20 +667,21 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         Checklist
                                     </button>
                                     <button
-                                        aria-label="Add an item"
                                         aria-pressed={formType === 'detail'}
                                         onClick={() => {
                                             setFormType('detail');
                                             if (headings.length > 0 && !formHeadingId) setFormHeadingId(headings[0].id);
                                         }}
                                         disabled={headings.length === 0}
-                                        className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${
+                                        type="button"
+                                        className={`min-h-[44px] py-3 rounded-xl text-sm font-black transition-all ${
                                             formType === 'detail'
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/5'
                                         } disabled:opacity-30 disabled:cursor-not-allowed`}
                                     >
                                         <svg
+                                            aria-hidden="true"
                                             className="w-5 h-5 mx-auto mb-1"
                                             fill="none"
                                             viewBox="0 0 24 24"
@@ -681,7 +698,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     </button>
                                 </div>
                                 {headings.length === 0 && formType === 'heading' && (
-                                    <p className="text-[11px] text-amber-400/80 mt-2 text-center">
+                                    <p className="text-micro text-amber-400/80 mt-2 text-center">
                                         Add a checklist first, then you can add items to it
                                     </p>
                                 )}
@@ -716,8 +733,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 onChange={setFormText}
                                 placeholder={
                                     formType === 'heading'
-                                        ? 'Pre-Start, Shut Down, Navigation...'
-                                        : 'Check oil level, test bilge pump...'
+                                        ? 'Pre-start, shut down, navigation…'
+                                        : 'Check oil level, test bilge pump…'
                                 }
                                 required
                             />
@@ -728,18 +745,14 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 {formType === 'heading' ? 'Checklist name' : 'Item description'} is required
                             </p>
                         )}
-                        <button
-                            aria-label="Save checklist item"
+                        <Button
+                            variant="primary"
                             onClick={handleSave}
                             disabled={!formText.trim()}
-                            className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${
-                                editEntry
-                                    ? 'bg-linear-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                                    : 'bg-linear-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
-                            }`}
+                            className="w-full mt-1 disabled:cursor-not-allowed"
                         >
                             {editEntry ? 'Save changes' : formType === 'heading' ? 'Add checklist' : 'Add item'}
-                        </button>
+                        </Button>
 
                         {/* Delete button — only in edit mode */}
                         {editEntry &&
@@ -753,18 +766,18 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
                                 return (
                                     <>
-                                        <button
-                                            aria-label="Delete checklist item"
+                                        <Button
+                                            variant="danger"
                                             onClick={() => {
                                                 handleDelete(editEntry.id);
                                                 setShowForm(false);
                                                 resetForm();
                                             }}
                                             disabled={!canDelete}
-                                            className="w-full py-3 mt-2 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] bg-red-500/15 border border-red-500/20 text-red-400 hover:bg-red-500/25 disabled:opacity-30"
+                                            className="w-full mt-2 disabled:opacity-30 disabled:cursor-not-allowed"
                                         >
                                             Delete {isHeading ? 'checklist' : 'item'}
-                                        </button>
+                                        </Button>
                                         {isHeading && childCount > 0 && (
                                             <p className="text-micro text-amber-400/80 text-center mt-1.5">
                                                 Remove all {childCount} item{childCount !== 1 ? 's' : ''} first
@@ -795,7 +808,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         ref={runCloseButtonRef}
                                         aria-label="Exit checklist run"
                                         onClick={exitRun}
-                                        className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors"
+                                        className="flex h-11 w-11 -ml-2 items-center justify-center rounded-xl hover:bg-white/5 transition-colors"
                                     >
                                         <svg
                                             className="w-5 h-5 text-gray-400"
@@ -812,9 +825,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         </svg>
                                     </button>
                                     <h2 id={runTitleId} className="text-lg font-black text-white tracking-wide">
-                                        Run Checklist
+                                        Run checklist
                                     </h2>
-                                    <div className="w-9" />
+                                    <div className="w-11" aria-hidden="true" />
                                 </div>
 
                                 {/* Progress bar */}
@@ -839,20 +852,20 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     />
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">
+                                    <span className="text-micro text-gray-400 font-bold uppercase tracking-widest">
                                         {runCheckedCount}/{runTotal} checked
                                     </span>
                                     <div className="flex items-center gap-3">
                                         {runPassCount > 0 && (
-                                            <span className="text-[11px] text-emerald-400 font-bold">
-                                                <span aria-hidden="true">✓ </span>
+                                            <span className="inline-flex items-center gap-1 text-micro text-emerald-400 font-bold">
+                                                <CheckIcon className="h-3 w-3 shrink-0" />
                                                 {runPassCount}
                                                 <span className="sr-only"> passed</span>
                                             </span>
                                         )}
                                         {runFailCount > 0 && (
-                                            <span className="text-[11px] text-red-400 font-bold">
-                                                <span aria-hidden="true">✗ </span>
+                                            <span className="inline-flex items-center gap-1 text-micro text-red-400 font-bold">
+                                                <XIcon className="h-3 w-3 shrink-0" />
                                                 {runFailCount}
                                                 <span className="sr-only"> failed</span>
                                             </span>
@@ -868,7 +881,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         {/* Section header */}
                                         <div className="flex items-center gap-2 mb-2.5 sticky top-0 bg-slate-950 py-1 z-10">
                                             <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                            <span className="text-micro font-black text-emerald-400 uppercase tracking-[0.2em]">
                                                 {group.heading}
                                             </span>
                                         </div>
@@ -971,7 +984,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                     aria-label={`Flag ${item.text} for repair and maintenance`}
                                                                     aria-pressed={item.flagged_rm}
                                                                     onClick={() => toggleRmFlag(item.entry_id)}
-                                                                    className={`hit-target-44 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                                                                    className={`hit-target-44 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-micro font-bold uppercase tracking-wider transition-all ${
                                                                         item.flagged_rm
                                                                             ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                                                                             : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
@@ -999,7 +1012,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     type="button"
                                     aria-label="Complete checklist run"
                                     onClick={completeRun}
-                                    className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${
+                                    className={`w-full min-h-[44px] py-4 rounded-2xl text-sm font-black text-white transition-all active:scale-[0.97] shadow-xl ${
                                         runFailCount > 0
                                             ? 'bg-linear-to-r from-red-600 to-red-700 shadow-red-500/20'
                                             : runCheckedCount === runTotal
@@ -1009,8 +1022,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 >
                                     {runCheckedCount === runTotal
                                         ? runFailCount > 0
-                                            ? `Complete — ${runFailCount} Failed`
-                                            : '✅ All Passed — Complete'
+                                            ? `Complete — ${runFailCount} failed`
+                                            : 'Complete — all passed'
                                         : `Complete (${runCheckedCount}/${runTotal})`}
                                 </button>
                             </div>

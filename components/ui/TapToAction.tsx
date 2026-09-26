@@ -11,8 +11,17 @@
  * thumb looked exactly like 'Slide to drop anchor' and diluted what the
  * slide means. The icon sits inline beside the label instead, in the label's
  * colour — pass it uncoloured (stroke="currentColor", no text-* class).
+ *
+ * The shape is theme.ts `button.ctaShape`, the one bottom call to action, and
+ * the label is sentence case like every other button (UX scorecard run 7:
+ * ADD TASK sat beside 'Prepare voice call'). Caps stay on the slide bars,
+ * whose label is a gesture instruction rather than a button name.
+ *
+ * `data-toast-dock` tells the toast stack to sit just above this bar instead
+ * of over the page's first card (components/Toast.tsx).
  */
 import React from 'react';
+import { button as buttonTokens } from '../../theme';
 import { ACTION_BAR_THEMES as THEMES } from './actionBarThemes';
 
 interface TapToActionProps {
@@ -44,6 +53,7 @@ export const TapToAction: React.FC<TapToActionProps> = ({
         return (
             <div
                 role="status"
+                data-toast-dock=""
                 className="w-full h-14 rounded-full flex items-center justify-center gap-3"
                 style={{ background: colors.loadingTrack, border: colors.loadingBorder }}
             >
@@ -60,12 +70,11 @@ export const TapToAction: React.FC<TapToActionProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={disabled}
-            className="press w-full h-14 rounded-full flex items-center justify-center px-6 select-none transition-transform active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+            data-toast-dock=""
+            className={`press ${buttonTokens.ctaShape}`}
             style={{ background: colors.track, border: colors.trackBorder }}
         >
-            <span
-                className={`inline-flex items-center justify-center gap-2 text-sm font-bold tracking-wider uppercase ${colors.labelColor}`}
-            >
+            <span className={`inline-flex items-center justify-center gap-2 ${colors.labelColor}`}>
                 <span aria-hidden="true" className="flex shrink-0 items-center">
                     {icon}
                 </span>

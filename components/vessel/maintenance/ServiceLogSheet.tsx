@@ -2,13 +2,14 @@
  * ServiceLogSheet — Bottom sheet for recording a maintenance service event.
  * Extracted from MaintenanceHub to reduce component size.
  */
-import React, { useRef } from 'react';
+import React, { useId, useRef } from 'react';
 import type { TaskWithStatus } from '../../../services/MaintenanceService';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { OverlayPortal } from '../../ui/OverlayPortal';
+import { CheckIcon, EditIcon } from '../../icons/UIIcons';
 // One traffic-light palette for the card and the sheet — a local copy had
 // drifted to a different amber for the same status.
-import { LIGHT_COLORS } from './SwipeableTaskCard';
+import { LIGHT_COLORS, readableStatusLabel } from './SwipeableTaskCard';
 
 interface ServiceLogSheetProps {
     task: TaskWithStatus;
@@ -35,6 +36,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     onClose,
 }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const notesId = useId();
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
@@ -51,14 +53,14 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="service-log-title"
-                className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-12rem)] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Close X */}
                 <button
                     ref={closeButtonRef}
                     onClick={onClose}
-                    className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                    className="absolute top-2 right-2 flex h-11 w-11 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
                     aria-label="Close service sheet"
                 >
                     <svg
@@ -73,13 +75,18 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                 </button>
 
                 {/* Task info */}
-                <div className="flex items-center gap-3 mb-5">
-                    <div className={`w-3 h-3 rounded-full ${LIGHT_COLORS[task.status].dot}`} />
-                    <div className="flex-1">
+                <div className="flex items-center gap-3 mb-5 pr-12">
+                    <div
+                        aria-hidden="true"
+                        className={`w-3 h-3 shrink-0 rounded-full ${LIGHT_COLORS[task.status].dot}`}
+                    />
+                    <div className="flex-1 min-w-0">
                         <h3 id="service-log-title" className="text-lg font-black text-white">
                             {task.title}
                         </h3>
-                        <p className={`text-xs font-bold ${LIGHT_COLORS[task.status].text}`}>{task.statusLabel}</p>
+                        <p className={`text-xs font-bold ${LIGHT_COLORS[task.status].text}`}>
+                            {readableStatusLabel(task.statusLabel)}
+                        </p>
                     </div>
                 </div>
 
@@ -87,7 +94,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                 {task.trigger_type === 'engine_hours' && (
                     <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest mb-1">
-                            Engine Hours at Service
+                            Engine hours at service
                         </p>
                         {engineHours === null ? (
                             <>
@@ -102,11 +109,14 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
 
                 {/* Notes */}
                 <div className="mb-4">
-                    <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1">
-                        Notes (Optional)
+                    <label
+                        htmlFor={notesId}
+                        className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1"
+                    >
+                        Notes (optional)
                     </label>
                     <textarea
-                        aria-label="Service notes"
+                        id={notesId}
                         value={notes}
                         onChange={(e) => onNotesChange(e.target.value)}
                         placeholder="Found slight weeping on raw water pump gasket..."
@@ -117,29 +127,34 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                 {/* Action buttons */}
                 <div className="flex gap-3">
                     <button
-                        aria-label="View history"
+                        type="button"
                         onClick={onHistory}
-                        className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-400 hover:bg-white/10 transition-colors"
+                        className="min-h-[44px] px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:bg-white/10 transition-colors"
                     >
                         History
                     </button>
                     <button
-                        aria-label="Edit service details"
+                        type="button"
+                        aria-label="Edit task"
                         onClick={onEdit}
-                        className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
+                        className="flex min-h-[44px] items-center gap-1.5 px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
                     >
-                        ✎ Edit
+                        <EditIcon className="h-3.5 w-3.5 shrink-0" />
+                        Edit
                     </button>
                     <button
                         aria-label={saving ? 'Logging service' : 'Log service'}
                         onClick={onLog}
                         disabled={saving}
-                        className="flex-1 py-3.5 bg-linear-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
+                        className="flex flex-1 min-h-[44px] items-center justify-center gap-2 py-3.5 bg-linear-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
                     >
                         {saving ? (
                             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
                         ) : (
-                            '✓ Log Service'
+                            <>
+                                <CheckIcon className="h-4 w-4 shrink-0" />
+                                Log service
+                            </>
                         )}
                     </button>
                 </div>

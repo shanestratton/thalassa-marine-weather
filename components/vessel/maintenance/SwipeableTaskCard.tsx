@@ -36,7 +36,7 @@ export const LIGHT_COLORS: Record<TrafficLight, { dot: string; bg: string; borde
  * 'Due in 365 days' is slow to read (UX scorecard run 6): beyond about two
  * months, say months. The card still shows the exact date beside it.
  */
-function readableStatusLabel(label: string): string {
+export function readableStatusLabel(label: string): string {
     const match = /^(Due in|Overdue by) (\d+) days$/.exec(label);
     if (!match) return label;
     const days = Number(match[2]);
@@ -127,12 +127,21 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                     </button>
                 </div>
 
-                {/* Row 2: Status label + due info */}
-                <div className="flex items-center justify-between mt-1.5">
-                    <p className={`text-label font-bold uppercase tracking-widest ${light.text}`}>
+                {/* Row 2: Status label + due info. Only overdue and due-soon
+                    tasks shout in bold capitals; an up-to-date task says so
+                    quietly, so the 3 due stand out from the 36 that are fine
+                    (UX scorecard run 7). */}
+                <div className="flex items-center justify-between gap-2 mt-1.5">
+                    <p
+                        className={`text-label ${light.text} ${
+                            task.status === 'red' || task.status === 'yellow'
+                                ? 'font-bold uppercase tracking-widest'
+                                : 'font-medium'
+                        }`}
+                    >
                         {readableStatusLabel(task.statusLabel)}
                     </p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                         {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
                             <span className="text-label text-slate-400 font-mono">
                                 @ {task.next_due_hours?.toLocaleString()} hrs

@@ -130,7 +130,7 @@ describe('GroceryListPage permissions', () => {
         expect(purchase).toBeDisabled();
         expect(purchase).toHaveAttribute('aria-describedby', explanation.id);
         fireEvent.click(purchase);
-        expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
         expect(mocks.markPurchased).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('tab', { name: /All/ }));
@@ -152,7 +152,7 @@ describe('GroceryListPage permissions', () => {
         const add = screen.getByRole('button', { name: 'Add item to shopping list' });
         expect(add).toBeEnabled();
         fireEvent.click(add);
-        expect(screen.getByRole('dialog', { name: /Add to Shopping List/ })).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: /Add to shopping list/ })).toBeInTheDocument();
     });
 
     it.each([
@@ -167,7 +167,7 @@ describe('GroceryListPage permissions', () => {
         expect(purchase).toBeEnabled();
         fireEvent.click(purchase);
         expect(
-            within(screen.getByRole('dialog', { name: /Mark as Purchased/ })).getByRole('button', {
+            within(screen.getByRole('dialog', { name: /Mark as purchased/ })).getByRole('button', {
                 name: 'Confirm purchase of Tomatoes',
             }),
         ).toBeEnabled();
@@ -199,12 +199,12 @@ describe('GroceryListPage permissions', () => {
         const { rerender } = render(<GroceryListPage onBack={vi.fn()} />);
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark Tomatoes as purchased' }));
-        expect(screen.getByRole('dialog', { name: /Mark as Purchased/ })).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: /Mark as purchased/ })).toBeInTheDocument();
 
         setPermissions({ loaded: false, canEditStores: true });
         rerender(<GroceryListPage onBack={vi.fn()} />);
 
-        expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Mark Tomatoes as purchased' })).toBeDisabled();
         expect(mocks.markPurchased).not.toHaveBeenCalled();
     });

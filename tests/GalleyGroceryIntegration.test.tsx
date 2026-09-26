@@ -198,7 +198,7 @@ describe('Galley production workflows', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        expect(screen.getByRole('heading', { name: 'Grocery List' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Grocery list' })).toBeInTheDocument();
         expect(screen.getByRole('tablist', { name: 'Shopping list filters' })).toBeInTheDocument();
         const remainingTab = screen.getByRole('tab', { name: /Need/ });
         expect(remainingTab).toHaveAttribute('aria-selected', 'true');
@@ -214,7 +214,8 @@ describe('Galley production workflows', () => {
             '0 of 1 items purchased',
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+        // The chevron is named by where it goes (PageHeader, UX scorecard run 7).
+        fireEvent.click(screen.getByRole('button', { name: 'Back to Galley' }));
 
         await waitFor(() => {
             expect(screen.getByRole('heading', { name: 'Galley' })).toBeInTheDocument();
@@ -234,7 +235,7 @@ describe('Galley production workflows', () => {
         render(<GalleyPage onBack={vi.fn()} />);
 
         fireEvent.click(screen.getByRole('button', { name: 'Open empty shopping list' }));
-        expect(screen.getByRole('heading', { name: 'Grocery List' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Grocery list' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toBeEnabled();
     });
 
@@ -270,18 +271,18 @@ describe('Galley production workflows', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Open shopping list, 1 item remaining' }));
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark Tomatoes as purchased' }));
-        const purchaseDialog = screen.getByRole('dialog', { name: /Mark as Purchased/ });
+        const purchaseDialog = screen.getByRole('dialog', { name: /Mark as purchased/ });
         expect(purchaseDialog).toHaveClass('overflow-y-auto', 'overscroll-contain');
         expect(purchaseDialog.style.maxHeight).toContain('100dvh');
         expect(within(purchaseDialog).getByText("Adds 4 each to Ship's Stores.")).toBeInTheDocument();
         fireEvent.click(within(purchaseDialog).getByRole('button', { name: 'Cancel marking Tomatoes as purchased' }));
 
         fireEvent.click(screen.getByRole('button', { name: 'Add item to shopping list' }));
-        const addDialog = screen.getByRole('dialog', { name: /Add to Shopping List/ });
+        const addDialog = screen.getByRole('dialog', { name: /Add to shopping list/ });
         expect(addDialog).toHaveClass('overflow-y-auto', 'overscroll-contain');
         expect(addDialog.style.maxHeight).toContain('100dvh');
 
-        fireEvent.change(within(addDialog).getByRole('textbox', { name: 'Item Name' }), {
+        fireEvent.change(within(addDialog).getByRole('textbox', { name: 'Item name' }), {
             target: { value: 'Olive oil' },
         });
         const quantityInput = within(addDialog).getByRole('spinbutton', { name: 'Qty' });

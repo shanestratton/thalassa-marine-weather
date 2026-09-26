@@ -194,7 +194,7 @@ describe('vessel list dialog accessibility', () => {
 
     it('contains equipment actions, names each target, and restores the opener', async () => {
         render(<EquipmentList onBack={vi.fn()} />);
-        const opener = await screen.findByRole('button', { name: 'Equipment options' });
+        const opener = await screen.findByRole('button', { name: 'Options for Anchor Windlass' });
         opener.focus();
         fireEvent.click(opener);
 
@@ -218,14 +218,14 @@ describe('vessel list dialog accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        const dialog = screen.getByRole('dialog', { name: /Mark as Purchased/ });
+        const dialog = screen.getByRole('dialog', { name: /Mark as purchased/ });
         const price = within(dialog).getByRole('spinbutton', { name: 'Price (optional)' });
         expect(price).toHaveFocus();
         expect(within(dialog).getByRole('textbox', { name: 'Retailer (optional)' })).toBeEnabled();
         expect(within(dialog).getByRole('button', { name: 'Coles' })).toHaveAttribute('aria-pressed', 'false');
 
         fireEvent.keyDown(price, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
         expect(mocks.markPurchased).not.toHaveBeenCalled();
         expect(opener).toHaveFocus();
     });
@@ -237,8 +237,8 @@ describe('vessel list dialog accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        const dialog = screen.getByRole('dialog', { name: /Add to Shopping List/ });
-        const name = within(dialog).getByRole('textbox', { name: 'Item Name' });
+        const dialog = screen.getByRole('dialog', { name: /Add to shopping list/ });
+        const name = within(dialog).getByRole('textbox', { name: 'Item name' });
         expect(name).toHaveFocus();
         expect(within(dialog).getByRole('spinbutton', { name: 'Qty' })).toBeEnabled();
         expect(within(dialog).getByRole('combobox', { name: 'Unit' })).toBeEnabled();
@@ -246,7 +246,7 @@ describe('vessel list dialog accessibility', () => {
         expect(within(zones).getByRole('button', { name: /Produce/ })).toHaveAttribute('aria-pressed', 'false');
 
         fireEvent.keyDown(name, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: /Add to Shopping List/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Add to shopping list/ })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
     });
 
@@ -255,7 +255,7 @@ describe('vessel list dialog accessibility', () => {
         render(<GroceryListPage onBack={vi.fn()} />);
 
         fireEvent.click(await screen.findByRole('button', { name: 'Mark Tomatoes as purchased' }));
-        const dialog = screen.getByRole('dialog', { name: /Mark as Purchased/ });
+        const dialog = screen.getByRole('dialog', { name: /Mark as purchased/ });
         const confirm = within(dialog).getByRole('button', { name: 'Confirm purchase of Tomatoes' });
         fireEvent.click(confirm);
 
@@ -267,7 +267,7 @@ describe('vessel list dialog accessibility', () => {
         expect(mocks.markPurchased).toHaveBeenCalledOnce();
 
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel marking Tomatoes as purchased' }));
-        expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
     });
 
     it('moves focus to a stable action when a purchased item leaves the active filter', async () => {
@@ -296,13 +296,13 @@ describe('vessel list dialog accessibility', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Mark Tomatoes as purchased' }));
         fireEvent.click(
-            within(screen.getByRole('dialog', { name: /Mark as Purchased/ })).getByRole('button', {
+            within(screen.getByRole('dialog', { name: /Mark as purchased/ })).getByRole('button', {
                 name: 'Confirm purchase of Tomatoes',
             }),
         );
 
         await waitFor(() => {
-            expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+            expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
             expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toHaveFocus();
         });
     });
@@ -312,8 +312,8 @@ describe('vessel list dialog accessibility', () => {
         render(<GroceryListPage onBack={vi.fn()} />);
 
         fireEvent.click(await screen.findByRole('button', { name: 'Add item to shopping list' }));
-        const dialog = screen.getByRole('dialog', { name: /Add to Shopping List/ });
-        const name = within(dialog).getByRole('textbox', { name: 'Item Name' });
+        const dialog = screen.getByRole('dialog', { name: /Add to shopping list/ });
+        const name = within(dialog).getByRole('textbox', { name: 'Item name' });
         fireEvent.change(name, { target: { value: 'Dish soap' } });
         fireEvent.click(within(dialog).getByRole('button', { name: 'Add item to grocery list' }));
 

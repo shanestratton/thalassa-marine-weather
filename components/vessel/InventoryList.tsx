@@ -9,7 +9,8 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('InventoryList');
 import type { InventoryItem, InventoryCategory } from '../../types';
-import { INVENTORY_CATEGORIES as CATEGORIES, INVENTORY_CATEGORY_ICONS as CATEGORY_ICONS } from '../../types';
+import { INVENTORY_CATEGORIES as CATEGORIES } from '../../types';
+import { storesCategoryIcon } from './inventory/categoryIcons';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { InventoryScanner } from './InventoryScanner';
 import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
@@ -24,6 +25,7 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { UndoToast } from '../ui/UndoToast';
 import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
+import { Button } from '../ui/Button';
 import { toast } from '../Toast';
 import { SwipeableInventoryCard } from './inventory/SwipeableInventoryCard';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
@@ -413,15 +415,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 <PageHeader
                     title="Ship's Stores"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", "Ship's Stores"]}
+                    breadcrumbs={['Boat Binder', "Ship's Stores"]}
                     status={<OfflineBadge />}
                     subtitle={
+                        // One count while the stores are empty: '0 items · 0 units'
+                        // said the zero twice (UX scorecard run 7).
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {stats
-                                ? `${stats.totalItems} ${stats.totalItems === 1 ? 'Item' : 'Items'} · ${Math.round(stats.totalQuantity * 10) / 10} ${Math.round(stats.totalQuantity * 10) / 10 === 1 ? 'Unit' : 'Units'}`
-                                : 'Loading...'}
+                                ? stats.totalItems === 0
+                                    ? '0 items'
+                                    : `${stats.totalItems} ${stats.totalItems === 1 ? 'item' : 'items'} · ${Math.round(stats.totalQuantity * 10) / 10} ${Math.round(stats.totalQuantity * 10) / 10 === 1 ? 'unit' : 'units'}`
+                                : 'Loading…'}
                             {stats && stats.lowStock > 0 && (
-                                <span className="text-amber-400"> · {stats.lowStock} Low</span>
+                                <span className="text-amber-400"> · {stats.lowStock} low</span>
                             )}
                         </p>
                     }
@@ -432,7 +438,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
                             >
-                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                <svg
+                                    aria-hidden="true"
+                                    className="w-5 h-5 text-gray-400"
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                >
                                     <circle cx="12" cy="5" r="1.5" />
                                     <circle cx="12" cy="12" r="1.5" />
                                     <circle cx="12" cy="19" r="1.5" />
@@ -466,7 +477,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                                                 />
                                             </svg>
-                                            Download Stores List
+                                            Download stores list
                                         </button>
                                         <div className="border-t border-white/5" />
                                         <button
@@ -493,7 +504,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                     d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
                                                 />
                                             </svg>
-                                            Share Stores List
+                                            Share stores list
                                         </button>
                                     </div>
                                 </>
@@ -502,16 +513,20 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     }
                 />
 
-                {/* ── Search ── */}
-                <div className="shrink-0 px-4 pb-3">
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search by name or location..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
-                    />
-                </div>
+                {/* ── Search ── only once there is something to search: a live
+                    field over an empty list offered nothing (UX scorecard run 7). */}
+                {(items.length > 0 || searchQuery) && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <input
+                            type="text"
+                            aria-label="Search stores"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search by name or location…"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
 
                 {/* ── Item List (scrollable, stops above CTA) ── */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3 no-scrollbar">
@@ -549,34 +564,37 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             className="py-16"
                         />
                     ) : (
-                        groupedItems.map((group) => (
-                            <div key={group.category}>
-                                <div className="flex items-center gap-2 mb-2 mt-1">
-                                    <span className="text-sm" aria-hidden="true">
-                                        {CATEGORY_ICONS[group.category]}
-                                    </span>
-                                    <span className="text-label font-black text-gray-400 uppercase tracking-widest">
-                                        {group.category}
-                                    </span>
-                                    <span className="text-micro text-gray-400 font-bold">({group.items.length})</span>
+                        groupedItems.map((group) => {
+                            const CategoryIcon = storesCategoryIcon(group.category);
+                            return (
+                                <div key={group.category}>
+                                    <div className="flex items-center gap-2 mb-2 mt-1">
+                                        <CategoryIcon className="h-4 w-4 shrink-0 text-gray-400" />
+                                        <span className="text-label font-black text-gray-400 uppercase tracking-widest">
+                                            {group.category}
+                                        </span>
+                                        <span className="text-micro text-gray-400 font-bold">
+                                            ({group.items.length})
+                                        </span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {group.items.map((item) => (
+                                            <SwipeableInventoryCard
+                                                key={item.id}
+                                                item={item}
+                                                isExpanded={expandedId === item.id}
+                                                onTap={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                                                onDelete={() => handleDelete(item.id, inventoryData.identity)}
+                                                onEdit={() => openEdit(item, inventoryData.identity)}
+                                                onQuantityAdjust={(id, delta) =>
+                                                    handleQuantityAdjust(id, delta, inventoryData.identity)
+                                                }
+                                            />
+                                        ))}
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    {group.items.map((item) => (
-                                        <SwipeableInventoryCard
-                                            key={item.id}
-                                            item={item}
-                                            isExpanded={expandedId === item.id}
-                                            onTap={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                                            onDelete={() => handleDelete(item.id, inventoryData.identity)}
-                                            onEdit={() => openEdit(item, inventoryData.identity)}
-                                            onQuantityAdjust={(id, delta) =>
-                                                handleQuantityAdjust(id, delta, inventoryData.identity)
-                                            }
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
 
@@ -609,7 +627,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             {/* ═══ EDIT ITEM MODAL ═══ */}
             {editItem && (
-                <ModalSheet isOpen={true} onClose={() => setEditItem(null)} title="Edit Item">
+                <ModalSheet isOpen={true} onClose={() => setEditItem(null)} title="Edit item">
                     <div className="space-y-2">
                         {/* Category — first */}
                         <div>
@@ -617,25 +635,28 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 Category
                             </label>
                             <div className="grid grid-cols-4 gap-1 mt-0.5">
-                                {CATEGORIES.map((cat) => (
-                                    <button
-                                        aria-label={`Select ${cat} category`}
-                                        aria-pressed={editCategory === cat}
-                                        key={cat}
-                                        type="button"
-                                        onClick={() => setEditCategory(cat)}
-                                        className={`py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-                                    >
-                                        <span aria-hidden="true">{CATEGORY_ICONS[cat]}</span> {cat}
-                                    </button>
-                                ))}
+                                {CATEGORIES.map((cat) => {
+                                    const CategoryIcon = storesCategoryIcon(cat);
+                                    return (
+                                        <button
+                                            aria-pressed={editCategory === cat}
+                                            key={cat}
+                                            type="button"
+                                            onClick={() => setEditCategory(cat)}
+                                            className={`flex items-center justify-center gap-1 py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                                        >
+                                            <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
+                                            {cat}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 
                         {/* Name */}
                         <div>
                             <FormField
-                                label="Item Name"
+                                label="Item name"
                                 value={editName}
                                 onChange={setEditName}
                                 required
@@ -729,7 +750,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 min={0}
                             />
                             <FormField
-                                label="Min Qty"
+                                label="Min qty"
                                 type="number"
                                 value={editMinQty}
                                 onChange={(v) => setEditMinQty(Math.max(0, parseInt(v) || 0))}
@@ -739,7 +760,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                         {/* Location */}
                         <div className="grid grid-cols-2 gap-2">
-                            <FormField label="Zone" value={editZone} onChange={setEditZone} placeholder="Engine Room" />
+                            <FormField label="Zone" value={editZone} onChange={setEditZone} placeholder="Engine room" />
                             <FormField
                                 label="Specific"
                                 value={editSpecific}
@@ -757,20 +778,21 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         />
 
                         {/* Expiry — full width to prevent date picker overflow */}
-                        <FormField label="Expiry / Service" type="date" value={editExpiry} onChange={setEditExpiry} />
+                        <FormField label="Expiry / service" type="date" value={editExpiry} onChange={setEditExpiry} />
                     </div>
 
                     {!editName.trim() && (
                         <p className="text-micro text-amber-400/80 text-center mt-2">Item name is required</p>
                     )}
-                    <button
+                    <Button
+                        variant="primary"
                         aria-label="Save inventory item changes"
                         onClick={handleSaveEdit}
                         disabled={!editName.trim()}
-                        className="w-full mt-2 py-2.5 bg-linear-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                        className="w-full mt-2 disabled:cursor-not-allowed"
                     >
-                        Save Changes
-                    </button>
+                        Save changes
+                    </Button>
                 </ModalSheet>
             )}
 
@@ -786,26 +808,27 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 <ModalSheet
                     isOpen={true}
                     onClose={() => setShowExportPicker(false)}
-                    title={exportMode === 'share' ? 'Share Stores List' : 'Download Stores List'}
+                    title={exportMode === 'share' ? 'Share stores list' : 'Download stores list'}
                 >
                     <p className="text-sm text-gray-400 mb-3">Select categories to include, or leave blank for all:</p>
                     <div className="grid grid-cols-2 gap-2 mb-4">
                         {CATEGORIES.map((cat) => {
                             const count = items.filter((i) => i.category === cat).length;
                             const selected = exportCategories.has(cat);
+                            const CategoryIcon = storesCategoryIcon(cat);
                             return (
                                 <button
                                     aria-label={`${cat}, ${count} ${count === 1 ? 'item' : 'items'}`}
                                     aria-pressed={selected}
                                     key={cat}
                                     onClick={() => toggleExportCategory(cat)}
-                                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                                    className={`flex min-h-[44px] items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${
                                         selected
                                             ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                             : 'bg-white/5 text-gray-400 border border-white/5 hover:border-white/10'
                                     }`}
                                 >
-                                    <span aria-hidden="true">{CATEGORY_ICONS[cat]}</span>
+                                    <CategoryIcon className="h-4 w-4 shrink-0" />
                                     <span className="flex-1 text-left">{cat}</span>
                                     <span className="text-xs text-gray-400">{count}</span>
                                     {selected && (
@@ -823,16 +846,16 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             );
                         })}
                     </div>
-                    <button
-                        aria-label="Export inventory PDF"
+                    <Button
+                        variant="primary"
                         onClick={() => handleExport(exportMode, exportCategories, inventoryData.identity)}
-                        className="w-full py-3 bg-linear-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
+                        className="w-full"
                     >
                         {exportMode === 'share' ? 'Share' : 'Download'}{' '}
                         {exportCategories.size > 0
-                            ? `${exportCategories.size} ${exportCategories.size === 1 ? 'Category' : 'Categories'}`
-                            : 'All Categories'}
-                    </button>
+                            ? `${exportCategories.size} ${exportCategories.size === 1 ? 'category' : 'categories'}`
+                            : 'all categories'}
+                    </Button>
                 </ModalSheet>
             )}
         </div>

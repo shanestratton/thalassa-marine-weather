@@ -130,6 +130,6 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
     });
 
     it('the chosen source is visible on the compose form', () => {
-        expect(page).toContain("gpsSource === 'vessel' ? '⚓ '");
+        expect(page).toContain("gpsSource === 'vessel' ? 'Boat · '");
     });
 });

@@ -22,6 +22,8 @@ import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { OfflineBadge } from '../ui/OfflineBadge';
+import { AlertTriangleIcon, CheckIcon, ClockIcon } from '../icons/UIIcons';
+import { CloudIcon } from '../icons/WeatherIcons';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
@@ -233,7 +235,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             if (!currentOperation(scope)) return;
             if (restored > 0) {
                 loadDocs();
-                toast.success(`☁️ Restored ${restored} document${restored > 1 ? 's' : ''} from cloud`);
+                toast.success(`Restored ${restored} document${restored > 1 ? 's' : ''} from cloud`);
             }
         });
     }, [currentOperation, loadDocs]);
@@ -450,7 +452,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 ok++;
         }
         if (!currentOperation(scope)) return;
-        toast.success(`📥 Saved ${ok} of ${selected.length} file${selected.length > 1 ? 's' : ''}`);
+        toast.success(`Saved ${ok} of ${selected.length} file${selected.length > 1 ? 's' : ''}`);
         setSelectedIds(new Set());
     };
 
@@ -513,33 +515,35 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 <PageHeader
                     title="Documents"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Documents']}
+                    breadcrumbs={['Boat Binder', 'Documents']}
                     status={<OfflineBadge />}
                     subtitle={
+                        // One count, worded like Stores and Equipment ('0 items');
+                        // '0 documents' under the title only repeated it. Line
+                        // icons, not ✓ ⚠ ⚡ ☁️ (UX scorecard run 7).
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {/* '0 documents' under the title 'Documents' only repeated it. */}
-                            {visibleDocuments.length} filed
+                            {visibleDocuments.length} {visibleDocuments.length === 1 ? 'item' : 'items'}
                             {selectedIds.size > 0 && (
-                                <span className="text-sky-400 ml-2">
-                                    <span aria-hidden="true">✓ </span>
+                                <span className="text-sky-400 ml-2 inline-flex items-center gap-1">
+                                    <CheckIcon className="h-3 w-3 shrink-0" />
                                     {selectedIds.size} selected
                                 </span>
                             )}
                             {expiredCount > 0 && (
-                                <span className="text-red-400 ml-2">
-                                    <span aria-hidden="true">⚠ </span>
-                                    {expiredCount} Expired
+                                <span className="text-red-400 ml-2 inline-flex items-center gap-1">
+                                    <AlertTriangleIcon className="h-3 w-3 shrink-0" />
+                                    {expiredCount} expired
                                 </span>
                             )}
                             {warningCount > 0 && (
-                                <span className="text-amber-400 ml-2">
-                                    <span aria-hidden="true">⚡ </span>
-                                    {warningCount} Expiring
+                                <span className="text-amber-400 ml-2 inline-flex items-center gap-1">
+                                    <ClockIcon className="h-3 w-3 shrink-0" />
+                                    {warningCount} expiring
                                 </span>
                             )}
                             {pendingSyncCount > 0 && (
-                                <span className="text-sky-400 ml-2">
-                                    <span aria-hidden="true">☁️ </span>
+                                <span className="text-sky-400 ml-2 inline-flex items-center gap-1">
+                                    <CloudIcon className="h-3 w-3 shrink-0" />
                                     {pendingSyncCount} pending
                                 </span>
                             )}
@@ -552,7 +556,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
                             >
-                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                <svg
+                                    aria-hidden="true"
+                                    className="w-5 h-5 text-gray-400"
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                >
                                     <circle cx="12" cy="5" r="1.5" />
                                     <circle cx="12" cy="12" r="1.5" />
                                     <circle cx="12" cy="19" r="1.5" />
@@ -581,7 +590,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                                                 />
                                             </svg>
-                                            Download Selected
+                                            Download selected
                                         </button>
                                         <div className="border-t border-white/5" />
                                         <button
@@ -603,13 +612,13 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                                     d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                                                 />
                                             </svg>
-                                            Share Selected
+                                            Share selected
                                         </button>
                                         {selectedIds.size > 0 && (
                                             <>
                                                 <div className="border-t border-white/5" />
                                                 <button
-                                                    aria-label="Toggle document selection for bulk actions"
+                                                    aria-label="Clear document selection"
                                                     onClick={() => {
                                                         setSelectedIds(new Set());
                                                         setHeaderMenuOpen(false);
@@ -629,7 +638,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                                             d="M6 18L18 6M6 6l12 12"
                                                         />
                                                     </svg>
-                                                    Clear Selection
+                                                    Clear selection
                                                 </button>
                                             </>
                                         )}
@@ -640,16 +649,20 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     }
                 />
 
-                {/* Search */}
-                <div className="shrink-0 px-4 pb-3">
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search documents..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
-                    />
-                </div>
+                {/* Search — only once there is something to search (UX scorecard
+                    run 7: a live field sat over an empty list). */}
+                {(visibleDocuments.length > 0 || searchQuery) && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <input
+                            type="text"
+                            aria-label="Search documents"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search documents…"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
 
                 {/* Documents list (scrollable, grouped) */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
@@ -689,9 +702,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         grouped.map((group) => (
                             <div key={group.id}>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xs" aria-hidden="true">
-                                        {group.icon}
-                                    </span>
+                                    <group.Icon className="h-4 w-4 shrink-0 text-gray-400" />
                                     <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                         {group.label}
                                     </span>
@@ -749,7 +760,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             setShowForm(false);
                             resetForm();
                         }}
-                        title={editDoc ? 'Edit Document' : 'Add Document'}
+                        title={editDoc ? 'Edit document' : 'Add document'}
                     >
                         <DocumentForm
                             isEdit={!!editDoc}

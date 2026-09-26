@@ -8,6 +8,8 @@ import React from 'react';
 import type { ShipDocument, DocumentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { ClipboardIcon } from '../../icons/UIIcons';
+import { CATEGORIES } from './DocumentForm';
 
 // ── Expiry logic ──
 
@@ -40,19 +42,13 @@ export function getExpiryStatus(expiryDate: string | null): ExpiryStatus {
 
 const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: string; label: string }> = {
     valid: { dot: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500/30', label: 'Valid' },
-    warning: { dot: 'bg-amber-500', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Expiring Soon' },
+    warning: { dot: 'bg-amber-500', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Expiring soon' },
     expired: { dot: 'bg-red-500', text: 'text-red-400', border: 'border-red-500/30', label: 'Expired' },
-    none: { dot: 'bg-gray-500', text: 'text-gray-400', border: 'border-gray-500/20', label: 'No Expiry' },
+    none: { dot: 'bg-gray-500', text: 'text-gray-400', border: 'border-gray-500/20', label: 'No expiry' },
 };
 
-const CATEGORY_ICONS: Record<DocumentCategory, string> = {
-    Registration: '🚢',
-    Insurance: '🛡️',
-    'Crew Visas/IDs': '🪪',
-    'Radio/MMSI': '📻',
-    'Customs Clearances': '🛂',
-    'User Manuals': '📖',
-};
+// The form's line icons, one set for the picker, the group headers and the card.
+const categoryIcon = (category: DocumentCategory) => CATEGORIES.find((c) => c.id === category)?.Icon ?? ClipboardIcon;
 
 // ── Component ──
 
@@ -78,18 +74,31 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
     });
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
+    const CategoryIcon = categoryIcon(doc.category);
+    const revealed = swipeOffset > 0;
+    const confirmDelete = () => {
+        resetSwipe();
+        onDelete();
+    };
 
     return (
         <div className="relative overflow-hidden rounded-2xl">
-            {/* Delete button */}
+            {/* Delete button (revealed on swipe). Hidden from assistive tech
+                until the swipe reveals it, like the maintenance cards. */}
             <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => {
-                    resetSwipe();
-                    onDelete();
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                aria-hidden={revealed ? undefined : true}
+                role={revealed ? 'button' : undefined}
+                aria-label={revealed ? `Delete ${doc.document_name}` : undefined}
+                tabIndex={revealed ? 0 : -1}
+                onClick={confirmDelete}
+                onKeyDown={(e) => {
+                    if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                    e.preventDefault();
+                    confirmDelete();
                 }}
             >
-                <div className="text-center text-white">
+                <div className="text-center text-white" aria-hidden="true">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path
                             strokeLinecap="round"
@@ -118,7 +127,8 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                         onToggleSelect();
                     }}
                     className="shrink-0 flex items-center justify-center w-11 min-h-11 ml-1"
-                    aria-label={selected ? 'Deselect' : 'Select'}
+                    aria-label={`Select ${doc.document_name}`}
+                    aria-pressed={selected}
                 >
                     <div
                         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
@@ -146,7 +156,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                 <div className="flex-1 p-4">
                     {/* Category badge */}
                     <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="text-micro">{CATEGORY_ICONS[doc.category] || '📋'}</span>
+                        <CategoryIcon className="h-3 w-3 shrink-0 text-gray-400" />
                         <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
                             {doc.category}
                         </span>
@@ -177,7 +187,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                 onEdit();
                             }}
                             className="hit-target-44 shrink-0 p-2 rounded-lg hover:bg-white/10 transition-colors self-center"
-                            aria-label="Edit document"
+                            aria-label={`Edit ${doc.document_name}`}
                         >
                             <svg
                                 className="w-4 h-4 text-slate-400"
