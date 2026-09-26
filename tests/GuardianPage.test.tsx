@@ -211,12 +211,25 @@ describe('GuardianPage', () => {
 
         render(<GuardianPage onBack={onBack} />);
 
-        expect(await screen.findByRole('status')).toHaveTextContent('Sign in to use Guardian');
+        expect(await screen.findByRole('heading', { name: 'Sign in to use Guardian' })).toBeInTheDocument();
+        // A static gate, not a live region (UX scorecard run 6).
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
         expect(screen.getByText('Guardian')).toBeInTheDocument();
         const back = screen.getByRole('button', { name: /back/i });
         fireEvent.click(back);
         expect(onBack).toHaveBeenCalledOnce();
         expect(screen.queryByText('Loading Guardian…')).not.toBeInTheDocument();
+    });
+
+    it('names the signed-out action for where it goes', async () => {
+        authState.user = null;
+        setAuthIdentityScope(null);
+        const onSignIn = vi.fn();
+
+        render(<GuardianPage onBack={vi.fn()} onSignIn={onSignIn} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Sign in in Settings' }));
+        expect(onSignIn).toHaveBeenCalledOnce();
     });
 
     it('keeps the page header and Back control visible while Guardian is loading', async () => {

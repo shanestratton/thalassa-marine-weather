@@ -13,7 +13,10 @@
  * in App.tsx.
  */
 import React from 'react';
-import { PageHeader } from './components/ui/PageHeader';
+import { Button } from './components/ui/Button';
+import { UnavailablePage } from './components/ui/UnavailableNotice';
+import { LockIcon, MoonIcon } from './components/Icons';
+import { MusicIcon } from './components/music/musicPage/icons';
 import { lazyRetry } from './utils/lazyRetry';
 import type { Feature } from './services/SubscriptionService';
 import { authScopedStorageKey } from './services/authIdentityScope';
@@ -83,25 +86,42 @@ const LiveBosunConsolePage = lazyRetry(
  * Deliberately explicit about what is NOT affected. "Voice is off" would read
  * as MAYDAY read-out being off too, and it is not.
  */
-const CalypsoParkedPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-    <div className="flex h-full flex-col">
-        <PageHeader title="Calypso" subtitle="Voice assistant" onBack={onBack} />
-        <div className="mx-auto w-full max-w-2xl p-5 pt-2 sm:p-8 sm:pt-2" role="status">
-            <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-6 text-center">
-                <h2 className="text-lg font-bold text-white">Calypso is having a lie down</h2>
-                <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-sky-100/80">
-                    The voice assistant is parked while its listening is rebuilt. It mishears often enough that a wrong
-                    answer and a right one sound the same, which is not good enough to steer by.
-                </p>
-                <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-sky-100/80">
-                    Calypso&rsquo;s voice still reads MAYDAY calls, DSC and radio position reports aloud — those are on
-                    the Radio and MOB pages and are unaffected.
-                </p>
-                {/* No in-card Back: the PageHeader chevron above already does it,
-                    and a second Back on a page with nothing else to do was noise. */}
-            </div>
-        </div>
-    </div>
+const CalypsoParkedPage: React.FC<{ onBack: () => void; onNavigate?: (page: string) => void }> = ({
+    onBack,
+    onNavigate,
+}) => (
+    <UnavailablePage
+        pageTitle="Calypso"
+        pageSubtitle="Voice assistant"
+        onBack={onBack}
+        icon={<MoonIcon className="h-5 w-5" />}
+        title="Calypso is having a lie down"
+        actions={
+            // The copy names the Radio and MOB pages, so the page goes there
+            // instead of leaving the skipper to find them (UX scorecard run 6).
+            onNavigate && (
+                <>
+                    <Button variant="secondary" onClick={() => onNavigate('radio')} className="text-white">
+                        Open Radio
+                    </Button>
+                    <Button variant="secondary" onClick={() => onNavigate('mob')} className="text-white">
+                        Open MOB
+                    </Button>
+                </>
+            )
+        }
+    >
+        <p>
+            Calypso is switched off while we improve how it hears you. It misheard too often, and a wrong answer sounded
+            just as sure as a right one.
+        </p>
+        {/* Only the MOB Mayday is still spoken; the Radio page stopped
+            speaking on 2026-08-28 and sets its calls out to read on VHF. */}
+        <p>
+            MAYDAY calls, DSC and radio position reports are unaffected. The MOB page still reads the Mayday aloud in
+            Calypso&rsquo;s voice, and the Radio page sets out your calls to read on VHF.
+        </p>
+    </UnavailablePage>
 );
 const BosunConsolePage = FEATURE_VISIBILITY.calypsoConsole ? LiveBosunConsolePage : CalypsoParkedPage;
 // RELEASED 2026-08-10: the MusicKit capability is live on the App ID and the
@@ -114,22 +134,18 @@ const LiveMusicPage = lazyRetry(
     'MusicPage',
 );
 const HeldMusicPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-    <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
-        <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
-            <h2 className="text-lg font-bold text-white">Apple Music unavailable in public beta</h2>
-            <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-amber-100/80">
-                Music controls remain held until the production MusicKit capability and signed-device playback are
-                verified. Calypso voice and the rest of Thalassa continue normally.
-            </p>
-            <button
-                type="button"
-                onClick={onBack}
-                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
-            >
-                Back
-            </button>
-        </div>
-    </div>
+    <UnavailablePage
+        pageTitle="Apple Music"
+        onBack={onBack}
+        tone="amber"
+        icon={<MusicIcon className="h-5 w-5" />}
+        title="Apple Music unavailable in public beta"
+    >
+        <p>
+            Music controls remain held until the production MusicKit capability and signed-device playback are verified.
+            Calypso voice and the rest of Thalassa continue normally.
+        </p>
+    </UnavailablePage>
 );
 // The flag is a build-time constant, so the untaken branch tree-shakes out of
 // the bundle exactly as the old hand-excised versions did.
@@ -161,22 +177,18 @@ const LiveGuardianPage = lazyRetry(
     'GuardianPage',
 );
 const GuardianBetaHoldPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-    <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
-        <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
-            <h2 className="text-lg font-bold text-white">Guardian is held for public beta</h2>
-            <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-amber-100/80">
-                Nearby-vessel discovery and broadcasts remain off while Thalassa completes the server-side location
-                privacy redesign. Anchor Watch, MOB and Radio remain available.
-            </p>
-            <button
-                type="button"
-                onClick={onBack}
-                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
-            >
-                Back to vessel
-            </button>
-        </div>
-    </div>
+    <UnavailablePage
+        pageTitle="Guardian"
+        onBack={onBack}
+        tone="amber"
+        icon={<LockIcon className="h-5 w-5" />}
+        title="Guardian is held for public beta"
+    >
+        <p>
+            Nearby-vessel discovery and broadcasts remain off while Thalassa completes the server-side location privacy
+            redesign. Anchor Watch, MOB and Radio remain available.
+        </p>
+    </UnavailablePage>
 );
 const GuardianPage = FEATURE_VISIBILITY.guardian ? LiveGuardianPage : GuardianBetaHoldPage;
 const RadioConsolePage = lazyRetry(
@@ -252,6 +264,15 @@ export interface ViewConfig {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
+/**
+ * A page that sent the skipper to Settings to sign in. The scoped
+ * `thalassa_settings_return_to` key alone cannot carry them back: signing in
+ * flips the auth scope, so the key written while signed out is not the one
+ * Settings reads afterwards. This remembers the destination for the session
+ * and which key to clear (UX scorecard run 6).
+ */
+let signInDetour: { key: string; returnTo: string } | null = null;
+
 export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     // ── Standalone pages ─────────────────────────────────────────────────
     voyage: {
@@ -271,20 +292,24 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         boundaryName: 'Settings',
         group: 'standalone',
         getProps: (ctx) => {
-            // Check if we came from radio console
+            // Check if we came from a page that asked to be returned to (the
+            // radio console, or Guardian's sign-in detour).
             const returnKey = authScopedStorageKey('thalassa_settings_return_to');
-            const returnTo = typeof window !== 'undefined' ? localStorage.getItem(returnKey) : null;
+            const returnTo =
+                (typeof window !== 'undefined' ? localStorage.getItem(returnKey) : null) ??
+                signInDetour?.returnTo ??
+                null;
             return {
                 settings: ctx.settings,
                 onSave: ctx.updateSettings,
                 onLocationSelect: ctx.handleFavoriteSelect,
                 onBack: () => {
-                    if (returnTo) {
-                        localStorage.removeItem(returnKey);
-                        ctx.setPage(returnTo);
-                    } else {
-                        ctx.setPage('vessel');
+                    localStorage.removeItem(returnKey);
+                    if (signInDetour) {
+                        localStorage.removeItem(signInDetour.key);
+                        signInDetour = null;
                     }
+                    ctx.setPage(returnTo || 'vessel');
                 },
             };
         },
@@ -309,7 +334,11 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: BosunConsolePage,
         boundaryName: 'BosunConsole',
         group: 'standalone',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage(ctx.previousView || 'dashboard') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage(ctx.previousView || 'dashboard'),
+            // The parked page's Open Radio / Open MOB buttons.
+            onNavigate: (page: string) => ctx.setPage(page),
+        }),
     },
     music: {
         component: MusicPageView,
@@ -463,7 +492,17 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         group: 'vessel',
         // Sign in lives in Settings; the locked card offers the way there instead of
         // describing it (Shane 2026-09-26: the smaller state items are my call).
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel'), onSignIn: () => ctx.setPage('settings') }),
+        // It opens straight on Account & Cloud, and Settings' Back returns here.
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            onSignIn: () => {
+                localStorage.setItem(authScopedStorageKey('thalassa_settings_initial_tab'), 'account');
+                const key = authScopedStorageKey('thalassa_settings_return_to');
+                localStorage.setItem(key, 'guardian');
+                signInDetour = { key, returnTo: 'guardian' };
+                ctx.setPage('settings');
+            },
+        }),
     },
     radio: {
         component: RadioConsolePage,

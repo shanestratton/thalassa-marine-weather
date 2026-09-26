@@ -2917,8 +2917,11 @@ check(
 );
 check(
     'Pi controls are replaced by an unavailable notice where the pin cannot be checked',
+    // Needle refreshed 2026-09-26: the heading now says what to use instead
+    // ("Boat network needs the Thalassa iPhone app"), not "Pi integration
+    // unavailable in this build" (developer-speak, UX scorecard run 6).
     includesAll(read('components/ui/PiPublicBetaUnavailable.tsx'), [
-        'Pi integration unavailable in this build',
+        'Boat network needs the Thalassa iPhone app',
         'No Pi discovery, setup,',
     ]) &&
         read('components/settings/PiCacheTab.tsx').includes('<PiPublicBetaUnavailable') &&

@@ -663,26 +663,22 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
+                <PageHeader title="Guardian" subtitle="Bay watch" onBack={onBack} />
                 <div className="flex-1 flex items-start justify-center px-6 pt-6">
-                    <div
-                        role="status"
-                        className="w-full max-w-sm rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center"
-                    >
+                    {/* A static gate, not a live region: it holds a heading and a
+                        button, and nothing in it changes while it is shown. */}
+                    <div className="w-full max-w-sm rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center">
                         <LockIcon className="mx-auto h-8 w-8 text-emerald-400" />
-                        <h2 className="mt-3 text-lg font-black text-white">Sign in to use Guardian</h2>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                            Guardian shares your vessel’s current safety presence with nearby Thalassa boats only while
-                            you arm it. Sign in from Account &amp; Cloud, then return here to opt in.
+                        <h2 className="mt-3 text-lg font-black text-white text-balance">Sign in to use Guardian</h2>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-300 text-pretty">
+                            While Guardian is armed, nearby Thalassa boats that also have it armed can see your vessel
+                            name and recent position. Nothing is shared while it is off.
                         </p>
                         {onSignIn && (
-                            <button
-                                type="button"
-                                onClick={onSignIn}
-                                className="mt-4 min-h-11 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-5 text-sm font-black text-emerald-100 transition-colors hover:bg-emerald-500/25"
-                            >
-                                Sign in
-                            </button>
+                            // It opens Settings on Account & Cloud, so the label says so.
+                            <Button variant="primary" onClick={onSignIn} className="mx-auto mt-4">
+                                Sign in in Settings
+                            </Button>
                         )}
                     </div>
                 </div>
@@ -696,7 +692,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
+                <PageHeader title="Guardian" subtitle="Bay watch" onBack={onBack} />
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div role="status" aria-live="polite" className="text-center">
                         <div className="mx-auto w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
@@ -714,7 +710,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
+                <PageHeader title="Guardian" subtitle="Bay watch" onBack={onBack} />
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div
                         role="alert"
@@ -743,7 +739,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
         >
             <PageHeader
                 title="Guardian"
-                subtitle="Maritime Neighbourhood Watch"
+                subtitle="Bay watch"
                 onBack={() => {
                     triggerHaptic('light');
                     onBack();

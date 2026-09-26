@@ -7,6 +7,8 @@ import React, { useMemo, useState } from 'react';
 import type { ChatChannel } from '../../services/ChatService';
 import { ChannelProposalModal } from './ChannelProposalModal';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
+import { ChannelGlyph, getChannelName } from './channelIcons';
+import { LockIcon, StarIcon, UsersIcon } from '../Icons';
 
 // Channels hidden from the directory. 'Lonely Hearts' is a legacy alias, and
 // 'Chandlery'/'Marketplace' are retired features whose channels may still
@@ -20,17 +22,7 @@ const HIDDEN_CHANNEL_NAMES = new Set<string>([
     ...(FEATURE_VISIBILITY.crewFinder ? [] : ['Find Crew']),
 ]);
 
-// --- Client-side display overrides ---
-const ICON_OVERRIDES: Record<string, string> = {
-    SOLAS: '🛟',
-    Safety: '🛟',
-    'Find Crew': '⚓',
-};
-const NAME_OVERRIDES: Record<string, string> = {
-    'Find Crew': 'The Crew List',
-};
-const getChannelIcon = (ch: { name: string; icon: string }) => ICON_OVERRIDES[ch.name] ?? ch.icon;
-const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.name;
+// Display names and glyphs live in ./channelIcons (shared with the header).
 
 /* Chandlery and Marketplace are not listed: HIDDEN_CHANNEL_NAMES removes them
    before this sort ever runs, so their priorities could never be read. */
@@ -167,6 +159,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                     <button
                         onClick={() => handleChannelClick(ch)}
                         aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
+                        aria-describedby={isPrivateLocked ? undefined : `channel-desc-${ch.id}`}
                         className={`flex-1 min-w-0 group flex items-center gap-3 ${isSub ? 'p-3 min-h-[48px]' : 'p-3.5 min-h-[56px]'} rounded-2xl transition-all duration-200 card-press stagger-item ${
                             isPrivateLocked
                                 ? 'bg-white/1 border border-white/4 opacity-70'
@@ -175,15 +168,16 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                   : 'bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8'
                         }`}
                     >
-                        {/* Icon */}
+                        {/* Icon — a stroke glyph in a tinted chip, decorative */}
                         <div
-                            className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} rounded-xl bg-linear-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${
+                            aria-hidden="true"
+                            className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} shrink-0 rounded-xl bg-linear-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${
                                 ch.is_private
-                                    ? 'from-purple-500/12 to-indigo-500/5 border-purple-500/20'
-                                    : 'from-white/6 to-white/2 border-white/5'
+                                    ? 'from-purple-500/12 to-indigo-500/5 border-purple-500/20 text-purple-300'
+                                    : 'from-sky-500/12 to-sky-500/4 border-sky-400/15 text-sky-300'
                             }`}
                         >
-                            {ch.is_private ? '🔒' : getChannelIcon(ch)}
+                            <ChannelGlyph channel={ch} className={isSub ? 'h-4 w-4' : 'h-5 w-5'} />
                         </div>
 
                         {/* Name + description */}
@@ -195,23 +189,31 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                     {getChannelName(ch)}
                                 </p>
                                 {ch.is_private && (
-                                    <span className="text-[11px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">
+                                    <span className="text-xs font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-full">
                                         PRIVATE
                                     </span>
                                 )}
                             </div>
                             <p
-                                className={`${isSub ? 'text-[11px]' : 'text-sm'} text-white/60 line-clamp-2 ${isSub ? '' : 'mt-0.5'}`}
+                                id={`channel-desc-${ch.id}`}
+                                className={`${isSub ? 'text-xs' : 'text-sm'} text-white/60 line-clamp-2 ${isSub ? '' : 'mt-0.5'}`}
                             >
-                                {isPrivateLocked ? '🔒 Request access to join' : ch.description}
+                                {isPrivateLocked ? 'Request access to join' : ch.description}
                             </p>
                         </div>
 
                         {/* Open chevron */}
-                        <div className="w-6 h-6 shrink-0 rounded-full bg-white/3 group-hover:bg-white/6 flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                            <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">
-                                {isPrivateLocked ? '🔒' : '›'}
-                            </span>
+                        <div
+                            aria-hidden="true"
+                            className="w-6 h-6 shrink-0 rounded-full bg-white/3 group-hover:bg-white/6 flex items-center justify-center transition-all group-hover:translate-x-0.5"
+                        >
+                            {isPrivateLocked ? (
+                                <LockIcon className="h-3 w-3 text-white/60" />
+                            ) : (
+                                <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">
+                                    ›
+                                </span>
+                            )}
                         </div>
                     </button>
 
@@ -224,7 +226,8 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                             className="shrink-0 min-h-[44px] min-w-[44px] rounded-full bg-white/4 hover:bg-white/8 flex items-center justify-center transition-all"
                         >
                             <span
-                                className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                aria-hidden="true"
+                                className={`text-white/40 text-xs transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
                             >
                                 ▼
                             </span>
@@ -251,8 +254,11 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                     onClick={onOpenAdmin}
                     className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-linear-to-r from-amber-500/8 to-yellow-500/4 hover:from-amber-500/15 hover:to-yellow-500/8 border border-amber-500/20 hover:border-amber-500/40 transition-all duration-200 active:scale-[0.98] mb-3"
                 >
-                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-amber-500/20 to-yellow-600/10 border border-amber-500/30 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
-                        👑
+                    <div
+                        aria-hidden="true"
+                        className="w-11 h-11 rounded-xl bg-linear-to-br from-amber-500/20 to-yellow-600/10 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-110 transition-transform duration-200"
+                    >
+                        <StarIcon className="h-5 w-5" />
                     </div>
                     <div className="text-left flex-1 min-w-0">
                         <p className="text-lg font-semibold text-amber-400/90 group-hover:text-amber-300 transition-colors">
@@ -308,15 +314,18 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                     }}
                     className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-linear-to-r from-emerald-500/6 to-teal-500/3 hover:from-emerald-500/12 hover:to-teal-500/6 border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3"
                 >
-                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
-                        👥
+                    <div
+                        aria-hidden="true"
+                        className="w-11 h-11 rounded-xl bg-linear-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 flex items-center justify-center text-emerald-300 group-hover:scale-110 transition-transform duration-200"
+                    >
+                        <UsersIcon className="h-5 w-5" />
                     </div>
                     <div className="text-left flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                             <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">
                                 Crew Chat
                             </p>
-                            <span className="text-[11px] font-bold text-emerald-400/70 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
                                 PRIVATE GROUP
                             </span>
                         </div>
@@ -332,7 +341,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                 </button>
             )}
 
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
+            <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</h2>
 
             {/* Channel list. Empty state added 2026-05-17 — before, when
                 the channels API returned an empty array (rare but real:
