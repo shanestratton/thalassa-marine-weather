@@ -95,7 +95,8 @@ const CalypsoParkedPage: React.FC<{ onBack: () => void; onNavigate?: (page: stri
         pageSubtitle="Voice assistant"
         onBack={onBack}
         icon={<MoonIcon className="h-5 w-5" />}
-        title="Calypso is having a lie down"
+        // A plain heading; the whimsy lives in the body (UX scorecard run 7).
+        title="Calypso is switched off"
         actions={
             // The copy names the Radio and MOB pages, so the page goes there
             // instead of leaving the skipper to find them (UX scorecard run 6).
@@ -111,14 +112,16 @@ const CalypsoParkedPage: React.FC<{ onBack: () => void; onNavigate?: (page: stri
             )
         }
     >
-        <p>
-            Calypso is switched off while we improve how it hears you. It misheard too often, and a wrong answer sounded
-            just as sure as a right one.
+        {/* Paragraphs longer than two lines read left-aligned, not centred. */}
+        <p className="text-left">
+            Calypso is having a lie down while we improve how it hears you. It misheard too often, and a wrong answer
+            sounded just as sure as a right one.
         </p>
-        {/* Only the MOB Mayday is still spoken; the Radio page stopped
-            speaking on 2026-08-28 and sets its calls out to read on VHF. */}
-        <p>
-            MAYDAY calls, DSC and radio position reports are unaffected. The MOB page still reads the Mayday aloud in
+        {/* Only the MOB MAYDAY is still spoken; the Radio page stopped
+            speaking on 2026-08-28 and sets its calls out to read on VHF. One
+            casing for the procedure word: MAYDAY. */}
+        <p className="text-left">
+            MAYDAY calls, DSC and radio position reports are unaffected. The MOB page still reads the MAYDAY aloud in
             Calypso&rsquo;s voice, and the Radio page sets out your calls to read on VHF.
         </p>
     </UnavailablePage>

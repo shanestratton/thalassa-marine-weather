@@ -321,10 +321,10 @@ describe('ChatPage', () => {
         fireEvent.click(opener);
 
         const cancel = screen.getByRole('button', { name: 'Cancel request' });
-        expect(screen.getByRole('dialog', { name: 'Request Access to Skippers Lounge' })).toContainElement(cancel);
+        expect(screen.getByRole('dialog', { name: 'Request access to Skippers Lounge' })).toContainElement(cancel);
         expect(cancel).toHaveFocus();
         fireEvent.keyDown(cancel, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: /Request Access/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Request access/ })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
     });
 

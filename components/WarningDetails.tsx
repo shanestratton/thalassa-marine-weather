@@ -2,10 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WarningDetails');
-import { AlertTriangleIcon, CheckCircleIcon } from './Icons';
+import { AlertTriangleIcon, CheckCircleIcon, ExternalLinkIcon } from './Icons';
 import { PageHeader } from './ui/PageHeader';
 import { formatAge } from './ui/DataFreshness';
 import { useUI } from '../context/UIContext';
+import { useThemeStore } from '../stores/themeStore';
+import { touchTarget } from '../theme';
+import { openExternalUrl } from '../services/externalLinks';
+
+/**
+ * The Bureau's warnings page. The 2025 site redirects every old state and
+ * marine warnings URL here; the page lists Marine Wind Warnings with its own
+ * state filter, so one address serves every coast.
+ */
+export const BOM_WARNINGS_URL = 'https://www.bom.gov.au/weather-and-climate/warnings-and-alerts';
 
 interface WarningDetailsProps {
     alerts: string[];
@@ -45,6 +55,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
         return formatAge(Math.max(0, now - d.getTime()));
     })();
     const { setPage } = useUI();
+    const buttonTheme = useThemeStore((s) => s.theme.button);
     const [dismissed, setDismissed] = useState<Set<string>>(() => {
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
@@ -87,7 +98,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                 triangle at all (a lone triangle sat where icon buttons sit). */}
             <div className="shrink-0 bg-slate-950">
                 <PageHeader
-                    title="Forecast Alerts"
+                    title="Forecast alerts"
                     subtitle={placeName || undefined}
                     onBack={() => setPage('dashboard')}
                     status={
@@ -109,9 +120,9 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                 // exactly where you don't want mis-taps — could
                                 // accidentally clear a critical alert in heavy
                                 // weather. Aria-label rewritten to be specific.
-                                className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-xs px-3 py-2.5 min-h-[44px] rounded-lg transition-colors uppercase tracking-wider"
+                                className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-sm px-3 py-2.5 min-h-[44px] rounded-lg transition-colors"
                             >
-                                Dismiss All
+                                Dismiss all
                             </button>
                         ) : undefined
                     }
@@ -147,7 +158,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                         <button
                                             aria-label={`Dismiss warning: ${alert}`}
                                             onClick={() => dismiss(alert)}
-                                            className="shrink-0 min-h-[44px] bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/70 font-bold text-xs px-3 py-2 rounded-xl transition-colors uppercase tracking-wider mt-1"
+                                            className="shrink-0 min-h-[44px] bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-sm px-3 py-2 rounded-xl transition-colors mt-1"
                                         >
                                             Dismiss
                                         </button>
@@ -157,29 +168,49 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                         </div>
                     ))
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full pb-20" role="status">
-                        {/* A check, not the warning triangle: the clear state must not
-                            wear the same glyph as the alarm. */}
-                        <div className="bg-white/5 p-6 rounded-full mb-4">
-                            <CheckCircleIcon className="w-12 h-12 text-emerald-400" />
-                        </div>
-                        {/* Not an all-clear: these are Thalassa's own forecast
-                            thresholds, never the Bureau's warnings (UX scorecard run 6). */}
-                        <p className="text-base font-semibold text-slate-200 text-center">
-                            {placeName ? `No forecast alerts for ${placeName}` : 'No forecast alerts'}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-400">
-                            {checkedLabel ? `Forecast checked ${checkedLabel}` : 'Forecast not checked yet'}
-                        </p>
-                        <p className="mt-4 max-w-xs text-center text-sm leading-relaxed text-slate-400">
-                            Thalassa checks the forecast for gale, storm, fog and heat thresholds. Not an official
-                            warning service: check BoM marine warnings.
-                        </p>
-                        {dismissed.size > 0 && (
-                            <p className="text-gray-400 text-sm mt-2">
-                                {dismissed.size} warning{dismissed.size > 1 ? 's' : ''} dismissed this session
+                    <div className="flex flex-col items-center justify-center h-full pb-20">
+                        {/* The status region holds the state sentences only; the link
+                            below stays outside it, as controls do. */}
+                        <div role="status" className="flex flex-col items-center">
+                            {/* A check, not the warning triangle: the clear state must not
+                                wear the same glyph as the alarm. */}
+                            <div aria-hidden="true" className="bg-white/5 p-6 rounded-full mb-4">
+                                <CheckCircleIcon className="w-12 h-12 text-emerald-400" />
+                            </div>
+                            {/* Not an all-clear: these are Thalassa's own forecast
+                                thresholds, never the Bureau's warnings (UX scorecard run 6).
+                                An h2, so heading navigation reaches the page's answer. */}
+                            <h2 className="text-base font-semibold text-slate-200 text-center text-balance">
+                                {placeName ? `No forecast alerts for ${placeName}` : 'No forecast alerts'}
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-400">
+                                {checkedLabel ? `Forecast checked ${checkedLabel}` : 'Forecast not checked yet'}
                             </p>
-                        )}
+                            <p className="mt-4 max-w-xs text-center text-sm leading-relaxed text-slate-400 text-pretty">
+                                Thalassa checks the forecast for gale, storm, fog and heat thresholds. It is not an
+                                official warning service, so check the Bureau of Meteorology&rsquo;s marine warnings
+                                too.
+                            </p>
+                            {dismissed.size > 0 && (
+                                <p className="text-gray-400 text-sm mt-2">
+                                    {dismissed.size} warning{dismissed.size > 1 ? 's' : ''} dismissed this session
+                                </p>
+                            )}
+                        </div>
+                        {/* The one onward step goes somewhere (UX scorecard run 7): a real
+                            link, opened over the app like every other external page. */}
+                        <a
+                            href={BOM_WARNINGS_URL}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                void openExternalUrl(BOM_WARNINGS_URL);
+                            }}
+                            className={`${buttonTheme.secondary} ${touchTarget.button} mt-4 text-sky-300`}
+                        >
+                            Open BoM warnings
+                            <span className="sr-only"> (Bureau of Meteorology website)</span>
+                            <ExternalLinkIcon className="h-4 w-4 shrink-0" />
+                        </a>
                     </div>
                 )}
             </div>

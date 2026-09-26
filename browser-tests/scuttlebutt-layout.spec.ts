@@ -20,6 +20,12 @@ async function open(page: Page, size: (typeof SIZES)[number], history: 'empty' |
     if (model === 'native') await expect(page.locator('html')).toHaveAttribute('data-native-keyboard-ready', 'true');
 }
 
+/** Direct messages live in the header's ⋮ Page actions menu (UX scorecard run 7). */
+async function openDirectMessages(page: Page) {
+    await page.getByRole('button', { name: 'Page actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Direct messages', exact: true }).click();
+}
+
 async function keyboard(page: Page, height: number, native = true) {
     await page.evaluate((value) => window.dispatchEvent(new CustomEvent('test:keyboard', { detail: value })), height);
     await expect
@@ -187,7 +193,7 @@ for (const size of SIZES) {
 
     test(`Scuttlebutt empty DM composer and block confirmation stay reachable on ${size.name}`, async ({ page }) => {
         await open(page, size, 'empty');
-        await page.getByRole('button', { name: 'Open direct messages', exact: true }).click();
+        await openDirectMessages(page);
         await page.getByRole('listitem', { name: 'Message Sparrow', exact: true }).click();
         const input = page.getByRole('textbox', { name: 'Message Sparrow', exact: true });
         const send = page.getByRole('button', { name: 'Send direct message', exact: true });
@@ -227,7 +233,7 @@ for (const size of SIZES) {
 test('Scuttlebutt populated DM also supports browser visual-viewport keyboard resizing', async ({ page }) => {
     const size = SIZES[1];
     await open(page, size, 'long', 'web');
-    await page.getByRole('button', { name: 'Open direct messages', exact: true }).click();
+    await openDirectMessages(page);
     await page.getByRole('listitem', { name: 'Message Sparrow', exact: true }).click();
     const input = page.getByRole('textbox', { name: 'Message Sparrow', exact: true });
     await input.click();
@@ -241,7 +247,7 @@ test('Scuttlebutt populated DM also supports browser visual-viewport keyboard re
 test('Scuttlebutt pane hit checks wait for a delayed keyboard layout transition', async ({ page }) => {
     const size = SIZES[3];
     await open(page, size, 'empty');
-    await page.getByRole('button', { name: 'Open direct messages', exact: true }).click();
+    await openDirectMessages(page);
     await page.getByRole('listitem', { name: 'Message Sparrow', exact: true }).click();
     const input = page.getByRole('textbox', { name: 'Message Sparrow', exact: true });
     await keyboard(page, 0);
@@ -278,7 +284,7 @@ test('Scuttlebutt permission failure leaves an accessible retry and block contro
     page,
 }) => {
     await open(page, SIZES[0], 'empty', 'native', '&permissions=retry');
-    await page.getByRole('button', { name: 'Open direct messages', exact: true }).click();
+    await openDirectMessages(page);
     await page.getByRole('listitem', { name: 'Message Sparrow', exact: true }).click();
     const input = page.getByRole('textbox', { name: 'Message Sparrow', exact: true });
     const send = page.getByRole('button', { name: 'Send direct message', exact: true });

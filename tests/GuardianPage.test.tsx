@@ -130,7 +130,7 @@ describe('GuardianPage', () => {
 
     const renderSettled = async () => {
         const result = render(<GuardianPage onBack={vi.fn()} />);
-        await screen.findByText('Guardian Profile');
+        await screen.findByText('Guardian profile');
         return result;
     };
 
@@ -145,7 +145,7 @@ describe('GuardianPage', () => {
             nearbyCount: 0,
         };
         const result = render(<GuardianPage onBack={vi.fn()} />);
-        await screen.findByLabelText('Edit Profile');
+        await screen.findByLabelText('Edit Guardian profile');
         return result;
     };
 
@@ -161,7 +161,7 @@ describe('GuardianPage', () => {
             nearbyCount: 0,
         };
         const result = render(<GuardianPage onBack={vi.fn()} />);
-        await screen.findByLabelText('Edit Profile');
+        await screen.findByLabelText('Edit Guardian profile');
         return result;
     };
 
@@ -175,7 +175,7 @@ describe('GuardianPage', () => {
         // screen (exactly 8px above the top of the menu bar) and make sure that
         // the alert feed grows and shrinks to fit."
         await renderWithProfile();
-        const slider = await screen.findByRole('button', { name: /Arm Guardian vessel watch/ });
+        const slider = await screen.findByRole('button', { name: 'Arm Guardian' });
         const dock = slider.closest('[data-testid="guardian-arm-slider-dock"]') as HTMLElement | null;
         expect(dock).not.toBeNull();
         const feed = screen.getByTestId('guardian-alert-feed');
@@ -228,8 +228,13 @@ describe('GuardianPage', () => {
 
         render(<GuardianPage onBack={vi.fn()} onSignIn={onSignIn} />);
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Sign in in Settings' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Open Settings to sign in' }));
         expect(onSignIn).toHaveBeenCalledOnce();
+        // The gate leads with what Guardian does, and 'watch' stays Anchor
+        // Watch's word (UX scorecard run 7).
+        expect(screen.getByText('See Thalassa boats near you and share safety alerts with them.')).toBeInTheDocument();
+        expect(screen.getByText('Nearby boats')).toBeInTheDocument();
+        expect(screen.queryByText(/watch/i)).not.toBeInTheDocument();
     });
 
     it('keeps the page header and Back control visible while Guardian is loading', async () => {
@@ -252,9 +257,9 @@ describe('GuardianPage', () => {
     it('does not acquire, share or poll location while the profile is disarmed', async () => {
         await renderWithProfile();
 
-        expect(await screen.findByText('Nearby watch paused')).toBeInTheDocument();
+        expect(await screen.findByText('Arm Guardian to see nearby boats')).toBeInTheDocument();
         expect(screen.queryByText('Thalassa boats nearby')).not.toBeInTheDocument();
-        const slider = screen.getByRole('button', { name: 'Arm Guardian vessel watch' });
+        const slider = screen.getByRole('button', { name: 'Arm Guardian' });
         expect(slider).toHaveAttribute('aria-pressed', 'false');
         expect(slider).toHaveAccessibleDescription(
             'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.',
@@ -270,21 +275,21 @@ describe('GuardianPage', () => {
     it('shows successful arming in the control without adding repeated status banners', async () => {
         await renderWithProfile();
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Arm Guardian vessel watch' }), { key: 'Enter' });
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Arm Guardian' }), { key: 'Enter' });
 
-        const slider = await screen.findByRole('button', { name: 'Disarm Guardian vessel watch' });
+        const slider = await screen.findByRole('button', { name: 'Disarm Guardian' });
         expect(GuardianService.arm).toHaveBeenCalledOnce();
         expect(slider).toHaveAttribute('aria-pressed', 'true');
-        expect(slider).toHaveTextContent('ARMED — Slide to Disarm');
+        expect(slider).toHaveTextContent('Armed — slide to disarm');
         expect(slider).toHaveAccessibleDescription(
-            'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.',
+            'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while Guardian stays armed.',
         );
         expect(screen.queryByText('Guardian is armed at the vessel’s current GPS position.')).not.toBeInTheDocument();
         expect(screen.queryByText('Armed', { exact: true })).not.toBeInTheDocument();
         expect(screen.queryByRole('status')).not.toBeInTheDocument();
         expect(
             screen.getByText(
-                'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.',
+                'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while Guardian stays armed.',
             ),
         ).toHaveClass('sr-only');
         expect(screen.getByTestId('guardian-alert-feed')).toHaveTextContent('No alerts in your area');
@@ -293,12 +298,12 @@ describe('GuardianPage', () => {
     it('shows successful disarming in the control without adding a success banner', async () => {
         await renderWithArmedProfile();
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Disarm Guardian vessel watch' }), { key: ' ' });
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Disarm Guardian' }), { key: ' ' });
 
-        const slider = await screen.findByRole('button', { name: 'Arm Guardian vessel watch' });
+        const slider = await screen.findByRole('button', { name: 'Arm Guardian' });
         expect(GuardianService.disarm).toHaveBeenCalledOnce();
         expect(slider).toHaveAttribute('aria-pressed', 'false');
-        expect(slider).toHaveTextContent('Slide to ARM Vessel');
+        expect(slider).toHaveTextContent('Slide to arm vessel');
         expect(
             screen.queryByText('Guardian is disarmed. Location sharing and nearby polling have stopped.'),
         ).not.toBeInTheDocument();
@@ -310,27 +315,21 @@ describe('GuardianPage', () => {
         vi.mocked(GuardianService.arm).mockResolvedValueOnce(false);
         await renderWithProfile();
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Arm Guardian vessel watch' }), { key: 'Enter' });
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Arm Guardian' }), { key: 'Enter' });
 
         expect(await screen.findByRole('alert')).toHaveTextContent('Guardian could not arm.');
-        expect(screen.getByRole('button', { name: 'Arm Guardian vessel watch' })).toHaveAttribute(
-            'aria-pressed',
-            'false',
-        );
-        expect(screen.getByText('Nearby watch paused')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Arm Guardian' })).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getByText('Arm Guardian to see nearby boats')).toBeInTheDocument();
     });
 
     it('keeps disarm failures visible and the control armed', async () => {
         vi.mocked(GuardianService.disarm).mockResolvedValueOnce(false);
         await renderWithArmedProfile();
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Disarm Guardian vessel watch' }), { key: 'Enter' });
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Disarm Guardian' }), { key: 'Enter' });
 
         expect(await screen.findByRole('alert')).toHaveTextContent('Guardian could not disarm.');
-        expect(screen.getByRole('button', { name: 'Disarm Guardian vessel watch' })).toHaveAttribute(
-            'aria-pressed',
-            'true',
-        );
+        expect(screen.getByRole('button', { name: 'Disarm Guardian' })).toHaveAttribute('aria-pressed', 'true');
         expect(screen.getByTestId('guardian-alert-feed')).toHaveTextContent('No alerts in your area');
     });
 
@@ -338,7 +337,7 @@ describe('GuardianPage', () => {
         await renderWithProfile();
 
         const report = screen.getByRole('button', { name: 'Report suspicious activity in your area' });
-        const weather = screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' });
+        const weather = screen.getByRole('button', { name: 'Weather alert: broadcast to nearby boats' });
         expect(report).toHaveAttribute('aria-disabled', 'true');
         expect(weather).toHaveAttribute('aria-disabled', 'true');
 
@@ -375,19 +374,19 @@ describe('GuardianPage', () => {
 
     it('contains profile setup focus, labels it, and restores focus after Escape', async () => {
         await renderWithProfile();
-        const opener = screen.getByRole('button', { name: 'Edit Profile' });
+        const opener = screen.getByRole('button', { name: 'Edit Guardian profile' });
 
         opener.focus();
         fireEvent.click(opener);
 
-        const dialog = await screen.findByRole('dialog', { name: 'Guardian Profile' });
+        const dialog = await screen.findByRole('dialog', { name: 'Guardian profile' });
         expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(screen.getByRole('button', { name: 'Close profile setup' })).toHaveFocus();
-        expect(screen.getByRole('textbox', { name: 'Vessel Name' })).toBeInTheDocument();
+        expect(screen.getByRole('textbox', { name: 'Vessel name' })).toBeInTheDocument();
 
         fireEvent.keyDown(document, { key: 'Escape' });
 
-        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Guardian Profile' })).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Guardian profile' })).not.toBeInTheDocument());
         expect(opener).toHaveFocus();
     });
 
@@ -412,19 +411,19 @@ describe('GuardianPage', () => {
 
     it('starts weather alerts on the safe cancel action and restores focus after Escape', async () => {
         await renderWithArmedProfile();
-        const opener = screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' });
+        const opener = screen.getByRole('button', { name: 'Weather alert: broadcast to nearby boats' });
 
         opener.focus();
         fireEvent.click(opener);
 
-        const dialog = await screen.findByRole('dialog', { name: 'Weather Alert' });
+        const dialog = await screen.findByRole('dialog', { name: 'Weather alert' });
         expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(screen.getByRole('button', { name: 'Cancel weather alert' })).toHaveFocus();
         expect(screen.getByRole('button', { name: 'Send weather alert: Strong winds expected' })).toBeInTheDocument();
 
         fireEvent.keyDown(document, { key: 'Escape' });
 
-        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Weather Alert' })).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Weather alert' })).not.toBeInTheDocument());
         expect(opener).toHaveFocus();
     });
 
@@ -477,7 +476,7 @@ describe('GuardianPage', () => {
         const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
         await renderWithProfile();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Set digital tripwire at current position' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Tripwire: set home at current position' }));
 
         await waitFor(() => expect(GuardianService.setHomeCoordinate).toHaveBeenCalledWith(-33.8, 151.2));
         expect(screen.getByRole('status').textContent).toContain('Tripwire set at the vessel’s current GPS position');
@@ -489,7 +488,7 @@ describe('GuardianPage', () => {
         vi.mocked(acquireFreshOwnshipPosition).mockResolvedValue(null);
         await renderWithProfile();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Set digital tripwire at current position' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Tripwire: set home at current position' }));
 
         expect(await screen.findByRole('alert')).toHaveTextContent('fresh vessel GPS fix is required');
         expect(GuardianService.setHomeCoordinate).not.toHaveBeenCalled();
@@ -587,7 +586,7 @@ describe('GuardianPage', () => {
             feedConfirmed: true,
         });
         await renderWithArmedProfile();
-        fireEvent.click(screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Weather alert: broadcast to nearby boats' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Send weather alert: Strong winds expected' }));
         expect(await screen.findByRole('status')).toHaveTextContent(
             'Saved to your alert feed. Notifications queued for 1 nearby vessel.',
@@ -601,7 +600,7 @@ describe('GuardianPage', () => {
             feedConfirmed: false,
         });
         await renderWithArmedProfile();
-        fireEvent.click(screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Weather alert: broadcast to nearby boats' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Send weather alert: Strong winds expected' }));
         expect(await screen.findByRole('status')).toHaveTextContent(
             'Alert sent; waiting for feed confirmation. Please don’t resend.',

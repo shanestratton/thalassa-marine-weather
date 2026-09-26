@@ -227,7 +227,10 @@ test.describe('Chat — Scuttlebutt production layout', () => {
         });
 
         await page.goto('/');
-        await page.getByRole('tab', { name: 'Navigate to Vessel', exact: true }).click();
+        await page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Vessel', exact: true })
+            .click();
         await page.getByRole('button', { name: 'Open Scuttlebutt', exact: true }).click();
         await expect(page.getByRole('heading', { name: 'Scuttlebutt', exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: CHANNEL_NAME, exact: true })).toBeVisible();
@@ -285,10 +288,11 @@ test.describe('Chat — Scuttlebutt production layout', () => {
         await expect(input).toHaveCount(0);
         await page.locator('[data-chat-page]').getByRole('button', { name: 'Go back', exact: true }).click();
         await expect(page.getByRole('button', { name: 'Open Scuttlebutt', exact: true })).toBeVisible();
-        await expect(page.getByRole('tab', { name: 'Navigate to Vessel', exact: true })).toHaveAttribute(
-            'aria-selected',
-            'true',
-        );
+        await expect(
+            page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'Vessel', exact: true }),
+        ).toHaveAttribute('aria-current', 'page');
         await page.getByRole('button', { name: 'Open Scuttlebutt', exact: true }).click();
         const reopened = await openChannel(page);
         await expectComposeTarget(reopened.input);

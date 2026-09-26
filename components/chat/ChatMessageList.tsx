@@ -234,7 +234,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                     {/* Pinned bar */}
                     {pinnedMessages.length > 0 && (
                         <div className="mx-4 mt-2 p-3 rounded-xl bg-amber-500/4 border border-amber-500/8 fade-slide-down">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400/40 mb-1.5">
+                            <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-400/40 mb-1.5">
                                 Pinned
                             </p>
                             {pinnedMessages.map((pm) => (
@@ -279,9 +279,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                 </p>
                                 <div className="flex items-center gap-3 mt-5">
                                     <span className="w-8 h-px bg-linear-to-r from-transparent to-white/10" />
-                                    <span className="text-[11px] text-white/40 uppercase tracking-[0.2em]">
-                                        fair winds
-                                    </span>
+                                    <span className="text-xs text-white/40 uppercase tracking-[0.2em]">fair winds</span>
                                     <span className="w-8 h-px bg-linear-to-l from-transparent to-white/10" />
                                 </div>
                             </div>
@@ -318,7 +316,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                             aria-label={getDateLabel(msg.created_at)}
                                         >
                                             <span className="flex-1 h-px bg-linear-to-r from-transparent to-white/6" />
-                                            <span className="text-[11px] font-bold text-white/40 uppercase tracking-[0.15em]">
+                                            <span className="text-xs font-bold text-white/40 uppercase tracking-[0.15em]">
                                                 {getDateLabel(msg.created_at)}
                                             </span>
                                             <span className="flex-1 h-px bg-linear-to-l from-transparent to-white/6" />
@@ -412,15 +410,15 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 )
                                                             }
                                                         >
-                                                            <span className="text-[11px]">{rank.badge}</span>
+                                                            <span className="text-xs">{rank.badge}</span>
                                                             {showRankTooltip === msg.id && (
-                                                                <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-slate-700 text-[11px] text-white/70 whitespace-nowrap z-10 shadow-xl">
+                                                                <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-slate-700 text-xs text-white/70 whitespace-nowrap z-10 shadow-xl">
                                                                     {rank.title} • {msg.helpful_count} helpful
                                                                 </span>
                                                             )}
                                                         </button>
                                                         {isMod && msg.user_id !== 'self' && (
-                                                            <span className="text-[11px] opacity-30">🛡️</span>
+                                                            <span className="text-xs opacity-30">🛡️</span>
                                                         )}
                                                         <span className="text-sm text-white/60 ml-auto tabular-nums">
                                                             {timeAgo(msg.created_at)}
@@ -471,7 +469,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                         />
                                                                         {/* Source badge */}
                                                                         <span
-                                                                            className={`absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider shadow-lg ${
+                                                                            className={`absolute top-2 left-2 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider shadow-lg ${
                                                                                 isLoc
                                                                                     ? 'bg-emerald-900/90 text-emerald-300 border border-emerald-400/30'
                                                                                     : isPoi
@@ -506,16 +504,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                                     )
                                                                                 }
                                                                                 aria-label="Export pin as GPX"
-                                                                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/15 active:scale-95 transition-transform min-h-[36px]"
+                                                                                className="hit-target-44 flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/15 active:scale-95 transition-transform min-h-[36px]"
                                                                             >
-                                                                                <span className="text-[11px]">📥</span>
-                                                                                <span className="text-[11px] font-bold text-sky-300 uppercase">
+                                                                                <span className="text-xs">📥</span>
+                                                                                <span className="text-xs font-bold text-sky-300 uppercase">
                                                                                     GPX
                                                                                 </span>
                                                                             </button>
                                                                         </div>
                                                                         {isPoi && (
-                                                                            <p className="text-[11px] text-purple-400/50 mt-1.5 uppercase tracking-wider font-bold">
+                                                                            <p className="text-xs text-purple-400/50 mt-1.5 uppercase tracking-wider font-bold">
                                                                                 ⚠️ Shared place — not the user's
                                                                                 location
                                                                             </p>
@@ -581,7 +579,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 </p>
                                                                 {isSelf && (
                                                                     <span
-                                                                        className="text-[11px] text-sky-400/40 shrink-0 mb-0.5"
+                                                                        className="text-xs text-sky-400/40 shrink-0 mb-0.5"
                                                                         aria-label={
                                                                             msg.delivery_status === 'sending'
                                                                                 ? 'Message sending'
@@ -603,7 +601,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                     })()
                                                 )}
                                                 {isSelf && msg.delivery_status && (
-                                                    <p className="mt-1 text-[11px] text-amber-300/70" role="status">
+                                                    <p className="mt-1 text-xs text-amber-300/70" role="status">
                                                         {msg.delivery_status === 'sending'
                                                             ? 'Sending…'
                                                             : 'Queued — sends when online'}
@@ -617,7 +615,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         : null;
                                                     return hint ? (
                                                         <p
-                                                            className={`mt-1 text-[11px] ${hint.tone === 'warn' ? 'text-amber-300/80' : 'text-sky-300/60'}`}
+                                                            className={`mt-1 text-xs ${hint.tone === 'warn' ? 'text-amber-300/80' : 'text-sky-300/60'}`}
                                                             role="status"
                                                         >
                                                             {hint.text}
@@ -651,7 +649,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 aria-label="Moderation actions"
                                                                 aria-expanded={showModMenu === msg.id}
                                                                 onClick={() => onToggleModMenu(msg.id)}
-                                                                className="hit-target-44 text-[11px] text-white/40 hover:text-red-400/60 transition-colors"
+                                                                className="hit-target-44 text-xs text-white/40 hover:text-red-400/60 transition-colors"
                                                             >
                                                                 Mod
                                                             </button>
@@ -665,19 +663,19 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         <button
                                                             onClick={() => onDeleteMessage(msg.id)}
                                                             aria-label="Delete message"
-                                                            className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
+                                                            className="w-full text-left text-xs text-red-400/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                         >
                                                             Delete message
                                                         </button>
                                                         <button
                                                             onClick={() => onPinMessage(msg.id, msg.is_pinned)}
                                                             aria-label={msg.is_pinned ? 'Unpin message' : 'Pin message'}
-                                                            className="w-full text-left text-[11px] text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
+                                                            className="w-full text-left text-xs text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                         >
                                                             {msg.is_pinned ? 'Unpin' : 'Pin message'}
                                                         </button>
                                                         <div className="h-px bg-white/4 my-1" />
-                                                        <p className="text-[11px] text-white/60 px-2.5 uppercase tracking-wider">
+                                                        <p className="text-xs text-white/60 px-2.5 uppercase tracking-wider">
                                                             Mute {msg.display_name}
                                                         </p>
                                                         <div className="flex gap-1 px-2">
@@ -690,7 +688,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                     aria-label={`Mute ${msg.display_name} for ${label}`}
                                                                     key={hrs}
                                                                     onClick={() => onMuteUser(msg.user_id, hrs)}
-                                                                    className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/10 transition-colors min-h-[44px]"
+                                                                    className="text-xs text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/10 transition-colors min-h-[44px]"
                                                                 >
                                                                     {label}
                                                                 </button>
@@ -705,7 +703,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                         onBlockUser(msg.user_id, msg.display_name)
                                                                     }
                                                                     aria-label={`Block ${msg.display_name}`}
-                                                                    className="w-full text-left text-[11px] text-red-500/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
+                                                                    className="w-full text-left text-xs text-red-500/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                                 >
                                                                     Block {msg.display_name}
                                                                 </button>
@@ -714,7 +712,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                         onMakeAdmin(msg.user_id, msg.display_name)
                                                                     }
                                                                     aria-label={`Make ${msg.display_name} admin`}
-                                                                    className="w-full text-left text-[11px] text-sky-400/80 hover:bg-sky-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
+                                                                    className="w-full text-left text-xs text-sky-400/80 hover:bg-sky-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                                 >
                                                                     Make Admin
                                                                 </button>

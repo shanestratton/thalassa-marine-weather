@@ -82,7 +82,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                             <p id="report-message-title" className="text-sm font-medium text-white/70">
                                 Report submitted
                             </p>
-                            <p id="report-success-description" className="text-[11px] text-white/60 mt-1">
+                            <p id="report-success-description" className="text-xs text-white/60 mt-1">
                                 Our moderators will review it shortly
                             </p>
                             <button
@@ -98,7 +98,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                             <p id="report-message-title" className="text-sm font-bold text-white/80 mb-1">
                                 Report Message
                             </p>
-                            <p id="report-message-context" className="text-[11px] text-white/60 mb-4 truncate">
+                            <p id="report-message-context" className="text-xs text-white/60 mb-4 truncate">
                                 From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"
                             </p>
                             <div className="space-y-1.5 mb-4">
@@ -234,11 +234,11 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                 >
                     <div className="flex items-start justify-between gap-4 mb-3">
                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/70 mb-1">
+                            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300/70 mb-1">
                                 One-time share
                             </p>
                             <h3 className="text-base font-bold text-white/90">Share my location</h3>
-                            <p className="text-[11px] text-white/45 mt-1">
+                            <p className="text-xs text-white/45 mt-1">
                                 Sends one GPS snapshot to this channel — never live tracking.
                             </p>
                         </div>
@@ -267,7 +267,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                 </span>
                                 <div>
                                     <p className="text-sm font-semibold text-amber-100">Location unavailable</p>
-                                    <p className="text-[11px] leading-relaxed text-amber-100/60 mt-1">
+                                    <p className="text-xs leading-relaxed text-amber-100/60 mt-1">
                                         {locationError || 'A fresh GPS fix is needed before it can be shared.'}
                                     </p>
                                 </div>
@@ -307,13 +307,13 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                         <p className="truncate text-xs font-bold text-emerald-100">
                                             {pinRungLabel ?? 'Current GPS fix'}
                                         </p>
-                                        <p className="text-[10px] text-emerald-100/80 mt-0.5">
+                                        <p className="text-xs text-emerald-100/80 mt-0.5">
                                             {formatFixAge(pinTimestamp)}
                                         </p>
                                     </div>
                                 </div>
                                 {pinAccuracy != null && Number.isFinite(pinAccuracy) && (
-                                    <span className="text-[10px] font-semibold text-emerald-100/75 whitespace-nowrap">
+                                    <span className="text-xs font-semibold text-emerald-100/75 whitespace-nowrap">
                                         ±{Math.round(pinAccuracy)} m
                                     </span>
                                 )}
@@ -336,7 +336,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                     tile server at the exact coordinate rather
                                     than by CSS against a cropped image. */}
                             </div>
-                            <p className="text-[11px] text-white/45 mb-3 text-center tabular-nums">
+                            <p className="text-xs text-white/45 mb-3 text-center tabular-nums">
                                 📍 {formatCoordinates(pinLat, pinLng)}
                             </p>
                             <div className="flex items-center gap-2">
@@ -373,7 +373,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                     onChange={(event) => setSaveToMyPlaces(event.target.checked)}
                                     className="w-4 h-4 accent-emerald-400"
                                 />
-                                <span className="text-[11px] text-white/50">Save this in My Places too</span>
+                                <span className="text-xs text-white/50">Save this in My Places too</span>
                             </label>
                         </>
                     )}
@@ -456,11 +456,11 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 >
                     <div className="flex items-start justify-between gap-4 mb-3">
                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-300/70 mb-1">
+                            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-300/70 mb-1">
                                 Share a place
                             </p>
                             <h3 className="text-base font-bold text-white/90">Drop a pin</h3>
-                            <p className="text-[11px] text-white/45 mt-1">
+                            <p className="text-xs text-white/45 mt-1">
                                 Search, tap the chart, or drag the pin to the exact spot.
                             </p>
                         </div>
@@ -487,7 +487,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 {locationError && (
                                     <p
-                                        className="rounded-xl border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-100/70 mb-3"
+                                        className="rounded-xl border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-100/70 mb-3"
                                         role="status"
                                     >
                                         {locationError}
@@ -520,7 +520,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                 )}
                                 {savedPins.length > 0 && (
                                     <div className="mb-3">
-                                        <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/50 mb-1.5">
+                                        <p className="text-xs font-black uppercase tracking-[0.15em] text-white/50 mb-1.5">
                                             Recent places
                                         </p>
                                         <div
@@ -540,7 +540,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                                         <span className="block truncate text-xs font-semibold text-white/75">
                                                             {savedPin.caption}
                                                         </span>
-                                                        <span className="block truncate text-[10px] text-white/40 tabular-nums">
+                                                        <span className="block truncate text-xs text-white/40 tabular-nums">
                                                             {PinService.formatCoords(
                                                                 savedPin.latitude,
                                                                 savedPin.longitude,
@@ -581,14 +581,14 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                     className={`rounded-xl border px-3 py-2.5 mb-3 ${hasSelection ? 'border-sky-300/15 bg-sky-400/5' : 'border-white/[0.07] bg-white/2.5'}`}
                                     aria-live="polite"
                                 >
-                                    <p className="text-[11px] font-semibold text-white/70">
+                                    <p className="text-xs font-semibold text-white/70">
                                         {hasSelection
                                             ? pinSource === 'current'
                                                 ? 'Current location selected'
                                                 : 'Pinned place selected'
                                             : 'Choose a place on the chart'}
                                     </p>
-                                    <p className="text-[10px] text-white/40 mt-0.5 tabular-nums">
+                                    <p className="text-xs text-white/40 mt-0.5 tabular-nums">
                                         {hasSelection
                                             ? `📍 ${formatCoordinates(pinLat, pinLng)}`
                                             : 'Search above, tap the chart, or drag a pin.'}
@@ -627,7 +627,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                         onChange={(event) => setSaveToMyPlaces(event.target.checked)}
                                         className="w-4 h-4 accent-sky-400"
                                     />
-                                    <span className="text-[11px] text-white/50">Save this in My Places too</span>
+                                    <span className="text-xs text-white/50">Save this in My Places too</span>
                                 </label>
                             </div>
                         </>
@@ -702,7 +702,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm text-white/70 font-medium truncate">{dateStr}</p>
-                                    <p className="text-[11px] text-white/60 tabular-nums">
+                                    <p className="text-xs text-white/60 tabular-nums">
                                         {v.distance} NM · {v.entryCount} pts · {durationHrs}h
                                     </p>
                                 </div>

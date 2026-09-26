@@ -8,7 +8,8 @@ import type { ChatChannel } from '../../services/ChatService';
 import { ChannelProposalModal } from './ChannelProposalModal';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { ChannelGlyph, getChannelName } from './channelIcons';
-import { LockIcon, StarIcon, UsersIcon } from '../Icons';
+import { ChatIcon, LockIcon, StarIcon, UsersIcon } from '../Icons';
+import { EmptyState } from '../ui/EmptyState';
 
 // Channels hidden from the directory. 'Lonely Hearts' is a legacy alias, and
 // 'Chandlery'/'Marketplace' are retired features whose channels may still
@@ -349,29 +350,16 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                 state that hides everything), the list simply rendered
                 nothing and the user saw a confusing blank pane. */}
             {topLevel.length === 0 ? (
-                <div className="flex flex-col items-center text-center py-16 px-6">
-                    <div className="w-12 h-12 rounded-full bg-sky-500/8 border border-sky-500/15 flex items-center justify-center mb-4">
-                        <svg
-                            className="w-6 h-6 text-sky-400/70"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
-                            aria-hidden="true"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"
-                            />
-                        </svg>
-                    </div>
-                    <p className="text-sm font-semibold text-white/70 mb-1">No channels yet</p>
-                    <p className="text-[12px] text-white/40 leading-relaxed max-w-[220px]">
-                        Channels will appear here once sailors join Scuttlebutt. Propose a new one with the + button
-                        above.
-                    </p>
-                </div>
+                // The shared empty-state recipe, with its centred action (UX
+                // scorecard run 7): the '+' this copy pointed at now lives in
+                // the header's Page actions menu.
+                <EmptyState
+                    icon={<ChatIcon />}
+                    title="No channels yet"
+                    description="Channels appear here once sailors join Scuttlebutt. You can propose the first one."
+                    actionLabel="Propose a channel"
+                    onAction={() => setShowProposalForm(true)}
+                />
             ) : (
                 topLevel.map((ch) => renderChannelCard(ch, false))
             )}
