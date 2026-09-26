@@ -21,6 +21,9 @@ import { createLogger } from './createLogger';
 
 const log = createLogger('logExportPdf');
 
+/** US gallons → litres (VesselTab stores capacities in US gallons). */
+const US_GAL_TO_L = 3.78541;
+
 /**
  * Draw an angled compass rose watermark on the page
  * Positioned coming in from the bottom-left at an angle
@@ -513,6 +516,10 @@ export async function generateDeckLogPDF(
     // Vessel Specifications Section (only if vessel data exists)
     const vesselProfile = vesselData?.vessel;
     const vesselUnits = vesselData?.vesselUnits;
+    // A vessel unit never chosen falls back to the Preferences unit, exactly
+    // as the Vessel tab does, so the PDF and the tab show the same unit.
+    const prefLengthUnit = vesselData?.units?.length || 'ft';
+    const prefVolumeUnit = vesselData?.units?.volume || 'gal';
 
     if (
         vesselProfile &&
@@ -545,30 +552,34 @@ export async function generateDeckLogPDF(
         const specs: { label: string; value: string }[] = [];
 
         if (vesselProfile.length) {
-            const lengthUnit = vesselUnits?.length || 'ft';
+            const lengthUnit = vesselUnits?.length || prefLengthUnit;
             // Length stored in feet, convert if needed
             const lengthVal = lengthUnit === 'm' ? vesselProfile.length * 0.3048 : vesselProfile.length;
             specs.push({ label: 'Length', value: `${lengthVal.toFixed(1)}${lengthUnit}` });
         }
         if (vesselProfile.beam) {
-            const beamUnit = vesselUnits?.beam || 'ft';
+            const beamUnit = vesselUnits?.beam || prefLengthUnit;
             // Beam stored in feet, convert to meters if needed
             const beamVal = beamUnit === 'm' ? vesselProfile.beam * 0.3048 : vesselProfile.beam;
             specs.push({ label: 'Beam', value: `${beamVal.toFixed(1)}${beamUnit}` });
         }
         if (vesselProfile.draft) {
-            const draftUnit = vesselUnits?.draft || 'ft';
+            const draftUnit = vesselUnits?.draft || prefLengthUnit;
             // Draft stored in feet, convert to meters if needed
             const draftVal = draftUnit === 'm' ? vesselProfile.draft * 0.3048 : vesselProfile.draft;
             specs.push({ label: 'Draft', value: `${draftVal.toFixed(1)}${draftUnit}` });
         }
+        // Capacities are stored in US gallons (VesselTab converts litre input
+        // on save), so a litre profile needs converting, not just relabelling:
+        // this used to print the gallon figure with an 'L' after it.
+        const volUnit = vesselUnits?.volume || prefVolumeUnit;
+        const capacityText = (gal: number) =>
+            volUnit === 'l' ? `${Math.round(gal * US_GAL_TO_L)}L` : `${Math.round(gal)}gal`;
         if (vesselProfile.fuelCapacity) {
-            const volUnit = vesselUnits?.volume || 'L';
-            specs.push({ label: 'Fuel', value: `${vesselProfile.fuelCapacity}${volUnit}` });
+            specs.push({ label: 'Fuel', value: capacityText(vesselProfile.fuelCapacity) });
         }
         if (vesselProfile.waterCapacity) {
-            const volUnit = vesselUnits?.volume || 'L';
-            specs.push({ label: 'Water', value: `${vesselProfile.waterCapacity}${volUnit}` });
+            specs.push({ label: 'Water', value: capacityText(vesselProfile.waterCapacity) });
         }
 
         // Render specs evenly across the box

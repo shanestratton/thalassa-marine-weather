@@ -16,7 +16,8 @@ interface TaskFormModalProps {
     setCategory: UseMaintenanceFormReturn['setCategory'];
     setTaskType: UseMaintenanceFormReturn['setTaskType'];
     setTrigger: UseMaintenanceFormReturn['setTrigger'];
-    engineHours: number;
+    /** null until the skipper has entered engine hours. */
+    engineHours: number | null;
     onSubmit: () => void;
     onClose: () => void;
 }
@@ -33,6 +34,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     onClose,
 }) => {
     const isAdd = mode === 'add';
+    // With no engine hours entered, "200" would be counted from an invented 0.
+    const dueHoursPlaceholder = engineHours === null ? 'Hours at next service' : String(engineHours + 200);
 
     if (isAdd) {
         return (
@@ -159,7 +162,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 label="Next due (hours)"
                                 value={form.dueHours}
                                 onChange={(v) => setField('dueHours', v)}
-                                placeholder={String(engineHours + 200)}
+                                placeholder={dueHoursPlaceholder}
                                 inputMode="numeric"
                             />
                         </div>
@@ -278,7 +281,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             label="Next due (hours)"
                             value={form.dueHours}
                             onChange={(v) => setField('dueHours', v)}
-                            placeholder={String(engineHours + 200)}
+                            placeholder={dueHoursPlaceholder}
                             inputMode="numeric"
                         />
                     </div>

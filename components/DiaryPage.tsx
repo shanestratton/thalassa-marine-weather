@@ -1655,7 +1655,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                             triggerHaptic('medium');
                             openCompose();
                         }}
-                        theme="sky"
+                        // Emerald = "add" across the Ship's Office (Stores, Maintenance, Documents…).
+                        theme="emerald"
                     />
                 </div>
             </div>

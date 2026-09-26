@@ -137,8 +137,10 @@ export const enrichMarineWeather = async (
     try {
         const isLand = baseData.isLandlocked;
         const vesselType = vessel?.type || 'sail';
-        const lenUnit = vesselUnits?.length || 'ft';
-        const lenStr = vessel?.length ? vessel.length.toFixed(0) : 'Unknown';
+        // Same fallback as the Vessel tab (vessel unit → Preferences unit → ft).
+        // vessel.length is stored in feet, so convert rather than relabel.
+        const lenUnit = vesselUnits?.length || units?.length || 'ft';
+        const lenStr = vessel?.length ? (convertLength(vessel.length, lenUnit) ?? vessel.length).toFixed(0) : 'Unknown';
         const speedUnit = units?.speed || 'kts';
         const waveUnit = units?.length || 'ft';
 
