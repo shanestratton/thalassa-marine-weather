@@ -78,9 +78,9 @@ describe('the Pi and the shore device speak the same language', () => {
                     label.nextElementSibling?.textContent,
                 ]),
             );
-            expect(metrics.Rode).toBe(config && 'rodeLength' in config ? '30m' : '--');
-            expect(metrics.Depth).toBe(config && 'waterDepth' in config ? '5.0m' : '--');
-            expect(metrics['Swing Radius']).toBe('35m');
+            expect(metrics.Rode).toBe(config && 'rodeLength' in config ? '30 m' : '--');
+            expect(metrics.Depth).toBe(config && 'waterDepth' in config ? '5.0 m' : '--');
+            expect(metrics['Swing Radius']).toBe('35 m');
         },
     );
 

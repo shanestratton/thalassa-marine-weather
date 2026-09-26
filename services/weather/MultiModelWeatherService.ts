@@ -139,11 +139,18 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
  */
 export const WIND_OVERLAY_MODELS: WeatherModelId[] = ['icon', 'ecmwf', 'aifs', 'ukmo', 'jma'];
 
+/**
+ * One model hour. Every field is null when the model did not supply it —
+ * never 0. ECMWF AIFS and JMA GSM publish no gust field at all, and a
+ * partially synced model can return null 10 m wind while its gusts and
+ * pressure are real; a 0 there read as "0 kt" in the comparison and dragged
+ * the consensus mean down (UX scorecard run 6).
+ */
 export interface ModelForecastPoint {
     time: string; // ISO
-    windSpeed: number; // kts
-    windDirection: number; // degrees
-    windGust: number; // kts
+    windSpeed: number | null; // kts
+    windDirection: number | null; // degrees
+    windGust: number | null; // kts
     waveHeight: number | null; // metres — null when the model has no wave coverage here
     pressure: number | null; // hPa — null when the model did not supply it
 }
@@ -158,11 +165,14 @@ export interface WaypointComparison {
     lon: number;
     name?: string;
     forecasts: ModelForecast[];
+    /** Built only from the models that supplied each field at the sample
+     *  hour. A mean is null when no model did; a spread is null when fewer
+     *  than two did, because one model cannot agree or disagree with itself. */
     consensus: {
-        windSpeedMean: number;
-        windSpeedSpread: number; // max - min across models
-        windDirectionMean: number;
-        windDirectionSpread: number;
+        windSpeedMean: number | null;
+        windSpeedSpread: number | null; // max - min across models
+        windDirectionMean: number | null;
+        windDirectionSpread: number | null;
         waveHeightMean: number | null;
         waveHeightSpread: number | null;
         pressureMean: number | null;
@@ -288,11 +298,11 @@ async function fetchModelForecast(
         type HourlyPayload = {
             hourly?: {
                 time?: string[];
-                wind_speed_10m?: number[];
-                wind_direction_10m?: number[];
-                wind_gusts_10m?: number[];
-                pressure_msl?: number[];
-                wave_height?: number[];
+                wind_speed_10m?: (number | null)[];
+                wind_direction_10m?: (number | null)[];
+                wind_gusts_10m?: (number | null)[];
+                pressure_msl?: (number | null)[];
+                wave_height?: (number | null)[];
             };
         };
         const params = {
@@ -331,9 +341,9 @@ async function fetchModelForecast(
             const times: string[] = hourly.time || [];
             const points: ModelForecastPoint[] = times.map((time: string, h: number) => ({
                 time,
-                windSpeed: Math.round(((hourly.wind_speed_10m?.[h] ?? 0) / 1.852) * 10) / 10, // km/h → kts
-                windDirection: hourly.wind_direction_10m?.[h] ?? 0,
-                windGust: Math.round(((hourly.wind_gusts_10m?.[h] ?? 0) / 1.852) * 10) / 10,
+                windSpeed: kmhToKts(hourly.wind_speed_10m?.[h]),
+                windDirection: finiteOrNull(hourly.wind_direction_10m?.[h]),
+                windGust: kmhToKts(hourly.wind_gusts_10m?.[h]),
                 waveHeight: waveHourly?.wave_height?.[h] ?? null,
                 pressure: hourly.pressure_msl?.[h] ?? null,
             }));
@@ -348,13 +358,22 @@ async function fetchModelForecast(
     }
 }
 
+/** km/h → kts at 0.1 kt, or null when the model did not supply the value. */
+function kmhToKts(v: number | null | undefined): number | null {
+    return typeof v === 'number' && Number.isFinite(v) ? Math.round((v / 1.852) * 10) / 10 : null;
+}
+
+function finiteOrNull(v: number | null | undefined): number | null {
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
 function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['consensus'] {
     if (forecasts.length === 0 || forecasts.every((f) => f.points.length === 0)) {
         return {
-            windSpeedMean: 0,
-            windSpeedSpread: 0,
-            windDirectionMean: 0,
-            windDirectionSpread: 0,
+            windSpeedMean: null,
+            windSpeedSpread: null,
+            windDirectionMean: null,
+            windDirectionSpread: null,
             waveHeightMean: null,
             waveHeightSpread: null,
             pressureMean: null,
@@ -363,8 +382,11 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
     }
 
     // Use the forecast at ~24h out as the representative sample
-    // (close enough to be meaningful, far enough for models to diverge)
-    const sampleIdx = Math.min(24, forecasts[0].points.length - 1);
+    // (close enough to be meaningful, far enough for models to diverge).
+    // Indexed off the longest series, not forecasts[0]: a first model that
+    // failed outright has no points and used to turn the index into -1.
+    const longest = Math.max(...forecasts.map((f) => f.points.length));
+    const sampleIdx = Math.min(24, longest - 1);
 
     const windSpeeds: number[] = [];
     const windDirs: number[] = [];
@@ -374,15 +396,16 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
     for (const f of forecasts) {
         const pt = f.points[sampleIdx];
         if (!pt) continue;
-        windSpeeds.push(pt.windSpeed);
-        windDirs.push(pt.windDirection);
-        // A model with no wave coverage or no pressure here must not drag the mean toward 0.
+        // A model that did not supply a field sits out of that field's mean
+        // and spread; it must not drag them toward 0.
+        if (pt.windSpeed != null) windSpeeds.push(pt.windSpeed);
+        if (pt.windDirection != null) windDirs.push(pt.windDirection);
         if (pt.waveHeight != null) waveHeights.push(pt.waveHeight);
         if (pt.pressure != null) pressures.push(pt.pressure);
     }
 
-    const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-    const spread = (arr: number[]) => (arr.length ? Math.max(...arr) - Math.min(...arr) : 0);
+    const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const spread = (arr: number[]) => Math.max(...arr) - Math.min(...arr);
 
     // Circular mean for direction
     let sumSin = 0,
@@ -393,7 +416,7 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
     }
     const meanDir = windDirs.length
         ? ((Math.atan2(sumSin / windDirs.length, sumCos / windDirs.length) * 180) / Math.PI + 360) % 360
-        : 0;
+        : null;
 
     // Direction spread
     let maxDirDiff = 0;
@@ -405,15 +428,24 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
         }
     }
 
-    const wSpread = spread(windSpeeds);
+    // Fewer than two models with wind means nothing to compare: no spread,
+    // and no claim that the models agree.
+    const wSpread = windSpeeds.length >= 2 ? spread(windSpeeds) : null;
+    const dSpread = windDirs.length >= 2 ? maxDirDiff : null;
     const confidence: 'high' | 'medium' | 'low' =
-        wSpread > 20 || maxDirDiff > 90 ? 'low' : wSpread > 12 || maxDirDiff > 45 ? 'medium' : 'high';
+        wSpread == null
+            ? 'low'
+            : wSpread > 20 || (dSpread ?? 0) > 90
+              ? 'low'
+              : wSpread > 12 || (dSpread ?? 0) > 45
+                ? 'medium'
+                : 'high';
 
     return {
-        windSpeedMean: Math.round(mean(windSpeeds) * 10) / 10,
-        windSpeedSpread: Math.round(wSpread * 10) / 10,
-        windDirectionMean: Math.round(meanDir),
-        windDirectionSpread: Math.round(maxDirDiff),
+        windSpeedMean: windSpeeds.length ? Math.round(mean(windSpeeds) * 10) / 10 : null,
+        windSpeedSpread: wSpread != null ? Math.round(wSpread * 10) / 10 : null,
+        windDirectionMean: meanDir != null ? Math.round(meanDir) : null,
+        windDirectionSpread: dSpread != null ? Math.round(dSpread) : null,
         waveHeightMean: waveHeights.length ? Math.round(mean(waveHeights) * 10) / 10 : null,
         waveHeightSpread: waveHeights.length ? Math.round(spread(waveHeights) * 10) / 10 : null,
         pressureMean: pressures.length ? Math.round(mean(pressures)) : null,

@@ -199,14 +199,19 @@ export const checkForecastThresholds = (
         if (todayUV && todayUV && todayUV >= prefs.uv.threshold)
             alerts.push(`THRESHOLD ALERT: High UV Index (${todayUV.toFixed(0)}) expected today`);
     }
+    // Missing hourly temperatures arrive as null (WeatherKit, StormGlass,
+    // Open-Meteo). Math.min coerces null to 0 and would invent a 'Low Temp
+    // dropping to 0°' alert, so only real readings count — as for wind above.
     if (prefs.tempHigh && prefs.tempHigh.enabled) {
-        const maxTemp = Math.max(...next24.map((h) => h.temperature));
-        if (maxTemp >= prefs.tempHigh.threshold)
+        const temps = next24.map((h) => h.temperature).filter((t): t is number => typeof t === 'number');
+        const maxTemp = temps.length ? Math.max(...temps) : null;
+        if (maxTemp !== null && maxTemp >= prefs.tempHigh.threshold)
             alerts.push(`THRESHOLD ALERT: High Temp reaching ${maxTemp.toFixed(0)}° in next 24h`);
     }
     if (prefs.tempLow && prefs.tempLow.enabled) {
-        const minTemp = Math.min(...next24.map((h) => h.temperature));
-        if (minTemp <= prefs.tempLow.threshold)
+        const temps = next24.map((h) => h.temperature).filter((t): t is number => typeof t === 'number');
+        const minTemp = temps.length ? Math.min(...temps) : null;
+        if (minTemp !== null && minTemp <= prefs.tempLow.threshold)
             alerts.push(`THRESHOLD ALERT: Low Temp dropping to ${minTemp.toFixed(0)}° in next 24h`);
     }
     return alerts;
