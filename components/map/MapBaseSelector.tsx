@@ -86,8 +86,10 @@ export function MapBaseSelector({
         <div
             ref={rootRef}
             // An open picker must sit above passive coverage/tide notices.
-            // The closed trigger keeps its ordinary map-toolbar layer.
-            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-710'}`}
+            // The closed trigger shares the zoom readout's z-700, so the layer
+            // menu (z-700, later in the tree) dims it with the rest of the
+            // chart's controls instead of leaving it lit (UX scorecard run 7).
+            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'}`}
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {
@@ -238,7 +240,16 @@ export function MapBaseSelector({
 
 function MapBaseIcon() {
     return (
-        <svg className="h-4 w-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+        // White, like the layers and Locate glyphs: one glyph colour across the
+        // chart's controls (UX scorecard run 7).
+        <svg
+            className="h-4 w-4 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.7}
+            aria-hidden="true"
+        >
             <path
                 strokeLinecap="round"
                 strokeLinejoin="round"

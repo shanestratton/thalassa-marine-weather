@@ -234,7 +234,10 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             // ChartKeyPanel (bottom-44 = 176px). Deliberately NOT
             // calc(64px + inset + 8px) — the full-width chart furniture band
             // at z-500 sits there, and it would re-hide this chip.
-            className="absolute right-2 z-140 pointer-events-auto max-w-[280px]"
+            // Opened, the credit grows up the right rail over the zoom pair
+            // (MapActionFabs, z-500), so it rises above it: a credit is never
+            // covered by a control (UX scorecard run 7).
+            className={`absolute right-2 pointer-events-auto max-w-[280px] ${expanded ? 'z-510' : 'z-140'}`}
             // Above the Mapbox ⓘ + scale stack, lifted to 4rem + 73px (≈ 137–193px
             // above the inset) to clear the Locate fab on 2026-09-06.
             style={{
@@ -243,6 +246,8 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             }}
             role="contentinfo"
             aria-label="ENC chart attribution"
+            // Cut out of the layer menu's scrim, like every licence credit.
+            data-map-credit
         >
             <button
                 onClick={() => setExpanded((x) => !x)}

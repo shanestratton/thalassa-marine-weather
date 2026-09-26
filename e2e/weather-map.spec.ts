@@ -13,10 +13,12 @@ test.describe('Weather Map', () => {
         // Charts is the map host in the primary navigation. The old fuzzy
         // “map” query frequently never found a tab, leaving every assertion
         // to pass on the dashboard instead.
-        const chartsTab = page.getByRole('tab', { name: 'Navigate to Charts' });
+        const chartsTab = page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Obs', exact: true });
         await expect(chartsTab).toBeEnabled();
         await chartsTab.click();
-        await expect(chartsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(chartsTab).toHaveAttribute('aria-current', 'page');
     });
 
     test('charts renders the map host', async ({ page }) => {
@@ -54,7 +56,10 @@ for (const mode of ['light', 'dark', 'night'] as const) {
             const initialBase = 'Satellite';
             const chosenBase = 'Ocean';
             await page.goto('/');
-            await page.getByRole('tab', { name: 'Navigate to Charts' }).click();
+            await page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'Obs', exact: true })
+                .click();
             await expect(page.getByTestId('map-hub')).toBeVisible();
             const defaultButton = page.getByRole('button', { name: `Map base: ${initialBase}`, exact: true });
             await expect(defaultButton).toBeVisible();
@@ -62,8 +67,14 @@ for (const mode of ['light', 'dark', 'night'] as const) {
             await page.getByRole('menuitemradio', { name: new RegExp(`^${chosenBase} `) }).click();
             await expect(page.getByRole('button', { name: `Map base: ${chosenBase}`, exact: true })).toBeVisible();
 
-            await page.getByRole('tab', { name: 'Navigate to The Glass' }).click();
-            await page.getByRole('tab', { name: 'Navigate to Charts' }).click();
+            await page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'The Glass', exact: true })
+                .click();
+            await page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'Obs', exact: true })
+                .click();
             await expect(page.getByRole('button', { name: `Map base: ${chosenBase}`, exact: true })).toBeVisible();
         });
     });

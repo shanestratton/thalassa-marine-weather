@@ -154,6 +154,8 @@ export function createVesselElement(): HTMLDivElement {
     // classes so daylight remaps them like every other chart chip. Only the
     // badge moves; Mapbox must retain the root's exact GPS anchor.
     const badge = document.createElement('div');
+    // Hidden while the layer menu's tiles are up: they cover the dot, and the
+    // badge's tail stuck out beside them as a stray "topped" (UX scorecard run 7).
     badge.className = `vessel-sog-badge rounded-lg border border-sky-400/30 bg-slate-900/94 ${STATUS_TONE_CLASS.live}`;
     badge.style.cssText = `
         position: absolute; top: 50%; left: calc(50% + ${BADGE_OFFSET_PX}px);

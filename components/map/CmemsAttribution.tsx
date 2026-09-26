@@ -73,6 +73,8 @@ export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embe
             }
             style={embedded ? { bottom: '84px' } : { top: creditsStripTop(stackOffsetPx) }}
             aria-label={`Copernicus Marine data attribution for ${activeLayerLabel}`}
+            // Cut out of the layer menu's scrim, like every licence credit.
+            data-map-credit
         >
             <div className="rounded-lg border border-cyan-400/30 bg-black/70 px-2 py-1 text-[10px] leading-tight text-cyan-50/85 shadow-lg backdrop-blur-xs">
                 <div className="font-semibold text-cyan-200">E.U. Copernicus Marine Service Information</div>

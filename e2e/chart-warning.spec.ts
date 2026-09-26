@@ -102,13 +102,15 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
         await expect(showNavigation).toBeVisible();
         await showNavigation.click();
     }
-    const charts = page.getByRole('tab', { name: /^Navigate to Charts/ });
+    const charts = page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Obs', exact: true });
     await charts.click();
     await expect(page.getByTestId('map-hub')).toBeVisible();
     // Keep landscape navigation open: verify the warning against the actual
     // fixed nav, not an empty bottom edge.
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
-    await expect(charts).toHaveAttribute('aria-selected', 'true');
+    await expect(charts).toHaveAttribute('aria-current', 'page');
     try {
         await expect(page.getByText(EMPTY_ENC_NOTICE, { exact: true })).toBeVisible();
     } catch (error) {
@@ -366,7 +368,7 @@ for (const size of cases) {
             }
             for (const control of [library, locate, back, mob, layers, attribution, logo])
                 await expectHitTarget(control);
-            for (const tab of await nav.getByRole('tab').all()) {
+            for (const tab of await nav.getByRole('button').all()) {
                 await visibleBox(tab, page);
                 await expectHitTarget(tab);
             }

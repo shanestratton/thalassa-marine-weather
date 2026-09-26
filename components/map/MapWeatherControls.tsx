@@ -644,6 +644,8 @@ export function MapWeatherControls({
                     // or hidden, so it never jumps.
                     className={`${CREDITS_STRIP_POSITION_CLASS} z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
                     style={{ top: creditsStripTop(0) }}
+                    // Cut out of the layer menu's scrim, like every licence credit.
+                    data-map-credit
                 >
                     <span className="text-[10px] font-semibold text-slate-300/80">Radar by RainViewer</span>
                     {/* A REAL anchor with a real href, so this is still a link
@@ -668,6 +670,7 @@ export function MapWeatherControls({
                     className={`${CREDITS_STRIP_POSITION_CLASS} z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs`}
                     style={{ top: creditsStripTop(0) }}
                     data-testid="rain-forecast-credit"
+                    data-map-credit
                 >
                     <span className="text-[10px] font-semibold text-slate-300/80">Rain forecast by Rainbow.ai</span>
                     <a

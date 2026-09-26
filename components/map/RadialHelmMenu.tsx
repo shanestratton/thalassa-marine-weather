@@ -10,7 +10,7 @@
  * All animations use Framer Motion tight mechanical springs.
  */
 
-import React, { useState, useCallback, useEffect, useId, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { type WeatherLayer, SEA_STATE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
@@ -138,9 +138,19 @@ export interface RadialHelmMenuProps {
 const HELM_TOP_PX = 192;
 /** Half the 48 px FAB: tile offsets are measured from its centre. */
 const FAB_HALF = 24;
-/** Category tiles: 64 px, never closer than 10 px (UX scorecard run 6). */
-const TIER1_TILE = 64;
-const TIER1_PITCH = TIER1_TILE + 10;
+/**
+ * Category tiles, never closer than 10 px (UX scorecard run 6). 108 px wide
+ * since run 7 so each carries a one-line caption of what is inside ("Tides ·
+ * currents", with room for the wider system font offline); still 64 px tall,
+ * so the rows and the landscape drop are unchanged.
+ */
+const TIER1_TILE_W = 108;
+const TIER1_TILE_H = 64;
+const TIER1_GAP = 10;
+const TIER1_PITCH_X = TIER1_TILE_W + TIER1_GAP;
+const TIER1_PITCH_Y = TIER1_TILE_H + TIER1_GAP;
+/** Near column's centre: its tiles end 18 px left of the FAB, as before. */
+const TIER1_NEAR_X = FAB_HALF + 18 + TIER1_TILE_W / 2;
 /** The same query index.css uses for the short-landscape helm layout. */
 const SHORT_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 500px)';
 
@@ -158,11 +168,14 @@ const SHORT_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 500px)'
  * (index.css), so the block drops one row to clear it.
  */
 function tier1Slots(count: number, shortLandscape: boolean): Array<{ x: number; y: number }> {
-    const top = shortLandscape ? TIER1_PITCH : 0;
+    const top = shortLandscape ? TIER1_PITCH_Y : 0;
     return Array.from({ length: count }, (_, i) => {
         const aloneOnLastRow = i === count - 1 && count % 2 === 1;
         const nearFab = aloneOnLastRow || i % 2 === 1;
-        return { x: nearFab ? -TIER1_PITCH : -2 * TIER1_PITCH, y: top + Math.floor(i / 2) * TIER1_PITCH };
+        return {
+            x: nearFab ? -TIER1_NEAR_X : -(TIER1_NEAR_X + TIER1_PITCH_X),
+            y: top + Math.floor(i / 2) * TIER1_PITCH_Y,
+        };
     });
 }
 
@@ -182,13 +195,88 @@ function useShortLandscape(): boolean {
 }
 
 /**
- * Keyboard/programmatic focus must not look like "on". The app-wide ring is
- * the same sky as an active layer, so the menu's own controls get a dashed
- * neutral ring instead (UX scorecard run 6). Important, because the global
- * *:focus-visible rule is unlayered and would otherwise win.
+ * Keyboard focus must not look like "on". The app-wide ring is the same sky
+ * as an active layer, so the menu's own controls get a neutral ring instead
+ * (UX scorecard run 6): solid white framed by a dark halo, so it reads on the
+ * night tiles, the daylight tiles and bright imagery alike. Important, because
+ * the global *:focus-visible rule is unlayered and would otherwise win.
  */
 const MENU_FOCUS_RING =
-    'focus-visible:outline-2! focus-visible:outline-dashed! focus-visible:outline-offset-[3px]! focus-visible:outline-white/85! [.display-light_&]:focus-visible:outline-slate-900/80!';
+    'focus-visible:outline-2! focus-visible:outline-solid! focus-visible:outline-offset-2! focus-visible:outline-white! focus-visible:shadow-[0_0_0_6px_rgb(2_6_23_/_0.9)]!';
+/**
+ * Opening the menu moves focus into it, and WebKit counts that programmatic
+ * focus as focus-visible after a tap: a ring on LIVE read as "Live is on"
+ * (UX scorecard run 7). The ring shows only after a key press.
+ */
+const MENU_FOCUS_RING_HIDDEN = 'focus-visible:outline-none! focus-visible:shadow-none!';
+
+/** What a category tile's caption names first, by item id (UX scorecard run 7). */
+const CATEGORY_HINT_PRIORITY: Record<string, string[]> = {
+    tactical: ['cyclones', 'ais', 'lightning', 'squall'],
+    sea: ['tides', 'currents', 'waves', 'anchorages', 'moorings'],
+    atmosphere: ['wind', 'rain', 'pressure'],
+};
+/** Two names past this many letters no longer fit a tile on one 12 px line. */
+const CATEGORY_HINT_MAX_CHARS = 13;
+
+/**
+ * A tile's contents caption, built from what the category actually holds:
+ * "Storms · AIS", "Tides · currents", "Wind · rain". "Live" alone did not say
+ * that AIS lives there (UX scorecard run 7).
+ */
+export function categoryHint(category: Pick<HelmCategory, 'id' | 'items'>): string {
+    const priority = CATEGORY_HINT_PRIORITY[category.id] ?? [];
+    const rank = (item: HelmMenuItem) => {
+        const index = priority.indexOf(item.id);
+        return index < 0 ? priority.length : index;
+    };
+    const [first, ...rest] = [...category.items].sort((a, b) => rank(a) - rank(b)).map((item) => item.label);
+    if (!first) return '';
+    const partner = rest.find((label) => first.length + label.length <= CATEGORY_HINT_MAX_CHARS);
+    if (!partner) return first;
+    // Acronyms (AIS, SST) keep their capitals.
+    return `${first} · ${partner === partner.toUpperCase() ? partner : partner.toLowerCase()}`;
+}
+
+/**
+ * What the layer scrim must never wash over: Mapbox's two bottom corners
+ * (positional containers only; the attribution and logo inside them are never
+ * named) and every data credit tagged data-map-credit. Licence credits stay
+ * as legible with the menu open as shut.
+ */
+const CREDIT_SELECTOR = '.mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right, [data-map-credit]';
+/** Past the 4 px blur's fade, so the credit itself sits fully clear. */
+const CREDIT_HOLE_PAD = 10;
+
+type Hole = { x: number; y: number; width: number; height: number };
+
+/** Credit boxes in the scrim's own coordinates, padded; hidden ones skipped. */
+function measureCreditHoles(scrim: Element | null): Hole[] {
+    if (!scrim || typeof document === 'undefined') return [];
+    const origin = scrim.getBoundingClientRect();
+    return Array.from(document.querySelectorAll(CREDIT_SELECTOR)).flatMap((credit) => {
+        const box = credit.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0) return [];
+        return [
+            {
+                x: box.left - origin.left - CREDIT_HOLE_PAD,
+                y: box.top - origin.top - CREDIT_HOLE_PAD,
+                width: box.width + 2 * CREDIT_HOLE_PAD,
+                height: box.height + 2 * CREDIT_HOLE_PAD,
+            },
+        ];
+    });
+}
+
+function sameHoles(a: Hole[], b: Hole[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every(
+            (hole, i) =>
+                hole.x === b[i].x && hole.y === b[i].y && hole.width === b[i].width && hole.height === b[i].height,
+        )
+    );
+}
 
 // ── Animation variants ──────────────────────────────────────────
 
@@ -593,6 +681,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dragStartPos = useRef<{ x: number; y: number } | null>(null);
     const categoryMenuId = useId();
+    // Focus rings follow the keyboard: set by a key press or a keyboard
+    // activation of the FAB, cleared by any touch (see MENU_FOCUS_RING_HIDDEN).
+    const [keyboardFocus, setKeyboardFocus] = useState(false);
+    const focusRing = keyboardFocus ? MENU_FOCUS_RING : MENU_FOCUS_RING_HIDDEN;
+    const scrimRef = useRef<SVGSVGElement>(null);
+    const [creditHoles, setCreditHoles] = useState<Hole[]>([]);
+    const scrimMaskId = `helm-scrim-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
     const categories = useMemo(
         () => buildCategories(tacticalState, chartsState).filter((category) => category.items.length > 0),
@@ -609,7 +704,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     );
     // Lowest tile edge, measured down from the FAB centre. The tier-2 grid and
     // the tier-1 Clear All pill both hang below it.
-    const tier1Bottom = tier1Positions.reduce((low, p) => Math.max(low, p.y + TIER1_TILE / 2), FAB_HALF);
+    const tier1Bottom = tier1Positions.reduce((low, p) => Math.max(low, p.y + TIER1_TILE_H / 2), FAB_HALF);
 
     // ── Handlers ─────────────────────────────────────────────
 
@@ -627,16 +722,23 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     }, []);
 
     const suppressDragClick = useRef(false);
-    const handleTap = useCallback(() => {
-        if (suppressDragClick.current) {
-            suppressDragClick.current = false;
-            return;
-        }
-        if (isDragging) return;
-        if (isOpen) closeMenu();
-        else setIsOpen(true);
-        triggerHaptic('light');
-    }, [closeMenu, isDragging, isOpen]);
+    const handleTap = useCallback(
+        (event?: React.MouseEvent) => {
+            if (suppressDragClick.current) {
+                suppressDragClick.current = false;
+                return;
+            }
+            if (isDragging) return;
+            if (isOpen) closeMenu();
+            else {
+                // detail 0: Enter/Space on the FAB, not a tap.
+                setKeyboardFocus(event?.detail === 0);
+                setIsOpen(true);
+            }
+            triggerHaptic('light');
+        },
+        [closeMenu, isDragging, isOpen],
+    );
 
     // Shane 2026-09-08: "auto fold up the layer fab after say 10 seconds, or
     // 5 seconds of no use." Any touch inside the menu restarts the clock, and
@@ -663,6 +765,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (holdTimer.current) clearTimeout(holdTimer.current);
         dragStartPos.current = { x: e.clientX, y: e.clientY };
         holdTimer.current = setTimeout(() => {
+            setKeyboardFocus(false);
             setIsOpen(true);
             setIsDragging(true);
             triggerHaptic('medium');
@@ -720,8 +823,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
             // Hovering a category: inside its tile or the half-gap around it.
             if (!activeCategory) {
-                const reach = TIER1_PITCH / 2;
-                const hit = tier1Positions.findIndex((p) => Math.abs(dx - p.x) <= reach && Math.abs(dy - p.y) <= reach);
+                const hit = tier1Positions.findIndex(
+                    (p) => Math.abs(dx - p.x) <= TIER1_PITCH_X / 2 && Math.abs(dy - p.y) <= TIER1_PITCH_Y / 2,
+                );
                 if (hit >= 0 && categories[hit]) {
                     setActiveCategory(categories[hit].id);
                     triggerHaptic('light');
@@ -820,9 +924,53 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         [],
     );
 
+    // The scrim is measured around the credits each time it opens, and again
+    // whenever a credit can have appeared, grown or moved while it is open: a
+    // layer switched on from this (stay-open) menu brings its own credit
+    // (RainViewer, Copernicus, Blitzortung) and grows Mapbox's attribution,
+    // and a credit may slide in on a CSS animation. Measured once per frame at
+    // most, and the menu's own animations are ignored.
+    useLayoutEffect(() => {
+        if (!isOpen) return;
+        let frame = 0;
+        const measure = () => {
+            frame = 0;
+            const next = measureCreditHoles(scrimRef.current);
+            setCreditHoles((prev) => (sameHoles(prev, next) ? prev : next));
+        };
+        const schedule = () => {
+            if (!frame) frame = requestAnimationFrame(measure);
+        };
+        measure();
+        window.addEventListener('resize', schedule);
+        document.addEventListener('animationend', schedule, true);
+        document.addEventListener('transitionend', schedule, true);
+        const observer =
+            typeof MutationObserver === 'undefined'
+                ? null
+                : new MutationObserver((records) => {
+                      const menu = containerRef.current;
+                      if (records.some((record) => !menu?.contains(record.target))) schedule();
+                  });
+        observer?.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'hidden'],
+        });
+        return () => {
+            window.removeEventListener('resize', schedule);
+            document.removeEventListener('animationend', schedule, true);
+            document.removeEventListener('transitionend', schedule, true);
+            observer?.disconnect();
+            if (frame) cancelAnimationFrame(frame);
+        };
+    }, [isOpen]);
+
     const handleMenuKeyDown = useCallback(
         (event: React.KeyboardEvent) => {
             if (!isOpen) return;
+            setKeyboardFocus(true);
 
             if (event.key === 'Escape') {
                 event.preventDefault();
@@ -920,7 +1068,11 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         // Keep the original button as the click target. Capturing on the
         // wrapper retargets ordinary taps to the wrapper, swallowing them.
         // Drag events still bubble to this wrapper from the captured button.
-        const button = (e.target as Element).closest('button');
+        const target = e.target as Element;
+        // The scrim is a plain click-away, never a drag: captured, its click
+        // landed on the wrapper and a tap outside the menu did not close it.
+        if (target.closest('[data-helm-scrim]')) return;
+        const button = target.closest('button');
         (button ?? e.currentTarget).setPointerCapture(e.pointerId);
     }, []);
 
@@ -935,8 +1087,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             // cyclone/squall markers 500) while the storm card (760) stays on
             // top as asked; what let the dot read through was the tiles'
             // translucency, fixed below. The right rail clears a landscape notch.
-            className={`radial-helm-menu absolute z-700 top-[192px] right-[max(16px,env(safe-area-inset-right))] ${isOpen ? 'pointer-events-auto' : ''}`}
-            onPointerDownCapture={noteTouch}
+            // radial-helm-open: the own-ship badge hides while the tiles are
+            // up (useVesselTracker), or its tail showed beside them.
+            className={`radial-helm-menu absolute z-700 top-[192px] right-[max(16px,env(safe-area-inset-right))] ${isOpen ? 'radial-helm-open pointer-events-auto' : ''}`}
+            onPointerDownCapture={() => {
+                noteTouch();
+                setKeyboardFocus(false);
+            }}
             onPointerMoveCapture={noteTouch}
             onKeyDown={handleMenuKeyDown}
             onPointerDown={handleContainerPointerDown}
@@ -1001,24 +1158,59 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             {/* ── Scrim (click-away to close) ── */}
             <AnimatePresence>
                 {isOpen && (
-                    <motion.div
-                        className="fixed inset-0 z-[-1]"
+                    <motion.svg
+                        ref={scrimRef}
+                        data-helm-scrim
+                        className="fixed inset-0 z-[-1] h-full w-full"
                         // A slate-950/45 wash so the tiles stop reading as part of
                         // the chart under them (own-ship, its badge, place labels).
-                        // It fades out before the bottom corners: the map credits
-                        // there are a licence condition and stay undimmed.
-                        style={{
-                            background:
-                                'linear-gradient(to bottom, rgb(2 6 23 / 0.45) 0%, rgb(2 6 23 / 0.45) 55%, rgb(2 6 23 / 0) 75%)',
-                        }}
+                        // Even over every control under the menu — the zoom badge,
+                        // map base pill, Systems and Locate alike — so the layering
+                        // reads as deliberate; it used to fade out before the
+                        // bottom corners, which left Locate lit (UX scorecard run
+                        // 7). The licence credits are cut out of it instead, so
+                        // they stay exactly as legible as with the menu shut.
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.15 }}
                         role="presentation"
                         aria-hidden="true"
+                        focusable="false"
                         onClick={() => closeMenu()}
-                    />
+                    >
+                        <defs>
+                            {/* Soft-edged cut-outs, so they read as the scrim thinning
+                                around the credits rather than as windows in it. */}
+                            <filter
+                                id={`${scrimMaskId}-soft`}
+                                filterUnits="userSpaceOnUse"
+                                x="0"
+                                y="0"
+                                width="100%"
+                                height="100%"
+                            >
+                                <feGaussianBlur stdDeviation={4} />
+                            </filter>
+                            <mask id={scrimMaskId}>
+                                <rect width="100%" height="100%" fill="white" />
+                                <g filter={`url(#${scrimMaskId}-soft)`}>
+                                    {creditHoles.map((hole, i) => (
+                                        <rect
+                                            key={i}
+                                            x={hole.x}
+                                            y={hole.y}
+                                            width={hole.width}
+                                            height={hole.height}
+                                            rx={8}
+                                            fill="black"
+                                        />
+                                    ))}
+                                </g>
+                            </mask>
+                        </defs>
+                        <rect width="100%" height="100%" fill="rgb(2 6 23 / 0.45)" mask={`url(#${scrimMaskId})`} />
+                    </motion.svg>
                 )}
             </AnimatePresence>
 
@@ -1105,7 +1297,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                     e.stopPropagation();
                                                     handleItemTap(item);
                                                 }}
-                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-xl! ${MENU_FOCUS_RING} ${
+                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-xl! ${focusRing} ${
                                                     active
                                                         ? 'bg-sky-500/20 border-sky-400/50 text-white'
                                                         : hovered
@@ -1145,9 +1337,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         data-helm-grid-clear
                                         role="menuitem"
                                         onClick={handleClearAll}
-                                        className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
+                                        className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
                                     >
-                                        Clear All · {totalActive} active
+                                        Clear all · {totalActive} active
                                     </button>
                                 )}
                             </motion.div>
@@ -1189,9 +1381,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     // Opaque tiles: at /70–/90 the own-ship dot read through
                                     // one while its badge seemed to sit on top. Hover is a
                                     // brightness change only; the ring/glow belongs to the
-                                    // open category (aria-expanded) alone, and focus wears
-                                    // its own dashed ring (MENU_FOCUS_RING).
-                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-2xl! ${MENU_FOCUS_RING} ${
+                                    // open category (aria-expanded) alone, and keyboard
+                                    // focus wears its own neutral ring (MENU_FOCUS_RING).
+                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-2xl! ${focusRing} ${
                                         isActive
                                             ? `bg-slate-800 border-white/20 ${cat.color}`
                                             : hasActive
@@ -1199,12 +1391,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                               : 'bg-slate-900 border-white/8 text-gray-500'
                                     }`}
                                     style={{
-                                        width: TIER1_TILE,
-                                        height: TIER1_TILE,
+                                        width: TIER1_TILE_W,
+                                        height: TIER1_TILE_H,
                                         // Centre the tile on its slot, measured from the FAB
                                         // centre (the container is the 48 px FAB's box).
-                                        right: -pos.x - (TIER1_TILE / 2 - FAB_HALF),
-                                        top: pos.y - (TIER1_TILE / 2 - FAB_HALF),
+                                        right: -pos.x - (TIER1_TILE_W / 2 - FAB_HALF),
+                                        top: pos.y - (TIER1_TILE_H / 2 - FAB_HALF),
                                     }}
                                     whileTap={{ scale: 0.92 }}
                                 >
@@ -1217,8 +1409,14 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         <span className="text-xl leading-none">{cat.icon}</span>
                                         {/* Category label. Width clamp + truncate is a safety net
                                         for any future label longer than the tile. */}
-                                        <span className="mt-1 max-w-[56px] truncate text-[12px] font-black uppercase leading-none tracking-tighter">
+                                        <span className="mt-1 max-w-[96px] truncate text-[12px] font-black uppercase leading-none tracking-tighter">
                                             {cat.label}
+                                        </span>
+                                        {/* What is inside, from the category's own items. The
+                                        clamp is a safety net like the label's: categoryHint
+                                        already keeps it to one line that fits. */}
+                                        <span className="mt-1 max-w-[100px] truncate text-[12px] font-medium leading-none tracking-tight text-gray-500">
+                                            {categoryHint(cat)}
                                         </span>
                                     </motion.div>
                                     {hasActive && !isActive && (
@@ -1268,10 +1466,10 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         exit={{ opacity: 0, scale: 0.85 }}
                         transition={{ ...SPRING_SNAPPY, delay: 0.2 }}
                         onClick={handleClearAll}
-                        className="absolute right-0 min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
+                        className="absolute right-0 min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[12px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
                         style={{ top: FAB_HALF + tier1Bottom + 10 }}
                     >
-                        Clear All · {totalActive}
+                        Clear all · {totalActive}
                     </motion.button>
                 )}
             </AnimatePresence>

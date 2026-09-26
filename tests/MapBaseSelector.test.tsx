@@ -35,7 +35,7 @@ describe('MapBaseSelector', () => {
 
         // No beta wording on the chart at all (Shane 2026-08-06).
         expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Map base: Hybrid' }).parentElement).toHaveClass('z-710');
+        expect(screen.getByRole('button', { name: 'Map base: Hybrid' }).parentElement).toHaveClass('z-700');
         fireEvent.click(screen.getByRole('button', { name: 'Map base: Hybrid' }));
         expect(screen.getByRole('button', { name: 'Map base: Hybrid' }).parentElement).toHaveClass('z-9998');
         // The "Visual background only — ENC safety layers stay above it."
@@ -44,7 +44,7 @@ describe('MapBaseSelector', () => {
         expect(screen.getByRole('menu', { name: 'Map base' })).not.toHaveTextContent('Visual background only');
         fireEvent.click(screen.getByRole('menuitemradio', { name: /Satellite Clean aerial imagery/ }));
         expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Map base: Satellite' }).parentElement).toHaveClass('z-710');
+        expect(screen.getByRole('button', { name: 'Map base: Satellite' }).parentElement).toHaveClass('z-700');
 
         fireEvent.click(screen.getByRole('button', { name: 'Map base: Satellite' }));
         fireEvent.click(screen.getByRole('menuitemradio', { name: /Ocean Bathymetry background/ }));

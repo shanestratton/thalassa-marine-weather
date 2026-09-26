@@ -186,17 +186,24 @@ export function PlannerVesselLocator({
                     </button>
                 </div>
             )}
+            {/* A 48 px icon button has no room for words, so while it works
+                its name says what it is doing, in the status line's words. */}
             <button
                 type="button"
-                aria-label="Locate yacht"
-                title="Locate yacht"
+                aria-label={busy ? 'Finding yacht…' : 'Locate yacht'}
+                title={busy ? 'Finding yacht…' : 'Locate yacht'}
                 aria-busy={busy}
                 disabled={!mapReady || busy}
                 onClick={() => action.current()}
                 className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-teal-300/40 bg-slate-900/95 text-teal-300 shadow-[0_0_18px_-5px_rgba(45,212,191,0.5)] hover:bg-slate-800 active:scale-95 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-teal-300"
             >
                 {busy ? (
-                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-300 border-t-transparent" />
+                    // The aria-label above carries "Finding yacht…"; a button's
+                    // children never reach its name once it has one.
+                    <span
+                        aria-hidden="true"
+                        className="h-5 w-5 animate-spin rounded-full border-2 border-teal-300 border-t-transparent"
+                    />
                 ) : (
                     <svg
                         width="25"

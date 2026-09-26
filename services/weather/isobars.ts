@@ -388,8 +388,10 @@ export async function fetchPressureGrid(
                         return null;
                     }
                     pRow.push(pressure);
-                    wsRow.push((hourly?.wind_speed_10m?.[h] ?? 0) * 0.539957); // km/h → knots
-                    wdRow.push(hourly?.wind_direction_10m?.[h] ?? 0);
+                    // A missing reading stays missing (NaN), never 0 kt from due
+                    // north: generateWindBarbs draws no barb there (UX scorecard run 7).
+                    wsRow.push(finiteOrNaN(hourly?.wind_speed_10m?.[h]) * 0.539957); // km/h → knots
+                    wdRow.push(finiteOrNaN(hourly?.wind_direction_10m?.[h]));
                 }
                 pGrid.push(pRow);
                 wsGrid.push(wsRow);
@@ -763,6 +765,11 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
 
 // ── Wind Barb Generation ──────────────────────────────────────
 
+/** A provider value, or NaN when the cell has none. */
+function finiteOrNaN(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) ? value : Number.NaN;
+}
+
 function generateWindBarbs(grid: HourGrid): GeoJSON.Feature[] {
     const { windSpeeds, windDirs, lats, lons, rows, cols } = grid;
     const features: GeoJSON.Feature[] = [];
@@ -776,6 +783,8 @@ function generateWindBarbs(grid: HourGrid): GeoJSON.Feature[] {
             const speed = windSpeeds[r][c];
             const dir = windDirs[r][c];
 
+            // No reading, no barb: a gap is not a calm, nor a northerly.
+            if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
             if (speed < 1) continue; // Skip calm
 
             // Encode barb components (standard WMO encoding)

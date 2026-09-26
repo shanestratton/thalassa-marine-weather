@@ -1,10 +1,12 @@
 /**
- * MapActionFabs — GPS locate and weather recenter FAB tests.
+ * MapActionFabs — GPS locate, weather recenter and one-handed zoom tests.
  */
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import type mapboxgl from 'mapbox-gl';
+import { act, cleanup, render, screen, fireEvent, within } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { MapActionFabs } from '../components/map/MapActionFabs';
+import { registerChartMap } from '../components/map/chartMapRegistry';
 
 describe('MapActionFabs', () => {
     const defaultProps = {
@@ -30,5 +32,130 @@ describe('MapActionFabs', () => {
         const { container } = render(<MapActionFabs {...defaultProps} />);
         const wrapper = container.firstChild as HTMLElement;
         expect(wrapper.style.bottom).toContain('calc(80px');
+    });
+});
+
+// ── One-handed zoom and Locate feedback (UX scorecard run 7) ──────────────
+function fakeMap(zoom = 8) {
+    const listeners = new Map<string, Set<(event?: unknown) => void>>();
+    const map = {
+        zoom,
+        on: vi.fn((name: string, listener: (event?: unknown) => void) => {
+            const set = listeners.get(name) ?? new Set();
+            set.add(listener);
+            listeners.set(name, set);
+        }),
+        off: vi.fn((name: string, listener: (event?: unknown) => void) => {
+            listeners.get(name)?.delete(listener);
+        }),
+        emit(name: string, event?: unknown) {
+            [...(listeners.get(name) ?? [])].forEach((listener) => listener(event));
+        },
+        getZoom: () => map.zoom,
+        getMinZoom: () => 3,
+        getMaxZoom: () => 22,
+        zoomIn: vi.fn(),
+        zoomOut: vi.fn(),
+    };
+    return map;
+}
+
+function renderBesideMap(props: Partial<React.ComponentProps<typeof MapActionFabs>> = {}, zoom = 8) {
+    const map = fakeMap(zoom);
+    const view = render(
+        <div>
+            <div className="mapboxgl-map" data-testid="chart" />
+            <MapActionFabs onLocateMe={vi.fn()} onRecenter={vi.fn()} recenterDisabled={false} {...props} />
+        </div>,
+    );
+    // Registered after mount, as on device: the parent's map effect runs last.
+    let release = () => {};
+    act(() => {
+        release = registerChartMap(screen.getByTestId('chart'), map as unknown as mapboxgl.Map);
+    });
+    return { ...view, map, release };
+}
+
+describe('MapActionFabs zoom', () => {
+    afterEach(() => {
+        cleanup();
+        vi.useRealTimers();
+    });
+
+    it('zooms the chart beside it one step, as the skipper’s own camera move', () => {
+        const { map, release } = renderBesideMap();
+        fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+        expect(map.zoomIn).toHaveBeenCalledOnce();
+        expect(map.zoomIn.mock.calls[0][1]).toHaveProperty('originalEvent');
+        fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+        expect(map.zoomOut).toHaveBeenCalledOnce();
+        release();
+    });
+
+    it('greys out zoom-out at the chart’s minimum zoom', () => {
+        const { map, release } = renderBesideMap({}, 3);
+        expect(screen.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Zoom in' })).toBeEnabled();
+        map.zoom = 5;
+        act(() => map.emit('zoomend'));
+        expect(screen.getByRole('button', { name: 'Zoom out' })).toBeEnabled();
+        release();
+    });
+
+    it('is a named group with 48 px buttons on the right rail', () => {
+        const { release } = renderBesideMap();
+        const group = screen.getByRole('group', { name: 'Map zoom' });
+        // Up the rail above the credits in portrait; in the Locate row in landscape.
+        expect(group.className).toContain('bottom-[162px] right-0');
+        expect(group.className).toContain('[@media(orientation:landscape)_and_(max-height:500px)]:static');
+        for (const button of within(group).getAllByRole('button')) expect(button.className).toContain('h-12 w-12');
+        release();
+    });
+});
+
+describe('MapActionFabs locate feedback', () => {
+    afterEach(() => {
+        cleanup();
+        vi.useRealTimers();
+    });
+
+    it('answers the tap at once and announces the centred chart', () => {
+        let mapRef: ReturnType<typeof fakeMap> | null = null;
+        const { map, release } = renderBesideMap({
+            // A live boat fix: the flight starts inside the handler itself.
+            onLocateMe: () => mapRef?.emit('movestart', {}),
+        });
+        mapRef = map;
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on your position.');
+        expect(screen.getByRole('button', { name: 'Locate me' })).toHaveAttribute('aria-busy', 'false');
+        release();
+    });
+
+    it('says so when no fix arrives, and ignores the skipper panning meanwhile', () => {
+        vi.useFakeTimers();
+        const { map, release } = renderBesideMap();
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        expect(screen.getByRole('button', { name: 'Locate me' })).toHaveAttribute('aria-busy', 'true');
+        expect(screen.getByRole('status')).toHaveTextContent('Finding your position…');
+        act(() => map.emit('movestart', { originalEvent: new Event('touchstart') }));
+        expect(screen.getByRole('status')).toHaveTextContent('Finding your position…');
+        act(() => {
+            vi.advanceTimersByTime(11_000);
+        });
+        expect(screen.getByText('No position fix')).toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('No position fix. The chart has not moved.');
+        // A slow permission answer still lands, and clears the notice.
+        act(() => map.emit('movestart', {}));
+        expect(screen.queryByText('No position fix')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on your position.');
+        release();
+    });
+
+    it('still calls onLocateMe when no map is registered', () => {
+        const onLocateMe = vi.fn();
+        render(<MapActionFabs onLocateMe={onLocateMe} onRecenter={vi.fn()} recenterDisabled={false} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        expect(onLocateMe).toHaveBeenCalledOnce();
     });
 });

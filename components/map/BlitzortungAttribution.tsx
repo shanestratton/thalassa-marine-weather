@@ -96,6 +96,8 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
     // layers are active (e.g. Storm Watch enables both lightning + squall).
     return (
         <div
+            // Cut out of the layer menu's scrim, like every licence credit.
+            data-map-credit
             className={`flex items-center gap-3 text-[11px] leading-tight pointer-events-auto chart-chip-up ${styles.text}`}
             style={{
                 background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.80))',

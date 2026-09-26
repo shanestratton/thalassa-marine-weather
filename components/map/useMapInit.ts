@@ -23,6 +23,8 @@ import { existingMapLayerIds } from './mapLayerQueries';
 import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
 import { crumb } from '../../utils/flightRecorder';
 import { installPaneAwareAttribution } from './paneAwareAttribution';
+import { installScaleBarLabel } from './scaleBarLabel';
+import { registerChartMap } from './chartMapRegistry';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
 
@@ -590,6 +592,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                 }),
                 'bottom-right',
             );
+            // Spoken as "Scale: 300 nautical miles", not a bare "300 nm"
+            // (nanometres, to VoiceOver). UX scorecard run 7.
+            map.once('remove', installScaleBarLabel(containerRef.current));
         }
 
         map.on('load', () => {
@@ -1535,6 +1540,9 @@ export function useMapInit(opts: UseMapInitOptions) {
         // the tile gauge shipped on 2026-08-23 read a handle that never
         // existed and reported "tiles 0 across 0 srcs" over a live map.
         registerCensusMap(map);
+        // Lets the controls beside this map (Locate, zoom) reach it without a
+        // prop through MapHub — see chartMapRegistry.
+        const releaseChartMap = containerRef.current ? registerChartMap(containerRef.current, map) : () => {};
 
         // ENC boot prewarm overlaps blob/geometry work with style loading.
         // It must obey the same chart intent as the normal render path: the
@@ -1588,6 +1596,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Deregister BEFORE remove(), so a census tick landing mid-teardown
             // cannot walk a half-destroyed style.
             registerCensusMap(null);
+            releaseChartMap();
             map.remove();
             mapRef.current = null;
         };
