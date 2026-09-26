@@ -150,7 +150,8 @@ if (SECTIONS.includes('A')) {
             // Long pages: a second shot scrolled to the bottom shows the tail.
             await scrollEnd(p);
             await capture(p, `settings-${slug}-end`);
-            await tap(p, 'Back to settings menu', 900);
+            // The tab screens use PageHeader now: a 'Back to Settings' crumb and a 'Go back' chevron.
+            if (!(await tap(p, 'Back to Settings', 900))) await tap(p, 'Go back', 900);
         }
     }
     // The Glass's sheets
@@ -159,7 +160,7 @@ if (SECTIONS.includes('A')) {
         await capture(p, 'glass-rain-detail');
         await dismiss(p);
     }
-    if (await tap(p, 'Temperature. Tap to pin')) {
+    if (await tap(p, /^Temperature.*Tap to pin/)) {
         await capture(p, 'glass-pin-sheet');
         await dismiss(p);
     }
