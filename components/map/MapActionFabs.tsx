@@ -21,11 +21,16 @@ interface MapActionFabsProps {
 export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRecenter, recenterDisabled }) => {
     return (
         <div
-            // right-[16px] (= right-4) aligns with the right-rail FAB column
-            // and the ConnectivityChip so every right-edge element on the
-            // chart screen sits on the same vertical gridline.
-            className="thalassa-map-action-fabs absolute right-[16px] z-500 flex flex-row gap-2"
-            style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+            // 16px aligns with the right-rail FAB column and the
+            // ConnectivityChip so every right-edge element on the chart screen
+            // sits on the same vertical gridline. max() with the inset keeps it
+            // clear of a landscape notch (~59 pt), where a flat 16px landed the
+            // button inside the sensor housing (UX scorecard run 5).
+            className="thalassa-map-action-fabs absolute z-500 flex flex-row gap-2"
+            style={{
+                right: 'max(16px, env(safe-area-inset-right))',
+                bottom: 'calc(80px + env(safe-area-inset-bottom))',
+            }}
         >
             {/* GPS Locate Me — fly to device position */}
             <button

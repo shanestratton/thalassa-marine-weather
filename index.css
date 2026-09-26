@@ -806,8 +806,8 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 .display-light .text-white\/40 {
-    color: rgba(71, 85, 105, 0.75);
-    /* slate-600 at 75% — WCAG AA compliant on white */
+    color: #475569;
+    /* slate-600 solid: at 75 % it measured 3.8:1 on white (UX scorecard run 6) */
 }
 
 .display-light .text-white\/20 {
@@ -1089,8 +1089,8 @@ input[type='date']::-webkit-calendar-picker-indicator {
 
 .display-light .text-white\/40,
 .display-light .text-white\/30 {
-    color: rgba(51, 65, 85, 0.65);
-    /* slate-700 at 65% — WCAG AA compliant */
+    color: #475569;
+    /* slate-600 solid: slate-700 at 65 % measured 3.8:1 on white (UX scorecard run 6) */
 }
 
 /* ── Background accent overrides ── */
@@ -5287,4 +5287,22 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    fade from transparent to a translucent white — nothing on a pale page. */
 .display-light :is([class~='to-white/15'], [class~='to-white/6']) {
     --tw-gradient-to: rgb(71 85 105 / 0.55);
+}
+/* Maintenance task cards keep their status edge by day. The daylight border
+   remap (.display-light .border-white/5, specificity 0-2-0) repaints ALL four
+   sides, so the red/amber/green left edge went grey on the pale page and the
+   status lived only in the small due text. The doubled class out-ranks that
+   remap without !important; the colours match the daylight remaps of the
+   cards' own status words (text-red-400 / -amber-400 / -emerald-400). */
+.display-light .border-l-red-500.border-l-red-500 {
+    border-left-color: #b91c1c;
+}
+.display-light .border-l-amber-400.border-l-amber-400 {
+    border-left-color: #d97706;
+}
+.display-light .border-l-emerald-500.border-l-emerald-500 {
+    border-left-color: #059669;
+}
+.display-light .border-l-gray-500.border-l-gray-500 {
+    border-left-color: #6b7280;
 }

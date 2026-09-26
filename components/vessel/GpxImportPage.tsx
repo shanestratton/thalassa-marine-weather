@@ -26,6 +26,7 @@ import { useUI } from '../../context/UIContext';
 import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } from '../../services/passageHandoff';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
+import { AlertTriangleIcon, ClockIcon, FlagIcon, MapIcon, MapPinIcon, RouteIcon, WaveIcon } from '../Icons';
 import { getAuthIdentityScope } from '../../services/authIdentityScope';
 
 interface GpxImportPageProps {
@@ -57,6 +58,32 @@ interface GpxPreview {
 }
 
 type ImportState = 'idle' | 'reading' | 'previewing' | 'importing' | 'success' | 'error';
+
+/** The page's two lists, as data: the tiles are list items, not loose divs. */
+const COMPATIBLE_APPS = [
+    { name: 'OpenCPN', status: 'Full Support' },
+    { name: 'Navionics', status: 'Routes & Tracks' },
+    { name: 'iSailor', status: 'Routes & Tracks' },
+    { name: 'qtVLM', status: 'Full Support' },
+    { name: 'Expedition', status: 'Full Support' },
+    { name: 'AvNav', status: 'Routes & Tracks' },
+];
+
+const IMPORTED_ITEMS: { Icon: React.FC<{ className?: string }>; label: string; desc: string }[] = [
+    { Icon: MapPinIcon, label: 'Route Waypoints', desc: 'Named waypoints with coordinates' },
+    { Icon: MapIcon, label: 'Track Points', desc: 'Position, speed, course, & timestamps' },
+    { Icon: WaveIcon, label: 'Weather Data', desc: 'Wind, waves, pressure (if available)' },
+    { Icon: RouteIcon, label: 'Distance & Speed', desc: 'Calculated from track if not in file' },
+];
+
+/**
+ * Height of the fixed preview CTA stack, from the page bottom: the 4rem +
+ * safe-area + 8px pad under it, then Route (h-14) + gap, Import (h-14) + gap,
+ * Cancel (h-11, floored to 44px in index.css). The scroller masks this band
+ * so content never shows through the translucent buttons.
+ */
+const previewCtaFootprint = (hasRoute: boolean) =>
+    `calc(4rem + env(safe-area-inset-bottom) + 8px + ${hasRoute ? '8rem' : '4rem'} + max(44px, 2.75rem))`;
 
 export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     const [state, setState] = useState<ImportState>('idle');
@@ -278,21 +305,33 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     };
 
     return (
-        <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col slide-up-enter">
+        // h-full: the page is exactly the view's height, so the list below is
+        // the scroller (it used to grow the page and scroll the app's wrapper
+        // under the tab bar, header and all). It is also the containing block
+        // for the fixed CTA (slide-up-enter keeps a transform), which now sits
+        // at the bottom of the screen instead of the bottom of the content.
+        <div className="relative flex h-full flex-1 flex-col overflow-hidden bg-slate-950 slide-up-enter">
             <PageHeader title="Import GPX" subtitle="OpenCPN • Navionics • iSailor • qtVLM" onBack={onBack} />
 
             {/* ═══ CONTENT ═══ */}
-            {/* pb-32 (128px) is short of the fixed CTA stack below, which is up
-                to 168px of buttons over a 72px+ safe-area pad — the tail of the
-                preview card used to sit under it. Pad past the stack that is
-                actually on screen. */}
+            {/* The scroller runs to the bottom of the screen, under the tab bar.
+                .thalassa-scroll-fade masks the band under the footer and fades the
+                14px above it, so 'Weather Data' is never sliced at the bar's edge.
+                The footer is the tab bar (--nav, pb-32 clears it + 16px), except
+                while previewing: then it is the fixed CTA stack, so the mask and
+                the padding follow the stack that is actually on screen. The CTA
+                is a sibling of this scroller, never inside it, so the mask cannot
+                fade the buttons. */}
             <div
-                className="flex-1 overflow-y-auto px-4 pb-32"
+                className={`thalassa-scroll-fade flex-1 overflow-y-auto px-4 ${
+                    state === 'previewing' ? '' : 'thalassa-scroll-fade--nav pb-32'
+                }`}
                 style={
                     state === 'previewing'
-                        ? {
-                              paddingBottom: `calc(4rem + env(safe-area-inset-bottom) + ${routeData ? '12rem' : '8rem'})`,
-                          }
+                        ? ({
+                              '--thalassa-scroll-fade-inset': previewCtaFootprint(!!routeData),
+                              paddingBottom: 'calc(var(--thalassa-scroll-fade-inset) + 1rem)',
+                          } as React.CSSProperties)
                         : undefined
                 }
             >
@@ -343,7 +382,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             {/* Error display */}
                             {error && (
                                 <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
-                                    <span className="text-red-400 text-lg">⚠️</span>
+                                    <AlertTriangleIcon className="w-5 h-5 mt-0.5 shrink-0 text-red-400" />
                                     <div className="flex-1">
                                         <p className="text-[13px] font-bold text-red-300">Import Failed</p>
                                         <p className="text-[11px] text-red-400/80 mt-1">{error}</p>
@@ -351,7 +390,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     <button
                                         aria-label="Dismiss import error"
                                         onClick={handleReset}
-                                        className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                                        className="-m-2.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg hover:bg-white/5 transition-colors"
                                     >
                                         <svg
                                             className="w-4 h-4 text-gray-400"
@@ -370,71 +409,42 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 </div>
                             )}
 
-                            {/* Compatibility info */}
+                            {/* Compatibility info — a section heading and a real list.
+                                The six green dots said nothing (every app had one),
+                                so they are gone; name and support level remain. */}
                             <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
-                                <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
+                                <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
                                     Compatible Software
-                                </p>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        { name: 'OpenCPN', status: 'Full Support' },
-                                        { name: 'Navionics', status: 'Routes & Tracks' },
-                                        { name: 'iSailor', status: 'Routes & Tracks' },
-                                        { name: 'qtVLM', status: 'Full Support' },
-                                        { name: 'Expedition', status: 'Full Support' },
-                                        { name: 'AvNav', status: 'Routes & Tracks' },
-                                    ].map((app) => (
-                                        <div
-                                            key={app.name}
-                                            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/2"
-                                        >
-                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-[12px] font-bold text-white/80 truncate">
-                                                    {app.name}
-                                                </p>
-                                                <p className="text-[11px] text-gray-500 truncate">{app.status}</p>
-                                            </div>
-                                        </div>
+                                </h2>
+                                {/* role="list": WebKit drops list semantics from a
+                                    ul whose markers are reset, as Tailwind's are. */}
+                                <ul role="list" className="grid grid-cols-2 gap-2">
+                                    {COMPATIBLE_APPS.map((app) => (
+                                        <li key={app.name} className="min-w-0 px-3 py-2 rounded-xl bg-white/2">
+                                            <p className="text-[12px] font-bold text-white/80 truncate">{app.name}</p>
+                                            <p className="text-[11px] text-gray-500 truncate">{app.status}</p>
+                                        </li>
                                     ))}
-                                </div>
+                                </ul>
                             </div>
 
-                            {/* Format info */}
-                            <div className="rounded-2xl bg-white/2 border border-white/5 p-4 space-y-3">
-                                <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
+                            {/* Format info — line icons from the app's set in place of
+                                emoji (VoiceOver read '📍' as 'round pushpin'). */}
+                            <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
+                                <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
                                     What Gets Imported
-                                </p>
-                                {[
-                                    {
-                                        icon: '📍',
-                                        label: 'Route Waypoints',
-                                        desc: 'Named waypoints with coordinates',
-                                    },
-                                    {
-                                        icon: '🗺️',
-                                        label: 'Track Points',
-                                        desc: 'Position, speed, course, & timestamps',
-                                    },
-                                    {
-                                        icon: '🌊',
-                                        label: 'Weather Data',
-                                        desc: 'Wind, waves, pressure (if available)',
-                                    },
-                                    {
-                                        icon: '📏',
-                                        label: 'Distance & Speed',
-                                        desc: 'Calculated from track if not in file',
-                                    },
-                                ].map((item) => (
-                                    <div key={item.label} className="flex items-start gap-3">
-                                        <span className="text-base">{item.icon}</span>
-                                        <div>
-                                            <p className="text-[12px] font-bold text-white/80">{item.label}</p>
-                                            <p className="text-[11px] text-gray-500">{item.desc}</p>
-                                        </div>
-                                    </div>
-                                ))}
+                                </h2>
+                                <ul role="list" className="space-y-3">
+                                    {IMPORTED_ITEMS.map(({ Icon, label, desc }) => (
+                                        <li key={label} className="flex items-start gap-3">
+                                            <Icon className="w-4 h-4 mt-0.5 shrink-0 text-emerald-400" />
+                                            <div>
+                                                <p className="text-[12px] font-bold text-white/80">{label}</p>
+                                                <p className="text-[11px] text-gray-500">{desc}</p>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
                             </div>
                         </>
                     )}
@@ -471,9 +481,9 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                         </svg>
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <h3 className="text-[14px] font-black text-white truncate">
+                                        <h2 className="text-[14px] font-black text-white truncate">
                                             {preview.metadata.name}
-                                        </h3>
+                                        </h2>
                                         {preview.metadata.description && (
                                             <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2">
                                                 {preview.metadata.description}
@@ -492,30 +502,35 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 <StatCard
                                     label="Track Points"
                                     value={preview.stats.trackPoints.toLocaleString()}
-                                    icon="📍"
+                                    Icon={MapPinIcon}
                                     color="sky"
                                 />
                                 <StatCard
                                     label="Waypoints"
                                     value={preview.stats.waypoints.toString()}
-                                    icon="🏁"
+                                    Icon={FlagIcon}
                                     color="purple"
                                 />
                                 <StatCard
                                     label="Distance"
                                     value={`${preview.stats.totalDistanceNM} NM`}
-                                    icon="📏"
+                                    Icon={RouteIcon}
                                     color="emerald"
                                 />
-                                <StatCard label="Duration" value={preview.stats.duration} icon="⏱️" color="amber" />
+                                <StatCard
+                                    label="Duration"
+                                    value={preview.stats.duration}
+                                    Icon={ClockIcon}
+                                    color="amber"
+                                />
                             </div>
 
                             {/* Bounds display */}
                             {preview.stats.bounds && (
                                 <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
-                                    <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-2">
+                                    <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-2">
                                         Coverage Area
-                                    </p>
+                                    </h2>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                                         <div className="flex items-center gap-2">
                                             <span className="text-[11px] text-gray-500 w-8">N:</span>
@@ -547,9 +562,9 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
                             {/* Sample entries */}
                             <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
-                                <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
+                                <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
                                     Preview ({Math.min(5, preview.entries.length)} of {preview.entries.length} entries)
-                                </p>
+                                </h2>
                                 <div className="space-y-2">
                                     {preview.entries.slice(0, 5).map((entry, i) => (
                                         <div
@@ -689,9 +704,11 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             </svg>
                             Import to Ship's Log
                         </button>
+                        {/* h-11: a 44 pt target (h-10 was 40px, 33px at the smallest
+                            root size). previewCtaFootprint counts this height. */}
                         <button
                             onClick={handleReset}
-                            className="w-full h-10 rounded-xl text-gray-500 hover:text-gray-300 text-[12px] font-bold uppercase tracking-wider transition-colors"
+                            className="w-full h-11 rounded-xl text-gray-500 hover:text-gray-300 text-[12px] font-bold uppercase tracking-wider transition-colors"
                         >
                             Cancel
                         </button>
@@ -703,12 +720,14 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 };
 
 // ── Stat card sub-component ──
+// A line icon (aria-hidden, currentColor) in place of the emoji, which
+// VoiceOver read before every label ('stopwatch Duration').
 const StatCard: React.FC<{
     label: string;
     value: string;
-    icon: string;
+    Icon: React.FC<{ className?: string }>;
     color: 'sky' | 'emerald' | 'purple' | 'amber';
-}> = ({ label, value, icon, color }) => {
+}> = ({ label, value, Icon, color }) => {
     const colorMap = {
         sky: 'bg-sky-500/10 border-sky-500/20 text-sky-400',
         emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
@@ -719,7 +738,7 @@ const StatCard: React.FC<{
     return (
         <div className={`rounded-xl border p-3 ${colorMap[color]}`}>
             <div className="flex items-center gap-2 mb-1">
-                <span className="text-base">{icon}</span>
+                <Icon className="w-4 h-4 shrink-0" />
                 <p className="text-[11px] font-bold uppercase tracking-widest opacity-60">{label}</p>
             </div>
             <p className="text-lg font-extrabold">{value}</p>
