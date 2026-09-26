@@ -201,7 +201,7 @@ const VesselStatusWidgetComponent = ({
                     <div className="flex flex-col gap-4 mt-2">
                         <div className="bg-white/5 rounded-xl p-4 border border-white/5 flex items-center justify-between">
                             <MoonVisual
-                                cloudCover={current.cloudCover || 0}
+                                cloudCover={current.cloudCover}
                                 apiPhase={current.moonPhase}
                                 apiIllumination={current.moonIllumination}
                                 apiPhaseValue={current.moonPhaseValue}
@@ -246,7 +246,7 @@ const VesselStatusWidgetComponent = ({
                         <span className="text-sm font-bold text-sky-300 uppercase tracking-widest">Tidal Cycle</span>
                     </div>
                     <MoonVisual
-                        cloudCover={current.cloudCover || 0}
+                        cloudCover={current.cloudCover}
                         apiPhase={current.moonPhase}
                         apiIllumination={current.moonIllumination}
                         apiPhaseValue={current.moonPhaseValue}

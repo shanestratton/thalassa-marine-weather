@@ -11,7 +11,9 @@ export const getMoonPhaseData = (date: Date) => {
 };
 
 interface MoonVisualProps {
-    cloudCover: number;
+    /** % cover. Null/undefined = unknown: no cloud veil is drawn at all,
+     *  rather than defaulting to 0 (a confident clear-sky picture). */
+    cloudCover?: number | null;
     apiPhase?: string;
     apiIllumination?: number;
     apiPhaseValue?: number;
@@ -53,8 +55,7 @@ export const MoonVisual = ({ cloudCover, apiPhase, apiIllumination, apiPhaseValu
         return d;
     };
 
-    const safeCloud = cloudCover || 0;
-    const cloudOpacity = Math.min((safeCloud / 100) * 0.85, 0.9);
+    const cloudOpacity = cloudCover != null ? Math.min((cloudCover / 100) * 0.85, 0.9) : null;
 
     return (
         <div className="flex items-center gap-3">
@@ -68,11 +69,13 @@ export const MoonVisual = ({ cloudCover, apiPhase, apiIllumination, apiPhaseValu
                         style={flipStyle}
                     />
                 </svg>
-                {/* Simple Cloud Overlay */}
-                <div
-                    className="absolute inset-0 bg-slate-900 transition-all duration-1000 z-10 pointer-events-none mix-blend-overlay"
-                    style={{ opacity: cloudOpacity }}
-                ></div>
+                {/* Simple Cloud Overlay — only when cover is actually known */}
+                {cloudOpacity !== null && (
+                    <div
+                        className="absolute inset-0 bg-slate-900 transition-all duration-1000 z-10 pointer-events-none mix-blend-overlay"
+                        style={{ opacity: cloudOpacity }}
+                    ></div>
+                )}
             </div>
 
             <div className="text-left leading-tight">

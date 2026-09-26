@@ -334,7 +334,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             {/* Lens-flare glow — soft radial bloom behind the sun,
                                 gives the illusion of light bleeding through. */}
                             <div
-                                className="absolute top-2 right-4 w-40 h-40 rounded-full blur-2xl opacity-60"
+                                className="absolute top-10 right-0 w-32 h-32 rounded-full blur-2xl opacity-60"
                                 style={{
                                     background:
                                         'radial-gradient(circle, rgba(253,224,71,0.7) 0%, rgba(251,191,36,0.3) 40%, rgba(251,191,36,0) 75%)',
@@ -342,8 +342,10 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             />
                             {/* Sun disc + rays — the hero element, bold enough to
                                 read as a real sun but tucked into the corner so
-                                the modal's data stays primary. */}
-                            <svg className="absolute top-6 right-6 w-24 h-24" viewBox="0 0 100 100" aria-hidden="true">
+                                the modal's data stays primary. Starts BELOW the
+                                header row: at top-6 it sat behind the close
+                                button and crowded it. */}
+                            <svg className="absolute top-16 right-3 w-16 h-16" viewBox="0 0 100 100" aria-hidden="true">
                                 <defs>
                                     <radialGradient id="sun-disc" cx="45%" cy="40%" r="55%">
                                         <stop offset="0%" stopColor="rgba(254,249,195,0.95)" />
@@ -586,12 +588,12 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                     strokeWidth="1.5"
                                 />
                             </svg>
-                            <h3
+                            <h2
                                 id="rain-forecast-title"
                                 className="text-sm font-bold text-white uppercase tracking-wider"
                             >
                                 Rain Forecast
-                            </h3>
+                            </h2>
                         </div>
                         <button
                             ref={closeButtonRef}
@@ -633,21 +635,23 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                         <stop offset="100%" stopColor="#818cf8" />
                                     </linearGradient>
                                 </defs>
-                                {/* Droplet icon */}
-                                <path
-                                    d="M 60 28 l3.5 3.5 a5 5 0 1 1 -7 0 L60 28z"
-                                    fill="rgba(34, 211, 238, 0.7)"
-                                    stroke="rgba(34, 211, 238, 0.9)"
-                                    strokeWidth="0.5"
-                                />
+                                {/* Droplet icon — only with rain. At 0.0 it sat at
+                                    the arc's apex and read as a needle at half
+                                    scale. */}
+                                {analysis.hasRain && (
+                                    <path
+                                        d="M 60 28 l3.5 3.5 a5 5 0 1 1 -7 0 L60 28z"
+                                        fill="rgba(34, 211, 238, 0.7)"
+                                        stroke="rgba(34, 211, 238, 0.9)"
+                                        strokeWidth="0.5"
+                                    />
+                                )}
                             </svg>
                         </div>
 
                         {/* Intensity label */}
                         <div className="text-center -mt-2">
-                            <div
-                                className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-sky-400' : 'text-sky-400/50'}`}
-                            >
+                            <div className="text-[11px] font-bold uppercase tracking-widest mb-0.5 text-sky-400">
                                 {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
                             </div>
                             <div className="text-2xl font-black text-white tabular-nums">
@@ -677,7 +681,20 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             </div>
                         )}
 
-                        <div className="flex items-end gap-[2px] w-full h-[120px]">
+                        <div className="relative flex items-end gap-[2px] w-full h-[120px]">
+                            {/* Dry window: a faint baseline and the words, so the
+                                empty chart reads as "checked, nothing coming"
+                                rather than a void that failed to draw. */}
+                            {!analysis.hasRain && (
+                                <div className="absolute inset-x-0 bottom-0 flex flex-col items-center justify-end gap-2 pointer-events-none">
+                                    <span className="text-[12px] font-semibold text-white/70">
+                                        {analysis.subline.startsWith('Next ')
+                                            ? `No rain in the ${analysis.subline.toLowerCase()}`
+                                            : 'No rain in this window'}
+                                    </span>
+                                    <div className="w-full h-px bg-white/25" aria-hidden="true" />
+                                </div>
+                            )}
                             {data.map((point, i) => {
                                 const normalizedHeight =
                                     analysis.maxIntensity > 0

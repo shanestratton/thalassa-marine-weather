@@ -90,7 +90,17 @@ const baseUnits = {
     distance: 'nm' as const,
 };
 
-function renderTideCard(onAncestorKeyDown = vi.fn()) {
+/** Each tide card is named for its own hour (and height when the tides
+ *  bracket it), always ending in the action. */
+const TIDE_TRIGGER = /show wind versus tide$/;
+
+function renderTideCard(
+    onAncestorKeyDown = vi.fn(),
+    tides: { time: string; type: 'High' | 'Low'; height: number }[] = [
+        { time: '2026-09-09T01:00:00Z', type: 'High', height: 2 },
+        { time: '2026-09-09T07:00:00Z', type: 'Low', height: 0.5 },
+    ],
+) {
     return render(
         <div onKeyDown={onAncestorKeyDown}>
             <HeroSlide
@@ -103,10 +113,7 @@ function renderTideCard(onAncestorKeyDown = vi.fn()) {
                 displaySource="StormGlass"
                 isVisible={true}
                 locationType="inshore"
-                tides={[
-                    { time: '2026-09-09T01:00:00Z', type: 'High', height: 2 },
-                    { time: '2026-09-09T07:00:00Z', type: 'Low', height: 0.5 },
-                ]}
+                tides={tides}
             />
         </div>,
     );
@@ -148,9 +155,9 @@ describe('HeroSlide', () => {
     it('keeps wind-versus-tide details open on content taps and closes only through the back control', () => {
         renderTideCard();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Show wind versus tide' }));
+        fireEvent.click(screen.getByRole('button', { name: TIDE_TRIGGER }));
         expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Show wind versus tide' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: TIDE_TRIGGER })).not.toBeInTheDocument();
 
         fireEvent.click(screen.getByText('Stream from modelled current'));
         expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
@@ -159,14 +166,14 @@ describe('HeroSlide', () => {
         expect(screen.getByTestId('tide-graph')).toBeInTheDocument();
 
         // Closing restores the original keyboard-accessible graph trigger.
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Show wind versus tide' }), { key: 'Enter' });
+        fireEvent.keyDown(screen.getByRole('button', { name: TIDE_TRIGGER }), { key: 'Enter' });
         expect(screen.getByRole('region', { name: 'Wind versus tide details' })).toBeInTheDocument();
     });
 
     it.each(['Enter', ' '])('%s opening hands keyboard focus to details before an arrow can change the day', (key) => {
         const ancestorKeyDown = vi.fn();
         renderTideCard(ancestorKeyDown);
-        const trigger = screen.getByRole('button', { name: 'Show wind versus tide' });
+        const trigger = screen.getByRole('button', { name: TIDE_TRIGGER });
         trigger.focus();
         fireEvent.keyDown(trigger, { key });
 
@@ -179,7 +186,7 @@ describe('HeroSlide', () => {
 
     it('restores focus to the graph after activating the back control with the keyboard', () => {
         renderTideCard();
-        const trigger = screen.getByRole('button', { name: 'Show wind versus tide' });
+        const trigger = screen.getByRole('button', { name: TIDE_TRIGGER });
         trigger.focus();
         fireEvent.keyDown(trigger, { key: 'Enter' });
         const close = screen.getByRole('button', { name: 'Back to tide graph' });
@@ -187,13 +194,78 @@ describe('HeroSlide', () => {
         // Keyboard-generated native clicks have detail 0. jsdom does not
         // synthesize the click from a key press, so supply that click itself.
         fireEvent.click(close, { detail: 0 });
-        expect(screen.getByRole('button', { name: 'Show wind versus tide' })).toHaveFocus();
+        expect(screen.getByRole('button', { name: TIDE_TRIGGER })).toHaveFocus();
+    });
+
+    it('names the live tide card with its hour, height and direction', () => {
+        const now = Date.now();
+        renderTideCard(vi.fn(), [
+            { time: new Date(now - 60 * 60_000).toISOString(), type: 'Low', height: 0.5 },
+            { time: new Date(now + 5 * 60 * 60_000).toISOString(), type: 'High', height: 2.5 },
+        ]);
+        const trigger = screen.getByRole('button', { name: TIDE_TRIGGER });
+        expect(trigger.getAttribute('aria-label')).toMatch(/^Now, \d+\.\d m rising — show wind versus tide$/);
+    });
+
+    it('never invents a height when the tides do not bracket the hour', () => {
+        renderTideCard();
+        expect(screen.getByRole('button', { name: TIDE_TRIGGER })).toHaveAttribute(
+            'aria-label',
+            'Now — show wind versus tide',
+        );
+    });
+
+    it('says a day past the forecast horizon is beyond it, instead of a grid of dashes', () => {
+        const emptyDay = {
+            isoDate: '2026-10-06',
+            date: '2026-10-06',
+            airTemperature: null,
+            highTemp: null,
+            lowTemp: null,
+            windSpeed: null,
+            windGust: null,
+            waveHeight: null,
+            precipChance: null,
+        } as any;
+        render(
+            <HeroSlide
+                data={emptyDay}
+                index={10}
+                units={baseUnits}
+                settings={{} as any}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="wx"
+                isVisible={true}
+                hourly={[]}
+            />,
+        );
+        expect(screen.getByTestId('forecast-horizon')).toHaveTextContent(
+            'Beyond the forecast horizon — check back tomorrow',
+        );
+    });
+
+    it('keeps the normal overview for a far day that still has numbers', () => {
+        render(
+            <HeroSlide
+                data={{ ...baseData, isoDate: '2026-10-06', date: '2026-10-06', highTemp: 27, lowTemp: 18 }}
+                index={10}
+                units={baseUnits}
+                settings={{} as any}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="wx"
+                isVisible={true}
+                hourly={[]}
+            />,
+        );
+        expect(screen.queryByTestId('forecast-horizon')).toBeNull();
     });
 
     it('does not move focus when the graph opens through a pointer tap', () => {
         renderTideCard();
         const focusedBefore = document.activeElement;
-        fireEvent.click(screen.getByRole('button', { name: 'Show wind versus tide' }), { detail: 1 });
+        fireEvent.click(screen.getByRole('button', { name: TIDE_TRIGGER }), { detail: 1 });
         expect(screen.getByRole('region', { name: 'Wind versus tide details' })).not.toHaveFocus();
         expect(document.activeElement).toBe(focusedBefore);
     });

@@ -59,11 +59,15 @@ export const HourlyWidget = ({
                 >
                     {hourly &&
                         hourly.map((item: HourlyForecast, idx: number) => {
+                            // No wind reading, no wind chill: `windSpeed ?? 0` computed a
+                            // "feels like" as if the air were calm.
                             const chill =
                                 item.feelsLike !== undefined
                                     ? item.feelsLike
-                                    : calculateWindChill(item.temperature, item.windSpeed ?? 0, units.temp);
-                            const chillDisplay = chill ? convertTemp(chill, units.temp) : null;
+                                    : item.windSpeed != null && item.temperature != null
+                                      ? calculateWindChill(item.temperature, item.windSpeed, units.temp)
+                                      : null;
+                            const chillDisplay = chill != null ? convertTemp(chill, units.temp) : null;
                             const tempDisplay = convertTemp(item.temperature, units.temp);
                             // Real gusts only. This used to fall back to
                             // windSpeed * 1.2 — a number no model forecast,

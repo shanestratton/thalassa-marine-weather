@@ -126,7 +126,7 @@ const SunMoonWidgetComponent = ({
                 {/* Moon Side */}
                 <div className="flex items-center justify-center p-2 border-b md:border-b-0 md:border-r border-white/5">
                     <MoonVisual
-                        cloudCover={current.cloudCover || 0}
+                        cloudCover={current.cloudCover}
                         apiPhase={current.moonPhase}
                         apiIllumination={current.moonIllumination}
                         apiPhaseValue={current.moonPhaseValue}

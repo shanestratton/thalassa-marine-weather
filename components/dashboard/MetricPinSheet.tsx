@@ -11,7 +11,7 @@
  * to drag-and-drop from the grid (long-press activation, framer-motion
  * swap animation) while keeping the same state model and persistence.
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { WindIcon, WaveIcon, GaugeIcon, DropletIcon, SunIcon, EyeIcon, CompassIcon, ThermometerIcon } from '../Icons';
@@ -36,7 +36,7 @@ export const PINNABLE_METRICS: PinnableMetric[] = [
     { id: 'dir', label: 'DIR', helper: 'Wind direction', icon: <CompassIcon className="w-4 h-4" rotation={0} /> },
     { id: 'gust', label: 'GUST', helper: 'Peak gust speed', icon: <WindIcon className="w-4 h-4" /> },
     { id: 'wave', label: 'WAVE', helper: 'Wave / swell height', icon: <WaveIcon className="w-4 h-4" /> },
-    { id: 'period', label: 'PER.', helper: 'Wave / swell period', icon: <WaveIcon className="w-4 h-4" /> },
+    { id: 'period', label: 'PERIOD', helper: 'Wave / swell period', icon: <WaveIcon className="w-4 h-4" /> },
     { id: 'uv', label: 'UV', helper: 'UV Index', icon: <SunIcon className="w-4 h-4" /> },
     { id: 'vis', label: 'VIS', helper: 'Visibility', icon: <EyeIcon className="w-4 h-4" /> },
     { id: 'pressure', label: 'HPA', helper: 'Barometric pressure', icon: <GaugeIcon className="w-4 h-4" /> },
@@ -71,6 +71,12 @@ function filterForLocation(all: PinnableMetric[], locationType: MetricPinSheetPr
     return all;
 }
 
+/** 'Sustained wind speed' → 'sustained wind speed' for mid-sentence use;
+ *  acronyms such as 'UV Index' keep their capitals. */
+function midSentence(helper: string): string {
+    return /^[A-Z][a-z]/.test(helper) ? helper[0].toLowerCase() + helper.slice(1) : helper;
+}
+
 export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
     visible,
     currentMetric,
@@ -79,6 +85,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
     locationType,
 }) => {
     const portalTarget = usePanePortalTarget();
+    const titleId = useId();
     const visibleMetrics = filterForLocation(PINNABLE_METRICS, locationType);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
 
@@ -100,7 +107,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
             onClick={onClose}
             role="dialog"
             aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
-            aria-label="Pin a metric to the hero slot"
+            aria-labelledby={titleId}
             ref={dialogRef}
         >
             {/* Backdrop */}
@@ -113,9 +120,12 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
             >
                 {/* Header */}
                 <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
-                    <h2 className="text-base font-bold text-white tracking-tight">Pin a metric to the top</h2>
+                    <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
+                        Pin a metric to the top
+                    </h2>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
-                        The selected metric replaces temperature in the hero. Temperature moves to its grid cell.
+                        The metric you pick becomes the big number at the top. Temperature moves to that metric&apos;s
+                        grid cell.
                     </p>
                 </div>
 
@@ -166,7 +176,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                             <button
                                 key={m.id}
                                 onClick={() => onPick(m.id)}
-                                aria-label={`Pin ${m.helper} to the hero slot`}
+                                aria-label={`Show ${midSentence(m.helper)} as the big number at the top`}
                                 aria-current={isActive ? 'true' : undefined}
                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                                     isActive

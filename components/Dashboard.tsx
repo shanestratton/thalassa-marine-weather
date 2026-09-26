@@ -1254,8 +1254,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                     key={i}
                                                     className={`w-1.5 h-1.5 rounded-full transition-all duration-150 ${
                                                         i === activeHour
-                                                            ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
-                                                            : 'bg-white/40'
+                                                            ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)] [.display-light_&]:bg-sky-600'
+                                                            : // White on the pale day page is ~1.1:1.
+                                                              'bg-white/40 [.display-light_&]:bg-slate-400'
                                                     }`}
                                                 />
                                             ))}

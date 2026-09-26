@@ -424,7 +424,11 @@ export const HeroSection = ({
                     {dayRows.map((_, i) => (
                         <div
                             key={i}
-                            className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-sky-400' : 'bg-white/20'} `}
+                            // Inactive: white/30 by night, slate-400 by day (bg-white/20
+                            // is remapped to near-white in daylight and vanished on the
+                            // pale page). The active dot steps to sky-600 by day so it
+                            // still out-weighs the inactive ones.
+                            className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-sky-400 [.display-light_&]:bg-sky-600' : 'bg-white/30 [.display-light_&]:bg-slate-400'} `}
                         />
                     ))}
                 </div>

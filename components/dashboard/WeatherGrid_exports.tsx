@@ -135,10 +135,18 @@ export const MetricsWidget = ({
             </Card>
             <Card className="col-span-1">
                 <Metric
-                    icon={<CompassIcon rotation={current.windDegree ?? 0} className="w-6 h-6" />}
+                    icon={
+                        // No bearing, no arrow: `?? 0` pointed an unknown wind due
+                        // north. The blank keeps the card's height.
+                        current.windDegree != null ? (
+                            <CompassIcon rotation={current.windDegree} className="w-6 h-6" />
+                        ) : (
+                            <span className="block w-6 h-6" aria-hidden="true" />
+                        )
+                    }
                     label="Direction"
                     value={current.windDirection}
-                    subValue={`${current.windDegree || '--'}°`}
+                    subValue={current.windDegree != null ? `${current.windDegree}°` : '--'}
                     isEstimated={current.isEstimated}
                 />
             </Card>
@@ -154,7 +162,7 @@ export const MetricsWidget = ({
                             : 'N/A'
                     }
                     subValue={
-                        <span className="opacity-60 text-sm uppercase">
+                        <span className="text-sm uppercase">
                             {current.waterTemperature !== null && current.waterTemperature !== undefined
                                 ? isSensorLocked
                                     ? 'Verified Buoy'

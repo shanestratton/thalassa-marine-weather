@@ -499,6 +499,8 @@ describe('SystemStatusButton', () => {
         // Since 2026-09-08 the button is always present: it is where the punter
         // finds which GPS the app is reading, and that is never nothing.
         expect(screen.getByRole('button', { name: 'Systems and GPS source' })).toBeInTheDocument();
+        // Nothing active: no count, so the look matches the spoken state.
+        expect(screen.queryByTestId('system-status-count')).toBeNull();
     });
 
     it('keeps the controllable following-route status', () => {
@@ -515,6 +517,15 @@ describe('SystemStatusButton', () => {
         // accessible name.
         fireEvent.click(screen.getByRole('button', { name: 'Stop Following Route' }));
         expect(followRouteState.stopFollowing).toHaveBeenCalledOnce();
+    });
+
+    it('shows the count badge from one active system, matching the spoken count', () => {
+        followRouteState.isFollowing = true;
+        followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
+
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        expect(screen.getByRole('button', { name: /^Systems and GPS source: 1 active/ })).toBeInTheDocument();
+        expect(screen.getByTestId('system-status-count')).toHaveTextContent(/^1$/);
     });
 
     it('gives every row action its own accessible name', () => {

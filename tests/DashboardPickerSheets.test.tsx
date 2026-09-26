@@ -57,6 +57,42 @@ describe('dashboard picker sheets', () => {
         expect(opener).toHaveFocus();
     });
 
+    it('names the pin sheet by its heading and speaks plain words, not "hero slot"', () => {
+        render(
+            <MetricPinSheet visible currentMetric="temp" onPick={vi.fn()} onClose={vi.fn()} locationType="coastal" />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Pin a metric to the top' });
+        expect(dialog).toHaveTextContent('big number at the top');
+        expect(dialog).not.toHaveTextContent(/hero/i);
+        expect(
+            screen.getByRole('button', { name: 'Show sustained wind speed as the big number at the top' }),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Show UV Index as the big number at the top' })).toBeInTheDocument();
+        // Same word as the grid cell it pins.
+        expect(screen.getByText('PERIOD')).toBeInTheDocument();
+        expect(screen.queryByText('PER.')).toBeNull();
+    });
+
+    it('names the model sheet by its heading and gives every row one clause', () => {
+        render(
+            <ModelPickerSheet
+                visible
+                currentModel="best_match"
+                onPick={vi.fn()}
+                onClose={vi.fn()}
+                onRefresh={vi.fn()}
+            />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Forecast model' });
+        expect(screen.getByText('ECMWF AI model — no gust field')).toBeInTheDocument();
+        expect(screen.getByText('Japan — western Pacific, no gust field')).toBeInTheDocument();
+        const helpers = dialog.querySelectorAll('button p + p');
+        expect(helpers.length).toBeGreaterThan(3);
+        for (const helper of helpers) {
+            expect(helper.textContent!.split('—').length).toBeLessThanOrEqual(2);
+        }
+    });
+
     it('gives ModelPickerSheet an explicit close action and contains keyboard focus', () => {
         const onClose = vi.fn();
         render(

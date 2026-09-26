@@ -42,7 +42,8 @@ describe('Glass chooses the source that serves the selected environment', () => 
         const picker = screen.getByRole('button', { name: 'Choose forecast model' });
         expect(picker).toHaveTextContent(/^ECMWF$/);
         fireEvent.click(picker);
-        const sheet = screen.getByRole('dialog', { name: 'Choose a forecast model' });
+        // Named by its visible heading (aria-labelledby), not a second phrase.
+        const sheet = screen.getByRole('dialog', { name: 'Offshore forecast model' });
         expect(within(sheet).getByRole('heading', { name: 'Offshore forecast model' })).toBeVisible();
         for (const model of ['SG BLEND', 'ECMWF', 'GFS', 'ICON']) {
             expect(within(sheet).getByRole('button', { name: `Use the ${model} forecast model` })).toBeVisible();
