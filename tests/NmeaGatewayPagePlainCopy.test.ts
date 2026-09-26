@@ -28,6 +28,14 @@ describe('NMEA Gateway page — plain words, fewer toggles', () => {
         expect(general).toContain('<FleetSharingSection />');
     });
 
+    it('names the section once: the Preferences heading, not a repeated title in the card', () => {
+        // UX referee C-preferences-nits: the heading "Share what you hear" was
+        // followed by a card whose first line said the same words.
+        expect(section).not.toMatch(/<p[^>]*>\s*Share what you hear\s*<\/p>/);
+        // The switch still carries the name for screen readers.
+        expect(section).toContain('label="Share what you hear"');
+    });
+
     it('the moved section keeps the consent rules: on asks first, off is immediate, the sheet is centred', () => {
         expect(section).toContain('if (value) {');
         expect(section).toContain('setSheetOpen(true);');

@@ -328,7 +328,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     subtitle="Instruments & AIS"
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'NMEA Gateway']}
-                    action={<NmeaStatusDot />}
+                    // A status, not a control: in the action slot the chip
+                    // squeezed NMEA GATEWAY onto two lines (four at 375 pt).
+                    // PageHeader puts status on its own row under the title.
+                    status={<NmeaStatusDot />}
                 />
 
                 {/* Content — fills viewport */}
@@ -346,9 +349,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         needs to see whether the app is using it, and silence
                         is the one answer that helps nobody. */}
                     <div className="shrink-0 mb-3 rounded-2xl border border-white/10 bg-white/3 p-4">
-                        <div className="mb-2 text-[11px] font-black uppercase tracking-widest text-gray-400">
+                        {/* h2: the page title is the h1, and each card here is a
+                            section of it (UX referee A-heading-outline). */}
+                        <h2 className="mb-2 text-xs font-black uppercase tracking-widest text-gray-400">
                             Position source
-                        </div>
+                        </h2>
                         <div className="flex items-center gap-3">
                             <span
                                 className={`h-2.5 w-2.5 shrink-0 rounded-full ${
@@ -402,7 +407,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                             : 'bg-gray-500'
                                 }`}
                             />
-                            <h3 className="text-sm font-black text-white">
+                            <h2 className="text-sm font-black text-white">
                                 {isConnected
                                     ? 'Connected'
                                     : isConnecting
@@ -412,7 +417,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                         : hasFailed
                                           ? 'Connection failed'
                                           : 'Disconnected'}
-                            </h3>
+                            </h2>
                             {readingViaCloud && !isConnected && !isConnecting && !piMode && (
                                 <span className="ml-auto rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-sky-300">
                                     {storeLink.remote?.via === 'lan' ? 'Aboard · via the Pi' : 'Away · via the Pi'}

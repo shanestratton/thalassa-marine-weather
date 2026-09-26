@@ -159,9 +159,12 @@ export const FleetSharingSection: React.FC = () => {
     return (
         <div className="p-4">
             <div className="flex items-start justify-between gap-3">
+                {/* No title line here: the Preferences section heading above
+                    already says "Share what you hear", and the card repeated it
+                    word for word (UX referee C-preferences-nits). The switch
+                    keeps the name for screen readers. */}
                 <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-100">Share what you hear</p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                    <p className="text-xs leading-relaxed text-gray-400">
                         Contribute the AIS traffic this gateway hears to the Thalassa fleet map and to AISHub&rsquo;s
                         public network. Off by default &mdash; sharing is an explicit choice.
                     </p>
@@ -183,19 +186,19 @@ export const FleetSharingSection: React.FC = () => {
             </div>
 
             {enabled && !configured && (
-                <p className="mt-2 text-[11px] font-semibold text-amber-300">
+                <p className="mt-2 text-xs font-semibold text-amber-300">
                     This build has no share relay configured &mdash; nothing is being sent.
                 </p>
             )}
             {enabled && configured && !signedIn && (
-                <p className="mt-2 text-[11px] font-semibold text-amber-300">
+                <p className="mt-2 text-xs font-semibold text-amber-300">
                     Sign in to share &mdash; the fleet feed needs a Thalassa account.
                 </p>
             )}
 
             {active && (
                 <>
-                    <p className="mt-2 text-[11px] font-semibold text-emerald-300">
+                    <p className="mt-2 text-xs font-semibold text-emerald-300">
                         {stats.card
                             ? `On watch · ${hours.toLocaleString()} h total · ${stats.card.watchMinutes7d.toLocaleString()} min this week`
                             : 'On watch · first check-in on its way'}
@@ -204,19 +207,19 @@ export const FleetSharingSection: React.FC = () => {
                         // Deliberately NOT an error. Standing is held through a
                         // gateway fault, and telling someone their contribution
                         // has stopped is how you get them to switch it off.
-                        <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                        <p className="mt-1 text-xs leading-relaxed text-gray-400">
                             Gateway down{stats.linkError ? ` — ${stats.linkError}` : ''}. Standing held. Nothing to fix
                             if the boat&rsquo;s ashore.
                         </p>
                     )}
                     {connected && stats.sharedTotal === 0 && (
-                        <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                        <p className="mt-1 text-xs leading-relaxed text-gray-400">
                             Nothing heard yet. If you&rsquo;re offshore that&rsquo;s exactly what we&rsquo;d expect, and
                             it still counts.
                         </p>
                     )}
                     {stats.rejected && stats.rejected.checksum > 0 && stats.rejected.notAis === 0 && (
-                        <p className="mt-1 text-[11px] leading-relaxed text-amber-200/80">
+                        <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
                             Most sentences are failing their checksum &mdash; usually a baud-rate or NMEA-0183 wiring
                             fault.
                         </p>
@@ -224,7 +227,7 @@ export const FleetSharingSection: React.FC = () => {
                     <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/6 pt-3">
                         <div className="min-w-0">
                             <p className="text-[12px] font-semibold text-gray-200">Low-data link</p>
-                            <p className="text-[11px] leading-relaxed text-gray-400">
+                            <p className="text-xs leading-relaxed text-gray-400">
                                 Check in every 30 minutes instead of 5, for satellite. Earns exactly the same.
                             </p>
                         </div>

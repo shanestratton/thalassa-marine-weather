@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 async function open() {
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings', expanded: false }));
     await act(() => vi.advanceTimersByTimeAsync(300));
 }
 
@@ -91,7 +91,7 @@ describe('Vessel section reveal lifecycle', () => {
 
     it('reveals without a fixed delay when reduced motion has no transition', async () => {
         render(<Harness />);
-        fireEvent.click(screen.getByRole('button', { name: 'Expand Settings' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Settings', expanded: false }));
         await act(() => vi.advanceTimersByTimeAsync(20));
         expect(scroll).toHaveBeenCalledOnce();
     });
@@ -124,7 +124,7 @@ describe('Vessel section reveal lifecycle', () => {
         getAnimations.mockReturnValue([transition.animation]);
         render(<Harness />);
         await open();
-        fireEvent.click(screen.getByRole('button', { name: 'Collapse Settings' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Settings', expanded: true }));
         await act(async () => transition.resolve());
         expect(scroll).not.toHaveBeenCalled();
     });
@@ -134,7 +134,7 @@ describe('Vessel section reveal lifecycle', () => {
         getAnimations.mockReturnValue([transition.animation]);
         render(<Harness />);
         await open();
-        screen.getByRole('button', { name: 'Collapse Settings' }).setAttribute('aria-expanded', 'false');
+        screen.getByRole('button', { name: 'Settings', expanded: true }).setAttribute('aria-expanded', 'false');
         await act(async () => transition.resolve());
         expect(scroll).not.toHaveBeenCalled();
     });
@@ -165,7 +165,7 @@ describe('Vessel section reveal lifecycle', () => {
         getAnimations.mockReturnValueOnce([old.animation]).mockReturnValue([current.animation]);
         render(<Harness />);
         await open();
-        fireEvent.click(screen.getByRole('button', { name: 'Collapse Settings' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Settings', expanded: true }));
         await open();
         await act(async () => old.resolve());
         expect(scroll).not.toHaveBeenCalled();

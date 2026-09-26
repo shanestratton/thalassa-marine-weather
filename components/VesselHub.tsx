@@ -548,7 +548,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         label="Back to Vessel"
                         className="shrink-0"
                     />
-                    <span className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</span>
+                    {/* The binder is its own screen, so its title is the page's
+                        h1 (it was a span, leaving the screen with no heading).
+                        Same classes, so it looks exactly as before. */}
+                    <h1 className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</h1>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
                     {/* The Passage subgroup is gone (Shane 2026-09-02, binder
@@ -808,7 +811,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     instead of through CollapsibleContent, and the 'quick' entry
                     in the expanded set is vestigial. Reclaiming that row is what
                     makes pinning the grid affordable. */}
-                    <div className="mt-3">
+                    <div className="relative mt-3">
+                        {/* Heading outline (UX referee A-heading-outline): the
+                            tiles are h3s, so they need an h2 above them. The
+                            visible "Watch Status" heading was removed at Shane's
+                            ask to save the row, so this one is for screen
+                            readers only and costs no height. */}
+                        <h2 className="sr-only">Safety controls</h2>
                         {/* FOUR ACROSS, one line (Shane 2026-07-19: "on the vessel
                             page that we put the four boxes on one line"). These
                             tiles are PINNED, so their height is permanent screen
@@ -881,7 +890,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     <MobIcon color="var(--day-ui-danger, #ef4444)" />
                                 </div>
-                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h4>
+                                <h3 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h3>
                                 <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-red-400">
                                     Overboard
                                 </p>
@@ -902,7 +911,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     <SignalIcon color="var(--day-ui-accent, #67E8F9)" />
                                 </div>
-                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h4>
+                                <h3 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h3>
                                 <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
                                     Position
                                 </p>
@@ -924,9 +933,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     >
                                         <ShieldIcon color="var(--day-ui-amber, #f59e0b)" />
                                     </div>
-                                    <h4 className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    <h3 className="text-[11px] font-black leading-none tracking-wide text-white">
                                         Guardian
-                                    </h4>
+                                    </h3>
                                     <p
                                         className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
                                         style={{ color: daylightUiColor(guardianArmed ? '#10b981' : '#f59e0b') }}
@@ -987,7 +996,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         <AnchorIcon className="h-4 w-4" />
                                     </span>
                                 </div>
-                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
+                                <h3 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h3>
                                 <p
                                     className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
                                     style={{ color: daylightUiColor(anchorColor) }}
@@ -1064,7 +1073,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     up" — Skipper Device, Passage Planning, Boat Binder — and
                     before the menu headers below them. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
-                <div className="mb-3" style={{ scrollSnapAlign: 'start' }}>
+                <div className="relative mb-3" style={{ scrollSnapAlign: 'start' }}>
+                    {/* Screen-reader section heading for the two h3 tiles, so
+                        they do not read as part of the safety controls above. */}
+                    <h2 className="sr-only">Journal and community</h2>
                     <div className="grid grid-cols-2 gap-3">
                         {/* Diary — personal journal (left tile) */}
                         <button
@@ -1081,7 +1093,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <PenIcon color="var(--day-ui-success, #5EEAD4)" />
                                 </div>
                                 <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">Diary</h4>
+                                    <h3 className="text-[13px] font-black text-white tracking-wide">Diary</h3>
                                     {/* Sentence case, one line: uppercase with wide tracking
                                         folded "VOYAGE / JOURNAL" in a half-width tile. */}
                                     <p
@@ -1117,7 +1129,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <ChatBubbleIcon color="var(--day-ui-accent, #7dd3fc)" />
                                 </div>
                                 <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h4>
+                                    <h3 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h3>
                                     <p
                                         className="mt-0.5 text-xs font-semibold leading-snug"
                                         style={{ color: 'var(--day-ui-accent, #7dd3fc)' }}
@@ -1306,7 +1318,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             <OfficeRow
                                 icon={<MapChartIcon color="var(--day-ui-muted, #cbd5e1)" />}
                                 label="Boat Network"
-                                status="Pi cache, Signal K & AvNav"
+                                // Plain words (UX referee W-developer-speak): the
+                                // row used to list the software on the Pi.
+                                status="Boat computer & instruments"
                                 statusColor="var(--day-ui-muted, #94a3b8)"
                                 onClick={() => {
                                     triggerHaptic('light');
@@ -1318,7 +1332,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 icon={<UserIcon color="var(--day-ui-muted, #cbd5e1)" />}
                                 label="Account & Settings"
                                 status={(() => {
-                                    if (PUBLIC_BETA_ACCESS.enabled) return PUBLIC_BETA_ACCESS.label;
+                                    // During the free public beta there is no
+                                    // plan to name, so say what is true of this
+                                    // account instead of "Free public beta"
+                                    // (UX referee W-developer-speak).
+                                    if (PUBLIC_BETA_ACCESS.enabled)
+                                        return authenticatedUserId ? 'Signed in' : 'Not signed in';
                                     // One source of truth for plan names —
                                     // the hub used to invent its own ("Vessel
                                     // Owner"/"Crew Plan") and disagree with
@@ -1330,7 +1349,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     ).label;
                                 })()}
                                 statusColor={(() => {
-                                    if (PUBLIC_BETA_ACCESS.enabled) return '#67E8F9';
+                                    if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#67E8F9' : '#94a3b8';
                                     // Tier badge stays its own colour —
                                     // owner=amber (premium), crew=cyan,
                                     // free=grey. This is a deliberate

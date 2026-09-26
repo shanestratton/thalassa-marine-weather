@@ -88,7 +88,10 @@ export function presentGpsDiagnostics(source: GpsDiagnosticSource, now = Date.no
     const satellites = presentMetric(source.satellites, now, source.maxAgeMs, (value) =>
         typeof value === 'number' && Number.isInteger(value) && value >= 0 ? String(value) : null,
     );
-    if (source.phone && satellites.state === 'unknown') satellites.text = 'Not exposed';
+    // The phone's location service never reports satellites. It used to say
+    // 'Not exposed' here, which is a developer's word; the plain 'Not reported'
+    // that every other unknown reading uses already says it (UX referee
+    // W-developer-speak), so the phone gets no special wording.
     const quality = source.phone
         ? {
               text: positionCurrent ? 'Position available' : 'No current fix',
