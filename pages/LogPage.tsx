@@ -2059,6 +2059,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         records={records}
                         notice={lifetimeStatsNotice}
                         lifetimeUnavailable={!!lifetimeError && !lifetimeLoaded}
+                        onRetry={reloadArchivedVoyages}
+                        retrying={lifetimeLoading}
                     />
 
                     {castOffHandoff &&
@@ -2149,6 +2151,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     source for the totals). Career counts now
                                     live in one place: the gauge tile grid. */}
 
+                                {/* ── Archived Voyages ── directly under Voyage stats, so
+                                    history sits together above the current log (UX
+                                    scorecard run 6). */}
+                                <ArchivedVoyagesSection
+                                    key={`${identityScope.key}:${identityScope.generation}`}
+                                    className="mb-3"
+                                    loggedArchivedVoyages={loggedArchivedVoyages}
+                                    showArchived={showArchived}
+                                    setShowArchived={setShowArchived}
+                                    handleUnarchiveVoyage={handleUnarchiveVoyage}
+                                    handleRestorePassage={handleRestorePassage}
+                                    loading={archivesLoading}
+                                    error={archiveError}
+                                    onRetry={reloadArchivedVoyages}
+                                />
+
                                 {/* Past Voyage Cards */}
                                 {loading && loggedVoyages.length === 0 ? (
                                     <VoyageListSkeleton />
@@ -2156,7 +2174,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     loggedArchivedVoyages.length > 0 || archivesLoading ? (
                                         <p className="px-1 py-3 text-sm text-slate-400">
                                             {loggedArchivedVoyages.length > 0
-                                                ? 'Your past voyages are in the archive below.'
+                                                ? 'Your past voyages are in the archive above.'
                                                 : 'No voyages in your current log.'}
                                         </p>
                                     ) : (
@@ -2215,19 +2233,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         )}
                                     />
                                 )}
-
-                                {/* ── Archived Voyages ── */}
-                                <ArchivedVoyagesSection
-                                    key={`${identityScope.key}:${identityScope.generation}`}
-                                    loggedArchivedVoyages={loggedArchivedVoyages}
-                                    showArchived={showArchived}
-                                    setShowArchived={setShowArchived}
-                                    handleUnarchiveVoyage={handleUnarchiveVoyage}
-                                    handleRestorePassage={handleRestorePassage}
-                                    loading={archivesLoading}
-                                    error={archiveError}
-                                    onRetry={reloadArchivedVoyages}
-                                />
                             </div>
 
                             {/* ── Slide to Start CTA — pinned at bottom ── */}

@@ -105,6 +105,33 @@ describe('ArchivedVoyagesSection', () => {
         expect(screen.getByText('No archived voyages')).toBeVisible();
     });
 
+    it('offers Retry on the collapsed card when the archive failed to load', () => {
+        const retry = vi.fn();
+        const Collapsed = () => {
+            const [open, setOpen] = useState(false);
+            return (
+                <ArchivedVoyagesSection
+                    loggedArchivedVoyages={[]}
+                    showArchived={open}
+                    setShowArchived={setOpen}
+                    handleUnarchiveVoyage={vi.fn()}
+                    error="Couldn’t refresh the archive."
+                    onRetry={retry}
+                />
+            );
+        };
+        render(<Collapsed />);
+        expect(screen.getByText('Archive unavailable')).toBeVisible();
+        const retryButton = screen.getByRole('button', { name: 'Retry' });
+        expect(retryButton).toHaveAccessibleDescription('Archive unavailable');
+        fireEvent.click(retryButton);
+        expect(retry).toHaveBeenCalledOnce();
+        // Expanded, the full error carries its own Refresh archive.
+        fireEvent.click(screen.getByRole('button', { name: /Archived voyages/ }));
+        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Refresh archive' })).toBeEnabled();
+    });
+
     it('keeps current cards visible during refresh, with explicit updating feedback', () => {
         render(<Archive voyages={[voyage('trip')]} loading />);
         expect(screen.getByText('Updating archive…')).toBeVisible();

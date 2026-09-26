@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback, useId } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('RoutePlanner');
@@ -21,6 +21,7 @@ import {
     XIcon,
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
+import { TapToAction } from './ui/TapToAction';
 import { toast } from './Toast';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
@@ -67,6 +68,21 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import type { SavedRouteLibraryItem } from '../services/savedRouteLibrary';
+import { loadSavedTraces } from '../services/routeTracer';
+
+/** The Past voyages picker lists at most this many voyages. */
+const PAST_VOYAGE_PICKER_MAX = 8;
+
+// One dialog chrome for both Plan dialogs, matching Log actions: a blurred
+// scrim (the page behind read as clipped half-letters at 60 % alone), one
+// width, and the same h2 title + 44 px X header (UX scorecard run 6).
+const PLAN_DIALOG_SCRIM =
+    'fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]';
+const PLAN_DIALOG_PANEL = 'w-full max-w-sm max-h-full rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl';
+const PLAN_DIALOG_HEADER = 'flex shrink-0 items-center justify-between gap-2 pl-3 pr-1';
+const PLAN_DIALOG_TITLE = 'text-xs font-black uppercase tracking-widest text-gray-400';
+const PLAN_DIALOG_CLOSE =
+    'flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-white/10 hover:text-white';
 
 interface RoutePickerItem {
     key: string;
@@ -257,15 +273,31 @@ export const RoutePlanner: React.FC<{
         initialFocusRef: routePickerCloseRef,
         onEscape: closeRoutePicker,
     });
+    // What the two front-door cards can honestly say before they are tapped
+    // (UX scorecard run 6: "Open one" showed with nothing saved). Saved routes
+    // on this device are a free local read; the full library (account sync +
+    // older Log plans) and the past-voyage list are only counted once a picker
+    // has actually loaded them — a count is never guessed.
+    const [localSavedCount, setLocalSavedCount] = useState(() => loadSavedTraces(getAuthIdentityScope()).length);
+    const [confirmedSavedCount, setConfirmedSavedCount] = useState<number | null>(null);
+    const [confirmedVoyageCount, setConfirmedVoyageCount] = useState<number | null>(null);
     useEffect(
         () =>
-            subscribeAuthIdentityScope(() => {
+            subscribeAuthIdentityScope((next) => {
                 routePickerRequestRef.current += 1;
                 setRoutePickerDelete(null);
                 setRoutePicker(null);
+                setLocalSavedCount(loadSavedTraces(next).length);
+                setConfirmedSavedCount(null);
+                setConfirmedVoyageCount(null);
             }),
         [],
     );
+    useEffect(() => {
+        const onSavedRoutesChanged = (): void => setLocalSavedCount(loadSavedTraces(getAuthIdentityScope()).length);
+        window.addEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
+        return () => window.removeEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
+    }, []);
     const openRoutePicker = useCallback(
         async (kind: 'voyage' | 'saved') => {
             const pickerScope = getAuthIdentityScope();
@@ -376,12 +408,14 @@ export const RoutePlanner: React.FC<{
                         items: lastSavedItems,
                         scope: pickerScope,
                     });
+                    // Passage rows are rollups of their legs, not routes of their own.
+                    setConfirmedSavedCount(lastSavedItems.filter((item) => item.kind !== 'passage').length);
                 } else {
                     const { fetchSeaVoyageChoices } = await import('../services/shiplog/RoutesAndTracks');
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
                         return;
                     }
-                    const choices = await fetchSeaVoyageChoices(8);
+                    const choices = await fetchSeaVoyageChoices(PAST_VOYAGE_PICKER_MAX);
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
                         return;
                     }
@@ -414,6 +448,7 @@ export const RoutePlanner: React.FC<{
                         items,
                         scope: pickerScope,
                     });
+                    setConfirmedVoyageCount(items.length);
                 }
             } catch (err) {
                 log.warn(`route picker load failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -456,6 +491,7 @@ export const RoutePlanner: React.FC<{
             setRoutePicker((current) =>
                 current ? { ...current, items: current.items.filter((candidate) => candidate.key !== item.key) } : null,
             );
+            setConfirmedSavedCount((count) => (count === null ? null : Math.max(0, count - 1)));
             setRoutePickerDelete(null);
             toast.success('Saved route deleted');
         },
@@ -555,50 +591,89 @@ export const RoutePlanner: React.FC<{
         }
         prevVoyagePlanRef.current = voyagePlan;
     }, [voyagePlan, origin, destination, setPage]);
-    // The two front-door cards sit in the free band between the form and the
-    // fixed CTA instead of leaving a ~260 px void under them (UX audit run 5 —
-    // no hint text returns there: Shane removed it 2026-07-16). The page's
+    // The two front-door cards sit at the top of the free band under
+    // Departure, behind an "Or start from" eyebrow, so they read as part of
+    // the planner and the spare space pools above the CTA instead of splitting
+    // into two voids (UX scorecard run 6; run 5 had centred them). The page's
     // flex-1 is inert (its scroller parent is a block), so min-h-full is what
     // lets the empty map region below the form become that band.
-    const frontDoorCentred = !embedded && !LEGACY_PLANNER_FORM && !voyagePlan;
+    const frontDoorInBand = !embedded && !LEGACY_PLANNER_FORM && !voyagePlan;
+    const frontDoorId = useId();
+    const savedRoutesSub =
+        confirmedSavedCount === 0
+            ? 'None saved yet'
+            : confirmedSavedCount !== null
+              ? `${confirmedSavedCount} saved · timings refreshed for today’s tide`
+              : localSavedCount > 0
+                ? `${localSavedCount} saved · timings refreshed for today’s tide`
+                : // Nothing on this device; the account and older Log plans
+                  // are only checked when the library opens.
+                  'None saved on this device yet';
+    const pastVoyagesSub =
+        confirmedVoyageCount === null
+            ? 'Turn a logged voyage into a route'
+            : confirmedVoyageCount === 0
+              ? 'No sea voyages logged yet'
+              : confirmedVoyageCount >= PAST_VOYAGE_PICKER_MAX
+                ? `Your last ${confirmedVoyageCount} voyages to reuse`
+                : `${confirmedVoyageCount} ${confirmedVoyageCount === 1 ? 'voyage' : 'voyages'} to reuse`;
     const frontDoorCards = (
-        <div className="space-y-2">
-            {(
-                [
-                    {
-                        kind: 'voyage' as const,
-                        icon: <SailBoatIcon className="h-6 w-6" />,
-                        title: 'From a past voyage',
-                        sub: 'Reuse a track you’ve already sailed',
-                        accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
-                    },
-                    {
-                        kind: 'saved' as const,
-                        icon: <RouteIcon className="h-6 w-6" />,
-                        title: 'Saved routes',
-                        sub: 'Open one — timings refreshed for today’s tide',
-                        accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
-                    },
-                ] as const
-            ).map((b) => (
-                <button
-                    key={b.kind}
-                    type="button"
-                    onClick={() => void openRoutePicker(b.kind)}
-                    className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
-                >
-                    <span aria-hidden="true" className="shrink-0">
-                        {b.icon}
-                    </span>
-                    <span className="min-w-0">
-                        <span className="block text-sm font-black uppercase tracking-wide">{b.title}</span>
-                        <span className="block text-[11px] font-medium leading-snug text-gray-400">{b.sub}</span>
-                    </span>
-                    <span aria-hidden="true" className="ml-auto text-gray-500">
-                        ›
-                    </span>
-                </button>
-            ))}
+        <div role="group" aria-labelledby={`${frontDoorId}-eyebrow`} className="space-y-2">
+            {/* Visually dropped in short landscape so both card titles clear
+                the pinned CTA; it still names the group for VoiceOver. */}
+            <p
+                id={`${frontDoorId}-eyebrow`}
+                className="px-1 text-xs font-black uppercase tracking-widest text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:sr-only"
+            >
+                Or start from
+            </p>
+            <div className="grid gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2">
+                {(
+                    [
+                        {
+                            kind: 'voyage' as const,
+                            icon: <SailBoatIcon className="h-6 w-6" />,
+                            title: 'From a past voyage',
+                            sub: pastVoyagesSub,
+                            accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
+                        },
+                        {
+                            kind: 'saved' as const,
+                            icon: <RouteIcon className="h-6 w-6" />,
+                            title: 'Saved routes',
+                            sub: savedRoutesSub,
+                            accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
+                        },
+                    ] as const
+                ).map((b) => (
+                    // Named by the title alone with the subline as its
+                    // description, so VoiceOver pauses between the two.
+                    <button
+                        key={b.kind}
+                        type="button"
+                        aria-label={b.title}
+                        aria-describedby={`${frontDoorId}-${b.kind}-sub`}
+                        onClick={() => void openRoutePicker(b.kind)}
+                        className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
+                    >
+                        <span aria-hidden="true" className="shrink-0">
+                            {b.icon}
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block text-sm font-black uppercase tracking-wide">{b.title}</span>
+                            <span
+                                id={`${frontDoorId}-${b.kind}-sub`}
+                                className="block text-xs font-medium leading-snug text-gray-400"
+                            >
+                                {b.sub}
+                            </span>
+                        </span>
+                        <span aria-hidden="true" className="ml-auto text-gray-500">
+                            ›
+                        </span>
+                    </button>
+                ))}
+            </div>
         </div>
     );
     return (
@@ -607,22 +682,32 @@ export const RoutePlanner: React.FC<{
                 embedded
                     ? 'relative flex flex-col'
                     : `route-planner-page relative flex-1 bg-slate-950 overflow-hidden flex flex-col${
-                          frontDoorCentred ? ' min-h-full' : ''
+                          frontDoorInBand ? ' min-h-full' : ''
                       }`
             }
         >
             {!embedded && (
                 <PageHeader
                     title="Route Planner"
+                    // Same header pattern as Ship's Log on the sibling tab: a
+                    // tracked caption under the title (UX scorecard run 6).
+                    subtitle="Passage & day-sail planner"
                     onBack={onBack}
                     action={
                         <button
                             type="button"
                             onClick={() => setPlannerMenuOpen(true)}
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                            aria-label="Page actions"
+                            aria-label="Route Planner actions"
+                            aria-haspopup="dialog"
+                            aria-expanded={plannerMenuOpen}
                         >
-                            <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                            <svg
+                                aria-hidden="true"
+                                className="w-5 h-5 text-gray-400"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                            >
                                 <circle cx="12" cy="5" r="1.5" />
                                 <circle cx="12" cy="12" r="1.5" />
                                 <circle cx="12" cy="19" r="1.5" />
@@ -643,7 +728,7 @@ export const RoutePlanner: React.FC<{
                 createPortal(
                     <div
                         role="presentation"
-                        className="fixed inset-0 z-10070 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                        className={`${PLAN_DIALOG_SCRIM} z-10070`}
                         onClick={() => setPlannerMenuOpen(false)}
                     >
                         <div
@@ -651,14 +736,11 @@ export const RoutePlanner: React.FC<{
                             role="dialog"
                             aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby="route-planner-actions-title"
-                            className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
+                            className={`${PLAN_DIALOG_PANEL} overflow-y-auto`}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-center justify-between pl-3 pr-1">
-                                <h2
-                                    id="route-planner-actions-title"
-                                    className="text-[11px] font-black uppercase tracking-widest text-gray-400"
-                                >
+                            <div className={PLAN_DIALOG_HEADER}>
+                                <h2 id="route-planner-actions-title" className={PLAN_DIALOG_TITLE}>
                                     Route Planner actions
                                 </h2>
                                 <button
@@ -666,25 +748,32 @@ export const RoutePlanner: React.FC<{
                                     type="button"
                                     onClick={() => setPlannerMenuOpen(false)}
                                     aria-label="Close"
-                                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+                                    className={PLAN_DIALOG_CLOSE}
                                 >
                                     <XIcon className="h-5 w-5" />
                                 </button>
                             </div>
+                            {/* A plain row, like the Log actions rows (MenuBtn), with
+                                its hint as the description rather than the name. */}
                             <button
                                 type="button"
+                                aria-label="Import GPX"
+                                aria-describedby="route-planner-import-gpx-hint"
                                 onClick={() => {
                                     setPlannerMenuOpen(false);
                                     setPage('gpx-import');
                                 }}
-                                className="flex w-full items-center gap-3 rounded-2xl border border-cyan-500/25 bg-linear-to-br from-cyan-500/10 to-slate-900/40 p-3 text-left text-cyan-300 transition-transform active:scale-[0.98]"
+                                className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-slate-300 transition-colors hover:bg-white/5"
                             >
-                                <span aria-hidden="true" className="shrink-0">
-                                    <DownloadIcon className="h-6 w-6" />
+                                <span aria-hidden="true" className="flex h-5 w-5 shrink-0 items-center justify-center">
+                                    <DownloadIcon className="h-4 w-4" />
                                 </span>
                                 <span className="min-w-0">
-                                    <span className="block text-sm font-black uppercase tracking-wide">Import GPX</span>
-                                    <span className="block text-[11px] font-medium leading-snug text-gray-400">
+                                    <span className="block text-sm font-medium">Import GPX</span>
+                                    <span
+                                        id="route-planner-import-gpx-hint"
+                                        className="block text-xs leading-snug text-gray-400"
+                                    >
                                         OpenCPN · Navionics — bring routes aboard
                                     </span>
                                 </span>
@@ -844,8 +933,8 @@ export const RoutePlanner: React.FC<{
                                 previous leg's arrival). */}
                             <TripLegPicker onOpenChart={() => setPage('map')} />
                             <DepartControl />
-                            {/* Centred in the band below when the map is empty. */}
-                            {!frontDoorCentred && frontDoorCards}
+                            {/* In the band below when the map is empty. */}
+                            {!frontDoorInBand && frontDoorCards}
                         </>
                     )}
 
@@ -890,7 +979,7 @@ export const RoutePlanner: React.FC<{
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     {originLocked ? (
                                         <div
-                                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] uppercase tracking-wide font-semibold"
+                                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs uppercase tracking-wide font-semibold"
                                             title="Departure auto-set from the previous leg's arrival. Edit the previous leg's destination to change."
                                         >
                                             <LockIcon className="w-3 h-3" />
@@ -1018,26 +1107,26 @@ export const RoutePlanner: React.FC<{
                 </div>
             )}
 
-            {/* ═══ FRONT DOOR — the two cards, centred in the free band ═══
+            {/* ═══ FRONT DOOR — the two cards, at the top of the free band ═══
                 Its own element, not the map region: short landscape collapses
                 .route-planner-map to 0 (index.css) and puts the CTA in flow.
                 The bottom padding stops the band above the FIXED portrait CTA
-                (its tab-bar clearance + ~vessel line + slide button; a few px
-                either way only nudges the centring). In short landscape the
-                CTA follows in flow, so the reserve drops to a normal gap, and
-                shrink-0 joins index.css's landscape column rule for the page's
-                direct children so the cards line up with the form. */}
-            {frontDoorCentred && (
-                <div className="flex flex-1 shrink-0 flex-col px-4 pt-2 pb-[calc(4rem+env(safe-area-inset-bottom)+8px+6rem)] [@media(orientation:landscape)_and_(max-height:500px)]:pb-3">
-                    <div className="mx-auto my-auto w-full max-w-xl">{frontDoorCards}</div>
+                (its tab-bar clearance + ~vessel line + tap button), so a short
+                phone can still scroll the cards clear of it. With the form's
+                0.75rem bottom padding, pt-1 sets the group 16 px under
+                Departure. In short landscape the CTA follows in flow, so the
+                reserve drops to a normal gap, and shrink-0 joins index.css's
+                landscape column rule for the page's direct children so the
+                cards line up with the form. */}
+            {frontDoorInBand && (
+                <div className="flex flex-1 shrink-0 flex-col px-4 pt-1 pb-[calc(4rem+env(safe-area-inset-bottom)+8px+6rem)] [@media(orientation:landscape)_and_(max-height:500px)]:pt-0 [@media(orientation:landscape)_and_(max-height:500px)]:pb-3">
+                    <div className="mx-auto w-full max-w-xl">{frontDoorCards}</div>
                 </div>
             )}
 
             {/* ═══ MAP — fills remaining space ═══ */}
             <div
-                className={
-                    frontDoorCentred ? 'route-planner-map relative' : 'route-planner-map flex-1 min-h-0 relative'
-                }
+                className={frontDoorInBand ? 'route-planner-map relative' : 'route-planner-map flex-1 min-h-0 relative'}
             >
                 {voyagePlan ? (
                     <>
@@ -1070,12 +1159,12 @@ export const RoutePlanner: React.FC<{
                                     </span>
                                 </div>
                                 {voyagePlan.distanceApprox && (
-                                    <span className="ml-1 px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 text-[11px] font-bold border border-sky-500/15">
+                                    <span className="ml-1 px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 text-xs font-bold border border-sky-500/15">
                                         {voyagePlan.distanceApprox}
                                     </span>
                                 )}
                                 {voyagePlan.durationApprox && (
-                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[11px] font-bold border border-amber-500/15">
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold border border-amber-500/15">
                                         {voyagePlan.durationApprox}
                                     </span>
                                 )}
@@ -1085,7 +1174,7 @@ export const RoutePlanner: React.FC<{
                                 <button
                                     onClick={() => handlePlanWindow()}
                                     disabled={planningWindow}
-                                    className="relative before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-[11px] font-bold border border-violet-500/20 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                                    className="relative before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-xs font-bold border border-violet-500/20 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
                                     aria-label="Plan optimal departure window"
                                     title="Find best departure time"
                                 >
@@ -1103,7 +1192,7 @@ export const RoutePlanner: React.FC<{
                                 {inshoreSweepAvailable && (
                                     <button
                                         onClick={() => setShowSweepSheet(true)}
-                                        className="relative before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] px-2 py-0.5 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[11px] font-bold border border-teal-500/20 transition-colors inline-flex items-center gap-1"
+                                        className="relative before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] px-2 py-0.5 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-xs font-bold border border-teal-500/20 transition-colors inline-flex items-center gap-1"
                                         aria-label="Sweep inshore departure times against tide and stream"
                                         title="Best time to leave (tide + stream)"
                                     >
@@ -1247,21 +1336,26 @@ export const RoutePlanner: React.FC<{
                                 className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-sm transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
                             >
                                 <LockIcon className="w-4 h-4 text-emerald-400" />
-                                Unlock Route Planning
+                                Unlock route planning
                             </button>
-                        ) : (
+                        ) : LEGACY_PLANNER_FORM ? (
                             <SlideToAction
-                                label={LEGACY_PLANNER_FORM ? 'Slide to Calculate Route' : 'Slide to Start Plotting'}
+                                label="Slide to Calculate Route"
                                 thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
-                                onConfirm={
-                                    LEGACY_PLANNER_FORM
-                                        ? handleCalculate
-                                        : () => {
-                                              setRoutingModeOpen(true);
-                                          }
-                                }
-                                loading={LEGACY_PLANNER_FORM ? loading : false}
+                                onConfirm={handleCalculate}
+                                loading={loading}
                                 loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
+                                theme="emerald"
+                            />
+                        ) : (
+                            // A tap, not a slide: it only opens the routing-mode
+                            // choice, which commits to nothing. The slide guard
+                            // stays on Drop Anchor and Start Tracking (UX
+                            // scorecard run 6).
+                            <TapToAction
+                                label="Start plotting"
+                                icon={<CompassIcon className="h-4 w-4" rotation={0} />}
+                                onConfirm={() => setRoutingModeOpen(true)}
                                 theme="emerald"
                             />
                         )}
@@ -1312,29 +1406,22 @@ export const RoutePlanner: React.FC<{
                     // correctly"). Already portalled, which is what makes centring
                     // trustworthy here — inside PageTransition's transform, `fixed`
                     // would resolve against the page box rather than the screen.
-                    // dvh + safe-area padding so a long list cannot run off either
-                    // end on a phone.
-                    <div
-                        role="presentation"
-                        className="fixed inset-0 z-10060 flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
-                        onClick={closeRoutePicker}
-                    >
+                    // The shared scrim padding keeps it clear of the tab bar and
+                    // the notch; the list scrolls inside the dialog.
+                    <div role="presentation" className={`${PLAN_DIALOG_SCRIM} z-10060`} onClick={closeRoutePicker}>
                         <div
                             ref={routePickerDialogRef}
                             role="dialog"
                             aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                             aria-labelledby="route-picker-title"
-                            className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
+                            className={`${PLAN_DIALOG_PANEL} flex flex-col overflow-hidden`}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
+                            <div className={PLAN_DIALOG_HEADER}>
                                 <div className="min-w-0">
-                                    <span
-                                        id="route-picker-title"
-                                        className="text-sm font-black uppercase tracking-widest text-sky-300"
-                                    >
+                                    <h2 id="route-picker-title" className={PLAN_DIALOG_TITLE}>
                                         {routePicker.kind === 'voyage' ? 'Past voyages' : 'Saved routes'}
-                                    </span>
+                                    </h2>
                                     {/* The swipe hint only makes sense over rows: above an
                                         empty list it promised gestures on nothing. */}
                                     {routePicker.kind === 'saved' &&
@@ -1349,16 +1436,17 @@ export const RoutePlanner: React.FC<{
                                     ref={routePickerCloseRef}
                                     type="button"
                                     onClick={closeRoutePicker}
-                                    className="hit-target-44 ml-3 shrink-0 text-sm font-bold text-gray-400"
+                                    aria-label="Close"
+                                    className={PLAN_DIALOG_CLOSE}
                                 >
-                                    Close
+                                    <XIcon className="h-5 w-5" />
                                 </button>
                             </div>
-                            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+                            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-1 pt-2">
                                 {routePicker.loading ? (
-                                    <div className="py-6 text-center text-[12px] text-gray-400">Loading…</div>
+                                    <div className="py-6 text-center text-xs text-gray-400">Loading…</div>
                                 ) : routePicker.items.length === 0 ? (
-                                    <div className="py-6 text-center text-[12px] text-gray-400">
+                                    <div className="py-6 text-center text-xs text-gray-400">
                                         {routePicker.kind === 'voyage'
                                             ? 'No sea voyages in the log yet.'
                                             : routePicker.checkingCompatibility
@@ -1400,8 +1488,19 @@ export const RoutePlanner: React.FC<{
                                                             the dog-leg arrow for a leg, a pin for a day
                                                             sail. Legs sit FLUSH — the arrow marks them,
                                                             not indentation (Shane 2026-08-27). */}
-                                                    <span aria-hidden="true" className="text-base leading-none">
-                                                        {it.kind === 'passage' ? '🧭' : it.kind === 'leg' ? '↳' : '📍'}
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className={`flex h-5 w-5 shrink-0 items-center justify-center text-base leading-none ${
+                                                            it.kind === 'passage' ? 'text-violet-300' : 'text-gray-400'
+                                                        }`}
+                                                    >
+                                                        {it.kind === 'passage' ? (
+                                                            <CompassIcon className="h-4 w-4" rotation={0} />
+                                                        ) : it.kind === 'leg' ? (
+                                                            '↳'
+                                                        ) : (
+                                                            <MapPinIcon className="h-4 w-4" />
+                                                        )}
                                                     </span>
                                                     <span className="min-w-0">
                                                         <span
@@ -1414,7 +1513,7 @@ export const RoutePlanner: React.FC<{
                                                             {it.title}
                                                         </span>
                                                         <span
-                                                            className={`block text-[11px] ${
+                                                            className={`block text-xs ${
                                                                 it.kind === 'passage'
                                                                     ? 'text-violet-300/60'
                                                                     : 'text-gray-400'
@@ -1424,7 +1523,7 @@ export const RoutePlanner: React.FC<{
                                                         </span>
                                                     </span>
                                                     {it.kind === 'passage' && (
-                                                        <span className="ml-auto shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-violet-300">
+                                                        <span className="ml-auto shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-xs font-black uppercase tracking-wide text-violet-300">
                                                             Passage
                                                         </span>
                                                     )}

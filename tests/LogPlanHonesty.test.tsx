@@ -56,10 +56,15 @@ describe('Log actions dialog', () => {
         const dialog = screen.getByRole('dialog', { name: 'Log actions' });
         const close = within(dialog).getByRole('button', { name: 'Close' });
         expect(close).toHaveFocus();
-        for (const label of ['Statistics', 'Track Map', 'Export', 'Share']) {
-            expect(within(dialog).getByRole('button', { name: label })).toBeDisabled();
+        // UX scorecard run 6: the reason sits under the title, before the rows,
+        // and each waiting row is described by it.
+        const reason = within(dialog).getByText('Record your first voyage to use these.');
+        for (const label of ['Statistics', 'Track map', 'Export', 'Share']) {
+            const row = within(dialog).getByRole('button', { name: label });
+            expect(row).toBeDisabled();
+            expect(row).toHaveAccessibleDescription('Record your first voyage to use these.');
+            expect(reason.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         }
-        expect(within(dialog).getAllByText('Record a voyage to unlock these.')).toHaveLength(1);
         expect(within(dialog).queryByRole('menuitem')).not.toBeInTheDocument();
 
         fireEvent.keyDown(close, { key: 'Escape' });
@@ -80,12 +85,15 @@ describe('Voyage stats when lifetime history is unavailable', () => {
                 lifetimeUnavailable
             />,
         );
-        expect(screen.getByText('Lifetime unavailable · this phone only')).toBeVisible();
+        expect(screen.getByText('Totals from this phone only — full history didn’t load')).toBeVisible();
         expect(screen.queryByText('Lifetime · includes archived')).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Voyage stats' }));
         expect(screen.getAllByText('--')).toHaveLength(3);
         expect(screen.queryByText('0.0')).not.toBeInTheDocument();
         expect(screen.queryByText('0h 0m')).not.toBeInTheDocument();
+        // Nothing local to count, so the notice does not call '--' "incomplete".
+        expect(screen.getByRole('status')).toHaveTextContent('There are no voyages on this phone to count yet.');
+        expect(screen.getByRole('status')).not.toHaveTextContent('incomplete');
     });
 
     it('keeps real local totals, tagged as this phone only', () => {
@@ -96,10 +104,56 @@ describe('Voyage stats when lifetime history is unavailable', () => {
                 lifetimeUnavailable
             />,
         );
-        expect(screen.getByText('Lifetime unavailable · this phone only')).toBeVisible();
+        expect(screen.getByText('Totals from this phone only — full history didn’t load')).toBeVisible();
         fireEvent.click(screen.getByRole('button', { name: 'Voyage stats' }));
         expect(screen.getByText('12.4')).toBeVisible();
         expect(screen.queryByText('--')).not.toBeInTheDocument();
+    });
+
+    it('lets VoiceOver hear the warning and offers Retry that re-runs the load', () => {
+        const retry = vi.fn();
+        const stats = { totalNm: 12.4, totalMs: 7_200_000, voyageCount: 1 };
+        /** LogPage's wiring: the reload clears the error while it runs. */
+        const Harness: React.FC = () => {
+            const [loading, setLoading] = useState(false);
+            return (
+                <>
+                    <VoyageStatsRollup
+                        voyageStats={stats}
+                        records={records}
+                        notice={loading ? 'Updating lifetime totals…' : undefined}
+                        lifetimeUnavailable={!loading}
+                        retrying={loading}
+                        onRetry={() => {
+                            retry();
+                            setLoading(true);
+                        }}
+                    />
+                    <button type="button" onClick={() => setLoading(false)}>
+                        Fail again
+                    </button>
+                </>
+            );
+        };
+        render(<Harness />);
+        const toggle = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(toggle).toHaveAccessibleDescription('Totals from this phone only — full history didn’t load');
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+        expect(retry).toHaveBeenCalledOnce();
+
+        // Mid-retry the card holds the warning instead of claiming "includes archived".
+        expect(screen.getByRole('button', { name: 'Retrying…' })).toBeDisabled();
+        expect(screen.getByText('Totals from this phone only — full history didn’t load')).toBeVisible();
+        expect(screen.queryByText('Lifetime · includes archived')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Fail again' }));
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+
+        // Expanded, the shorthand gives way to the full notice, with Retry beside it.
+        fireEvent.click(toggle);
+        expect(screen.queryByText('Totals from this phone only — full history didn’t load')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('These totals count only the voyages on this phone.');
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
     });
 });
 

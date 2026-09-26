@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming';
 import { groupPassageLogs } from './PassageLogList';
 import { useEndpointNames } from './useEndpointNames';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 type RestorePassage = (passageId: string, voyageIds: string[]) => Promise<void>;
 
@@ -16,6 +17,8 @@ interface ArchivedVoyagesSectionProps {
     loading?: boolean;
     error?: string | null;
     onRetry?: () => void;
+    /** Spacing for where the page places the card (default: below the list). */
+    className?: string;
 }
 
 function ArchivedVoyageCard({
@@ -73,8 +76,11 @@ export function ArchivedVoyagesSection({
     loading = false,
     error = null,
     onRetry,
+    className = 'mt-5',
 }: ArchivedVoyagesSectionProps) {
     const contentId = useId();
+    const statusLineId = useId();
+    const offline = !useOnlineStatus();
     const [restoringIds, setRestoringIds] = useState<readonly string[]>([]);
     const [restoreError, setRestoreError] = useState<string | null>(null);
     const [notice, setNotice] = useState('');
@@ -88,6 +94,11 @@ export function ArchivedVoyagesSection({
     const passageCount = groups.filter((group) => group.passage).length;
     const count = loggedArchivedVoyages.length;
     const busy = restoringIds.length > 0;
+    // Nothing to show and the read failed. Collapsed, this card is the only
+    // place the skipper sees it, so the Retry lives on the card itself.
+    const loadFailed = !!error && count === 0 && !loading;
+    // A cause only when the app already knows it (probe-verified offline).
+    const loadErrorText = error && offline ? `${error} You’re offline.` : error;
 
     async function restore(ids: string[], action: () => Promise<void>) {
         if (busyRef.current) return;
@@ -111,7 +122,7 @@ export function ArchivedVoyagesSection({
     }
 
     return (
-        <section className="mt-5 overflow-hidden rounded-[1.5rem] border border-slate-500/25 bg-slate-900/35">
+        <section className={`${className} overflow-hidden rounded-[1.5rem] border border-slate-500/25 bg-slate-900/35`}>
             <button
                 type="button"
                 aria-expanded={showArchived}
@@ -138,7 +149,7 @@ export function ArchivedVoyagesSection({
                         <span className="block text-xs font-black uppercase tracking-widest text-sky-300">
                             Archived voyages
                         </span>
-                        <span className="mt-1 block text-xs text-slate-400">
+                        <span id={statusLineId} className="mt-1 block text-xs text-slate-400">
                             {loading && count === 0
                                 ? 'Loading archive…'
                                 : error && count === 0
@@ -161,6 +172,20 @@ export function ArchivedVoyagesSection({
                 </span>
             </button>
 
+            {loadFailed && !showArchived && onRetry && (
+                <div className="-mt-1 flex items-center justify-between gap-3 px-4 pb-3">
+                    <span className="text-xs text-slate-400">{offline ? 'You’re offline.' : ''}</span>
+                    <button
+                        type="button"
+                        disabled={busy}
+                        aria-describedby={statusLineId}
+                        onClick={() => onRetry()}
+                        className="min-h-[44px] shrink-0 rounded-xl border border-sky-400/25 bg-sky-400/10 px-3.5 text-xs font-bold text-sky-200 transition-colors hover:bg-sky-400/20 disabled:opacity-50"
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
             <p role="status" className={notice ? 'mx-4 mb-3 text-xs font-semibold text-emerald-300' : 'sr-only'}>
                 {notice}
             </p>
@@ -169,7 +194,7 @@ export function ArchivedVoyagesSection({
                     {loading && <p className="px-1 text-xs text-sky-200">Updating archive…</p>}
                     {(error || restoreError) && (
                         <div role="alert" className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3">
-                            <p className="text-xs leading-relaxed text-amber-100">{restoreError || error}</p>
+                            <p className="text-xs leading-relaxed text-amber-100">{restoreError || loadErrorText}</p>
                             {onRetry && (
                                 <button
                                     type="button"
@@ -217,7 +242,7 @@ export function ArchivedVoyagesSection({
                                         <h3 className="text-xs font-extrabold tracking-[0.2em] text-yellow-300">
                                             PASSAGE
                                         </h3>
-                                        <p className="mt-1 text-[11px] text-purple-200/75">
+                                        <p className="mt-1 text-xs text-purple-200/75">
                                             {group.voyages.length} {group.voyages.length === 1 ? 'leg' : 'legs'}
                                         </p>
                                     </div>

@@ -610,7 +610,7 @@ describe('LogPage', () => {
 
         render(<LogPage />);
 
-        expect(screen.getByText('Begin Your Log')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Begin your log' })).toBeInTheDocument();
         expect(screen.queryByTestId('voyage-planned-only')).not.toBeInTheDocument();
     });
 
@@ -634,7 +634,7 @@ describe('LogPage', () => {
 
         render(<LogPage />);
 
-        expect(screen.getByText('Begin Your Log')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Begin your log' })).toBeInTheDocument();
         expect(screen.queryByTestId('voyage-stale-planned-route')).not.toBeInTheDocument();
     });
 
@@ -672,9 +672,9 @@ describe('LogPage', () => {
         logPageStateOverrides.hook.listVoyages = [];
         logPageStateOverrides.hook.archivedVoyages = [{ voyageId: 'past', isPlannedRoute: false }];
         render(<LogPage />);
-        expect(screen.queryByText('Begin Your Log')).not.toBeInTheDocument();
+        expect(screen.queryByText('Begin your log')).not.toBeInTheDocument();
         expect(screen.queryByTestId('log-watermark')).not.toBeInTheDocument();
-        expect(screen.getByText('Your past voyages are in the archive below.')).toBeInTheDocument();
+        expect(screen.getByText('Your past voyages are in the archive above.')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Archived voyages/i })).toHaveTextContent('1 voyage');
     });
 

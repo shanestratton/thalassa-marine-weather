@@ -47,3 +47,22 @@ export function withFollowRouteLoadDeadline<T>(promise: Promise<T>): Promise<T |
 export const subscribeIdentitySnapshot = (notify: () => void): (() => void) =>
     subscribeAuthIdentityScope(() => notify());
 export const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
+/** The one-second reading of "the lifetime read failed" (UX scorecard run 6:
+ *  "Lifetime unavailable · this phone only" could not be read at a glance). */
+export const LIFETIME_PHONE_ONLY = 'Totals from this phone only — full history didn’t load';
+
+/**
+ * The full notice for a lifetime read that failed and never succeeded. It
+ * names a cause only when the app already knows it (the probe-verified
+ * offline state), and never says "incomplete" over tiles that show '--'
+ * because this phone has nothing of its own to count.
+ */
+export function lifetimeUnavailableNotice(localVoyageCount: number, offline: boolean): string {
+    const lead = offline
+        ? 'Your full voyage history didn’t load — you’re offline.'
+        : 'Your full voyage history didn’t load.';
+    return localVoyageCount === 0
+        ? `${lead} There are no voyages on this phone to count yet.`
+        : `${lead} These totals count only the voyages on this phone.`;
+}

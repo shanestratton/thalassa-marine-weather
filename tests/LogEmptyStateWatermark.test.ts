@@ -17,7 +17,7 @@ describe('Ship’s Log watermark', () => {
         expect(empty).toContain('aria-hidden="true"');
         expect(empty).toContain('radial-gradient(circle at 50% 50%, black 52%, transparent 76%)');
         expect(empty).not.toContain('Compass rose petals');
-        // The words the page test looks for are untouched.
-        expect(empty).toContain('Begin Your Log');
+        // A sentence-case heading, not a Title Case paragraph (UX scorecard run 6).
+        expect(empty).toContain('<h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>');
     });
 });

@@ -38,9 +38,9 @@ test('standalone /plan keeps guests behind usable sign-in choices', async ({ pag
     expect(privacyBox).not.toBeNull();
     expect(privacyBox!.y).toBeGreaterThanOrEqual(googleBox!.y + googleBox!.height + 8);
 
-    const slider = page.getByRole('button', { name: 'Slide to Start Plotting', exact: true });
-    await expect(slider).toHaveCount(1);
-    await expect(slider.click({ trial: true, timeout: 750 })).rejects.toThrow();
+    const startPlotting = page.getByRole('button', { name: 'Start plotting', exact: true });
+    await expect(startPlotting).toHaveCount(1);
+    await expect(startPlotting.click({ trial: true, timeout: 750 })).rejects.toThrow();
     await page.keyboard.press('Escape');
     await expect(wall).toBeVisible();
     expect(trialRequests).toBe(0);

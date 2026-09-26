@@ -34,6 +34,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../theme', () => ({
+    // The sign-in view's Button (via useThemeStore) resolves tokens per
+    // environment, so the theme mock answers for the module, not just `t`.
+    getThemeForEnvironment: () => ({
+        button: { primary: 'primary', secondary: 'secondary', danger: 'danger', ghost: 'ghost' },
+    }),
+    touchTarget: { button: 'min-h-[44px]', buttonSm: 'min-h-[36px]', icon: 'w-11 h-11' },
     t: {
         colors: { bg: { base: 'bg-slate-950' } },
         border: { default: 'border border-white/10' },
@@ -661,13 +667,14 @@ describe('CrewManagement shared passage ownership', () => {
         expect(labels.some((label) => /Coral Sea(?! - Mackay)/.test(label))).toBe(false);
     });
 
-    it('keeps the full Passage Planning title clear and removes bulk route deletion from the active selector', () => {
+    it('keeps the full page title clear and removes bulk route deletion from the active selector', () => {
         const saved = voyage('saved-route', 'crew-user', 'Brisbane → Moreton');
         mocks.getCachedDraftVoyages.mockReturnValue([saved]);
 
         renderPage();
 
-        expect(screen.getByRole('heading', { name: 'Passage Planning' })).toBeInTheDocument();
+        // Matches the Vessel hub row that opens this page (glossary, UX scorecard run 6).
+        expect(screen.getByRole('heading', { name: 'Crew & Float Plan' })).toBeInTheDocument();
         expect(screen.queryByTestId('passage-header-action')).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /clear all|delete all/i })).not.toBeInTheDocument();
     });

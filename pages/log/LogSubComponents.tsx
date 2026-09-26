@@ -16,7 +16,7 @@ import { publishFollowedRouteDetailed } from '../../services/shiplog/publishFoll
 import { VoyageLogService } from '../../services/VoyageLogService';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
-import { LockIcon } from '../../components/Icons';
+import { ClockIcon } from '../../components/Icons';
 import {
     groupEntriesByDate,
     groupEntriesByNoonWindow,
@@ -41,7 +41,8 @@ export const StatBox: React.FC<{ label: string; value: string | number }> = Reac
 // A plain button, not role="menuitem": the Log kebab opens the same titled
 // dialog as the Route Planner's (UX audit run 5). Disabled rows stay legible
 // (slate-400, no opacity fade — the old slate-500 at 40% measured ~2.95:1 and
-// read as "broken") and carry a lock so they read as "not yet", not "gone".
+// read as "broken") and carry a clock so they read as "not yet", not "gone".
+// Not a lock: the app's lock means "pay to unlock" (UX scorecard run 6).
 
 export const MenuBtn: React.FC<{
     /** Glyph shown before the label — the app's stroke SVG icons, not emoji. */
@@ -51,12 +52,15 @@ export const MenuBtn: React.FC<{
     disabled?: boolean;
     danger?: boolean;
     accent?: boolean;
-}> = React.memo(({ icon, label, onClick, disabled, danger, accent }) => (
+    /** Id of the line that says why a disabled row is waiting. */
+    describedBy?: string;
+}> = React.memo(({ icon, label, onClick, disabled, danger, accent, describedBy }) => (
     <button
         type="button"
         onClick={onClick}
         disabled={disabled}
         aria-disabled={disabled || undefined}
+        aria-describedby={describedBy}
         className={`w-full min-h-[44px] rounded-xl px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
             disabled
                 ? 'text-slate-400 cursor-not-allowed'
@@ -73,7 +77,7 @@ export const MenuBtn: React.FC<{
         {label}
         {disabled && (
             <span className="ml-auto shrink-0" aria-hidden="true">
-                <LockIcon className="h-3.5 w-3.5" />
+                <ClockIcon className="h-3.5 w-3.5" />
             </span>
         )}
     </button>

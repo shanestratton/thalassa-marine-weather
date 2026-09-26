@@ -11,6 +11,8 @@ import { StatBox } from './LogSubComponents';
 import type { LifetimeVoyageStats } from '../../utils/lifetimeVoyageStats';
 import { VoyageTotalsTiles } from './VoyageTotalsTiles';
 import { PersonalRecordsStrip } from './PersonalRecordsStrip';
+import { LIFETIME_PHONE_ONLY, lifetimeUnavailableNotice } from './logPageHelpers';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 export const LogStatsFullscreen: React.FC<{
     dispatch: (action: LogPageAction) => void;
@@ -32,6 +34,11 @@ export const LogStatsFullscreen: React.FC<{
     // Nothing loaded and the history read failed: '--', not a hard 0.0 that
     // reads as "never sailed" (same rule as VoyageStatsRollup).
     const totalsUnavailable = lifetimeUnavailable && lifetimeStats.totals.voyageCount === 0;
+    const offline = !useOnlineStatus();
+    // Same words as the Log's Voyage stats card.
+    const notice = lifetimeUnavailable
+        ? lifetimeUnavailableNotice(lifetimeStats.totals.voyageCount, offline)
+        : lifetimeStatsNotice;
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -50,13 +57,11 @@ export const LogStatsFullscreen: React.FC<{
                 {!selectedVoyageId ? (
                     <>
                         <p className="mb-4 text-center text-sm font-semibold text-purple-200">
-                            {lifetimeUnavailable
-                                ? 'Lifetime unavailable · this phone only'
-                                : 'Lifetime · includes archived voyages'}
+                            {lifetimeUnavailable ? LIFETIME_PHONE_ONLY : 'Lifetime · includes archived voyages'}
                         </p>
-                        {lifetimeStatsNotice && (
+                        {notice && (
                             <p role="status" className="mb-4 text-sm text-amber-200">
-                                {lifetimeStatsNotice}
+                                {notice}
                             </p>
                         )}
                         <VoyageTotalsTiles voyageStats={lifetimeStats.totals} unavailable={totalsUnavailable} />

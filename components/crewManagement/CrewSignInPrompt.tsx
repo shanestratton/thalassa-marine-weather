@@ -1,5 +1,5 @@
 /**
- * CrewSignInPrompt — the "Sign In Required" view of Passage Planning.
+ * CrewSignInPrompt — the "Sign in required" view of Passage Planning.
  *
  * Moved verbatim out of components/CrewManagement.tsx's `!isAuthed` early
  * return. It holds no state of its own; the early return itself (and the
@@ -8,6 +8,7 @@
 import React from 'react';
 import { t } from '../../theme';
 import { PageHeader } from '../ui/PageHeader';
+import { Button } from '../ui/Button';
 import { SignInScreen } from '../SignInScreen';
 import { UsersIcon } from '../Icons';
 
@@ -20,22 +21,19 @@ interface CrewSignInPromptProps {
 export const CrewSignInPrompt: React.FC<CrewSignInPromptProps> = ({ onBack, showAuth, setShowAuth }) => {
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-            <PageHeader title="Passage Planning" onBack={onBack} />
+            <PageHeader title="Crew & Float Plan" onBack={onBack} />
             <div className="flex-1 flex items-center justify-center p-8">
                 <div className="text-center">
                     <div className="mb-4 flex justify-center text-sky-300/70">
                         <UsersIcon className="w-12 h-12" />
                     </div>
-                    <h2 className="text-lg font-bold text-white mb-2">Sign In Required</h2>
+                    <h2 className="text-lg font-bold text-white mb-2">Sign in required</h2>
                     <p className="text-sm text-gray-400 max-w-xs mb-6">
                         Sign in to save routes, prepare the passage with your crew, and privately share its float plan.
                     </p>
-                    <button
-                        onClick={() => setShowAuth(true)}
-                        className="px-6 py-3 bg-white text-slate-900 font-bold rounded-xl shadow-lg hover:bg-gray-100 transition-all active:scale-95"
-                    >
-                        Sign In
-                    </button>
+                    <Button variant="primary" onClick={() => setShowAuth(true)}>
+                        Sign in
+                    </Button>
                 </div>
             </div>
             <SignInScreen
