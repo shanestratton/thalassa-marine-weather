@@ -74,9 +74,7 @@ describe('EncLibraryPage', () => {
         // The ENC Library must stay independent of the Pi. Since 2026-08-06
         // that is a separation statement rather than a beta hold — the Pi
         // ships, but nothing on this page reaches it.
-        expect(screen.getByText(/Pi discovery and sync stay separate/i)).toHaveTextContent(
-            /pinned boat-network transport/i,
-        );
+        expect(screen.getByText(/Pi discovery and sync stay separate/i)).toHaveTextContent(/Thalassa iPhone app/i);
         expect(screen.getByText(/cannot authenticate the publisher/i)).toHaveTextContent(
             /ignored by route verification/i,
         );

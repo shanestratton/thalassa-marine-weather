@@ -379,7 +379,10 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             border: '3px solid rgba(255,255,255,0.15)',
                         }}
                     >
-                        <div className="flex flex-col items-center gap-1 text-white">
+                        {/* White in BOTH palettes, set inline: `.display-light .text-white`
+                            turns text navy, and navy on this red measured ~4.6:1 — the
+                            emergency control must look the same by day and by night. */}
+                        <div className="flex flex-col items-center gap-1" style={{ color: '#ffffff' }}>
                             <svg
                                 width="48"
                                 height="48"
@@ -398,7 +401,12 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             <span className="text-[22px] font-black tracking-widest uppercase">
                                 {activating ? 'Marking…' : 'MOB'}
                             </span>
-                            <span className="text-[10px] font-bold tracking-widest uppercase">Tap to Mark</span>
+                            {/* Still tappable with no fix (the tap takes the best position the
+                                phone holds and says why if there is none), but the caption warns
+                                before the tap rather than after it. */}
+                            <span className="text-xs font-bold tracking-widest uppercase">
+                                {fixWord === 'No fix' ? 'Tap to Mark · No fix' : 'Tap to Mark'}
+                            </span>
                         </div>
                     </button>
 

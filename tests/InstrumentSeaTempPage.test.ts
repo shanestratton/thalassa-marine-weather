@@ -41,7 +41,7 @@ describe('the Sea temp page in the instrument panel', () => {
 
     it('is honest when the bus carries no water temperature', () => {
         expect(section).toContain('No water temperature on the bus');
-        expect(section).toContain('Nothing here is invented.');
+        expect(section).toContain('so none is shown');
         // The number itself is a dash, never a zero, when the metric is dead.
         expect(formatSeaTemp(null, 'C')).toBe('--');
         expect(formatSeaTemp(undefined, 'F')).toBe('--');

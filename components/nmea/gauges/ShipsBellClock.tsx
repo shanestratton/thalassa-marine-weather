@@ -52,6 +52,18 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
     const minuteAngle = (minute + second / 60) * 6;
     const secondAngle = second * 6;
 
+    // What a screen reader hears: the time, the zone, the bells and the watch,
+    // in one sentence. The face's own text is aria-hidden so it is not read a
+    // second time as twelve loose numerals and four captions. Minutes only —
+    // the name must not churn every second.
+    const pad2 = (n: number) => String(Math.floor(n)).padStart(2, '0');
+    const spokenLabel = [
+        "Ship's bell clock",
+        `${pad2(hour)}:${pad2(minute)}${zoneLabel ? ` ${zoneLabel}` : ''}`,
+        bellsSpoken(bells).toLowerCase(),
+        watch.name.toLowerCase(),
+    ].join(', ');
+
     /**
      * Eight markers in a row, grouped in the PAIRS they are struck in.
      *
@@ -92,8 +104,14 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
     // screen; on a short or landscape screen the height wins, so a square that fills
     // the width can never run off the bottom.
     return (
-        <div className="nmea-clock relative mx-auto w-full" style={{ maxWidth: CLOCK_MAX_WIDTH, aspectRatio: '1' }}>
-            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="Ship's bell clock">
+        // brightness-[0.85] only on the dark palette: the ivory face was the
+        // brightest surface in the app on night watch. Brass captions stay
+        // ≥ 4.5:1 on the dimmed dial; daylight keeps the full-bright face.
+        <div
+            className="nmea-clock relative mx-auto w-full brightness-[0.85] [.display-light_&]:brightness-100"
+            style={{ maxWidth: CLOCK_MAX_WIDTH, aspectRatio: '1' }}
+        >
+            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={spokenLabel}>
                 <defs>
                     <linearGradient id="bell-bezel" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={BRASS_LIGHT} />
@@ -149,6 +167,7 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
                     return (
                         <text
                             key={`h-${n}`}
+                            aria-hidden="true"
                             x={p.x}
                             y={p.y}
                             textAnchor="middle"
@@ -163,14 +182,18 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
                     );
                 })}
 
+                {/* fontSize 11, not 9: the face renders ~1.12× at 375 pt wide,
+                    so 9 came out ~10 px — under the 12 px floor. 11 clears it
+                    and still sits inside the 10 and the 2. */}
                 <text
+                    aria-hidden="true"
                     x={CX}
                     y={CY - 52}
                     textAnchor="middle"
                     fill={BRASS_DARK}
-                    fontSize="9"
+                    fontSize="11"
                     fontWeight="700"
-                    letterSpacing="3"
+                    letterSpacing="2.5"
                     fontFamily="Georgia, 'Times New Roman', serif"
                 >
                     SHIP&apos;S BELL
@@ -181,6 +204,7 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
                     the one thing a clock must never do. */}
                 {zoneLabel && (
                     <text
+                        aria-hidden="true"
                         x={CX}
                         y={CY - 36}
                         textAnchor="middle"
@@ -195,6 +219,7 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
 
                 {/* What the bells mean, said the way it is said aloud. */}
                 <text
+                    aria-hidden="true"
                     x={CX}
                     y={CY + 42}
                     textAnchor="middle"
@@ -205,14 +230,17 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
                 >
                     {bellsSpoken(bells)}
                 </text>
+                {/* 11 for the same 12 px floor; the tighter tracking keeps
+                    AFTERNOON WATCH clear of the 8 and the 4. */}
                 <text
+                    aria-hidden="true"
                     x={CX}
                     y={CY + 56}
                     textAnchor="middle"
                     fill={BRASS_DARK}
-                    fontSize="9"
+                    fontSize="11"
                     fontWeight="700"
-                    letterSpacing="1.4"
+                    letterSpacing="1.2"
                 >
                     {watch.name.toUpperCase()}
                 </text>

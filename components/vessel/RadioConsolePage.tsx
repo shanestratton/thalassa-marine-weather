@@ -529,6 +529,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 onBack={onBack}
                 action={
                     <div
+                        role="status"
                         className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold uppercase tracking-widest ${gpsStatusClass}`}
                     >
                         <span
@@ -565,7 +566,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                             <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">SOG</div>
                             <div className="text-[18px] font-black text-white">
                                 {sogKts !== null ? sogKts.toFixed(1) : '—'}
-                                <span className="text-[10px] font-bold text-slate-500 ml-0.5">kts</span>
+                                <span className="text-xs font-bold text-slate-500 ml-1">kts</span>
                             </div>
                         </div>
                         <div className="w-px h-7 bg-white/8 shrink-0" />
@@ -573,13 +574,15 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                             <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">COG</div>
                             <div className="text-[18px] font-black text-white">
                                 {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '—'}
-                                <span className="text-[10px] font-bold text-slate-500 ml-0.5">°T</span>
+                                <span className="text-xs font-bold text-slate-500 ml-1">°T</span>
                             </div>
                         </div>
                         <div className="w-px h-7 bg-white/8 shrink-0" />
                         <div className="flex-1 text-center">
                             <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">UTC</div>
-                            <div className="text-[16px] font-black text-white tracking-wider">{utcTime}</div>
+                            {/* Same 18 px as SOG/COG; no extra tracking so HH:MM:SS
+                                still fits a third of a 375 pt row. */}
+                            <div className="text-[18px] font-black text-white">{utcTime}</div>
                         </div>
                     </div>
                 </div>
@@ -720,12 +723,15 @@ const ChannelStrip: React.FC<{ mode: DscMode }> = ({ mode }) => {
     );
 };
 
+/** The Distress pill before it is chosen: faint red, never neutral grey. */
+const MAYDAY_AT_REST = 'bg-red-500/5 border-red-400/30 text-slate-400 hover:bg-red-500/10';
+
 const DscSelector: React.FC<{
     mode: DscMode;
     onChange: (m: DscMode) => void;
     mobActive: boolean;
 }> = ({ mode, onChange, mobActive }) => {
-    const pill = (m: DscMode, label: string, hint: string, activeClasses: string) => {
+    const pill = (m: DscMode, label: string, hint: string, activeClasses: string, restClasses?: string) => {
         const isActive = mode === m;
         return (
             <button
@@ -735,7 +741,9 @@ const DscSelector: React.FC<{
                     onChange(m);
                 }}
                 className={`min-h-14 min-w-0 flex-1 py-2.5 px-1 rounded-xl border text-center transition-all active:scale-[0.97] ${
-                    isActive ? activeClasses : 'bg-white/3 border-white/8 text-slate-400 hover:bg-white/6'
+                    isActive
+                        ? activeClasses
+                        : (restClasses ?? 'bg-white/3 border-white/8 text-slate-400 hover:bg-white/6')
                 }`}
                 aria-pressed={isActive}
             >
@@ -757,7 +765,9 @@ const DscSelector: React.FC<{
             <div className="flex gap-2">
                 {pill('routine', 'Routine', 'Position', 'bg-sky-500/15 border-sky-500/40 text-sky-300')}
                 {pill('urgency', 'Urgency', 'Pan-Pan', 'bg-amber-500/15 border-amber-400/40 text-amber-300')}
-                {pill('distress', 'Distress', 'Mayday', 'bg-red-500/15 border-red-400/40 text-red-300')}
+                {/* Mayday carries a faint red edge even at rest, so it never reads
+                    as just another option beside Routine and Pan-Pan. */}
+                {pill('distress', 'Distress', 'Mayday', 'bg-red-500/15 border-red-400/40 text-red-300', MAYDAY_AT_REST)}
             </div>
         </div>
     );
