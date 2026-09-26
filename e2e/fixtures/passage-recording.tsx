@@ -95,12 +95,12 @@ function Fixture() {
                 controlsHidden={hidden}
                 onControlsHiddenChange={setHidden}
             />
-            <footer
-                aria-label="Main navigation"
+            <nav
+                aria-label="Main"
                 className="absolute inset-x-0 bottom-0 flex h-16 items-center justify-center border-t border-white/10 bg-slate-950 text-xs text-slate-400"
             >
                 Layout fixture · actual HUD and weather controls
-            </footer>
+            </nav>
         </main>
     );
 }

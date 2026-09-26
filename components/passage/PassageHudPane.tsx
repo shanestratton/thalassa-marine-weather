@@ -592,8 +592,9 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                         : (element.closest('.absolute') ?? element),
                 ),
             );
-            const navigation = document.querySelector('[aria-label="Main navigation"]');
-            if (navigation) furniture.add(navigation.closest('nav') ?? navigation);
+            // The tab bar is <nav aria-label="Main"> since UX scorecard run 7.
+            const navigation = document.querySelector('nav[aria-label="Main"]');
+            if (navigation) furniture.add(navigation);
             const chartBounds = chart.getBoundingClientRect();
             let bottom = Math.min(chartBounds.bottom, window.innerHeight) - 8;
             for (const element of furniture) {

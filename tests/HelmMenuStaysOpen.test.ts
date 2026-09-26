@@ -86,12 +86,28 @@ describe('the helm menu dismissal contract', () => {
         expect(mpa).not.toContain('opensSheet');
     });
 
-    it('does not close on Clear All — clearing is usually a prelude to picking', () => {
-        const clears = [...src.matchAll(/Clear All/g)];
-        expect(clears.length).toBeGreaterThan(0);
-        for (const m of clears) {
-            const handler = src.slice(Math.max(0, m.index! - 900), m.index!).replace(/\/\/[^\n]*/g, '');
-            expect(handler).not.toContain('closeMenu');
+    it('does not close on Clear all — clearing is usually a prelude to picking', () => {
+        // Comments stripped (block first, so a '//' inside one cannot eat its
+        // close), so only the real handler and buttons are inspected. Matching
+        // the words 'Clear All' found nothing but comments once the pills read
+        // 'Clear all'.
+        const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+        // The one handler both pills share clears and stays open.
+        const start = code.indexOf('const handleClearAll = useCallback(');
+        expect(start).toBeGreaterThan(-1);
+        const handler = code.slice(start, code.indexOf('useEffect(', start));
+        expect(handler).toContain("toggleLayer('none')");
+        expect(handler).not.toContain('closeMenu');
+
+        // Both pills (the tier-2 grid footer and the tier-1 pill) call it
+        // directly, with nothing else in their click path.
+        const pills = [...code.matchAll(/Clear all · \{totalActive\}/gi)];
+        expect(pills).toHaveLength(2);
+        for (const m of pills) {
+            const button = code.slice(code.lastIndexOf('button', m.index!), m.index!);
+            expect(button).toContain('onClick={handleClearAll}');
+            expect(button).not.toContain('closeMenu');
         }
     });
 

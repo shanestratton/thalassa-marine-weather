@@ -85,7 +85,10 @@ test('all HUD readings fit without inner scrolling while timelines and navigatio
                 const timeline =
                     document.querySelector('.thalassa-route-scrubber') ??
                     document.querySelector('[role="slider"][aria-label$=" timeline"]')!.closest('.absolute');
-                const navigation = document.querySelector('[aria-label="Main navigation"]')!;
+                // The fixture's stand-in bar (e2e/fixtures/passage-recording.tsx),
+                // not App.tsx: it is still labelled for PassageHudPane's own
+                // lookup, and the three must change together.
+                const navigation = document.querySelector('nav[aria-label="Main"]')!;
                 return (
                     bounds.bottom <= timeline!.getBoundingClientRect().top - 7 &&
                     bounds.bottom < navigation.getBoundingClientRect().top

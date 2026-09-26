@@ -27,5 +27,5 @@ export function creditsStripTop(offsetPx = 0): string {
     return `calc(env(safe-area-inset-top) + ${CREDITS_STRIP_TOP_PX + offsetPx}px)`;
 }
 
-/** Centred under the dropdown; z sits under the dropdown's own menu (z-710). */
+/** Centred under the dropdown; z sits under the dropdown (z-700 shut, z-9998 open). */
 export const CREDITS_STRIP_POSITION_CLASS = 'absolute left-1/2 -translate-x-1/2';
