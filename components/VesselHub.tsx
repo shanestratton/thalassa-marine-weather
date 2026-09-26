@@ -39,7 +39,7 @@ import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
-import { WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
+import { AnchorIcon, WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 import {
@@ -564,7 +564,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<BoxIcon color="var(--day-ui-muted, #cbd5e1)" />}
                             label="Ship's Stores"
-                            status="Provisions & Spares"
+                            status="Provisions & spares"
                             statusColor="var(--day-ui-muted, #94a3b8)"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -581,7 +581,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<ChecklistIcon color="var(--day-ui-muted, #cbd5e1)" />}
                             label="Checklists"
-                            status="Safety & Passage"
+                            status="Safety & passage"
                             statusColor="var(--day-ui-muted, #94a3b8)"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -592,7 +592,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<ClipboardIcon color="var(--day-ui-muted, #cbd5e1)" />}
                             label="Equipment"
-                            status={expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'}
+                            status={
+                                expiringEquipCount > 0
+                                    ? `${expiringEquipCount} ${expiringEquipCount === 1 ? 'warranty' : 'warranties'} ending soon`
+                                    : 'Register & warranties'
+                            }
                             statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
@@ -604,7 +608,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
                             label="Repairs & Maintenance"
-                            status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
+                            status={overdueCount > 0 ? `${overdueCount} overdue` : 'Tasks & expiry'}
                             statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
@@ -617,7 +621,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
                             label="Documents"
-                            status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
+                            status={expiringDocsCount > 0 ? `${expiringDocsCount} expiring` : 'Legal papers'}
                             statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
@@ -652,7 +656,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<GalleyIcon color="var(--day-ui-muted, #cbd5e1)" />}
                             label="Galley"
-                            status="Meal Planning"
+                            status="Meal planning"
                             statusColor="var(--day-ui-muted, #94a3b8)"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -667,7 +671,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<BookIcon color="var(--day-ui-accent, #38bdf8)" />}
                             label="Skipper's Reference"
-                            status="GRIB · Synoptic · Squalls"
+                            status="GRIB · synoptic · squalls"
                             statusColor="var(--day-ui-accent, #38bdf8)"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -678,7 +682,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<ChartIcon color="var(--day-ui-muted, #cbd5e1)" />}
                             label="Polars"
-                            status={isObserver ? 'Vessel Required' : 'Tuning'}
+                            status={isObserver ? 'Vessel required' : 'Tuning'}
                             statusColor={isObserver ? '#6b7280' : '#94a3b8'}
                             onClick={() => {
                                 if (isObserver) return;
@@ -696,7 +700,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<GpxIcon color="var(--day-ui-muted, #cbd5e1)" />}
                             label="Import GPX"
-                            status="OpenCPN • Navionics"
+                            status="From OpenCPN or Navionics"
                             statusColor="var(--day-ui-muted, #94a3b8)"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -951,7 +955,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
                                 className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
-                                {/* THE SAME 8x8 DOT IN EVERY STATE. The live
+                                {/* THE SAME GLYPH IN EVERY STATE. The live
                                     swing arc used to take this slot while the
                                     anchor was down — a picture worth having,
                                     but not at a quarter of the deck's width,
@@ -961,22 +965,27 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     Anchor screen, and on the At Anchor card
                                     below where there is room for it. Here the
                                     colour does the work: cyan down, grey up,
-                                    red and pulsing while dragging. */}
+                                    red and pulsing while dragging.
+                                    An anchor, not a plain dot: a 12px grey dot
+                                    beside three icon tiles read as a tile that
+                                    had not loaded (UX referee 2026-09-26). */}
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
                                     style={{ background: `${anchorColor}1f` }}
                                 >
-                                    <div
-                                        className="h-3 w-3 rounded-full"
+                                    <span
+                                        className="inline-flex"
                                         style={{
-                                            backgroundColor: anchorColor,
-                                            boxShadow:
+                                            color: daylightUiColor(anchorColor),
+                                            filter:
                                                 anchorEffectivelyArmed || anchorStatus === 'alarm'
-                                                    ? `0 0 8px ${anchorColor}60`
+                                                    ? `drop-shadow(0 0 4px ${anchorColor}60)`
                                                     : 'none',
                                             animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
                                         }}
-                                    />
+                                    >
+                                        <AnchorIcon className="h-4 w-4" />
+                                    </span>
                                 </div>
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
                                 <p
@@ -1073,11 +1082,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </div>
                                 <div>
                                     <h4 className="text-[13px] font-black text-white tracking-wide">Diary</h4>
+                                    {/* Sentence case, one line: uppercase with wide tracking
+                                        folded "VOYAGE / JOURNAL" in a half-width tile. */}
                                     <p
-                                        className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                        className="mt-0.5 text-xs font-semibold leading-snug"
                                         style={{ color: 'var(--day-ui-success, #5EEAD4)' }}
                                     >
-                                        Voyage Journal
+                                        Journal
                                     </p>
                                 </div>
                             </div>
@@ -1108,10 +1119,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <div>
                                     <h4 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h4>
                                     <p
-                                        className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                        className="mt-0.5 text-xs font-semibold leading-snug"
                                         style={{ color: 'var(--day-ui-accent, #7dd3fc)' }}
                                     >
-                                        Community · DMs
+                                        Community
                                     </p>
                                 </div>
                             </div>
@@ -1151,13 +1162,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         icon={<CrewIcon color="var(--day-ui-purple, #c4b5fd)" />}
                         label="Passage Planning"
                         status={
-                            passageCrewCount > 0
-                                ? `${passageCrewCount} crew`
-                                : pendingCrewInvites > 0
-                                  ? `${pendingCrewInvites} Pending`
-                                  : 'Plan Your Voyage'
+                            pendingCrewInvites > 0
+                                ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
+                                : 'Plan your voyage'
                         }
                         statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#a78bfa'}
+                        value={passageCrewCount > 0 ? `${passageCrewCount} crew` : undefined}
+                        valueColor="#a78bfa"
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('crew');
@@ -1203,8 +1214,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     </div>
                     <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-black tracking-wide text-white">Boat Binder</span>
-                        <span className="mt-0.5 block text-[11px] font-bold uppercase tracking-widest text-cyan-300">
-                            Inventory · Reference
+                        <span className="mt-0.5 block text-xs font-semibold leading-snug text-cyan-300">
+                            Inventory &amp; reference
                         </span>
                     </span>
                     <span aria-hidden className="shrink-0">
@@ -1401,9 +1412,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         void refreshSkipperClaim({ maxAgeMs: 0 });
     }, []);
     // Shane 2026-09-06: "Release - this is not the Primary Device" / "Press to make this the Primary Device".
-    const actionLabel = claimHeld
-        ? 'Release — this is not the Primary Device'
-        : 'Press to make this the Primary Device';
+    // Same two meanings, in sentence case: the full-width capitals shouted over
+    // the card's own status (UX referee 2026-09-26).
+    const actionLabel = claimHeld ? 'Release — stop being the primary device' : 'Make this the primary device';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;
         claim: SkipperClaim;
@@ -1485,7 +1496,13 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 {/* Shane 2026-09-06: the boat's name is the top line, the GPS
                     order is the next, the button says what pressing it does.
                     Fixed h-[120px] with overflow-hidden (tests assert it), so
-                    every row has a fixed height and truncates, never wraps. */}
+                    every row has a fixed height and truncates, never wraps.
+
+                    The top line carries no "PRIMARY DEVICE" label any more: in
+                    capitals beside the boat's name it read as a status, so a
+                    skipper saw "Primary device" on an unclaimed card and did
+                    not press (UX referee 2026-09-26). The status is now said
+                    in words on the second line instead. */}
                 <div className="mb-1.5 flex h-5 items-center gap-2">
                     <span aria-hidden="true" className="shrink-0 text-[12px] leading-none text-cyan-300">
                         ⚓
@@ -1499,19 +1516,19 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                             {vesselName}
                         </span>
                     ) : (
-                        <span className="min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-widest text-cyan-300">
-                            Primary device
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-black tracking-wide text-slate-300">
+                            Your vessel
                         </span>
                     )}
-                    {vesselName && (
-                        <span className="shrink-0 text-[12px] font-black uppercase tracking-widest text-cyan-300/80">
-                            {piPrimary ? 'Primary: the Pi' : claimHeld ? 'Primary: this phone' : 'Primary device'}
-                        </span>
+                    {piPrimary && (
+                        <span className="shrink-0 text-[12px] font-bold text-emerald-300">Primary: the Pi</span>
                     )}
                 </div>
                 {/* The order the app believes GPS in: the boat's own receiver
                     (bus, or the Pi that holds it) when it is present, then this
-                    device — or just this device when there is no boat GPS.
+                    device — or just this device when there is no boat GPS —
+                    followed by who is primary, in words. The full sentence is
+                    for screen readers; the short one is what fits.
                     With the Pi primary this row says nothing (Shane 2026-09-08:
                     "get rid of this device unless there is no pi") — the pill
                     below says it all. The row keeps its height so the card
@@ -1530,16 +1547,19 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         >
                             {vesselGpsLive && (
                                 <>
-                                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[12px] font-bold leading-none text-emerald-300">
                                         Boat GPS
                                     </span>
-                                    <span aria-hidden="true" className="text-[10px] font-black text-gray-500">
+                                    <span
+                                        aria-hidden="true"
+                                        className="text-[12px] font-black leading-none text-gray-500"
+                                    >
                                         ›
                                     </span>
                                 </>
                             )}
                             <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                                className={`rounded-full px-2 py-0.5 text-[12px] font-bold leading-none ${
                                     claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/8 text-gray-300'
                                 }`}
                             >
@@ -1547,12 +1567,20 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                             </span>
                         </span>
                     )}
-                    {!piPrimary && claim && !claimHeld && (
+                    {!piPrimary && (
                         <span
+                            aria-hidden="true"
+                            data-testid="skipper-device-status"
                             title={statusDescription}
-                            className="min-w-0 flex-1 truncate text-right text-[10px] font-bold text-amber-300"
+                            className={`min-w-0 flex-1 truncate text-right text-[12px] font-bold leading-none ${
+                                claim ? (claimHeld ? 'text-emerald-300' : 'text-amber-300') : 'text-slate-300'
+                            }`}
                         >
-                            {claim.deviceName} · {claimAgeLabel(claim)}
+                            {claim
+                                ? claimHeld
+                                    ? 'Primary: this phone'
+                                    : `Primary: ${claim.deviceName} · ${claimAgeLabel(claim)}`
+                                : 'No primary yet'}
                         </span>
                     )}
                     {!piPrimary && <p className="sr-only">{statusDescription}</p>}
@@ -1560,7 +1588,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 {piPrimary ? (
                     <p
                         data-testid="skipper-device-pi-primary"
-                        className="flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.06em] text-emerald-300"
+                        className="flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[13px] font-bold leading-tight text-emerald-300"
                     >
                         The Pi is the Primary Device
                     </p>
@@ -1569,7 +1597,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         type="button"
                         onClick={handleAction}
                         aria-label={actionLabel}
-                        className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[10px] font-black uppercase tracking-[0.06em] transition-colors active:brightness-110 ${
+                        className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[13px] font-bold transition-colors active:brightness-110 ${
                             claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
                         }`}
                     >

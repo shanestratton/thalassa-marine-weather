@@ -25,6 +25,68 @@ import {
     type ShipClockPrefs,
 } from '../../services/shipClockPrefs';
 
+/** "GMT+10" → "UTC+10" for a zone right now, or '' where Intl cannot say.
+ *  Offsets move with daylight saving, so this is read, never computed. */
+function utcOffsetLabel(timeZone: string, when: Date): string {
+    try {
+        const name =
+            new Intl.DateTimeFormat('en-GB', { timeZone, timeZoneName: 'shortOffset' })
+                .formatToParts(when)
+                .find((p) => p.type === 'timeZoneName')?.value ?? '';
+        return name.replace(/^GMT/, 'UTC').replace(/^UTC$/, 'UTC+0');
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * What the dropdown SAYS for a zone — a pure relabel; the stored value is the
+ * zone ID unchanged. The raw list read "Knox", "Center", "GMT+10": three-part
+ * names lost their state, and the Etc/GMT zones carry the POSIX sign, so
+ * "Etc/GMT+10" is ten hours BEHIND UTC — shown as "GMT+10" it said the
+ * opposite of what a sailor reads (UX referee 2026-09-26).
+ */
+function zoneOptionLabel(timeZone: string, when: Date): string {
+    const etc = /^Etc\/(?:GMT|UTC)([+-])(\d{1,2})$/.exec(timeZone);
+    if (etc) return `Fixed offset (UTC${etc[2] === '0' || etc[1] === '-' ? '+' : '−'}${etc[2]})`;
+    const parts = timeZone.split('/');
+    const place =
+        parts.length > 2
+            ? `${zoneDisplayName(timeZone)}, ${parts[parts.length - 2].replace(/_/g, ' ')}`
+            : zoneDisplayName(timeZone);
+    const offset = utcOffsetLabel(timeZone, when);
+    return offset && timeZone !== 'UTC' ? `${place} (${offset})` : place;
+}
+
+/**
+ * How many of listTimeZones()' entries are its pinned head (this phone's zone,
+ * then the curated common ones) rather than the device's full list after them.
+ * The head is the shortest prefix whose remainder is exactly the device list
+ * minus that prefix; with no device list, everything is the head.
+ */
+function pinnedHeadCount(all: string[]): number {
+    let supported: string[] = [];
+    try {
+        const values = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+        if (typeof values === 'function') supported = values('timeZone');
+    } catch {
+        supported = [];
+    }
+    if (supported.length === 0) return all.length;
+    for (let k = 1; k < Math.min(all.length, 40); k++) {
+        const head = new Set(all.slice(0, k));
+        const rest = supported.filter((z) => !head.has(z));
+        if (rest.length === all.length - k && rest.every((z, i) => z === all[k + i])) return k;
+    }
+    return all.length;
+}
+
+/** The region an ID files under, for the grouped list. */
+function zoneRegion(timeZone: string): string {
+    if (timeZone.startsWith('Etc/') || !timeZone.includes('/')) return 'Fixed offsets';
+    return timeZone.split('/')[0];
+}
+
 export const ShipClockSection: React.FC = () => {
     const [prefs, setPrefs] = useState<ShipClockPrefs>(() => readShipClockPrefs());
     useEffect(() => {
@@ -32,7 +94,42 @@ export const ShipClockSection: React.FC = () => {
         window.addEventListener(SHIP_CLOCK_PREFS_EVENT, onPrefs);
         return () => window.removeEventListener(SHIP_CLOCK_PREFS_EVENT, onPrefs);
     }, []);
-    const zoneOptions = useMemo(() => listTimeZones(), []);
+    // Same IDs listTimeZones() gives, relabelled and grouped: the pinned head
+    // (this phone's zone, then the ones boats round here keep) first, then
+    // every other zone by region — this phone's region first — alphabetical
+    // within it, instead of the device's raw database order.
+    const zoneGroups = useMemo(() => {
+        const now = new Date();
+        const all = listTimeZones();
+        const device = deviceTimeZone();
+        const headCount = pinnedHeadCount(all);
+        const labelled = all.map((id) => ({ id, label: zoneOptionLabel(id, now) }));
+        const head = labelled.slice(0, headCount);
+        const byRegion = new Map<string, { id: string; label: string }[]>();
+        for (const z of labelled.slice(headCount)) {
+            const region = zoneRegion(z.id);
+            byRegion.set(region, [...(byRegion.get(region) ?? []), z]);
+        }
+        const home = zoneRegion(device);
+        const regions = [...byRegion.keys()].sort((a, b) =>
+            a === home
+                ? -1
+                : b === home
+                  ? 1
+                  : a === 'Fixed offsets'
+                    ? 1
+                    : b === 'Fixed offsets'
+                      ? -1
+                      : a.localeCompare(b),
+        );
+        return {
+            head,
+            regions: regions.map((region) => ({
+                region,
+                zones: (byRegion.get(region) ?? []).sort((a, b) => a.label.localeCompare(b.label)),
+            })),
+        };
+    }, []);
     const shipZone = useWeatherOptional()?.weatherData?.timeZone ?? null;
     const effectiveZone = prefs.zone === SHIP_ZONE_AUTO ? (shipZone ?? deviceTimeZone()) : prefs.zone;
 
@@ -82,32 +179,45 @@ export const ShipClockSection: React.FC = () => {
                 </button>
             </Row>
             <Row>
-                <div className="flex-1">
+                {/* Full width UNDER its label: beside it, at 55% of the row, the
+                    select clipped its own value to "Ship's position · Bı". */}
+                <div className="min-w-0 flex-1">
                     <label htmlFor="ship-clock-zone" className="text-sm text-white font-medium block">
                         Clock zone
                     </label>
                     <p className="text-xs text-gray-400">
-                        Ship’s position follows the boat; a picked zone always wins.
-                    </p>
-                </div>
-                <select
-                    id="ship-clock-zone"
-                    value={prefs.zone}
-                    onChange={(e) => update({ zone: e.target.value })}
-                    aria-label="Clock time zone"
-                    className="thalassa-select max-w-[55%] min-w-0 min-h-[44px] appearance-none rounded-xl border border-white/10 bg-black/40 pl-3 pr-9 text-sm text-white"
-                >
-                    <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
                         {shipZone
-                            ? `Ship’s position · ${zoneDisplayName(shipZone)}`
-                            : `Ship’s position · ${zoneDisplayName(deviceTimeZone())} (phone until she reports)`}
-                    </option>
-                    {zoneOptions.map((z) => (
-                        <option key={z} value={z} className="bg-slate-900">
-                            {zoneDisplayName(z)}
+                            ? 'Ship’s position follows the boat; a picked zone always wins.'
+                            : 'Ship’s position follows the boat — this phone’s zone until she reports. A picked zone always wins.'}
+                    </p>
+                    <select
+                        id="ship-clock-zone"
+                        value={prefs.zone}
+                        onChange={(e) => update({ zone: e.target.value })}
+                        aria-label="Clock time zone"
+                        className="thalassa-select mt-3 w-full min-w-0 min-h-[44px] appearance-none rounded-xl border border-white/10 bg-black/40 pl-3 pr-9 text-sm text-white"
+                    >
+                        <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
+                            {`Ship’s position (${zoneDisplayName(shipZone ?? deviceTimeZone())})`}
                         </option>
-                    ))}
-                </select>
+                        <optgroup label="Suggested">
+                            {zoneGroups.head.map((z) => (
+                                <option key={z.id} value={z.id} className="bg-slate-900">
+                                    {z.label}
+                                </option>
+                            ))}
+                        </optgroup>
+                        {zoneGroups.regions.map(({ region, zones }) => (
+                            <optgroup key={region} label={region}>
+                                {zones.map((z) => (
+                                    <option key={z.id} value={z.id} className="bg-slate-900">
+                                        {z.label}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        ))}
+                    </select>
+                </div>
             </Row>
         </Section>
     );

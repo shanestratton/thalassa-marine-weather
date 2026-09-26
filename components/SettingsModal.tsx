@@ -3,7 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
-import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
+import { BellIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { useSettings } from '../context/SettingsContext';
 import { GpsService } from '../services/GpsService';
@@ -14,6 +14,7 @@ import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
+import { RowChevron } from './settings/SettingsPrimitives';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { BackButton } from './ui/BackButton';
 import { authScopedStorageKey } from '../services/authIdentityScope';
@@ -535,7 +536,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                                     : item.description}
                                             </p>
                                         </div>
-                                        <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                                        <RowChevron className="w-4 h-4 text-gray-400 group-hover:text-sky-400 transition-colors" />
                                     </button>
                                 ))}
                             {!searchIsActive &&
@@ -564,7 +565,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                                         : item.description}
                                                 </p>
                                             </div>
-                                            <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                                            <RowChevron className="w-4 h-4 text-gray-400 group-hover:text-sky-400 transition-colors" />
                                         </button>
                                     ));
                                     return (
@@ -590,7 +591,11 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             </h1>
                         </div>
                     )}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-48">
+                    {/* pb-20, not pb-48: the port already ends above the tab bar, so
+                        192px left ~250pt of empty page under the last section. 80px
+                        still clears the floating now-playing bar (56px, parked 4px
+                        above the tab bar) so the last row can scroll out from under it. */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-20">
                         {activeTab === 'locations' && (
                             <LocationsTab settings={settings} onSave={onSave} onLocationSelect={onLocationSelect} />
                         )}
