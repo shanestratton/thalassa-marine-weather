@@ -9,7 +9,7 @@
  * without coords still render and re-geocode at planner time.
  */
 import React, { useState } from 'react';
-import { Section, type SettingsTabProps } from './SettingsPrimitives';
+import { Section, RowChevron, type SettingsTabProps } from './SettingsPrimitives';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { buildRemoveLocationPatch } from '../../utils/savedLocations';
 import { UndoToast } from '../ui/UndoToast';
@@ -35,6 +35,8 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
         });
         onSave(buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, loc));
     };
+    // The Default Port (Preferences) is a free-text name; match it loosely.
+    const defaultPort = settings.defaultLocation?.trim().toLowerCase() || '';
     const undoRemove = () => {
         if (!removed) return;
         onSave({ savedLocations: removed.savedLocations, savedLocationCoords: removed.savedLocationCoords });
@@ -44,67 +46,74 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
         <>
             <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
                 <Section title="Saved Ports & Anchorages">
-                    <div className="flex flex-col gap-2 p-2">
-                        {(settings.savedLocations || []).length === 0 && (
-                            <div className="text-center py-8 text-gray-400">
-                                <MapPinIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                                <p className="text-sm font-bold text-gray-300">No saved locations</p>
-                                {/* "The Glass", not "the weather page" — that is what
-                                    the tab is called. Ports are saved from its ★ menu. */}
-                                <p className="text-xs mt-1">
-                                    Save a port from the ★ menu on The Glass, or save a departure or destination in the
-                                    route planner, to add it here.
-                                </p>
-                            </div>
-                        )}
-                        {(settings.savedLocations || []).map((loc, i) => {
-                            const coords = settings.savedLocationCoords?.[loc];
-                            return (
-                                <div
-                                    key={i}
-                                    className="flex items-stretch justify-between bg-white/5 border border-white/5 rounded-xl group hover:bg-white/10 transition-colors"
-                                >
-                                    <div
-                                        className="flex items-center gap-4 flex-1 cursor-pointer min-w-0 p-4"
-                                        onClick={() => onLocationSelect(loc)}
-                                        role="button"
-                                        tabIndex={0}
-                                        onKeyDown={(e) => e.key === 'Enter' && onLocationSelect(loc)}
-                                        aria-label={`Navigate to ${loc}`}
-                                    >
-                                        <div className="p-2 rounded-full bg-sky-500/20 text-sky-400 shrink-0">
-                                            <MapPinIcon className="w-5 h-5" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <div className="font-bold text-white text-sm truncate">{loc}</div>
-                                            {coords && (
-                                                <div className="text-xs font-mono text-sky-300/70 mt-0.5">
-                                                    {coords.lat.toFixed(4)}°{coords.lat >= 0 ? 'N' : 'S'} ·{' '}
-                                                    {coords.lon.toFixed(4)}°{coords.lon >= 0 ? 'E' : 'W'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeLocation(loc);
-                                        }}
-                                        className="hit-target-44 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 self-center mr-2"
-                                        aria-label={`Remove ${loc}`}
-                                    >
-                                        <TrashIcon className="w-5 h-5" />
-                                    </button>
-                                </div>
-                            );
-                        })}
-                        {(settings.savedLocations || []).length > 0 && (
-                            <p className="px-2 pt-1 pb-1 text-xs leading-snug text-gray-400">
-                                Add more from the ★ menu on The Glass, or by saving a departure or destination in the
-                                route planner.
+                    {(settings.savedLocations || []).length === 0 && (
+                        <div className="text-center px-4 py-8 text-gray-400">
+                            <MapPinIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm font-bold text-gray-300">No saved locations</p>
+                            {/* "The Glass", not "the weather page" — that is what
+                                the tab is called. Ports are saved from its ★ menu. */}
+                            <p className="text-xs mt-1">
+                                Save a port from the ★ menu on The Glass, or save a departure or destination in the
+                                route planner, to add it here.
                             </p>
-                        )}
-                    </div>
+                        </div>
+                    )}
+                    {/* Flat rows in the section card (no card-in-card), each a real
+                        button with a chevron like every other settings row that
+                        opens something. "Show weather for", not "Navigate to":
+                        in a marine app that reads as plotting a route. */}
+                    {(settings.savedLocations || []).map((loc, i) => {
+                        const coords = settings.savedLocationCoords?.[loc];
+                        const isDefault = !!defaultPort && loc.trim().toLowerCase() === defaultPort;
+                        return (
+                            <div
+                                key={i}
+                                className="flex items-center border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors"
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => onLocationSelect(loc)}
+                                    aria-label={`Show weather for ${loc}${isDefault ? ', default port' : ''}`}
+                                    className="flex flex-1 min-w-0 min-h-11 items-center gap-3 py-3 pl-4 pr-2 text-left"
+                                >
+                                    <span className="p-2 rounded-full bg-sky-500/20 text-sky-400 shrink-0">
+                                        <MapPinIcon className="w-5 h-5" />
+                                    </span>
+                                    <span className="block min-w-0 flex-1">
+                                        <span className="flex min-w-0 items-center gap-2">
+                                            <span className="font-bold text-white text-sm truncate">{loc}</span>
+                                            {isDefault && (
+                                                <span className="shrink-0 rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-xs font-bold text-sky-200">
+                                                    Default port
+                                                </span>
+                                            )}
+                                        </span>
+                                        {coords && (
+                                            <span className="block text-xs font-mono text-sky-300/70 mt-0.5">
+                                                {coords.lat.toFixed(4)}°{coords.lat >= 0 ? 'N' : 'S'} ·{' '}
+                                                {coords.lon.toFixed(4)}°{coords.lon >= 0 ? 'E' : 'W'}
+                                            </span>
+                                        )}
+                                    </span>
+                                    <RowChevron />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => removeLocation(loc)}
+                                    className="hit-target-44 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 mr-2"
+                                    aria-label={`Remove ${loc}`}
+                                >
+                                    <TrashIcon className="w-5 h-5" />
+                                </button>
+                            </div>
+                        );
+                    })}
+                    {(settings.savedLocations || []).length > 0 && (
+                        <p className="px-4 py-3 text-xs leading-snug text-gray-400">
+                            Add more from the ★ menu on The Glass, or by saving a departure or destination in the route
+                            planner.
+                        </p>
+                    )}
                 </Section>
             </div>
             <UndoToast

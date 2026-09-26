@@ -176,7 +176,7 @@ describe('public-beta account deletion contract', () => {
         expect(accountTab).toContain('ACCOUNT_DELETION_PUBLIC_BETA_ENABLED ? (');
         expect(accountTab).toContain('Account deletion temporarily unavailable');
         expect(accountTab).toContain('ACCOUNT_DELETION_PRIVACY_MAILTO');
-        expect(accountTab).toContain('Delete Account and Data');
+        expect(accountTab).toContain('Delete account and data');
         expect(dialog).toContain('role="alertdialog"');
         expect(dialog).toContain('ACCOUNT_DELETION_CONFIRMATION');
         expect(service).toContain('purgeLocalDatabaseForUser(userId)');

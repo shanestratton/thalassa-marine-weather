@@ -8,6 +8,13 @@ vi.mock('../services/AnchorWatchService', () => ({
     },
 }));
 
+// The real sign-in sheet pulls in the auth providers; a marker dialog is
+// enough to show the signed-out button opens it.
+vi.mock('../components/SignInScreen', () => ({
+    SignInScreen: ({ isOpen }: { isOpen?: boolean }) =>
+        isOpen ? <div role="dialog" aria-label="Sign in to Thalassa" /> : null,
+}));
+
 import { SkipperDeviceControl } from '../components/VesselHub';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { getDeviceId, type SkipperClaim } from '../services/skipperDevice';
@@ -109,7 +116,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         expect(screen.getByText('No device claimed yet — any signed-in device can publish.')).toBeInTheDocument();
         // A sighted skipper reads the state too, not just a screen reader — and
         // no "Primary device" label stands in for a claim that does not exist.
-        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent('No primary yet');
+        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent('No primary device yet');
         expect(screen.queryByText(/Claim one to make it the single source/i)).not.toBeInTheDocument();
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
         expect(screen.getByRole('button', { name: 'Make this the primary device' })).toHaveClass(
@@ -131,6 +138,23 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             'h-11',
             'whitespace-nowrap',
         );
+    });
+
+    it('asks for a sign-in instead of offering a claim while signed out', () => {
+        // Signed out, a claim publishes nothing, so offering "Make this the
+        // primary device" promised an action that could not happen (UX
+        // scorecard run 6). The button says what is needed and opens sign-in.
+        const updateSettings = vi.fn();
+        render(<SkipperDeviceControl claim={null} authenticatedUserId={null} updateSettings={updateSettings} />);
+
+        expect(screen.queryByRole('button', { name: 'Make this the primary device' })).not.toBeInTheDocument();
+        const signIn = screen.getByRole('button', { name: 'Sign in to make this the primary device' });
+        expect(signIn).toHaveClass('h-11', 'whitespace-nowrap');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+
+        fireEvent.click(signIn);
+        expect(screen.getByRole('dialog', { name: 'Sign in to Thalassa' })).toBeInTheDocument();
+        expect(updateSettings).not.toHaveBeenCalled();
     });
 
     it('names the active vessel this device publishes for, without growing the card', () => {

@@ -137,7 +137,9 @@ const MENU_ITEMS: {
     {
         id: 'alerts',
         label: 'Notifications',
-        description: 'Anchor alarm, weather alerts',
+        // The page holds weather thresholds only; the anchor alarm lives on
+        // Anchor Watch (UX scorecard run 6).
+        description: 'Wind, sea, visibility & temperature alerts',
         icon: (c) => <BellIcon className={c} />,
         iconBg: 'bg-red-500/15 text-red-400 shadow-red-500/10',
         iconHoverBg: 'group-hover:bg-red-500/25',
@@ -178,9 +180,12 @@ const MENU_ITEMS: {
 
 /** Small section header used on both desktop sidebar and mobile menu. An h2
  *  under the page's h1, not a <p>: ESSENTIALS and ACCOUNT & SHARING are the
- *  menu's two sections (UX scorecard run 5). The look is unchanged. */
+ *  menu's two sections (UX scorecard run 5). It wears the cyan-dot heading of
+ *  the sub-pages' Section, so the menu and its pages speak one heading style
+ *  (UX scorecard run 6). */
 const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <h2 className="ui-section-heading text-label font-bold uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">
+    <h2 className="ui-section-heading text-label font-bold uppercase tracking-[0.15em] text-sky-300 flex items-center gap-2 px-2 pt-3 pb-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50" aria-hidden="true" />
         {children}
     </h2>
 );
@@ -522,12 +527,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         aria-label={`Open ${item.label} settings`}
                                         key={item.id}
                                         onClick={() => handleSelectTab(item.id)}
-                                        className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                                        className="group w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
                                     >
                                         <div
-                                            className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
+                                            className={`p-2.5 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
                                         >
-                                            {item.icon('w-6 h-6')}
+                                            {item.icon('w-5 h-5')}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
@@ -540,6 +545,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         <RowChevron className="w-4 h-4 text-gray-400 group-hover:text-sky-400 transition-colors" />
                                     </button>
                                 ))}
+                            {/* Rows are ~64 pt (a 40 pt icon tile in 12 pt padding), not
+                                80: at 80 the sixth row, Voyage Log, sat wholly below the
+                                fold at 393 pt, so Account & Sharing read as a one-row
+                                section (UX scorecard run 6). */}
                             {!searchIsActive &&
                                 SETTINGS_GROUPS.map((group) => {
                                     const items = MENU_ITEMS.filter((m) => m.group === group.id);
@@ -549,12 +558,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                             aria-label={`Open ${item.label} settings`}
                                             key={item.id}
                                             onClick={() => handleSelectTab(item.id)}
-                                            className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                                            className="group w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
                                         >
                                             <div
-                                                className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
+                                                className={`p-2.5 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
                                             >
-                                                {item.icon('w-6 h-6')}
+                                                {item.icon('w-5 h-5')}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-white font-bold text-sm tracking-wide">
@@ -583,14 +592,18 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 <div
                     className={`flex-1 flex flex-col h-full bg-transparent overflow-hidden ${activeTab === null ? 'hidden md:flex' : ''}`}
                 >
-                    {/* Mobile: the shared page header for a nested page — Settings
-                        breadcrumb, section title, back. Both the chevron and the
-                        crumb return to the settings menu, as the chevron did. */}
+                    {/* Mobile: the shared page header for a nested page — back,
+                        section title, and 'Settings' as its caption. The trail
+                        used to be a row of its own above the title, which only
+                        repeated the title and cost ~24 pt of a header stack
+                        already ~182 pt tall; the caption carries the same
+                        'where am I' in the title row, and the chevron still
+                        returns to the settings menu (UX scorecard run 6). */}
                     {activeTab !== null && (
                         <div className="md:hidden relative z-20 shrink-0 bg-slate-950/90 border-b border-white/5">
                             <PageHeader
                                 title={MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
-                                breadcrumbs={['Settings', MENU_ITEMS.find((m) => m.id === activeTab)?.label || '']}
+                                subtitle="Settings"
                                 onBack={() => setActiveTab(null)}
                             />
                         </div>
@@ -644,16 +657,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
 
-                        {activeTab === 'voyageLog' && <VoyageLogTab settings={settings} onSave={onSave} />}
+                        {activeTab === 'voyageLog' && (
+                            <VoyageLogTab
+                                settings={settings}
+                                onSave={onSave}
+                                onOpenAccount={() => setActiveTab('account')}
+                            />
+                        )}
                     </div>
                 </div>
 
                 {/* Factory Reset confirmation dialog */}
                 <ConfirmDialog
                     isOpen={showFactoryReset}
-                    title="Factory Reset"
+                    title="Factory reset"
                     message="Restore all settings to default? This cannot be undone."
-                    confirmLabel="Reset Everything"
+                    confirmLabel="Reset everything"
                     cancelLabel="Cancel"
                     destructive
                     onConfirm={() => {

@@ -66,7 +66,7 @@ describe('Account & Cloud sign-in choices', () => {
         expect(m.send).not.toHaveBeenCalled();
         expect(m.apple).not.toHaveBeenCalled();
         expect(m.google).not.toHaveBeenCalled();
-        await waitFor(() => expect(screen.queryByText('CHECKING...')).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByText('Checking…')).not.toBeInTheDocument());
     });
     it('opens and focuses the existing passwordless email form, then returns to the email choice', () => {
         render(<SignInScreen isOpen onClose={vi.fn()} />);
