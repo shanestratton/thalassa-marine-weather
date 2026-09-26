@@ -20,8 +20,9 @@ import {
 import { supabase } from '../../services/supabase';
 import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
-import { Row, RowChevron, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { Button } from '../ui/Button';
+import { SignInButton } from '../ui/SignInButton';
 import { EyeIcon, LockIcon } from '../Icons';
 import {
     getAuthIdentityScope,
@@ -52,6 +53,10 @@ const publicUrlForHandle = (handle: string) => `https://${handle}.thalassawx.app
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 
+// Loaded only when a signed-out skipper asks to sign in: the sheet pulls in the
+// auth store, which nothing else on this page needs.
+const SignInScreen = React.lazy(() => import('../SignInScreen').then((m) => ({ default: m.SignInScreen })));
+
 /**
  * The setup failure in the skipper's words. VoyageLogService.lastError is a
  * server reason ('Couldn't create Voyage Log config: <postgres message>'); it
@@ -59,7 +64,7 @@ const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscrib
  */
 const plainSetupError = (reason: string): string => {
     if (/sign in|sign-in/i.test(reason)) {
-        return 'You need to be signed in. Sign in on Account & Cloud, then try again.';
+        return 'You need to be signed in. Sign in, then try again.';
     }
     if (/offline|signal|network|fetch|unavailable/i.test(reason)) {
         return "Thalassa couldn't reach the server. Check your signal and try again.";
@@ -68,11 +73,14 @@ const plainSetupError = (reason: string): string => {
 };
 
 interface VoyageLogTabProps extends SettingsTabProps {
-    /** Opens Account & Cloud — where a signed-out skipper signs in. */
-    onOpenAccount?: () => void;
+    /** The sign-in sheet opened over this page. Signing in remounts Settings
+     *  under the new account; the host uses this to reopen Voyage Log. */
+    onSignInOpened?: () => void;
+    /** The sheet closed (dismissed, or done). */
+    onSignInClosed?: () => void;
 }
 
-export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, onOpenAccount }) => {
+export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, onSignInOpened, onSignInClosed }) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
     /**
      * Data is rendered only when it was reset/loaded for this exact generation.
@@ -87,6 +95,10 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
     const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
     const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
     const [setupError, setSetupError] = useState<string | null>(null);
+    // Sign-in opens over this page and closes itself when an account lands, so
+    // the skipper finishes on Voyage Log — no detour to Account & Cloud and
+    // back (UX scorecard run 7).
+    const [signInOpen, setSignInOpen] = useState(false);
     // Ref for the hero URL element — used by the auto-fit effect below
     // to grow/shrink the font so the whole link fits on one line. Must
     // live above the early-returns so hooks order is stable.
@@ -569,28 +581,48 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
         const signedOut = !identityScope.userId;
         return (
             <div className="pb-8">
-                <p className="text-sm text-gray-400 mb-6">
-                    Your Voyage Log is a public page where the folks at home can follow your passage — your published
-                    diary entries, your track on a map, and your latest position and barometer reading.
-                </p>
+                {signInOpen && (
+                    <React.Suspense fallback={null}>
+                        <SignInScreen
+                            isOpen
+                            onClose={() => {
+                                setSignInOpen(false);
+                                onSignInClosed?.();
+                            }}
+                            prompt="Sign in to set up your Voyage Log. You'll come straight back here."
+                        />
+                    </React.Suspense>
+                )}
                 {renderCrewSection()}
+                {/* The intro is the card's first row, like copy on every other
+                    settings page — it used to sit bare on the page (UX scorecard run 7). */}
                 <Section title="Get started">
+                    <Row>
+                        <p className="text-sm leading-relaxed text-gray-300">
+                            Your Voyage Log is a public page where the folks at home can follow your passage — your
+                            published diary entries, your track on a map, and your latest position and barometer
+                            reading.
+                        </p>
+                    </Row>
                     {signedOut ? (
                         // The page lives on the skipper's account, so a signed-out
-                        // Set up could only fail. Point at the sign-in instead.
-                        <Row
-                            onClick={onOpenAccount}
-                            label="Sign in to set up your Voyage Log. Opens Account and Cloud."
-                            className="min-h-[44px]"
-                        >
+                        // Set up could only fail. Offer the sign-in instead, the
+                        // one sign-in control Account & Cloud uses. The row's
+                        // title beside it says what signing in is for.
+                        <Row>
                             <div className="flex-1 min-w-0">
                                 <div className="text-sm text-white font-bold">Sign in to set up your Voyage Log</div>
                                 <div className="text-xs text-gray-400 mt-1">
-                                    Your Voyage Log belongs to your Thalassa account. Sign in on Account &amp; Cloud,
-                                    then come back here.
+                                    Your Voyage Log belongs to your Thalassa account.
                                 </div>
                             </div>
-                            {onOpenAccount && <RowChevron />}
+                            <SignInButton
+                                onClick={() => {
+                                    setSignInOpen(true);
+                                    onSignInOpened?.();
+                                }}
+                                className="shrink-0"
+                            />
                         </Row>
                     ) : (
                         <Row>

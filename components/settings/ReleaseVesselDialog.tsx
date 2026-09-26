@@ -239,7 +239,7 @@ export const ReleaseVesselDialog: React.FC<ReleaseVesselDialogProps> = ({
                 )}
 
                 <fieldset className="mt-4">
-                    <legend className="text-[11px] font-black uppercase tracking-wide text-slate-400">
+                    <legend className="text-xs font-black uppercase tracking-wide text-slate-400">
                         Why is she leaving your fleet?
                     </legend>
                     <div className="mt-2 space-y-1.5">
@@ -274,7 +274,7 @@ export const ReleaseVesselDialog: React.FC<ReleaseVesselDialogProps> = ({
                     <div className="mt-4">
                         <label
                             htmlFor="release-vessel-typed-name"
-                            className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-400"
+                            className="mb-1.5 block text-xs font-black uppercase tracking-wide text-slate-400"
                         >
                             Type her name to confirm
                         </label>

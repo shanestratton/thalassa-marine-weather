@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
-import { CloudIcon, LockIcon } from '../Icons';
+import { CheckIcon, CloudIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
 import { useAuth } from '../../context/AuthContext';
 import { checkStormglassStatus } from '../../services/weather/keys';
@@ -13,6 +13,7 @@ import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { Button } from '../ui/Button';
+import { SignInButton } from '../ui/SignInButton';
 import {
     ACCOUNT_DELETION_PRIVACY_EMAIL,
     ACCOUNT_DELETION_PRIVACY_MAILTO,
@@ -49,21 +50,23 @@ const isOpenMeteoConfigured = () => isSupabaseConfigured();
 // A STATE, never an instruction, and never more than is known. Nothing on this
 // page probes a service: checkStormglassStatus() returns OK without a request
 // (it will not spend paid quota to paint Settings), and the rest only read
-// whether a key or URL is present. So a set-up service reads a neutral
-// "Configured" with a grey dot — the green "Ready"/"Working" pair read as two
-// live checks, and "Cloud sync: Ready" glowed green while signed out (UX
-// scorecard run 6). Green is kept for a real check; none runs here yet.
-type ServiceState = 'configured' | 'missing' | 'free' | 'checking' | 'error' | 'paused' | 'signedOut';
+// whether a key or URL is present. So a set-up service says exactly that —
+// "Set up", with a neutral tick — never "Ready"/"Working", which read as live
+// checks (UX scorecard run 6). "Configured" plus a footnote explaining it was
+// developer's wording, and a bare "Paused" gave no reason (run 7).
+type ServiceState = 'setUp' | 'missing' | 'free' | 'checking' | 'error' | 'paused' | 'signedOut';
 
 const SERVICE_STATE: Record<ServiceState, { dot: string; text: string; word: string }> = {
-    configured: { dot: 'bg-slate-400', text: 'text-gray-300', word: 'Configured' },
+    setUp: { dot: '', text: 'text-gray-300', word: 'Set up' },
     missing: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Not set up' },
     // The marine forecast without its key runs on the free sources.
     free: { dot: 'bg-sky-500', text: 'text-sky-300', word: 'Free mode' },
     checking: { dot: 'bg-yellow-500 animate-pulse', text: 'text-yellow-400', word: 'Checking…' },
     error: { dot: 'bg-red-500', text: 'text-red-400', word: 'Not working' },
-    paused: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Paused' },
-    signedOut: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Sign in to sync' },
+    // The assistant (Calypso) is parked for the public beta
+    // (FEATURE_VISIBILITY.calypsoConsole), whatever key is present.
+    paused: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Paused for the beta' },
+    signedOut: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Needs sign-in' },
 };
 
 /** One flat row in the Services list: plain sentence-case name, state on the right. */
@@ -72,7 +75,11 @@ const StatusRow = ({ label, state, details }: { label: string; state: ServiceSta
     return (
         <li className="flex min-h-[44px] items-center justify-between gap-3 px-4 py-3 border-b border-white/5 last:border-0">
             <div className="flex min-w-0 items-center gap-3">
-                <span aria-hidden="true" className={`w-2.5 h-2.5 shrink-0 rounded-full ${look.dot}`} />
+                {state === 'setUp' ? (
+                    <CheckIcon className="w-4 h-4 shrink-0 -mx-[3px] text-gray-300" />
+                ) : (
+                    <span aria-hidden="true" className={`w-2.5 h-2.5 shrink-0 rounded-full ${look.dot}`} />
+                )}
                 <span className="text-sm font-bold text-white">{label}</span>
             </div>
             <span className={`text-right text-sm font-medium ${look.text}`}>{details || look.word}</span>
@@ -80,7 +87,14 @@ const StatusRow = ({ label, state, details }: { label: string; state: ServiceSta
     );
 };
 
-export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+interface AccountTabProps extends SettingsTabProps {
+    /** The sign-in sheet opened over this page (the host reopens it after). */
+    onSignInOpened?: () => void;
+    /** The sheet closed (dismissed, or done). */
+    onSignInClosed?: () => void;
+}
+
+export const AccountTab: React.FC<AccountTabProps> = ({ settings, onSave, onSignInOpened, onSignInClosed }) => {
     const { user, logout } = useAuth();
     const [authOpen, setAuthOpen] = useState(false);
     const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
@@ -110,7 +124,10 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
             <SignInScreen
                 isOpen={authOpen}
-                onClose={() => setAuthOpen(false)}
+                onClose={() => {
+                    setAuthOpen(false);
+                    onSignInClosed?.();
+                }}
                 prompt="Sign in to sync your vessel, voyages, and crew across devices."
             />
             {ACCOUNT_DELETION_PUBLIC_BETA_ENABLED && DeleteAccountDialog && (
@@ -181,9 +198,12 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         </p>
                     </div>
                     {!user ? (
-                        <Button variant="primary" onClick={() => setAuthOpen(true)} className="px-8">
-                            Sign in
-                        </Button>
+                        <SignInButton
+                            onClick={() => {
+                                setAuthOpen(true);
+                                onSignInOpened?.();
+                            }}
+                        />
                     ) : (
                         <div className="flex flex-col gap-3 items-center w-full">
                             <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
@@ -220,15 +240,17 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     </Row>
                     <Row>
                         <div className="flex-1">
-                            <label className="text-sm text-white font-medium block">Supabase</label>
+                            <p className="text-sm text-white font-medium">Cloud service</p>
                             <p className="text-xs text-gray-400">
-                                {isSupabaseConfigured() ? 'Backend configured and ready' : 'Backend not configured'}
+                                {isSupabaseConfigured()
+                                    ? 'Set up in this app — where your synced data lives'
+                                    : 'Not set up in this app'}
                             </p>
                         </div>
                         <div
                             className={`px-3 py-1 rounded-full text-xs font-bold ${isSupabaseConfigured() ? 'bg-white/5 border border-white/10 text-gray-300' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}
                         >
-                            {isSupabaseConfigured() ? 'Configured' : 'Missing'}
+                            {isSupabaseConfigured() ? 'Set up' : 'Not set up'}
                         </div>
                     </Row>
                 </Section>
@@ -248,6 +270,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 className={`p-2.5 rounded-xl transition-all duration-500 ${settings.satelliteMode ? 'bg-amber-500/20 text-amber-400 shadow-lg shadow-amber-500/20 scale-110' : 'bg-white/5 text-gray-400'}`}
                             >
                                 <svg
+                                    aria-hidden="true"
                                     className="w-5 h-5"
                                     fill="none"
                                     viewBox="0 0 24 24"
@@ -263,7 +286,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 </svg>
                             </div>
                             <div>
-                                <p className="text-white font-bold text-sm">Satellite Mode</p>
+                                <p className="text-white font-bold text-sm">Satellite mode</p>
                                 <p
                                     className={`text-xs mt-0.5 transition-colors ${settings.satelliteMode ? 'text-amber-300/70' : 'text-gray-400'}`}
                                 >
@@ -274,7 +297,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                             </div>
                         </div>
                         <Toggle
-                            label="Satellite Mode"
+                            label="Satellite mode"
                             checked={!!settings.satelliteMode}
                             onChange={(v) => onSave({ satelliteMode: v })}
                         />
@@ -382,7 +405,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                   ? 'free'
                                   : sgStatus.status === 'ERROR'
                                     ? 'error'
-                                    : 'configured'
+                                    : 'setUp'
                         }
                         details={sgStatus?.status === 'ERROR' ? sgStatus.message : undefined}
                     />
@@ -392,24 +415,17 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <StatusRow
                         label="Assistant"
                         state={
-                            !FEATURE_VISIBILITY.calypsoConsole
-                                ? 'paused'
-                                : isGeminiConfigured()
-                                  ? 'configured'
-                                  : 'missing'
+                            !FEATURE_VISIBILITY.calypsoConsole ? 'paused' : isGeminiConfigured() ? 'setUp' : 'missing'
                         }
                     />
-                    <StatusRow label="Charts" state={isMapboxConfigured() ? 'configured' : 'missing'} />
+                    <StatusRow label="Charts" state={isMapboxConfigured() ? 'setUp' : 'missing'} />
                     {/* Sync needs a session, not just a configured backend. */}
                     <StatusRow
                         label="Cloud sync"
-                        state={!isSupabaseConfigured() ? 'missing' : user ? 'configured' : 'signedOut'}
+                        state={!isSupabaseConfigured() ? 'missing' : user ? 'setUp' : 'signedOut'}
                     />
-                    <StatusRow label="Weather models" state={isOpenMeteoConfigured() ? 'configured' : 'missing'} />
+                    <StatusRow label="Forecast models" state={isOpenMeteoConfigured() ? 'setUp' : 'missing'} />
                 </ul>
-                <p className="px-4 pb-4 pt-1 text-xs leading-relaxed text-gray-400">
-                    Configured means the service is set up in this app. It isn&apos;t tested from this screen.
-                </p>
             </Section>
 
             {/* Account Actions */}

@@ -198,6 +198,11 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         setShowResetConfirm(false);
     };
 
+    // Same test PolarChart uses for its own empty state.
+    const hasFigures = (data: PolarData | null | undefined) =>
+        data?.matrix.some((row) => row.some((v) => v > 0)) ?? false;
+    const chartIsEmpty = !hasFigures(polarData) && !hasFigures(smartPolarData);
+
     return (
         <div className="w-full max-w-2xl mx-auto flex flex-col h-full overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))] animate-in fade-in slide-in-from-right-4 duration-300">
             {/* ═══════════════════════════════════════════ */}
@@ -223,7 +228,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                 {/* A named button, not an unlabelled ⋮, is the way in to typing or
                     importing figures (UX scorecard run 6). */}
                 <div className="mb-4 flex flex-col items-start gap-1">
-                    <h2 className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar diagram</h2>
+                    <h2 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Polar diagram</h2>
                     {boatModel ? (
                         <span className="text-base font-black text-white">{boatModel}</span>
                     ) : (
@@ -247,20 +252,30 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                         <span>Enter polar figures</span>
                     </Button>
                 </div>
-                <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
-                    <PolarChart data={polarData} overlayData={smartPolarData} emptyLabel="No polar yet" />
-                </div>
+                {/* With no figures the empty rings took ~350 pt and showed nothing,
+                    pushing the save state off the card; a short placeholder keeps
+                    'Enter polar figures' the obvious next step (UX scorecard run 7). */}
+                {chartIsEmpty ? (
+                    <div className="flex min-h-[120px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/10 px-4 text-center">
+                        <p className="text-sm font-bold text-gray-300">No polar yet</p>
+                        <p className="text-xs text-gray-400">The diagram draws as soon as there are figures.</p>
+                    </div>
+                ) : (
+                    <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
+                        <PolarChart data={polarData} overlayData={smartPolarData} emptyLabel="No polar yet" />
+                    </div>
+                )}
 
                 {/* Save status */}
                 <div className="flex items-center justify-center gap-2 mt-3">
                     {saving && (
-                        <span className="flex items-center gap-1.5 text-[11px] text-sky-400">
+                        <span className="flex items-center gap-1.5 text-xs text-sky-300">
                             <div className="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin" />
                             Saving…
                         </span>
                     )}
                     {lastSaved && !saving && (
-                        <span className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
+                        <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
                             <CheckIcon className="w-3 h-3" />
                             <span>Saved {lastSaved}</span>
                         </span>
@@ -288,7 +303,6 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                         {/* Header */}
                         <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 rounded-t-2xl">
                             <div className="flex items-center gap-2">
-                                <div className="w-1 h-4 rounded-full bg-sky-500" />
                                 <h2 id={advancedTitleId} className="text-base font-bold text-white">
                                     Enter polar figures
                                 </h2>
@@ -327,7 +341,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
                                         aria-pressed={activeTab === tab}
-                                        className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 ${
+                                        className={`flex-1 min-h-11 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 ${
                                             activeTab === tab
                                                 ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/30'
                                                 : 'text-gray-400 hover:text-white'
@@ -431,31 +445,27 @@ const SmartPolarsCard: React.FC<{
                     : 'bg-linear-to-br from-emerald-500/5 to-sky-500/5 border border-emerald-500/20'
             }`}
         >
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <div className={`w-1 h-4 rounded-full ${isDisconnected ? 'bg-gray-600' : 'bg-emerald-500'}`} />
-                    <h2
-                        className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-400' : 'text-emerald-400'}`}
-                    >
-                        Smart Polars
-                    </h2>
+            {/* gap-3 + wrap: at 375 pt the heading ran into its caption
+                ('SMART POLARSNeeds NMEA gateway'). One card-heading style with
+                the Polar diagram card below (UX scorecard run 7). */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Smart Polars</h2>
                     {!hasRpmData && smartEnabled && (
-                        <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold inline-flex items-center gap-1">
+                        <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold inline-flex items-center gap-1">
                             <AlertTriangleIcon className="w-3 h-3" />
-                            <span>No RPM Data</span>
+                            <span>No RPM data</span>
                         </span>
                     )}
                 </div>
                 {/* Smart Polars Toggle — the shared settings switch (role=switch,
                     same geometry and colour as every other settings toggle).
                     With no NMEA feed it cannot turn on, so it is shown disabled
-                    with the reason, instead of a live-looking switch that
-                    quietly opened NMEA setup; the link below still goes there. */}
+                    and described by the 'Not connected — Set up NMEA gateway'
+                    line below, the one actionable statement of the need (a
+                    caption beside the switch said it a second time). */}
                 {switchBlocked ? (
                     <div className="flex items-center gap-2">
-                        <span id={blockedCaptionId} className="text-xs text-gray-400">
-                            Needs NMEA gateway
-                        </span>
                         <button
                             type="button"
                             role="switch"
@@ -478,12 +488,14 @@ const SmartPolarsCard: React.FC<{
             {/* Explanation when disabled */}
             {!smartEnabled && (
                 <div className="mb-3 px-3 py-2.5 bg-black/20 rounded-xl border border-white/5">
+                    {/* Emphasis in white, not link blue: only the real link below
+                        is blue (UX scorecard run 7). */}
                     <p className="text-xs text-gray-400 leading-relaxed">
                         Smart Polars learns your boat's <span className="text-white font-bold">real performance</span>{' '}
                         by recording speed data from your onboard instruments via the{' '}
-                        <span className="text-sky-400 font-bold">NMEA 2000 backbone</span>.
+                        <span className="text-white font-bold">NMEA 2000 backbone</span>.
                     </p>
-                    <p className="text-xs text-gray-400 mt-1.5">
+                    <p id={blockedCaptionId} className="text-xs text-gray-400 mt-1.5">
                         {nmeaStatus === 'disconnected' ? (
                             <>
                                 {/* Amber on the glyph only: amber text measured under AA
@@ -497,7 +509,7 @@ const SmartPolarsCard: React.FC<{
                                     <button
                                         type="button"
                                         onClick={onNavigateToNmea}
-                                        className="inline-flex min-h-11 items-center text-sky-400 underline underline-offset-2 font-bold"
+                                        className="inline-flex min-h-11 items-center text-sky-300 underline underline-offset-2 font-bold"
                                     >
                                         Set up NMEA gateway
                                     </button>
@@ -524,7 +536,7 @@ const SmartPolarsCard: React.FC<{
                     {/* NMEA Connection Status */}
                     <div className="flex items-center gap-2 mb-3 p-2 bg-black/20 rounded-xl">
                         <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                        <span className="text-[11px] font-bold text-gray-300 uppercase tracking-wider">
+                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
                             NMEA: {status.label}
                         </span>
                     </div>
@@ -547,15 +559,15 @@ const SmartPolarsCard: React.FC<{
                                 <p className="text-sm font-black text-white">
                                     {smartStats.totalSamples.toLocaleString()}
                                 </p>
-                                <p className="text-[11px] text-gray-400 uppercase tracking-widest">Samples</p>
+                                <p className="text-xs text-gray-400 uppercase tracking-widest">Samples</p>
                             </div>
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{smartStats.filledBuckets}</p>
-                                <p className="text-[11px] text-gray-400 uppercase tracking-widest">Buckets</p>
+                                <p className="text-xs text-gray-400 uppercase tracking-widest">Buckets</p>
                             </div>
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{fillPercent}%</p>
-                                <p className="text-[11px] text-gray-400 uppercase tracking-widest">Coverage</p>
+                                <p className="text-xs text-gray-400 uppercase tracking-widest">Coverage</p>
                             </div>
                         </div>
                     )}
@@ -564,10 +576,10 @@ const SmartPolarsCard: React.FC<{
                     {filterStatus?.recording && (
                         <div className="flex items-center gap-2 mb-3 p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
                             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                            <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
                                 Recording clean data
                             </span>
-                            <span className="text-[11px] text-emerald-400/60 ml-auto font-mono">
+                            <span className="text-xs text-emerald-400/80 ml-auto font-mono">
                                 {filterStatus.totalAccepted} accepted
                             </span>
                         </div>
@@ -578,19 +590,24 @@ const SmartPolarsCard: React.FC<{
             {/* Polar Source Toggle */}
             {smartStats && smartStats.totalSamples > 0 && (
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
-                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Routing Uses:</span>
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Routing uses</span>
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
+                        {/* Named from the visible word, with which one is in use. */}
                         <button
-                            aria-label="Use factory polar data for routing"
+                            type="button"
+                            aria-label="Factory polar data for routing"
+                            aria-pressed={polarSource === 'factory'}
                             onClick={() => onToggleSource('factory')}
-                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                            className={`flex-1 min-h-11 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
                             Factory
                         </button>
                         <button
-                            aria-label="Use smart polar data for routing"
+                            type="button"
+                            aria-label="Smart polar data for routing"
+                            aria-pressed={polarSource === 'smart'}
                             onClick={() => onToggleSource('smart')}
-                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}
+                            className={`flex-1 min-h-11 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}
                         >
                             Smart
                         </button>
@@ -632,7 +649,7 @@ const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailabl
             <span aria-hidden="true" className={`inline-flex ${c.text}`}>
                 <c.Icon className="w-3 h-3" />
             </span>
-            <span className={`text-[11px] font-bold uppercase tracking-widest ${c.text}`}>
+            <span className={`text-xs font-bold uppercase tracking-wide ${c.text}`}>
                 {label}
                 <span className="sr-only">: {c.spoken}</span>
             </span>
@@ -682,12 +699,9 @@ const ImportTab: React.FC<{
 
     return (
         <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-4">
-                <div className="w-1 h-4 rounded-full bg-amber-500" />
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">
-                    Import Polar File
-                </span>
-            </div>
+            {/* The page's one card-heading style, not an amber bar here and an
+                emerald one on Manual (UX scorecard run 7). */}
+            <h3 className="mb-4 text-xs font-bold text-sky-300 uppercase tracking-widest">Import a polar file</h3>
 
             <input
                 ref={fileInputRef}
@@ -719,7 +733,7 @@ const ImportTab: React.FC<{
                     )}
                 </div>
                 <p className="text-sm font-bold text-white mb-1">{fileName ? fileName : 'Drop polar file here'}</p>
-                <p className="text-[11px] text-gray-400">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
+                <p className="text-xs text-gray-400">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
             </button>
 
             {error && (
@@ -738,7 +752,7 @@ const ImportTab: React.FC<{
                         <span>Warnings:</span>
                     </p>
                     {warnings.map((w, i) => (
-                        <p key={i} className="text-[11px] text-amber-300/70">
+                        <p key={i} className="text-xs text-amber-200">
                             • {w}
                         </p>
                     ))}
@@ -746,8 +760,8 @@ const ImportTab: React.FC<{
             )}
 
             <div className="mt-4 p-3 bg-white/2 rounded-xl">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Expected Format</p>
-                <pre className="text-[11px] text-gray-400 font-mono overflow-x-auto">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Expected format</p>
+                <pre className="text-xs text-gray-400 font-mono overflow-x-auto">
                     {`TWA    6    8    10   12   15   20   25
 45   4.2  5.1  5.8  6.2  6.5  6.4  6.0
 60   4.8  5.7  6.4  6.9  7.2  7.1  6.7
@@ -776,10 +790,9 @@ const ManualTab: React.FC<{
 
     return (
         <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-4">
-                <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Manual Entry</span>
-                <span className="text-[11px] text-gray-400 ml-auto">Boat speed in knots</span>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-4">
+                <h3 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Type the figures</h3>
+                <span className="text-xs text-gray-400">Boat speed in knots</span>
             </div>
 
             <div className="overflow-x-auto custom-scrollbar -mx-1 px-1">
@@ -789,7 +802,7 @@ const ManualTab: React.FC<{
                         <tr>
                             <th
                                 scope="col"
-                                className="text-[11px] font-bold text-gray-400 uppercase tracking-wider p-2 text-left sticky left-0 bg-slate-950 z-10 min-w-[52px]"
+                                className="text-xs font-bold text-gray-400 uppercase tracking-wider p-2 text-left sticky left-0 bg-slate-950 z-10 min-w-[52px]"
                             >
                                 TWA\TWS
                             </th>
@@ -797,7 +810,7 @@ const ManualTab: React.FC<{
                                 <th
                                     key={ws}
                                     scope="col"
-                                    className="text-[11px] font-bold text-sky-400 uppercase tracking-wider p-2 text-center min-w-[52px]"
+                                    className="text-xs font-bold text-sky-300 uppercase tracking-wider p-2 text-center min-w-[52px]"
                                 >
                                     {ws}kts
                                 </th>
@@ -809,7 +822,7 @@ const ManualTab: React.FC<{
                             <tr key={angle} className="border-t border-white/5">
                                 <th
                                     scope="row"
-                                    className="text-[11px] font-bold text-amber-400 p-2 sticky left-0 bg-slate-950 z-10"
+                                    className="text-xs font-bold text-amber-400 p-2 sticky left-0 bg-slate-950 z-10"
                                 >
                                     {angle}°
                                 </th>
@@ -827,7 +840,7 @@ const ManualTab: React.FC<{
                                                 onChange={(e) => updateCell(aIdx, wIdx, e.target.value)}
                                                 aria-label={`Boat speed at ${angle} degrees true wind angle and ${polarData.windSpeeds[wIdx]} knots true wind speed`}
                                                 placeholder="—"
-                                                className={`w-full text-center text-xs font-mono py-1.5 px-1 rounded-lg outline-hidden transition-all ${
+                                                className={`w-full min-h-11 text-center text-xs font-mono py-1.5 px-1 rounded-lg outline-hidden transition-all ${
                                                     isAnomaly
                                                         ? 'bg-red-500/20 border border-red-500/40 text-red-300 focus:border-red-400'
                                                         : val > 0
@@ -849,9 +862,9 @@ const ManualTab: React.FC<{
                     type="button"
                     aria-label="Clear all polar matrix values"
                     onClick={() => onChange(createEmptyPolar())}
-                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                    className="min-h-11 text-xs font-bold text-gray-300 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                 >
-                    Clear All
+                    Clear all
                 </button>
             </div>
         </div>

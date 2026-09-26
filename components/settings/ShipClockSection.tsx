@@ -39,6 +39,19 @@ function utcOffsetLabel(timeZone: string, when: Date): string {
     }
 }
 
+/** IANA places whose ID squeezes a name the underscore rule cannot recover. */
+const PLACE_NAMES: Record<string, string> = {
+    DumontDUrville: 'Dumont d’Urville',
+};
+
+/** The hours east of UTC a fixed-offset ID keeps (POSIX sign flipped), else null. */
+function fixedOffsetHours(timeZone: string): number | null {
+    const etc = /^Etc\/(?:GMT|UTC)([+-])(\d{1,2})$/.exec(timeZone);
+    if (!etc) return null;
+    const hours = Number(etc[2]);
+    return etc[1] === '-' ? hours : -hours;
+}
+
 /**
  * What the dropdown SAYS for a zone — a pure relabel; the stored value is the
  * zone ID unchanged. The raw list read "Knox", "Center", "GMT+10": three-part
@@ -52,10 +65,9 @@ function zoneOptionLabel(timeZone: string, when: Date): string {
     // Renamed zones show their current name ("Kolkata", "Kyiv"); the ID
     // stored stays the one the device gave.
     const parts = displayZoneId(timeZone).split('/');
-    const place =
-        parts.length > 2
-            ? `${zoneDisplayName(timeZone)}, ${parts[parts.length - 2].replace(/_/g, ' ')}`
-            : zoneDisplayName(timeZone);
+    const city = zoneDisplayName(timeZone);
+    const name = PLACE_NAMES[city] ?? city;
+    const place = parts.length > 2 ? `${name}, ${parts[parts.length - 2].replace(/_/g, ' ')}` : name;
     const offset = utcOffsetLabel(timeZone, when);
     return offset && timeZone !== 'UTC' ? `${place} (${offset})` : place;
 }
@@ -141,9 +153,18 @@ export const ShipClockSection: React.FC = () => {
         );
         return {
             head,
+            // Fixed offsets in hour order (UTC−12 … UTC+14), not as text, which
+            // put UTC+10 between UTC+1 and UTC+2 (UX scorecard run 7).
             regions: regions.map((region) => ({
                 region,
-                zones: (byRegion.get(region) ?? []).sort((a, b) => a.label.localeCompare(b.label)),
+                zones: (byRegion.get(region) ?? []).sort((a, b) => {
+                    const ha = fixedOffsetHours(a.id);
+                    const hb = fixedOffsetHours(b.id);
+                    if (ha !== null && hb !== null) return ha - hb;
+                    if (ha !== null) return 1;
+                    if (hb !== null) return -1;
+                    return a.label.localeCompare(b.label);
+                }),
             })),
         };
     }, []);

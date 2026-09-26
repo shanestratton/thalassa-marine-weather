@@ -4,7 +4,7 @@
  */
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
-import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
+import { Section, SubSection, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
 import type { PolarData } from '../../types/navigation';
 import type { ComfortParams } from '../../types/settings';
@@ -322,7 +322,7 @@ function MmsiClaimBanner({
                     <button
                         type="button"
                         onClick={onDismiss}
-                        className="w-full min-h-[44px] rounded-xl py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400 transition-colors hover:text-slate-200"
+                        className="w-full min-h-[44px] rounded-xl py-2 text-xs font-bold uppercase tracking-wide text-slate-400 transition-colors hover:text-slate-200"
                     >
                         Not now
                     </button>
@@ -428,6 +428,22 @@ const UNIT_CONVERSIONS: Record<string, Record<string, (n: number) => number>> = 
     l: { gal: (n) => n / 3.78541, l: (n) => n },
 };
 
+/** How a stored unit key reads on screen, where the key alone is unclear. */
+const UNIT_LABEL: Record<string, string> = { l: 'L' };
+
+// One field language for the whole form (UX scorecard run 7). Selects take the
+// Preferences / Clock zone recipe — WebKit ignores a native select's height
+// without appearance-none, so the Rank select sat at 23 pt beside a 44 pt Age
+// box — and number fields drop the native spinners, as Notifications' value
+// wells do.
+const FIELD_CLASS =
+    'w-full min-w-0 min-h-11 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors';
+const SELECT_CLASS = 'thalassa-select appearance-none cursor-pointer pr-9';
+const NO_SPINNER_CLASS =
+    '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+/** The one field-label style: small grey capitals above the field. */
+const FIELD_LABEL_CLASS = 'text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5';
+
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
     label,
@@ -440,6 +456,7 @@ function MetricInput({
     placeholder,
     isEstimated,
     autoInStandard,
+    decimals = 2,
 }: {
     label: string;
     valInStandard: number;
@@ -448,11 +465,16 @@ function MetricInput({
     unitOptions: string[];
     onChangeValue: (v: number) => void;
     onChangeUnit: (u: string) => void;
+    /** What an empty field shows. '--', not an example figure: '30' under an
+     *  'm' select read as her length (UX scorecard run 7). */
     placeholder?: string;
     isEstimated?: boolean;
     /** The derived figure (in the standard unit) used while nothing is stored.
      *  Shown as the placeholder in the DISPLAY unit, flagged with an "Auto" chip. */
     autoInStandard?: number;
+    /** Decimals shown in the display unit. A converted weight is whole kg or
+     *  lbs: '6350.29 kg' was a lbs→kg artefact, not a measurement (UX scorecard run 7). */
+    decimals?: number;
 }) {
     const inputId = useId();
     // Convert from standard (stored) unit → display unit
@@ -468,7 +490,9 @@ function MetricInput({
               ? String(Math.round((toDisplay ? toDisplay(autoInStandard) : autoInStandard) * 10) / 10)
               : '--';
 
-    const [localVal, setLocalVal] = useState(displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '');
+    const scale = 10 ** decimals;
+    const shownVal = displayVal > 0 ? String(Math.round(displayVal * scale) / scale) : '';
+    const [localVal, setLocalVal] = useState(shownVal);
     // Track whether the user is mid-edit so we never overwrite their
     // half-typed value with a re-derived display number from props.
     const isFocusedRef = useRef(false);
@@ -486,9 +510,8 @@ function MetricInput({
     // get clobbered by a parent re-render.
     useEffect(() => {
         if (isFocusedRef.current) return;
-        const next = displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '';
-        setLocalVal((prev) => (prev === next ? prev : next));
-    }, [displayVal]);
+        setLocalVal((prev) => (prev === shownVal ? prev : shownVal));
+    }, [shownVal]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setLocalVal(e.target.value);
 
@@ -496,6 +519,12 @@ function MetricInput({
         isFocusedRef.current = false;
         const numericVal = parseFloat(localVal);
         if (isNaN(numericVal)) return;
+        // Untouched: hand back the stored figure, not a round trip through the
+        // rounded one on screen — a whole-kg display must not nudge stored lbs.
+        if (localVal === shownVal) {
+            onChangeValue(valInStandard);
+            return;
+        }
         // Convert from display unit → standard (stored) unit
         const toStandard = UNIT_CONVERSIONS[unitType]?.[standardUnit];
         if (toStandard) {
@@ -509,7 +538,7 @@ function MetricInput({
         <div>
             <label
                 htmlFor={inputId}
-                className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5 mb-1.5"
+                className="text-xs font-bold text-gray-400 uppercase tracking-widest flex flex-wrap items-center gap-1.5 mb-1.5"
             >
                 {label}
                 {isEstimated && <span className="text-amber-400/70 text-xs normal-case tracking-normal">(est.)</span>}
@@ -541,18 +570,20 @@ function MetricInput({
                     onChange={handleChange}
                     onBlur={handleBlur}
                     placeholder={autoPlaceholder ?? placeholder}
-                    className={`flex-1 min-w-0 min-h-11 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
+                    className={`flex-1 min-w-0 min-h-11 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors ${NO_SPINNER_CLASS} ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
                 />
                 {unitOptions.length > 1 ? (
                     <select
                         aria-label={`${label} unit`}
                         value={unitType}
                         onChange={(e) => onChangeUnit(e.target.value)}
-                        className="min-h-11 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-xs text-gray-400 font-bold uppercase outline-hidden focus:border-sky-500 shrink-0"
+                        className={`${SELECT_CLASS} min-h-11 shrink-0 bg-white/5 border border-white/10 rounded-xl pl-2.5 text-sm text-gray-300 font-bold outline-hidden focus:border-sky-500`}
                     >
+                        {/* Units in their own case — 'kg', 'm', 'L' — not 'KG' beside a
+                            lower-case 'kts' suffix. */}
                         {unitOptions.map((u) => (
                             <option key={u} value={u}>
-                                {u}
+                                {UNIT_LABEL[u] ?? u}
                             </option>
                         ))}
                     </select>
@@ -560,9 +591,9 @@ function MetricInput({
                     // One unit is a fact, not a choice: a static suffix, no picker chevrons.
                     <span
                         id={`${inputId}-unit`}
-                        className="flex min-h-11 shrink-0 items-center px-1.5 text-xs font-bold text-gray-400"
+                        className="flex min-h-11 shrink-0 items-center px-1.5 text-sm font-bold text-gray-400"
                     >
-                        {unitType}
+                        {UNIT_LABEL[unitType] ?? unitType}
                     </span>
                 )}
             </div>
@@ -674,9 +705,16 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     // The Reset hint speaks the unit beside the field (it used to say 'ft' under a metre select).
     const hullWaveAutoDisplay = Math.round((hullWaveUnit === 'm' ? hullWaveAutoFt * 0.3048 : hullWaveAutoFt) * 10) / 10;
 
+    // Local profile: every edit is already on the phone, so the page says so
+    // for a moment after each one — a slim status line, not a bar that looked
+    // like a Save button and only re-showed its own label (UX scorecard run 7).
+    const [localSaved, setLocalSaved] = useState(false);
+    const localSavedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(
         () => () => {
             if (savedTimer.current) clearTimeout(savedTimer.current);
+            if (localSavedTimer.current) clearTimeout(localSavedTimer.current);
         },
         [],
     );
@@ -686,6 +724,17 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         if (savedTimer.current) clearTimeout(savedTimer.current);
         savedTimer.current = setTimeout(() => setSaved(false), 2600);
     }, []);
+
+    /** onSave, plus the transient "Saved on this phone" line. */
+    const saveLocally = useCallback(
+        (patch: Parameters<typeof onSave>[0]) => {
+            onSave(patch);
+            setLocalSaved(true);
+            if (localSavedTimer.current) clearTimeout(localSavedTimer.current);
+            localSavedTimer.current = setTimeout(() => setLocalSaved(false), 2600);
+        },
+        [onSave],
+    );
 
     const reportFleetError = useCallback((message: string) => {
         setFleetActionError(message);
@@ -723,22 +772,22 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const updateVesselUnits = useCallback(
         (patch: Partial<VesselDimensionUnits>) => {
             if (updateActiveFleetProfile({ vesselUnits: patch })) return;
-            onSave({
+            saveLocally({
                 vesselUnits: {
                     ...settings.vesselUnits,
                     ...patch,
                 } as VesselDimensionUnits,
             });
         },
-        [onSave, settings.vesselUnits, updateActiveFleetProfile],
+        [saveLocally, settings.vesselUnits, updateActiveFleetProfile],
     );
 
     const updateComfortParams = useCallback(
         (patch: Partial<ComfortParams>) => {
             if (updateActiveFleetProfile({ comfortParams: patch })) return;
-            onSave({ comfortParams: { ...settings.comfortParams, ...patch } });
+            saveLocally({ comfortParams: { ...settings.comfortParams, ...patch } });
         },
-        [onSave, settings.comfortParams, updateActiveFleetProfile],
+        [saveLocally, settings.comfortParams, updateActiveFleetProfile],
     );
 
     const vesselWithDefaults = useCallback(
@@ -791,7 +840,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         const next = crewRosterRows.map((row, i) => (i === index ? { ...row, ...change } : row));
         const patch = { crewRoster: next } as Partial<VesselProfile>;
         if (updateActiveFleetProfile({ profile: patch })) return;
-        onSave({ vessel: vesselWithDefaults(patch) });
+        saveLocally({ vessel: vesselWithDefaults(patch) });
     };
 
     const updateVessel = (field: string, value: string | number) => {
@@ -801,7 +850,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         }
         const patch = { estimatedFields: newEstimatedFields, [field]: value } as Partial<VesselProfile>;
         if (updateActiveFleetProfile({ profile: patch })) return;
-        onSave({
+        saveLocally({
             vessel: vesselWithDefaults(patch),
         });
     };
@@ -853,7 +902,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         // Legacy-only fallback. In fleet mode the single patch above updates
         // both the selected vessel and the compatibility view atomically;
         // issuing a second generic-settings write here can race it.
-        onSave({
+        saveLocally({
             vessel: nextVessel,
             polarData: entry.polar,
             polarBoatModel: entry.model,
@@ -985,27 +1034,30 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     };
     const selectedFleetId = activeVesselId ?? activeFleetVessel?.id ?? '';
 
+    const comfortWind = settings.comfortParams?.maxWindKts ?? 60;
+    const comfortWave = settings.comfortParams?.maxWaveM ?? 8;
+    const comfortGust = settings.comfortParams?.maxGustKts ?? 80;
+
     return (
         <div
             // No entry animation here: `animate-in` leaves a transform on the wrapper,
-            // which makes it the containing block for the FIXED Save bar below — the
+            // which makes it the containing block for the FIXED bars below — the
             // bar then scrolled away with the form (UX scorecard 2026-09-25).
-            // No bottom padding of our own while the keyboard is down: on the vessel
-            // tab SettingsModal's scroller reserves calc(72px + safe area) — the Save
-            // bar's overlap (~48px + safe area) + its 16px top fade + 8px. A second
-            // reserve here left ~275pt of empty page above the bar (UX scorecard run 5).
-            // If that reserve changes, reserve the bar's overlap + fade + 8px here.
-            className="w-full max-w-2xl mx-auto"
+            // SettingsModal's scroller ends at the tab bar and pads 80px. In fleet
+            // mode the fixed sync bar (80px + safe area up, ~64px tall, 16px top
+            // fade) overlaps that port by ~95px, so the last field needs 24px more
+            // to clear it; the local profile has no bar and needs nothing extra.
+            className={`w-full max-w-2xl mx-auto ${fleetAvailable ? 'pb-6' : ''}`}
             style={keyboardHeight > 0 ? { paddingBottom: `${keyboardHeight + 120}px` } : undefined}
         >
             {/* Observer upgrade banner */}
             {isObserver && (
-                <div className="mx-4 mb-4 bg-sky-500/6 border border-sky-500/15 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2">
+                <div className="mb-6 bg-sky-500/6 border border-sky-500/15 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2">
                     <div className="flex items-start gap-3">
                         <EyeIcon className="w-6 h-6 text-sky-300 shrink-0" />
                         <div>
-                            <h4 className="text-sm font-bold text-sky-300 mb-1">Crew Member Mode Active</h4>
-                            <p className="text-[11px] text-gray-400 leading-relaxed">
+                            <p className="text-sm font-bold text-sky-300 mb-1">Crew member mode</p>
+                            <p className="text-xs text-gray-400 leading-relaxed">
                                 You're currently in crew member mode — weather only, no vessel features. Select{' '}
                                 <strong className="text-white">Sail</strong> or{' '}
                                 <strong className="text-white">Power</strong> below to unlock Passage Planning, Polars,
@@ -1017,258 +1069,261 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             )}
 
             {fleetAvailable && (
-                <section className="mx-4 mb-5 rounded-2xl border border-cyan-400/20 bg-linear-to-br from-cyan-500/10 via-slate-950/40 to-slate-950/10 p-4 shadow-[0_12px_32px_rgba(8,145,178,0.08)]">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <p className="text-[11px] font-black uppercase tracking-[0.16em] text-cyan-300">
-                                Your Fleet
-                            </p>
-                            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                <Section title="Your fleet">
+                    <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                            <p className="text-xs leading-relaxed text-gray-400">
                                 Choose the yacht this device is planning and publishing for. Each profile keeps its own
                                 hull, performance and safety details.
                             </p>
+                            <span className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/8 px-2.5 py-1 text-xs font-bold text-cyan-200">
+                                {fleet.length}/5 vessels
+                            </span>
                         </div>
-                        <span className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/8 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-cyan-200">
-                            {fleet.length}/5 vessels
-                        </span>
-                    </div>
 
-                    <div className="mt-4 flex gap-2">
-                        <div className="min-w-0 flex-1">
-                            <label htmlFor="active-vessel-profile" className="sr-only">
-                                Active vessel profile
-                            </label>
-                            <select
-                                id="active-vessel-profile"
-                                value={selectedFleetId}
-                                onChange={(event) => selectFleetVessel(event.target.value)}
-                                disabled={fleet.length === 0 || fleetBusyAction !== null}
-                                className="w-full rounded-xl border border-white/10 bg-slate-950/75 px-3 py-3 text-sm font-bold text-white outline-hidden transition-colors focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-55"
-                            >
-                                {!selectedFleetId && <option value="">Select a vessel</option>}
-                                {fleet.map((candidate) => {
-                                    const candidateName = candidate.vessel.name?.trim() || 'Unnamed vessel';
-                                    const type = candidate.vessel.type;
-                                    const typeLabel =
-                                        type === 'power' ? 'Power' : type === 'observer' ? 'Crew' : 'Sail';
-                                    return (
-                                        <option key={candidate.id} value={candidate.id}>
-                                            {candidateName} · {typeLabel}
-                                        </option>
-                                    );
-                                })}
-                            </select>
-                        </div>
-                        <button
-                            type="button"
-                            aria-label="Add vessel profile"
-                            onClick={addFleetVessel}
-                            disabled={
-                                fleet.length >= 5 || !fleetSurface.createVesselProfile || fleetBusyAction !== null
-                            }
-                            title={
-                                fleet.length >= 5 ? 'A skipper can keep up to five vessel profiles.' : 'Add a vessel'
-                            }
-                            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-300/25 bg-cyan-400/12 px-3 text-xs font-black uppercase tracking-wide text-cyan-100 transition-colors hover:bg-cyan-400/20 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                            <PlusSquareIcon className="h-4 w-4" />
-                            Add
-                        </button>
-                    </div>
-
-                    <div
-                        className={`mt-3 rounded-xl border px-3 py-2.5 ${syncToneClass[syncStatus.tone]}`}
-                        aria-live="polite"
-                    >
-                        <div className="flex items-center gap-2">
-                            <span
-                                className={`h-2 w-2 shrink-0 rounded-full ${syncDotClass[syncStatus.tone]}`}
-                                aria-hidden="true"
-                            />
-                            <span className="text-xs font-bold">{syncStatus.label}</span>
-                            {syncStatus.busy && (
-                                <span className="text-[10px] font-bold uppercase tracking-wide opacity-70">
-                                    Please wait
-                                </span>
-                            )}
+                        <div className="mt-4 flex gap-2">
+                            <div className="min-w-0 flex-1">
+                                <label htmlFor="active-vessel-profile" className="sr-only">
+                                    Active vessel profile
+                                </label>
+                                <select
+                                    id="active-vessel-profile"
+                                    value={selectedFleetId}
+                                    onChange={(event) => selectFleetVessel(event.target.value)}
+                                    disabled={fleet.length === 0 || fleetBusyAction !== null}
+                                    className={`${FIELD_CLASS} ${SELECT_CLASS} font-bold focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-55`}
+                                >
+                                    {!selectedFleetId && <option value="">Select a vessel</option>}
+                                    {fleet.map((candidate) => {
+                                        const candidateName = candidate.vessel.name?.trim() || 'Unnamed vessel';
+                                        const type = candidate.vessel.type;
+                                        const typeLabel =
+                                            type === 'power' ? 'Power' : type === 'observer' ? 'Crew' : 'Sail';
+                                        return (
+                                            <option key={candidate.id} value={candidate.id}>
+                                                {candidateName} · {typeLabel}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
                             <button
                                 type="button"
-                                aria-label="Sync vessel fleet now"
-                                onClick={syncFleet}
-                                disabled={!fleetSurface.syncVesselFleet || fleetBusyAction !== null || syncStatus.busy}
-                                className="hit-target-44 ml-auto inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide opacity-85 transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                aria-label="Add vessel profile"
+                                onClick={addFleetVessel}
+                                disabled={
+                                    fleet.length >= 5 || !fleetSurface.createVesselProfile || fleetBusyAction !== null
+                                }
+                                title={
+                                    fleet.length >= 5
+                                        ? 'A skipper can keep up to five vessel profiles.'
+                                        : 'Add a vessel'
+                                }
+                                className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border border-cyan-300/25 bg-cyan-400/12 px-3 text-sm font-bold text-cyan-100 transition-colors hover:bg-cyan-400/20 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                             >
-                                <RefreshIcon
-                                    className={`h-3.5 w-3.5 ${fleetBusyAction === 'sync' ? 'animate-spin' : ''}`}
-                                />
-                                Sync now
+                                <PlusSquareIcon className="h-4 w-4" />
+                                Add
                             </button>
                         </div>
-                        {syncStatus.detail && (
-                            <p className="mt-1 pl-4 text-[10px] leading-relaxed opacity-75">{syncStatus.detail}</p>
-                        )}
-                    </div>
 
-                    {fleetActionError && (
-                        <p
-                            role="alert"
-                            className="mt-3 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-[11px] leading-relaxed text-red-200"
+                        <div
+                            className={`mt-3 rounded-xl border px-3 py-2.5 ${syncToneClass[syncStatus.tone]}`}
+                            aria-live="polite"
                         >
-                            {fleetActionError}
-                        </p>
-                    )}
-
-                    {archiveCandidate ? (
-                        <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/8 p-3">
-                            <p className="text-xs font-bold text-amber-100">
-                                Archive {archiveCandidate.vessel.name?.trim() || 'this vessel'}?
-                            </p>
-                            <p className="mt-1 text-[10px] leading-relaxed text-amber-100/70">
-                                Its historic voyages stay intact, but it will no longer be available for new planning or
-                                tracking.
-                            </p>
-                            <div className="mt-3 flex justify-end gap-2">
+                            <div className="flex items-center gap-2">
+                                <span
+                                    className={`h-2 w-2 shrink-0 rounded-full ${syncDotClass[syncStatus.tone]}`}
+                                    aria-hidden="true"
+                                />
+                                <span className="text-xs font-bold">{syncStatus.label}</span>
+                                {syncStatus.busy && <span className="text-xs font-bold opacity-80">Please wait</span>}
                                 <button
                                     type="button"
-                                    onClick={() => setArchiveCandidate(null)}
-                                    className="rounded-lg px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-slate-300 hover:bg-white/6"
+                                    aria-label="Sync vessel fleet now"
+                                    onClick={syncFleet}
+                                    disabled={
+                                        !fleetSurface.syncVesselFleet || fleetBusyAction !== null || syncStatus.busy
+                                    }
+                                    className="hit-target-44 ml-auto inline-flex items-center gap-1 text-xs font-bold opacity-90 transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                    Keep
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={archiveFleetVessel}
-                                    disabled={fleetBusyAction !== null}
-                                    className="rounded-lg border border-red-400/25 bg-red-500/15 px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-red-100 hover:bg-red-500/22 disabled:cursor-not-allowed disabled:opacity-45"
-                                >
-                                    Archive
+                                    <RefreshIcon
+                                        className={`h-3.5 w-3.5 ${fleetBusyAction === 'sync' ? 'animate-spin' : ''}`}
+                                    />
+                                    Sync now
                                 </button>
                             </div>
+                            {syncStatus.detail && (
+                                <p className="mt-1 pl-4 text-xs leading-relaxed opacity-80">{syncStatus.detail}</p>
+                            )}
                         </div>
-                    ) : (
-                        activeFleetVessel && (
-                            <div className="mt-3">
-                                <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+
+                        {fleetActionError && (
+                            <p
+                                role="alert"
+                                className="mt-3 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-200"
+                            >
+                                {fleetActionError}
+                            </p>
+                        )}
+
+                        {archiveCandidate ? (
+                            <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/8 p-3">
+                                <p className="text-xs font-bold text-amber-100">
+                                    Archive {archiveCandidate.vessel.name?.trim() || 'this vessel'}?
+                                </p>
+                                <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                                    Its historic voyages stay intact, but it will no longer be available for new
+                                    planning or tracking.
+                                </p>
+                                <div className="mt-3 flex justify-end gap-2">
                                     <button
                                         type="button"
-                                        aria-label={`Archive ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
-                                        onClick={() => setArchiveCandidate(activeFleetVessel)}
-                                        disabled={
-                                            fleet.length <= 1 ||
-                                            !fleetSurface.archiveVesselProfile ||
-                                            fleetBusyAction !== null
-                                        }
-                                        title={
-                                            fleet.length <= 1
-                                                ? 'Keep at least one vessel profile active.'
-                                                : 'Archive this vessel profile'
-                                        }
-                                        className="inline-flex min-h-[44px] items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                        onClick={() => setArchiveCandidate(null)}
+                                        className="rounded-lg px-3 py-1.5 min-h-[44px] text-sm font-bold text-slate-300 hover:bg-white/6"
                                     >
-                                        <TrashIcon className="h-3.5 w-3.5" />
-                                        Archive active vessel
+                                        Keep
                                     </button>
-                                    {/* Unlike Archive, Release works on a single-boat fleet: the
-                                        sold-only-boat case is exactly what it exists for
-                                        (2026-09-08 decision). Its only gates are the store's two
-                                        shore-side ones, shown as helper text below. */}
-                                    {releaseAvailable && (
+                                    <button
+                                        type="button"
+                                        onClick={archiveFleetVessel}
+                                        disabled={fleetBusyAction !== null}
+                                        className="rounded-lg border border-red-400/25 bg-red-500/15 px-3 py-1.5 min-h-[44px] text-sm font-bold text-red-100 hover:bg-red-500/22 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                        Archive
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            activeFleetVessel && (
+                                <div className="mt-3">
+                                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
                                         <button
                                             type="button"
-                                            aria-label={`Release ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
-                                            onClick={openReleaseDialog}
-                                            disabled={fleetBusyAction !== null || releaseBlockedReason !== null}
-                                            title={
-                                                releaseBlockedReason ??
-                                                'Release this vessel — sold, or a delivery finished'
+                                            aria-label={`Archive ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
+                                            onClick={() => setArchiveCandidate(activeFleetVessel)}
+                                            disabled={
+                                                fleet.length <= 1 ||
+                                                !fleetSurface.archiveVesselProfile ||
+                                                fleetBusyAction !== null
                                             }
-                                            className="inline-flex min-h-[44px] items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                            title={
+                                                fleet.length <= 1
+                                                    ? 'Keep at least one vessel profile active.'
+                                                    : 'Archive this vessel profile'
+                                            }
+                                            className="inline-flex min-h-[44px] items-center gap-1.5 text-xs font-bold text-slate-400 transition-colors hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
                                         >
-                                            <AnchorIcon className="h-3.5 w-3.5" />
-                                            Release this vessel
+                                            <TrashIcon className="h-3.5 w-3.5" />
+                                            Archive active vessel
                                         </button>
+                                        {/* Unlike Archive, Release works on a single-boat fleet: the
+                                            sold-only-boat case is exactly what it exists for
+                                            (2026-09-08 decision). Its only gates are the store's two
+                                            shore-side ones, shown as helper text below. */}
+                                        {releaseAvailable && (
+                                            <button
+                                                type="button"
+                                                aria-label={`Release ${activeFleetVessel.vessel.name?.trim() || 'active vessel'}`}
+                                                onClick={openReleaseDialog}
+                                                disabled={fleetBusyAction !== null || releaseBlockedReason !== null}
+                                                title={
+                                                    releaseBlockedReason ??
+                                                    'Release this vessel — sold, or a delivery finished'
+                                                }
+                                                className="inline-flex min-h-[44px] items-center gap-1.5 text-xs font-bold text-slate-400 transition-colors hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                            >
+                                                <AnchorIcon className="h-3.5 w-3.5" />
+                                                Release this vessel
+                                            </button>
+                                        )}
+                                    </div>
+                                    {releaseAvailable && releaseBlockedReason && (
+                                        <p role="status" className="mt-1 text-xs leading-relaxed text-amber-200/90">
+                                            {releaseBlockedReason}
+                                        </p>
                                     )}
                                 </div>
-                                {releaseAvailable && releaseBlockedReason && (
-                                    <p role="status" className="mt-1 text-[10px] leading-relaxed text-amber-200/85">
-                                        {releaseBlockedReason}
-                                    </p>
-                                )}
-                            </div>
-                        )
-                    )}
+                            )
+                        )}
 
-                    {/* releaseFlow step 8: the 'oops' path for 30 days. Undo brings the
-                        boat back but not crew, Pi or public page — the result dialog says so. */}
-                    {releasedVessels.length > 0 && (
-                        <ul aria-label="Released vessels" className="mt-3 space-y-2">
-                            {releasedVessels.map((row) => (
-                                <li
-                                    key={row.boatId}
-                                    className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5"
-                                >
-                                    <p className="min-w-0 text-[11px] leading-relaxed text-slate-300">
-                                        You released <strong className="text-white">{row.name}</strong> on{' '}
-                                        {formatReleaseDate(row.releasedAt)} ({releaseReasonLabel(row.releaseReason)})
-                                    </p>
-                                    <button
-                                        type="button"
-                                        aria-label={`Undo release of ${row.name}`}
-                                        onClick={() => undoFleetRelease(row)}
-                                        disabled={fleetBusyAction !== null || !fleetSurface.undoVesselRelease}
-                                        className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-400/12 px-3 text-[10px] font-black uppercase tracking-wide text-cyan-100 transition-colors hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                        {/* releaseFlow step 8: the 'oops' path for 30 days. Undo brings the
+                            boat back but not crew, Pi or public page — the result dialog says so. */}
+                        {releasedVessels.length > 0 && (
+                            <ul aria-label="Released vessels" className="mt-3 space-y-2">
+                                {releasedVessels.map((row) => (
+                                    <li
+                                        key={row.boatId}
+                                        className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5"
                                     >
-                                        <RefreshIcon
-                                            className={`h-3.5 w-3.5 ${fleetBusyAction === 'undo' ? 'animate-spin' : ''}`}
-                                        />
-                                        Undo release
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </section>
+                                        <p className="min-w-0 text-xs leading-relaxed text-slate-300">
+                                            You released <strong className="text-white">{row.name}</strong> on{' '}
+                                            {formatReleaseDate(row.releasedAt)} ({releaseReasonLabel(row.releaseReason)}
+                                            )
+                                        </p>
+                                        <button
+                                            type="button"
+                                            aria-label={`Undo release of ${row.name}`}
+                                            onClick={() => undoFleetRelease(row)}
+                                            disabled={fleetBusyAction !== null || !fleetSurface.undoVesselRelease}
+                                            className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-400/12 px-3 text-xs font-bold text-cyan-100 transition-colors hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                        >
+                                            <RefreshIcon
+                                                className={`h-3.5 w-3.5 ${fleetBusyAction === 'undo' ? 'animate-spin' : ''}`}
+                                            />
+                                            Undo release
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                </Section>
             )}
 
             {/* Metric inputs intentionally remount when a different boat is selected.
                 Their local edit buffers must never carry a half-typed value or a
-                display-unit conversion from one vessel into another. */}
+                display-unit conversion from one vessel into another.
+
+                Five groups, every one a shared Section (one heading style, one card
+                width) with h3 sub-sections inside, in the order a skipper fills
+                them in: the boat, her safety kit, her hull, the limits the router
+                keeps, then tanks and crew. The hand-built blocks used to be inset
+                16 pt with a different coloured bar each (UX scorecard run 7). */}
             <React.Fragment key={`vessel-form-${selectedFleetId || 'legacy'}`}>
-                <Section title="Vessel Configuration">
-                    <Row>
-                        <div>
-                            <p id={`${fid}-type`} className="text-sm text-white font-medium block">
-                                Vessel Type
+                <Section title="Boat & identity">
+                    <SubSection>
+                        <div className="flex items-center justify-between gap-4">
+                            <p id={`${fid}-type`} className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                Vessel type
                             </p>
+                            <div
+                                role="group"
+                                aria-labelledby={`${fid}-type`}
+                                className="flex bg-black/40 p-1 rounded-lg border border-white/10"
+                            >
+                                {/* Named by the word on the button ('Sail'); the group's
+                                    label says what it sets, aria-pressed which is on. */}
+                                <button
+                                    type="button"
+                                    aria-pressed={vessel?.type === 'sail'}
+                                    onClick={() => updateVessel('type', 'sail')}
+                                    className={`min-h-11 min-w-16 px-4 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.type === 'sail' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                                >
+                                    Sail
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-pressed={vessel?.type === 'power'}
+                                    onClick={() => updateVessel('type', 'power')}
+                                    className={`min-h-11 min-w-16 px-4 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.type === 'power' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                                >
+                                    Power
+                                </button>
+                            </div>
                         </div>
-                        <div
-                            role="group"
-                            aria-labelledby={`${fid}-type`}
-                            className="flex bg-black/40 p-1 rounded-lg border border-white/10"
-                        >
-                            <button
-                                aria-label="Set vessel type to sail"
-                                onClick={() => updateVessel('type', 'sail')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.type === 'sail' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
-                            >
-                                Sail
-                            </button>
-                            <button
-                                aria-label="Set vessel type to power"
-                                onClick={() => updateVessel('type', 'power')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${vessel?.type === 'power' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
-                            >
-                                Power
-                            </button>
-                        </div>
-                    </Row>
-                    <Row>
-                        <div className={`w-full ${isObserver ? 'opacity-40' : ''}`}>
-                            <label
-                                htmlFor={`${fid}-name`}
-                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2"
-                            >
-                                Vessel Name
+                        <div className={`mt-4 ${isObserver ? 'opacity-40' : ''}`}>
+                            <label htmlFor={`${fid}-name`} className={FIELD_LABEL_CLASS}>
+                                Vessel name
                             </label>
                             <input
                                 id={`${fid}-name`}
@@ -1277,27 +1332,15 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateVessel('name', e.target.value)}
                                 placeholder={isObserver ? 'Select Sail or Power first' : 'e.g. Black Pearl'}
                                 disabled={isObserver}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden text-sm font-medium disabled:cursor-not-allowed"
+                                className={`${FIELD_CLASS} focus:border-sky-500 disabled:cursor-not-allowed`}
                             />
                         </div>
-                    </Row>
-                </Section>
+                    </SubSection>
 
-                {/* Vessel Identity */}
-                <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-purple-500" />
-                        <span className="text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            Vessel Identity
-                        </span>
-                    </div>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
+                    <SubSection title="Identity">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div>
-                                <label
-                                    htmlFor={`${fid}-registration`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
+                                <label htmlFor={`${fid}-registration`} className={FIELD_LABEL_CLASS}>
                                     Registration No.
                                 </label>
                                 <input
@@ -1306,14 +1349,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     value={vessel?.registration || ''}
                                     onChange={(e) => updateVessel('registration', e.target.value)}
                                     placeholder="e.g. ABC-1234"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                    className={`${FIELD_CLASS} focus:border-sky-500`}
                                 />
                             </div>
                             <div>
-                                <label
-                                    htmlFor={`${fid}-mmsi`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
+                                <label htmlFor={`${fid}-mmsi`} className={FIELD_LABEL_CLASS}>
                                     MMSI
                                 </label>
                                 <input
@@ -1326,22 +1366,22 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         updateVessel('mmsi', e.target.value.replace(/\D/g, '').slice(0, 9))
                                     }
                                     placeholder="9-digit number"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                    className={`${FIELD_CLASS} focus:border-sky-500`}
                                 />
                                 {mmsiClaimAdvisory && (
-                                    <p role="status" className="mt-1.5 text-[11px] leading-relaxed text-amber-200/90">
+                                    <p role="status" className="mt-1.5 text-xs leading-relaxed text-amber-200/90">
                                         Another Thalassa boat already carries this MMSI — your profile keeps it, but she
                                         is claimed by them.
                                     </p>
                                 )}
                                 {claimConflictSnoozed && claimConflict && (
-                                    <p role="status" className="mt-1.5 text-[11px] leading-relaxed text-amber-200/90">
+                                    <p role="status" className="mt-1.5 text-xs leading-relaxed text-amber-200/90">
                                         {claimConflict.vesselName} is already on Thalassa with this MMSI — she cannot
                                         join your fleet until you enter a crew code or save without the MMSI.{' '}
                                         <button
                                             type="button"
                                             onClick={() => setSnoozedConflictKey(null)}
-                                            className="font-black uppercase tracking-wide text-amber-100 underline-offset-2 hover:underline"
+                                            className="min-h-11 font-bold text-amber-100 underline underline-offset-2"
                                         >
                                             Show options
                                         </button>
@@ -1349,47 +1389,37 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 )}
                             </div>
                             <div>
-                                <label
-                                    htmlFor={`${fid}-callsign`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
-                                    Call Sign
+                                <label htmlFor={`${fid}-callsign`} className={FIELD_LABEL_CLASS}>
+                                    Call sign
                                 </label>
+                                {/* The value is stored in capitals; the example stays as typed
+                                    ('e.g. VH2ABC', not 'E.G. VH2ABC'). */}
                                 <input
                                     id={`${fid}-callsign`}
                                     type="text"
                                     value={vessel?.callSign || ''}
                                     onChange={(e) => updateVessel('callSign', e.target.value.toUpperCase())}
                                     placeholder="e.g. VH2ABC"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 uppercase"
+                                    className={`${FIELD_CLASS} focus:border-sky-500 uppercase placeholder:normal-case`}
                                 />
                             </div>
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-3">
+                        <p className="text-xs text-gray-400 mt-3">
                             Used for AIS identification and vessel documentation
                         </p>
-                    </div>
-                </div>
+                    </SubSection>
+                </Section>
 
                 {/* SAFETY & SAR — entered once here rather than per voyage, then
                     pulled into the float plan. Deliberately NOT shown on the
                     public tracking page: the beacon hex is a credential AMSA
                     verifies against, and raft/flare detail is an inventory of
                     portable gear attached to a live position. */}
-                <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-rose-500" />
-                        <span className="text-[11px] font-bold text-rose-400 uppercase tracking-widest">
-                            Safety &amp; Rescue
-                        </span>
-                    </div>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
+                <Section title="Safety & rescue">
+                    <SubSection>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div className="sm:col-span-2">
-                                <label
-                                    htmlFor={`${fid}-epirb`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
+                                <label htmlFor={`${fid}-epirb`} className={FIELD_LABEL_CLASS}>
                                     EPIRB Hex ID
                                 </label>
                                 <input
@@ -1407,16 +1437,13 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                                 .slice(0, 15),
                                         )
                                     }
-                                    placeholder="15 characters, from your AMSA registration"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-mono outline-hidden transition-colors focus:border-rose-500"
+                                    placeholder="15 characters, from AMSA"
+                                    className={`${FIELD_CLASS} font-mono placeholder:font-sans focus:border-rose-500`}
                                 />
                             </div>
                             <div>
-                                <label
-                                    htmlFor={`${fid}-raftcap`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
-                                    Liferaft Capacity
+                                <label htmlFor={`${fid}-raftcap`} className={FIELD_LABEL_CLASS}>
+                                    Liferaft capacity
                                 </label>
                                 <input
                                     id={`${fid}-raftcap`}
@@ -1428,37 +1455,31 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         updateVessel('liferaftCapacity', Number.isFinite(n) ? n : 0);
                                     }}
                                     placeholder="persons"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                    className={`${FIELD_CLASS} focus:border-rose-500`}
                                 />
                             </div>
                             <div>
-                                <label
-                                    htmlFor={`${fid}-raftserviced`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
-                                    Raft Serviced
+                                <label htmlFor={`${fid}-raftserviced`} className={FIELD_LABEL_CLASS}>
+                                    Raft serviced
                                 </label>
                                 <input
                                     id={`${fid}-raftserviced`}
                                     type="date"
                                     value={vessel?.liferaftServiceDate || ''}
                                     onChange={(e) => updateVessel('liferaftServiceDate', e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors scheme-dark focus:border-rose-500"
+                                    className={`${FIELD_CLASS} scheme-dark focus:border-rose-500`}
                                 />
                             </div>
                             <div>
-                                <label
-                                    htmlFor={`${fid}-flares`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
-                                    Flares Expire
+                                <label htmlFor={`${fid}-flares`} className={FIELD_LABEL_CLASS}>
+                                    Flares expire
                                 </label>
                                 <input
                                     id={`${fid}-flares`}
                                     type="date"
                                     value={vessel?.flaresExpiry || ''}
                                     onChange={(e) => updateVessel('flaresExpiry', e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors scheme-dark focus:border-rose-500"
+                                    className={`${FIELD_CLASS} scheme-dark focus:border-rose-500`}
                                 />
                             </div>
                         </div>
@@ -1469,24 +1490,28 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             overwhelm the punters') — the float plan simply
                             prefills from whatever is here. */}
                         <details className="mt-4 group">
-                            <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-white/10 bg-white/3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
                                 <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">
                                     Advanced Boat Details
                                 </span>
-                                <span className="text-[11px] text-gray-500">
+                                <span className="inline-flex items-center gap-2 text-xs text-gray-400">
                                     Optional · prefills your float plan
-                                    <span className="ml-2 inline-block transition-transform group-open:rotate-180">
-                                        ⌄
-                                    </span>
+                                    <svg
+                                        aria-hidden="true"
+                                        className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                                    </svg>
                                 </span>
                             </summary>
                             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                                 <div>
-                                    <label
-                                        htmlFor={`${fid}-hailing`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Hailing Port
+                                    <label htmlFor={`${fid}-hailing`} className={FIELD_LABEL_CLASS}>
+                                        Hailing port
                                     </label>
                                     <input
                                         id={`${fid}-hailing`}
@@ -1494,15 +1519,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.hailingPort || ''}
                                         onChange={(e) => updateVessel('hailingPort', e.target.value)}
                                         placeholder="Newport, QLD"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div>
-                                    <label
-                                        htmlFor={`${fid}-hullmaterial`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Hull Material
+                                    <label htmlFor={`${fid}-hullmaterial`} className={FIELD_LABEL_CLASS}>
+                                        Hull material
                                     </label>
                                     <input
                                         id={`${fid}-hullmaterial`}
@@ -1510,15 +1532,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.hullMaterial || ''}
                                         onChange={(e) => updateVessel('hullMaterial', e.target.value)}
                                         placeholder="fibreglass / steel / aluminium"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div>
-                                    <label
-                                        htmlFor={`${fid}-trim`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Trim / Deck Colour
+                                    <label htmlFor={`${fid}-trim`} className={FIELD_LABEL_CLASS}>
+                                        Trim / deck colour
                                     </label>
                                     <input
                                         id={`${fid}-trim`}
@@ -1526,15 +1545,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.trimColor || ''}
                                         onChange={(e) => updateVessel('trimColor', e.target.value)}
                                         placeholder="e.g. blue trim, teak decks"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div>
-                                    <label
-                                        htmlFor={`${fid}-radios`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Radios Monitored
+                                    <label htmlFor={`${fid}-radios`} className={FIELD_LABEL_CLASS}>
+                                        Radios monitored
                                     </label>
                                     <input
                                         id={`${fid}-radios`}
@@ -1542,15 +1558,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.radiosMonitored || ''}
                                         onChange={(e) => updateVessel('radiosMonitored', e.target.value)}
                                         placeholder="VHF 16 + 67; HF 8291"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div>
-                                    <label
-                                        htmlFor={`${fid}-satphone`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Sat Phone
+                                    <label htmlFor={`${fid}-satphone`} className={FIELD_LABEL_CLASS}>
+                                        Sat phone
                                     </label>
                                     <input
                                         id={`${fid}-satphone`}
@@ -1558,15 +1571,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.satPhone || ''}
                                         onChange={(e) => updateVessel('satPhone', e.target.value)}
                                         placeholder="+870 …"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div>
-                                    <label
-                                        htmlFor={`${fid}-tender`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Tender / Dinghy
+                                    <label htmlFor={`${fid}-tender`} className={FIELD_LABEL_CLASS}>
+                                        Tender / dinghy
                                     </label>
                                     <input
                                         id={`${fid}-tender`}
@@ -1574,15 +1584,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.tenderDescription || ''}
                                         onChange={(e) => updateVessel('tenderDescription', e.target.value)}
                                         placeholder="grey 2.6 m RIB, 5 hp outboard"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div className="sm:col-span-2">
-                                    <label
-                                        htmlFor={`${fid}-features`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Prominent Features
+                                    <label htmlFor={`${fid}-features`} className={FIELD_LABEL_CLASS}>
+                                        Prominent features
                                     </label>
                                     <input
                                         id={`${fid}-features`}
@@ -1590,7 +1597,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.prominentFeatures || ''}
                                         onChange={(e) => updateVessel('prominentFeatures', e.target.value)}
                                         placeholder="hard dodger, wind generator, tan sail covers"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 {/* The two people a shore contact rings before escalating. Named
@@ -1599,11 +1606,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     the step that heads off most false alarms, because usually somebody
                                     has already heard from the boat. Float plan only, never public. */}
                                 <div className="sm:col-span-2">
-                                    <label
-                                        htmlFor={`${fid}-shore1`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Shore Contact 1
+                                    <label htmlFor={`${fid}-shore1`} className={FIELD_LABEL_CLASS}>
+                                        Shore contact 1
                                     </label>
                                     <input
                                         id={`${fid}-shore1`}
@@ -1611,15 +1615,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.shoreContact1 || ''}
                                         onChange={(e) => updateVessel('shoreContact1', e.target.value)}
                                         placeholder="Jane Stratton — 0412 345 678"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                                 <div className="sm:col-span-2">
-                                    <label
-                                        htmlFor={`${fid}-shore2`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                    >
-                                        Shore Contact 2
+                                    <label htmlFor={`${fid}-shore2`} className={FIELD_LABEL_CLASS}>
+                                        Shore contact 2
                                     </label>
                                     <input
                                         id={`${fid}-shore2`}
@@ -1627,17 +1628,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.shoreContact2 || ''}
                                         onChange={(e) => updateVessel('shoreContact2', e.target.value)}
                                         placeholder="Redcliffe Marina office — 07 3269 1234"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                        className={`${FIELD_CLASS} focus:border-rose-500`}
                                     />
                                 </div>
                             </div>
                         </details>
-                        <div className="mt-3">
-                            <label
-                                htmlFor={`${fid}-mobile`}
-                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                            >
-                                Skipper Mobile
+                        <div className="mt-4">
+                            <label htmlFor={`${fid}-mobile`} className={FIELD_LABEL_CLASS}>
+                                Skipper mobile
                             </label>
                             <input
                                 id={`${fid}-mobile`}
@@ -1645,15 +1643,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 value={vessel?.contactPhone || ''}
                                 onChange={(e) => updateVessel('contactPhone', e.target.value)}
                                 placeholder="04xx xxx xxx"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
+                                className={`${FIELD_CLASS} focus:border-rose-500`}
                             />
                         </div>
-                        <div className="mt-3">
-                            <label
-                                htmlFor={`${fid}-safetygear`}
-                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                            >
-                                Other Safety Gear
+                        <div className="mt-4">
+                            <label htmlFor={`${fid}-safetygear`} className={FIELD_LABEL_CLASS}>
+                                Other safety gear
                             </label>
                             <textarea
                                 id={`${fid}-safetygear`}
@@ -1661,108 +1656,91 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateVessel('safetyNotes', e.target.value)}
                                 placeholder="PLB ×2, drogue, grab bag, Starlink…"
                                 rows={2}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500 resize-none"
+                                className={`${FIELD_CLASS} focus:border-rose-500 resize-none`}
                             />
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-3">
+                        <p className="text-xs text-gray-400 mt-3">
                             Goes into your float plan, which you send to one person ashore. Never shown on your public
                             page.
                         </p>
-                    </div>
-                </div>
-
-                <Section title="Hull & Keel">
-                    <Row>
-                        <div className="w-full">
-                            <p
-                                id={`${fid}-hull`}
-                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2"
-                            >
-                                Hull Type
-                            </p>
-                            <div
-                                role="group"
-                                aria-labelledby={`${fid}-hull`}
-                                className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5"
-                            >
-                                {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
-                                    <button
-                                        aria-label={`Hull type: ${ht}`}
-                                        aria-pressed={vessel?.hullType === ht}
-                                        key={ht}
-                                        onClick={() => updateVessel('hullType', ht)}
-                                        className={`flex-1 min-h-11 px-2 py-2 rounded-lg text-xs font-bold transition-all ${vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
-                                    >
-                                        {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </Row>
-                    <Row>
-                        <div className="w-full">
-                            <p
-                                id={`${fid}-keel`}
-                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2"
-                            >
-                                Keel Type
-                            </p>
-                            {/* Title Case, not uppercase: 'CENTREBOARD' in capitals overflows a
-                                third of a phone-width row. The stored key stays 'centerboard'. */}
-                            <div
-                                role="group"
-                                aria-labelledby={`${fid}-keel`}
-                                className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5"
-                            >
-                                {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => {
-                                    const keelLabel =
-                                        kt === 'centerboard' ? 'Centreboard' : kt.charAt(0).toUpperCase() + kt.slice(1);
-                                    return (
-                                        <button
-                                            aria-label={`Keel type: ${keelLabel}`}
-                                            aria-pressed={vessel?.keelType === kt}
-                                            key={kt}
-                                            onClick={() => updateVessel('keelType', kt)}
-                                            className={`min-h-11 px-1 py-2 rounded-lg text-xs font-bold transition-all ${vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
-                                        >
-                                            {keelLabel}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </Row>
+                    </SubSection>
                 </Section>
 
-                {/* Yacht Database Search — replaces the old Make/Model text input */}
-                <div className="mx-4 mb-4">
-                    <YachtDatabaseSearch
-                        selectedModel={settings.polarBoatModel || vessel?.model}
-                        onSelect={handleYachtSelect}
-                    />
-                    {(vessel?.estimatedFields ?? []).some((field) =>
-                        ['beam', 'draft', 'displacement'].includes(field),
-                    ) && (
+                <Section title="Hull & performance">
+                    <SubSection title="Hull & keel">
+                        <p id={`${fid}-hull`} className={FIELD_LABEL_CLASS}>
+                            Hull type
+                        </p>
                         <div
-                            className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-100"
-                            role="status"
+                            role="group"
+                            aria-labelledby={`${fid}-hull`}
+                            className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5"
                         >
-                            Amber values are rough estimates derived from vessel length, not manufacturer measurements.
-                            Edit a value to replace the estimate. Until then, estimated draft is treated as unknown by
-                            depth guidance.
+                            {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
+                                <button
+                                    type="button"
+                                    aria-label={
+                                        ht === 'monohull' ? 'Monohull' : ht === 'catamaran' ? 'Catamaran' : 'Trimaran'
+                                    }
+                                    aria-pressed={vessel?.hullType === ht}
+                                    key={ht}
+                                    onClick={() => updateVessel('hullType', ht)}
+                                    className={`flex-1 min-h-11 px-2 py-2 rounded-lg text-xs font-bold transition-all ${vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                                >
+                                    {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
+                                </button>
+                            ))}
                         </div>
-                    )}
-                </div>
+                        <p id={`${fid}-keel`} className={`${FIELD_LABEL_CLASS} mt-4`}>
+                            Keel type
+                        </p>
+                        {/* Title Case, not uppercase: 'CENTREBOARD' in capitals overflows a
+                            third of a phone-width row. The stored key stays 'centerboard'. */}
+                        <div
+                            role="group"
+                            aria-labelledby={`${fid}-keel`}
+                            className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5"
+                        >
+                            {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => {
+                                const keelLabel =
+                                    kt === 'centerboard' ? 'Centreboard' : kt.charAt(0).toUpperCase() + kt.slice(1);
+                                return (
+                                    <button
+                                        type="button"
+                                        aria-pressed={vessel?.keelType === kt}
+                                        key={kt}
+                                        onClick={() => updateVessel('keelType', kt)}
+                                        className={`min-h-11 px-1 py-2 rounded-lg text-xs font-bold transition-all ${vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
+                                    >
+                                        {keelLabel}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </SubSection>
 
-                {/* Hull Dimensions */}
-                <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-sky-500" />
-                        <span className="text-[11px] font-bold text-sky-400 uppercase tracking-widest">
-                            Hull Dimensions
-                        </span>
-                    </div>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
+                    {/* Yacht Database Search — replaces the old Make/Model text input */}
+                    <SubSection title="Boat design">
+                        <YachtDatabaseSearch
+                            embedded
+                            selectedModel={settings.polarBoatModel || vessel?.model}
+                            onSelect={handleYachtSelect}
+                        />
+                        {(vessel?.estimatedFields ?? []).some((field) =>
+                            ['beam', 'draft', 'displacement'].includes(field),
+                        ) && (
+                            <div
+                                className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-100"
+                                role="status"
+                            >
+                                Amber values are rough estimates derived from vessel length, not manufacturer
+                                measurements. Edit a value to replace the estimate. Until then, estimated draft is
+                                treated as unknown by depth guidance.
+                            </div>
+                        )}
+                    </SubSection>
+
+                    <SubSection title="Dimensions">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <MetricInput
                                 label="Length"
@@ -1772,7 +1750,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('length', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
-                                placeholder="30"
+                                placeholder="--"
                                 isEstimated={vessel?.estimatedFields?.includes('length')}
                             />
                             <MetricInput
@@ -1783,7 +1761,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('beam', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ beam: u as LengthUnit })}
-                                placeholder="10"
+                                placeholder="--"
                                 isEstimated={vessel?.estimatedFields?.includes('beam')}
                             />
                             <MetricInput
@@ -1794,7 +1772,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('draft', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ draft: u as LengthUnit })}
-                                placeholder="5"
+                                placeholder="--"
                                 isEstimated={vessel?.estimatedFields?.includes('draft')}
                             />
                             <MetricInput
@@ -1805,43 +1783,33 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 unitOptions={['lbs', 'kg', 'tonnes']}
                                 onChangeValue={(v) => updateVessel('displacement', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ displacement: u as WeightUnit })}
-                                placeholder="10000"
+                                placeholder="--"
                                 isEstimated={vessel?.estimatedFields?.includes('displacement')}
+                                decimals={displacementUnit === 'tonnes' ? 2 : 0}
                             />
                             <MetricInput
-                                label="Air Draft"
+                                label="Air draft"
                                 valInStandard={vessel?.airDraft || 0}
                                 standardUnit="ft"
                                 unitType={lengthUnit}
                                 unitOptions={['ft', 'm']}
                                 onChangeValue={(v) => updateVessel('airDraft', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
-                                placeholder="50"
+                                placeholder="--"
                             />
                         </div>
-                    </div>
-                </div>
+                    </SubSection>
 
-                {/* Performance (auto-calculated — read-only) */}
-                <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">
-                            Performance
-                        </span>
-                        <span className="text-[11px] text-gray-400 ml-auto">Auto unless you set it</span>
-                    </div>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
-                        {/* Derived from LOA and hull type, but OVERRIDABLE: the
-                            formulas are a starting guess and the skipper knows
-                            the boat. A stored positive value wins in every
-                            consumer (see vesselCruisingSpeedKts /
-                            vesselMaxWaveHeightFt); storing 0 means "absent", so
-                            Reset hands the figure back to the formula. */}
+                    {/* Derived from LOA and hull type, but OVERRIDABLE: the formulas
+                        are a starting guess and the skipper knows the boat. A stored
+                        positive value wins in every consumer (see
+                        vesselCruisingSpeedKts / vesselMaxWaveHeightFt); storing 0
+                        means "absent", so Reset hands the figure back to the formula. */}
+                    <SubSection title="Performance" aside="Auto unless you set it">
                         <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
                             <div>
                                 <MetricInput
-                                    label="Cruising Speed"
+                                    label="Cruising speed"
                                     valInStandard={
                                         Number(vessel?.cruisingSpeed) > 0 ? Number(vessel?.cruisingSpeed) : 0
                                     }
@@ -1861,20 +1829,24 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     <button
                                         type="button"
                                         onClick={() => updateVessel('cruisingSpeed', 0)}
-                                        className="mt-1.5 min-h-[44px] text-xs font-bold text-sky-400 hover:text-sky-300"
+                                        className="mt-1.5 inline-flex min-h-[44px] items-center gap-1.5 text-xs font-bold text-sky-400 hover:text-sky-300"
                                     >
-                                        ↻ Reset to auto (
-                                        {Math.round(vesselCruisingSpeedKts({ ...vessel, cruisingSpeed: 0 }) * 10) / 10}{' '}
+                                        <RefreshIcon className="h-3.5 w-3.5" />
+                                        Reset to auto (
+                                        {Math.round(vesselCruisingSpeedKts({ ...vessel, cruisingSpeed: 0 }) * 10) /
+                                            10}{' '}
                                         kts)
                                     </button>
                                 )}
                             </div>
                             <div>
-                                {/* 'Hull Wave Limit', not 'Max Wave Height': the Comfort Zone
-                                    below has its own Max Wave Height (the crew's limit), and two
-                                    controls with one name read as a duplicate. */}
+                                {/* 'Biggest sea for this hull', not 'Max Wave Height': the
+                                    Comfort zone has its own Max Wave Height (the crew's
+                                    limit), and two controls with one name read as a
+                                    duplicate. 'Hull Wave Limit' was designer's jargon
+                                    (UX scorecard run 7). */}
                                 <MetricInput
-                                    label="Hull Wave Limit"
+                                    label="Biggest sea for this hull"
                                     valInStandard={
                                         Number(vessel?.maxWaveHeight) > 0 ? Number(vessel?.maxWaveHeight) : 0
                                     }
@@ -1889,277 +1861,274 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     <button
                                         type="button"
                                         onClick={() => updateVessel('maxWaveHeight', 0)}
-                                        className="mt-1.5 min-h-[44px] text-xs font-bold text-sky-400 hover:text-sky-300"
+                                        className="mt-1.5 inline-flex min-h-[44px] items-center gap-1.5 text-xs font-bold text-sky-400 hover:text-sky-300"
                                     >
-                                        ↻ Reset to auto ({hullWaveAutoDisplay} {hullWaveUnit})
+                                        <RefreshIcon className="h-3.5 w-3.5" />
+                                        Reset to auto ({hullWaveAutoDisplay} {hullWaveUnit})
                                     </button>
                                 )}
                             </div>
+                            {vessel?.type === 'sail' && (
+                                <div className="sm:col-span-2">
+                                    {/* A true wind ANGLE, not a bearing: 'Closest to the wind
+                                        (° true)' read like a compass course (UX scorecard run 7). */}
+                                    <label htmlFor={`${fid}-closehauled`} className={FIELD_LABEL_CLASS}>
+                                        Closest true wind angle (°)
+                                    </label>
+                                    <input
+                                        id={`${fid}-closehauled`}
+                                        type="number"
+                                        inputMode="numeric"
+                                        min="25"
+                                        max="70"
+                                        step="1"
+                                        value={Number.isFinite(vessel?.closeHauledTwa) ? vessel.closeHauledTwa : ''}
+                                        onChange={(e) => {
+                                            const n = parseInt(e.target.value, 10);
+                                            updateVessel('closeHauledTwa', Number.isFinite(n) ? n : Number.NaN);
+                                        }}
+                                        placeholder={String(closeHauledDegFor(vessel))}
+                                        className={`${FIELD_CLASS} ${NO_SPINNER_CLASS} focus:border-sky-500`}
+                                    />
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        How close to the wind she sails. The Instrument Panel calls “In irons” and
+                                        “Pinching” against this. Blank uses the default for her rig (
+                                        {closeHauledDegFor(vessel)}°).
+                                    </p>
+                                </div>
+                            )}
                         </div>
-                        <p className="mt-3 text-[11px] text-gray-400">
+                        <p className="mt-3 text-xs text-gray-400">
                             Started from your length and hull type. Type over either one if you know better — the
                             passage planner, ETAs and tide windows all use what you set here.
                         </p>
-                    </div>
-                </div>
+                    </SubSection>
+                </Section>
 
-                {/* Comfort Zone — Safety Parameters. The ordinary cyan-dot section
-                    heading: the red bar belongs to destructive sections (Danger
-                    Zone), and these are comfort limits, not a warning. */}
-                <div className="mx-4 mb-4">
-                    <h2 className="ui-section-heading uppercase tracking-[0.15em] px-1 flex items-center gap-2 text-sky-300 mb-3">
-                        <span
-                            className="w-1.5 h-1.5 shrink-0 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"
-                            aria-hidden="true"
-                        />
-                        Comfort zone
-                    </h2>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4 space-y-5">
-                        <p className="text-[11px] text-gray-400 leading-relaxed">
-                            Set your crew's comfort thresholds. The passage planner will route around zones that exceed
-                            these limits, treating them as obstacles.
-                        </p>
+                {/* The limits the passage planner keeps: the crew's comfort zone
+                    and which ocean currents it routes on. */}
+                <Section title="Routing limits">
+                    <SubSection title="Comfort zone">
+                        <div className="space-y-5">
+                            <p className="text-xs text-gray-400 leading-relaxed">
+                                Set your crew's comfort thresholds. The passage planner will route around zones that
+                                exceed these limits, treating them as obstacles.
+                            </p>
 
-                        {/* Max Wind Speed */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <label
-                                    htmlFor={`${fid}-comfortwind`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest"
-                                >
-                                    Max Wind
-                                </label>
-                                <span
-                                    className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'text-gray-400' : 'text-red-400'}`}
-                                >
-                                    {(settings.comfortParams?.maxWindKts ?? 60) >= 60
-                                        ? 'OFF'
-                                        : `${settings.comfortParams?.maxWindKts} kts`}
-                                </span>
+                            {/* Max Wind Speed */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label
+                                        htmlFor={`${fid}-comfortwind`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                    >
+                                        Max wind
+                                    </label>
+                                    <span
+                                        className={`text-sm font-bold tabular-nums ${comfortWind >= 60 ? 'text-gray-400' : 'text-red-400'}`}
+                                    >
+                                        {comfortWind >= 60 ? 'OFF' : `${settings.comfortParams?.maxWindKts} kts`}
+                                    </span>
+                                </div>
+                                <input
+                                    id={`${fid}-comfortwind`}
+                                    // The top stop means no limit: say so, not the raw number.
+                                    aria-valuetext={
+                                        comfortWind >= 60 ? 'Off' : `${settings.comfortParams?.maxWindKts} kts`
+                                    }
+                                    aria-label="Max wind"
+                                    type="range"
+                                    min={10}
+                                    max={60}
+                                    step={1}
+                                    value={comfortWind}
+                                    onChange={(e) => {
+                                        const v = parseInt(e.target.value);
+                                        updateComfortParams({ maxWindKts: v >= 60 ? undefined : v });
+                                    }}
+                                    className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${comfortWind >= 60 ? 'accent-slate-500' : 'accent-red-500'}`}
+                                    style={{
+                                        background: `linear-gradient(to right, ${comfortWind >= 60 ? '#64748b' : '#ef4444'} 0%, ${comfortWind >= 60 ? '#64748b' : '#ef4444'} ${((comfortWind - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${((comfortWind - 10) / 50) * 100}%)`,
+                                        // Paint the 8px track only: the 44px touch floor on every range
+                                        // input otherwise spread this fill into a fat bar (UX scorecard run 7).
+                                        backgroundClip: 'content-box',
+                                        paddingBlock: 18,
+                                    }}
+                                />
+                                <div className="flex justify-between text-xs text-gray-400 mt-1" aria-hidden="true">
+                                    <span>10 kts</span>
+                                    <span>25</span>
+                                    <span>40</span>
+                                    <span>OFF</span>
+                                </div>
                             </div>
-                            <input
-                                id={`${fid}-comfortwind`}
-                                // The top stop means no limit: say so, not the raw number.
-                                aria-valuetext={
-                                    (settings.comfortParams?.maxWindKts ?? 60) >= 60
-                                        ? 'Off'
-                                        : `${settings.comfortParams?.maxWindKts} kts`
-                                }
-                                aria-label="Max Wind"
-                                type="range"
-                                min={10}
-                                max={60}
-                                step={1}
-                                value={settings.comfortParams?.maxWindKts ?? 60}
-                                onChange={(e) => {
-                                    const v = parseInt(e.target.value);
-                                    updateComfortParams({ maxWindKts: v >= 60 ? undefined : v });
-                                }}
-                                className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'accent-slate-500' : 'accent-red-500'}`}
-                                style={{
-                                    background: `linear-gradient(to right, ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? '#64748b' : '#ef4444'} 0%, ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? '#64748b' : '#ef4444'} ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%)`,
-                                }}
-                            />
-                            <div className="flex justify-between text-[11px] text-gray-500 mt-1">
-                                <span>10 kts</span>
-                                <span>25</span>
-                                <span>40</span>
-                                <span>OFF</span>
+
+                            {/* Max Wave Height */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label
+                                        htmlFor={`${fid}-comfortwave`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                    >
+                                        Max wave height
+                                    </label>
+                                    <span
+                                        className={`text-sm font-bold tabular-nums ${comfortWave >= 8 ? 'text-gray-400' : 'text-red-400'}`}
+                                    >
+                                        {comfortWave >= 8 ? 'OFF' : `${settings.comfortParams?.maxWaveM?.toFixed(1)} m`}
+                                    </span>
+                                </div>
+                                <input
+                                    id={`${fid}-comfortwave`}
+                                    // The top stop means no limit: say so, not the raw number.
+                                    aria-valuetext={
+                                        comfortWave >= 8 ? 'Off' : `${settings.comfortParams?.maxWaveM?.toFixed(1)} m`
+                                    }
+                                    aria-label="Max wave height"
+                                    type="range"
+                                    min={0.5}
+                                    max={8}
+                                    step={0.5}
+                                    value={comfortWave}
+                                    onChange={(e) => {
+                                        const v = parseFloat(e.target.value);
+                                        updateComfortParams({ maxWaveM: v >= 8 ? undefined : v });
+                                    }}
+                                    className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${comfortWave >= 8 ? 'accent-slate-500' : 'accent-red-500'}`}
+                                    style={{
+                                        background: `linear-gradient(to right, ${comfortWave >= 8 ? '#64748b' : '#ef4444'} 0%, ${comfortWave >= 8 ? '#64748b' : '#ef4444'} ${((comfortWave - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${((comfortWave - 0.5) / 7.5) * 100}%)`,
+                                        // Paint the 8px track only: the 44px touch floor on every range
+                                        // input otherwise spread this fill into a fat bar (UX scorecard run 7).
+                                        backgroundClip: 'content-box',
+                                        paddingBlock: 18,
+                                    }}
+                                />
+                                <div className="flex justify-between text-xs text-gray-400 mt-1" aria-hidden="true">
+                                    <span>0.5 m</span>
+                                    <span>2.5</span>
+                                    <span>5.0</span>
+                                    <span>OFF</span>
+                                </div>
+                            </div>
+
+                            {/* Max Gust */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label
+                                        htmlFor={`${fid}-comfortgust`}
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                    >
+                                        Max gust
+                                    </label>
+                                    <span
+                                        className={`text-sm font-bold tabular-nums ${comfortGust >= 80 ? 'text-gray-400' : 'text-red-400'}`}
+                                    >
+                                        {comfortGust >= 80 ? 'OFF' : `${settings.comfortParams?.maxGustKts} kts`}
+                                    </span>
+                                </div>
+                                <input
+                                    id={`${fid}-comfortgust`}
+                                    // The top stop means no limit: say so, not the raw number.
+                                    aria-valuetext={
+                                        comfortGust >= 80 ? 'Off' : `${settings.comfortParams?.maxGustKts} kts`
+                                    }
+                                    aria-label="Max gust"
+                                    type="range"
+                                    min={15}
+                                    max={80}
+                                    step={1}
+                                    value={comfortGust}
+                                    onChange={(e) => {
+                                        const v = parseInt(e.target.value);
+                                        updateComfortParams({ maxGustKts: v >= 80 ? undefined : v });
+                                    }}
+                                    className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${comfortGust >= 80 ? 'accent-slate-500' : 'accent-red-500'}`}
+                                    style={{
+                                        background: `linear-gradient(to right, ${comfortGust >= 80 ? '#64748b' : '#ef4444'} 0%, ${comfortGust >= 80 ? '#64748b' : '#ef4444'} ${((comfortGust - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${((comfortGust - 15) / 65) * 100}%)`,
+                                        // Paint the 8px track only: the 44px touch floor on every range
+                                        // input otherwise spread this fill into a fat bar (UX scorecard run 7).
+                                        backgroundClip: 'content-box',
+                                        paddingBlock: 18,
+                                    }}
+                                />
+                                <div className="flex justify-between text-xs text-gray-400 mt-1" aria-hidden="true">
+                                    <span>15 kts</span>
+                                    <span>35</span>
+                                    <span>55</span>
+                                    <span>OFF</span>
+                                </div>
                             </div>
                         </div>
+                    </SubSection>
 
-                        {/* Max Wave Height */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <label
-                                    htmlFor={`${fid}-comfortwave`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest"
-                                >
-                                    Max Wave Height
-                                </label>
-                                <span
-                                    className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'text-gray-400' : 'text-red-400'}`}
-                                >
-                                    {(settings.comfortParams?.maxWaveM ?? 8) >= 8
-                                        ? 'OFF'
-                                        : `${settings.comfortParams?.maxWaveM?.toFixed(1)} m`}
-                                </span>
-                            </div>
-                            <input
-                                id={`${fid}-comfortwave`}
-                                // The top stop means no limit: say so, not the raw number.
-                                aria-valuetext={
-                                    (settings.comfortParams?.maxWaveM ?? 8) >= 8
-                                        ? 'Off'
-                                        : `${settings.comfortParams?.maxWaveM?.toFixed(1)} m`
-                                }
-                                aria-label="Max Wave Height"
-                                type="range"
-                                min={0.5}
-                                max={8}
-                                step={0.5}
-                                value={settings.comfortParams?.maxWaveM ?? 8}
-                                onChange={(e) => {
-                                    const v = parseFloat(e.target.value);
-                                    updateComfortParams({ maxWaveM: v >= 8 ? undefined : v });
-                                }}
-                                className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'accent-slate-500' : 'accent-red-500'}`}
-                                style={{
-                                    background: `linear-gradient(to right, ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? '#64748b' : '#ef4444'} 0%, ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? '#64748b' : '#ef4444'} ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%)`,
-                                }}
-                            />
-                            <div className="flex justify-between text-[11px] text-gray-500 mt-1">
-                                <span>0.5 m</span>
-                                <span>2.5</span>
-                                <span>5.0</span>
-                                <span>OFF</span>
-                            </div>
-                        </div>
-
-                        {/* Max Gust */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <label
-                                    htmlFor={`${fid}-comfortgust`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest"
-                                >
-                                    Max Gust
-                                </label>
-                                <span
-                                    className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'text-gray-400' : 'text-red-400'}`}
-                                >
-                                    {(settings.comfortParams?.maxGustKts ?? 80) >= 80
-                                        ? 'OFF'
-                                        : `${settings.comfortParams?.maxGustKts} kts`}
-                                </span>
-                            </div>
-                            <input
-                                id={`${fid}-comfortgust`}
-                                // The top stop means no limit: say so, not the raw number.
-                                aria-valuetext={
-                                    (settings.comfortParams?.maxGustKts ?? 80) >= 80
-                                        ? 'Off'
-                                        : `${settings.comfortParams?.maxGustKts} kts`
-                                }
-                                aria-label="Max Gust"
-                                type="range"
-                                min={15}
-                                max={80}
-                                step={1}
-                                value={settings.comfortParams?.maxGustKts ?? 80}
-                                onChange={(e) => {
-                                    const v = parseInt(e.target.value);
-                                    updateComfortParams({ maxGustKts: v >= 80 ? undefined : v });
-                                }}
-                                className={`thalassa-range w-full h-2 rounded-full appearance-none cursor-pointer ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'accent-slate-500' : 'accent-red-500'}`}
-                                style={{
-                                    background: `linear-gradient(to right, ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? '#64748b' : '#ef4444'} 0%, ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? '#64748b' : '#ef4444'} ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%)`,
-                                }}
-                            />
-                            <div className="flex justify-between text-[11px] text-gray-500 mt-1">
-                                <span>15 kts</span>
-                                <span>35</span>
-                                <span>55</span>
-                                <span>OFF</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Routing Data Fidelity */}
-                <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-cyan-500" />
-                        <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-widest">
-                            Routing Data
-                        </span>
-                    </div>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
-                        {/* NRT Currents Toggle —
-                        OSCAR near-real-time vs monthly climatology in the
-                        isochrone router's set/drift advection. NRT is
-                        5-day-old but reflects actual eddies/meanders.
-                        Climatology is steady-state monthly averages —
-                        good enough for most routes. */}
+                    {/* NRT Currents Toggle — OSCAR near-real-time vs monthly
+                        climatology in the isochrone router's set/drift advection.
+                        NRT is 5-day-old but reflects actual eddies/meanders.
+                        Climatology is steady-state monthly averages — good enough
+                        for most routes. */}
+                    <SubSection>
                         <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
-                                <div className="text-sm font-bold text-white">High-fidelity ocean currents</div>
-                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                <p className="text-sm font-bold text-white">High-fidelity ocean currents</p>
+                                <p className="text-xs text-gray-400 mt-0.5">
                                     Use recent ocean currents (about 5 days old) instead of monthly averages. Helps
                                     where a strong current decides your timing.
                                 </p>
                             </div>
-                            <button
-                                type="button"
-                                role="switch"
-                                aria-checked={settings.currentNrtEnabled === true}
-                                aria-label="High-fidelity ocean currents"
-                                onClick={() => onSave({ currentNrtEnabled: !settings.currentNrtEnabled })}
-                                className={`hit-target-44 shrink-0 relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-hidden ${
-                                    settings.currentNrtEnabled ? 'bg-cyan-500' : 'bg-slate-700'
-                                }`}
-                            >
-                                <span
-                                    aria-hidden="true"
-                                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform ${
-                                        settings.currentNrtEnabled ? 'translate-x-5' : 'translate-x-0'
-                                    }`}
-                                />
-                            </button>
+                            {/* The shared settings switch (60x43, sky when on), not a
+                                cyan one of its own (UX scorecard run 7). */}
+                            <Toggle
+                                label="High-fidelity ocean currents"
+                                checked={settings.currentNrtEnabled === true}
+                                onChange={(on) => saveLocally({ currentNrtEnabled: on })}
+                            />
                         </div>
-                    </div>
-                </div>
+                    </SubSection>
+                </Section>
 
-                {/* Capacity */}
-                <div className="mx-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-amber-500" />
-                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">Capacity</span>
-                    </div>
-                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
+                <Section title="Tanks & crew">
+                    <SubSection title="Tanks">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <MetricInput
-                                label="Fuel Capacity"
+                                label="Fuel capacity"
                                 valInStandard={vessel?.fuelCapacity || 0}
                                 standardUnit="gal"
                                 unitType={volumeUnit}
                                 unitOptions={['gal', 'l']}
                                 onChangeValue={(v) => updateVessel('fuelCapacity', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ volume: u as VolumeUnit })}
-                                placeholder="0"
+                                placeholder="--"
                             />
                             <MetricInput
-                                label="Water Capacity"
+                                label="Water capacity"
                                 valInStandard={vessel?.waterCapacity || 0}
                                 standardUnit="gal"
                                 unitType={volumeUnit}
                                 unitOptions={['gal', 'l']}
                                 onChangeValue={(v) => updateVessel('waterCapacity', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ volume: u as VolumeUnit })}
-                                placeholder="0"
+                                placeholder="--"
                             />
                         </div>
-                        <div className="mt-4">
-                            <label
-                                htmlFor={`${fid}-crew`}
-                                className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                            >
-                                Crew Aboard (incl. Skipper)
-                            </label>
-                            <input
-                                id={`${fid}-crew`}
-                                type="number"
-                                min="1"
-                                max="99"
-                                value={vesselCrewAboard(vessel)}
-                                onChange={(e) => updateVessel('crewCount', parseInt(e.target.value) || 2)}
-                                placeholder="2"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
-                            />
-                            <p className="text-[11px] text-gray-400 mt-1">
-                                Used for provisioning and watch scheduling in passage plans
-                            </p>
-                        </div>
+                    </SubSection>
+                    <SubSection title="Crew">
+                        <label htmlFor={`${fid}-crew`} className={FIELD_LABEL_CLASS}>
+                            Crew aboard (incl. skipper)
+                        </label>
+                        <input
+                            id={`${fid}-crew`}
+                            type="number"
+                            inputMode="numeric"
+                            min="1"
+                            max="99"
+                            value={vesselCrewAboard(vessel)}
+                            onChange={(e) => updateVessel('crewCount', parseInt(e.target.value) || 2)}
+                            placeholder="2"
+                            className={`${FIELD_CLASS} ${NO_SPINNER_CLASS} focus:border-sky-500`}
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                            Used for provisioning and watch scheduling in passage plans
+                        </p>
                         {/* One row per person aboard — name, age, rank — straight
                             under the count (Shane 2026-09-09: "the same amount of
                             area to add a punters name and age and rank … those
@@ -2187,9 +2156,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                             value={person.name}
                                             onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
                                             placeholder={index === 0 ? 'Skipper’s name' : `Person ${index + 1}`}
-                                            className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                            className={`${FIELD_CLASS} focus:border-sky-500`}
                                         />
                                     </label>
+                                    {/* Age and Rank share one 44 pt height and one field
+                                        look (UX scorecard run 7). */}
                                     <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
                                         <label className="block min-w-0">
                                             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
@@ -2212,7 +2183,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                                         age: Number.isFinite(n) && n > 0 ? n : undefined,
                                                     });
                                                 }}
-                                                className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 tabular-nums"
+                                                placeholder="--"
+                                                className={`${FIELD_CLASS} ${NO_SPINNER_CLASS} tabular-nums focus:border-sky-500`}
                                             />
                                         </label>
                                         <label className="block min-w-0">
@@ -2223,7 +2195,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                                 aria-label={`Person ${index + 1} rank`}
                                                 value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
                                                 onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
-                                                className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
+                                                className={`${FIELD_CLASS} ${SELECT_CLASS} focus:border-sky-500`}
                                             >
                                                 {FLOAT_PLAN_ROLES.map((role) => (
                                                     <option key={role} value={role}>
@@ -2235,38 +2207,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     </div>
                                 </div>
                             ))}
-                            <p className="text-[11px] text-gray-400">These names carry across to the Float Plan.</p>
+                            <p className="text-xs text-gray-400">These names carry across to the Float Plan.</p>
                         </div>
-                        {vessel?.type === 'sail' && (
-                            <div className="mt-4">
-                                <label
-                                    htmlFor={`${fid}-closehauled`}
-                                    className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5"
-                                >
-                                    Closest to the wind (° true)
-                                </label>
-                                <input
-                                    id={`${fid}-closehauled`}
-                                    type="number"
-                                    min="25"
-                                    max="70"
-                                    step="1"
-                                    value={Number.isFinite(vessel?.closeHauledTwa) ? vessel.closeHauledTwa : ''}
-                                    onChange={(e) => {
-                                        const n = parseInt(e.target.value, 10);
-                                        updateVessel('closeHauledTwa', Number.isFinite(n) ? n : Number.NaN);
-                                    }}
-                                    placeholder={String(closeHauledDegFor(vessel))}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
-                                />
-                                <p className="text-[11px] text-gray-400 mt-1">
-                                    The Instrument Panel calls “In irons” and “Pinching” against this. Blank uses the
-                                    default for her rig ({closeHauledDegFor(vessel)}°).
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                </div>
+                    </SubSection>
+                </Section>
             </React.Fragment>
 
             {/* Release / Undo / MMSI claim dialogs (2026-09-08 decision). All centred,
@@ -2310,78 +2254,85 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     />
                 </OverlayPortal>
             )}
-            {/* Save CTA — fixed 8px above the 72px tab bar. In fleet mode this
-                is a real cloud flush, not the old cosmetic green state. */}
-            <div
-                className="fixed left-0 right-0 z-20 px-4 pt-2 pb-2"
-                style={{
-                    bottom: 'calc(72px + 8px + env(safe-area-inset-bottom))',
-                    // Fully opaque (daylight: the white surface token): at 0.96 the
-                    // Max Gust slider still ghosted through the bar (UX scorecard
-                    // 2026-09-25, run 5).
-                    background: 'var(--day-ui-surface, rgb(2, 6, 23))',
-                    boxShadow: '0 -10px 18px -10px rgba(0, 0, 0, 0.45)',
-                }}
-            >
-                {/* Scroll fade on the bar's top edge, so a field scrolling under it
-                    fades out instead of being sliced. It lives here, not as a
-                    mask on SettingsModal's scroller: this bar is position:fixed
-                    INSIDE that scroller, and a mask there would fade the bar too. */}
+
+            {fleetAvailable ? (
+                // Fleet mode: a real cloud flush, fixed 8px above the 72px tab bar.
                 <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute left-0 right-0 bottom-full h-4"
+                    className="fixed left-0 right-0 z-20 px-4 pt-2 pb-2"
                     style={{
-                        background: 'linear-gradient(to bottom, transparent, var(--day-ui-surface, rgb(2, 6, 23)))',
+                        bottom: 'calc(72px + 8px + env(safe-area-inset-bottom))',
+                        // Fully opaque (daylight: the white surface token): at 0.96 the
+                        // Max Gust slider still ghosted through the bar (UX scorecard
+                        // 2026-09-25, run 5).
+                        background: 'var(--day-ui-surface, rgb(2, 6, 23))',
+                        boxShadow: '0 -10px 18px -10px rgba(0, 0, 0, 0.45)',
                     }}
-                />
-                <div className="max-w-2xl mx-auto">
-                    <button
-                        type="button"
-                        aria-label={
-                            fleetAvailable ? 'Sync vessel fleet to cloud' : 'Acknowledge locally saved vessel profile'
-                        }
-                        onClick={() => {
-                            void triggerHaptic('medium');
-                            if (fleetAvailable) syncFleet();
-                            else showSavedConfirmation();
+                >
+                    {/* Scroll fade on the bar's top edge, so a field scrolling under it
+                        fades out instead of being sliced. It lives here, not as a
+                        mask on SettingsModal's scroller: this bar is position:fixed
+                        INSIDE that scroller, and a mask there would fade the bar too. */}
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-0 right-0 bottom-full h-4"
+                        style={{
+                            background: 'linear-gradient(to bottom, transparent, var(--day-ui-surface, rgb(2, 6, 23)))',
                         }}
-                        disabled={
-                            fleetAvailable &&
-                            (!fleetSurface.syncVesselFleet || fleetBusyAction !== null || syncStatus.busy)
-                        }
-                        className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
-                            fleetBusyAction === 'sync' || syncStatus.busy
-                                ? 'bg-linear-to-r from-sky-700 to-cyan-700 text-white shadow-lg shadow-sky-500/20'
-                                : !fleetAvailable
-                                  ? 'border border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
-                                  : saved && syncStatus.tone !== 'red'
-                                    ? 'bg-linear-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-                                    : 'bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                        }`}
-                    >
-                        {fleetBusyAction === 'sync' || syncStatus.busy ? (
-                            <span className="inline-flex items-center gap-1.5 justify-center">
-                                <RefreshIcon className="w-4 h-4 animate-spin" />
-                                <span>Syncing fleet</span>
-                            </span>
-                        ) : saved ? (
-                            <span className="inline-flex items-center gap-1.5 justify-center">
-                                <CheckIcon className="w-4 h-4" />
-                                <span>{fleetAvailable ? 'Cloud check complete' : 'Saved on this phone'}</span>
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-1.5 justify-center">
-                                {fleetAvailable ? (
-                                    <RefreshIcon className="w-4 h-4" />
-                                ) : (
+                    />
+                    <div className="max-w-2xl mx-auto">
+                        <button
+                            type="button"
+                            aria-label="Sync vessel fleet to cloud"
+                            onClick={() => {
+                                void triggerHaptic('medium');
+                                syncFleet();
+                            }}
+                            disabled={!fleetSurface.syncVesselFleet || fleetBusyAction !== null || syncStatus.busy}
+                            className={`w-full min-h-11 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
+                                fleetBusyAction === 'sync' || syncStatus.busy
+                                    ? 'bg-linear-to-r from-sky-700 to-cyan-700 text-white shadow-lg shadow-sky-500/20'
+                                    : saved && syncStatus.tone !== 'red'
+                                      ? 'bg-linear-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                                      : 'bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                            }`}
+                        >
+                            {fleetBusyAction === 'sync' || syncStatus.busy ? (
+                                <span className="inline-flex items-center gap-1.5 justify-center">
+                                    <RefreshIcon className="w-4 h-4 animate-spin" />
+                                    <span>Syncing fleet</span>
+                                </span>
+                            ) : saved ? (
+                                <span className="inline-flex items-center gap-1.5 justify-center">
                                     <CheckIcon className="w-4 h-4" />
-                                )}
-                                <span>{fleetAvailable ? 'Sync vessel fleet' : 'Saved on this phone'}</span>
-                            </span>
-                        )}
-                    </button>
+                                    <span>Cloud check complete</span>
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center gap-1.5 justify-center">
+                                    <RefreshIcon className="w-4 h-4" />
+                                    <span>Sync vessel fleet</span>
+                                </span>
+                            )}
+                        </button>
+                    </div>
                 </div>
-            </div>
+            ) : (
+                // Local profile: nothing to press — edits are on the phone the moment
+                // they are made. A slim line says so for a moment after each edit,
+                // and is gone again (UX scorecard run 7: the permanent bordered bar
+                // read as a Save button and took ~62 pt of the port).
+                <div
+                    role="status"
+                    className="pointer-events-none fixed left-0 right-0 z-20 flex justify-center px-4"
+                    style={{ bottom: 'calc(var(--thalassa-tabbar-height, 72px) + 12px)' }}
+                >
+                    {localSaved && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-slate-900 px-4 py-2 text-sm font-bold text-emerald-200 shadow-lg shadow-black/40 animate-in fade-in duration-200">
+                            <CheckIcon className="h-4 w-4" />
+                            Saved on this phone
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

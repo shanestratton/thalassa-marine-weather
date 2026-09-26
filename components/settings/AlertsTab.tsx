@@ -106,10 +106,12 @@ const visibilityUnit = (units: Partial<UnitPreferences>): ThresholdUnit => {
 const tempUnit = (units: Partial<UnitPreferences>): ThresholdUnit =>
     units.temp === 'F' ? scaled('°F', celsiusToFahrenheit, fahrenheitToCelsius) : same('°C');
 
+// One naming style, sentence case, no abbreviations: 'Low Vis', and 'Heat
+// Alert' beside 'High UV', read as three conventions (UX scorecard run 7).
 const THRESHOLDS: ThresholdSpec[] = [
     {
         key: 'wind',
-        title: 'High Wind',
+        title: 'High wind',
         trigger: 'Sustained wind above',
         unit: speedUnit,
         icon: WindIcon,
@@ -127,7 +129,7 @@ const THRESHOLDS: ThresholdSpec[] = [
     },
     {
         key: 'waves',
-        title: 'High Seas',
+        title: 'High seas',
         trigger: 'Significant wave height above',
         unit: waveUnit,
         icon: WaveIcon,
@@ -136,7 +138,7 @@ const THRESHOLDS: ThresholdSpec[] = [
     },
     {
         key: 'swellPeriod',
-        title: 'Long Period',
+        title: 'Long period',
         trigger: 'Swell period above',
         unit: () => same('s'),
         icon: WavePeriodIcon,
@@ -145,7 +147,7 @@ const THRESHOLDS: ThresholdSpec[] = [
     },
     {
         key: 'visibility',
-        title: 'Low Vis',
+        title: 'Low visibility',
         trigger: 'Visibility below',
         unit: visibilityUnit,
         icon: EyeIcon,
@@ -163,7 +165,7 @@ const THRESHOLDS: ThresholdSpec[] = [
     },
     {
         key: 'tempHigh',
-        title: 'Heat Alert',
+        title: 'Heat',
         trigger: 'Air temperature above',
         unit: tempUnit,
         icon: ThermometerIcon,
@@ -172,7 +174,7 @@ const THRESHOLDS: ThresholdSpec[] = [
     },
     {
         key: 'tempLow',
-        title: 'Freeze Alert',
+        title: 'Freeze',
         trigger: 'Air temperature below',
         unit: tempUnit,
         icon: ThermometerIcon,
