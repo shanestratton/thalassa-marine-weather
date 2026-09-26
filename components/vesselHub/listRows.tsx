@@ -64,7 +64,7 @@ export const ListDivider: React.FC = () => (
  */
 export const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div className="px-1 pt-3 pb-1.5">
-        <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{children}</span>
+        <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{children}</h2>
     </div>
 );
 

@@ -116,7 +116,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="thalassa-scroll-fade thalassa-scroll-fade--nav flex-1 overflow-y-auto p-4 pb-[calc(var(--thalassa-tabbar-height)+16px)] space-y-4">
                 {activeAlerts && activeAlerts.length > 0 ? (
                     activeAlerts.map((alert, _index) => (
                         <div

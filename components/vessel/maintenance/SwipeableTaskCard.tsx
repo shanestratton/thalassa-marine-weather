@@ -98,7 +98,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                     category group, whose header already names it. */}
                 {/* Row 1: Title + 3-dot menu */}
                 <div className="flex items-start justify-between gap-2">
-                    <h4 className="text-sm font-bold text-white truncate flex-1 min-w-0">{task.title}</h4>
+                    <h3 className="text-sm font-bold text-white truncate flex-1 min-w-0">{task.title}</h3>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();

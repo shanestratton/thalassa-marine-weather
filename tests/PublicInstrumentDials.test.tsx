@@ -49,7 +49,7 @@ describe('public native instrument faces', () => {
         const compass = screen.getByRole('img', { name: 'Course over ground compass' });
         expect(within(compass).getByText('091')).toBeTruthy();
         rerender(<PublicInstrumentDials instruments={instruments({ cog: null })} />);
-        expect(within(compass).getByText('---')).toBeTruthy();
+        expect(within(compass).getByText('--')).toBeTruthy(); // the Instrument Panel's one no-data glyph
         rerender(<PublicInstrumentDials instruments={instruments({ cog: 359.6 })} />);
         expect(within(compass).getByText('000')).toBeTruthy();
     });

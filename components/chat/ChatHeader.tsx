@@ -55,8 +55,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
 
         return (
             <div className={t.header.bar}>
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-2">
+                    {/* min-w-0 so a long title yields before it reaches the action buttons. */}
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                         {/* Intra-page back on the sub-views; on the ROOT
                             channel list the same chevron LEAVES Scuttlebutt,
                             which previously had no header exit at all. */}
@@ -64,9 +65,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <BackButton onClick={view === 'channels' ? (onExit ?? onGoBack) : onGoBack} />
                         )}
                         {view === 'channels' ? (
-                            <h1 className={t.typography.pageTitle}>Scuttlebutt</h1>
+                            <h1 className={`${t.typography.pageTitle} min-w-0 truncate`}>Scuttlebutt</h1>
                         ) : (
-                            <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
+                            <h1 className={`${t.typography.pageTitle} flex min-w-0 items-center gap-2`}>
                                 {view === 'messages' &&
                                     (activeChannel ? `${activeChannel.icon} ${activeChannel.name}` : 'Channel')}
                                 {view === 'dm_inbox' && '✉️ Messages'}
@@ -80,7 +81,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <p className="text-xs text-white/60 ml-1">{activeChannel.description}</p>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                         {view === 'channels' && (
                             <>
                                 {onPropose && (

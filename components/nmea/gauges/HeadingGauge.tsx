@@ -205,7 +205,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
                     fontFamily="ui-monospace, monospace"
                     opacity={dead ? 0.35 : 1}
                 >
-                    {dead ? '---' : (((Math.round(value as number) % 360) + 360) % 360).toString().padStart(3, '0')}
+                    {dead ? '--' : (((Math.round(value as number) % 360) + 360) % 360).toString().padStart(3, '0')}
                 </text>
                 <text
                     x={CX}
