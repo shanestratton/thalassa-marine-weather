@@ -6,6 +6,7 @@ import { getSolarTimes, getMoonData } from '../../../utils/celestial';
 import { resolveTimeZone } from '../../../utils/timezone';
 import { piCache } from '../../PiCacheService';
 import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
+import { temperatureOrNull } from '../temperatureOrNull';
 const log = createLogger('WeatherKit');
 
 // ── Types ─────────────────────────────────────────────────────
@@ -121,8 +122,9 @@ const kmhToMs = (v: number | null | undefined): number | null => (v != null ? v 
 /** Apple km/h → knots (internal unit convention) */
 const kmhToKnots = (v: number | null | undefined): number | null => (v != null ? v * 0.539957 : null);
 
-/** Apple m/s wind speed → knots for display */
-const msToKnots = (v: number | null | undefined): number => (v != null ? Math.round(v * 1.94384) : 0);
+/** Apple m/s wind speed → knots for display. null in → null out: an hour
+ *  Apple sent no wind for is not a calm hour. */
+const msToKnots = (v: number | null | undefined): number | null => (v != null ? Math.round(v * 1.94384) : null);
 
 /** Apple 0-1 fraction → 0-100% */
 const fractionToPercent = (v: number | null | undefined): number | null => (v != null ? Math.round(v * 100) : null);
@@ -174,8 +176,8 @@ function mapCurrentWeather(cw: WeatherKitRaw): WeatherKitObservation {
     };
 }
 
-/** Map Apple forecastHourly → HourlyForecast[] */
-function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
+/** Map Apple forecastHourly → HourlyForecast[]. Exported for tests. */
+export function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
     const hours = forecastHourly?.hours;
     if (!Array.isArray(hours)) return [];
 
@@ -188,7 +190,7 @@ function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
             windDegree: h.windDirection ?? undefined,
             waveHeight: null, // WeatherKit doesn't provide waves — StormGlass fills this when it can
             swellPeriod: null,
-            temperature: h.temperature ?? 0,
+            temperature: temperatureOrNull(h.temperature),
             condition: mapCondition(h.conditionCode || ''),
             feelsLike: h.temperatureApparent ?? undefined,
             precipitation: h.precipitationAmount ?? null,
@@ -209,7 +211,7 @@ function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
  *                  label are rendered in the target location's zone, not the
  *                  device's. Without this, a boat in Sydney viewing Texas would
  *                  see Texas sunrise converted to AEST (wrong). */
-function mapDailyForecast(forecastDaily: WeatherKitRaw, timeZone?: string): ForecastDay[] {
+export function mapDailyForecast(forecastDaily: WeatherKitRaw, timeZone?: string): ForecastDay[] {
     const days = forecastDaily?.days;
     if (!Array.isArray(days)) return [];
 
@@ -229,8 +231,8 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw, timeZone?: string): Fore
             day: dayName,
             date: isoDate,
             isoDate,
-            highTemp: d.temperatureMax ?? 0,
-            lowTemp: d.temperatureMin ?? 0,
+            highTemp: temperatureOrNull(d.temperatureMax),
+            lowTemp: temperatureOrNull(d.temperatureMin),
             windSpeed: msToKnots(kmhToMs(d.windSpeedAvg ?? d.windSpeedMax)),
             windGust: d.windGustSpeedMax != null ? msToKnots(kmhToMs(d.windGustSpeedMax)) : undefined,
             waveHeight: null, // WeatherKit doesn't provide — StormGlass fills this when it can
@@ -702,8 +704,8 @@ export function buildReportFromWeatherKit(
         nauticalDusk: solar.nauticalDusk,
         moonrise: moon.moonrise,
         moonset: moon.moonset,
-        highTemp: today?.highTemp,
-        lowTemp: today?.lowTemp,
+        highTemp: today?.highTemp ?? undefined,
+        lowTemp: today?.lowTemp ?? undefined,
         moonPhase: moon.phaseName,
         moonIllumination: moon.illumination,
         moonPhaseValue: moon.phaseRatio,

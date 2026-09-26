@@ -4,6 +4,8 @@ import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { createLogger } from '../utils/createLogger';
+import { ktsToMph, ktsToKmh, ktsToMps, ftToM, celsiusToFahrenheit } from '../utils/units';
+import type { UnitPreferences } from '../types';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -14,6 +16,44 @@ import {
 const log = createLogger('NotifMgr');
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
+// Thresholds and readings are compared in kts, ft, s, nm and °C (what
+// Settings → Notifications stores), but the skipper set each threshold in
+// their own display unit. Word the alert in that unit, rounded, so a 40 km/h
+// threshold never comes back as '21.6kts' or a 1.5 m one as '4.92ft'.
+type Units = Partial<UnitPreferences>;
+const oneDecimal = (n: number): string => String(Number(n.toFixed(1)));
+
+const formatSpeed = (kts: number, units: Units): string => {
+    switch (units.speed) {
+        case 'mph':
+            return `${Math.round(ktsToMph(kts))}mph`;
+        case 'kmh':
+            return `${Math.round(ktsToKmh(kts))}km/h`;
+        case 'mps':
+            return `${oneDecimal(ktsToMps(kts))}m/s`;
+        default:
+            return `${Math.round(kts)}kts`;
+    }
+};
+
+// Same fallback as the Seas picker in Preferences and the Notifications tab.
+const formatWave = (ft: number, units: Units): string =>
+    (units.waveHeight || 'm') === 'ft' ? `${oneDecimal(ft)}ft` : `${oneDecimal(ftToM(ft))}m`;
+
+const formatVisibility = (nm: number, units: Units): string => {
+    switch (units.visibility || 'nm') {
+        case 'mi':
+            return `${oneDecimal(nm * 1.15078)}mi`;
+        case 'km':
+            return `${oneDecimal(nm * 1.852)}km`;
+        default:
+            return `${oneDecimal(nm)}NM`;
+    }
+};
+
+const formatTemp = (c: number, units: Units): string =>
+    units.temp === 'F' ? `${Math.round(celsiusToFahrenheit(c))}°F` : `${Math.round(c)}°C`;
 
 interface NotificationManagerProps {
     onNotify: (message: string) => void;
@@ -47,6 +87,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
 
         const { current } = weatherData;
         const { notifications } = settings;
+        const units: Units = settings.units ?? {};
 
         /**
          * Check threshold and fire both in-app + push notification.
@@ -97,8 +138,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.windSpeed && current.windSpeed >= notifications.wind.threshold) {
                 checkAndNotify(
                     'wind',
-                    `🌬 High Wind Alert: ${current.windSpeed}kts`,
-                    `Wind speed at ${weatherData.locationName} has exceeded your ${notifications.wind.threshold}kts threshold.`,
+                    `🌬 High Wind Alert: ${formatSpeed(current.windSpeed, units)}`,
+                    `Wind speed at ${weatherData.locationName} has exceeded your ${formatSpeed(notifications.wind.threshold, units)} threshold.`,
                 );
             }
         }
@@ -108,8 +149,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.windGust && current.windGust >= notifications.gusts.threshold) {
                 checkAndNotify(
                     'gusts',
-                    `💨 Gust Alert: ${Math.round(current.windGust)}kts`,
-                    `Wind gusts at ${weatherData.locationName} have exceeded your ${notifications.gusts.threshold}kts threshold.`,
+                    `💨 Gust Alert: ${formatSpeed(current.windGust, units)}`,
+                    `Wind gusts at ${weatherData.locationName} have exceeded your ${formatSpeed(notifications.gusts.threshold, units)} threshold.`,
                 );
             }
         }
@@ -119,8 +160,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.waveHeight && current.waveHeight >= notifications.waves.threshold) {
                 checkAndNotify(
                     'waves',
-                    `🌊 High Surf Advisory: ${current.waveHeight}ft`,
-                    `Wave height at ${weatherData.locationName} is above your ${notifications.waves.threshold}ft limit.`,
+                    `🌊 High Surf Advisory: ${formatWave(current.waveHeight, units)}`,
+                    `Wave height at ${weatherData.locationName} is above your ${formatWave(notifications.waves.threshold, units)} limit.`,
                 );
             }
         }
@@ -130,8 +171,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.swellPeriod && current.swellPeriod >= notifications.swellPeriod.threshold) {
                 checkAndNotify(
                     'swellPeriod',
-                    `🌊 Long Period Swell: ${current.swellPeriod}s`,
-                    `Swell period at ${weatherData.locationName} has exceeded your ${notifications.swellPeriod.threshold}s threshold.`,
+                    `🌊 Long Period Swell: ${oneDecimal(current.swellPeriod)}s`,
+                    `Swell period at ${weatherData.locationName} has exceeded your ${oneDecimal(notifications.swellPeriod.threshold)}s threshold.`,
                 );
             }
         }
@@ -141,8 +182,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.visibility != null && current.visibility <= notifications.visibility.threshold) {
                 checkAndNotify(
                     'visibility',
-                    `🌫️ Low Visibility: ${current.visibility}NM`,
-                    `Visibility at ${weatherData.locationName} has dropped below your ${notifications.visibility.threshold}NM threshold.`,
+                    `🌫️ Low Visibility: ${formatVisibility(current.visibility, units)}`,
+                    `Visibility at ${weatherData.locationName} has dropped below your ${formatVisibility(notifications.visibility.threshold, units)} threshold.`,
                 );
             }
         }
@@ -163,8 +204,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.airTemperature != null && current.airTemperature >= notifications.tempHigh.threshold) {
                 checkAndNotify(
                     'tempHigh',
-                    `🌡️ Heat Alert: ${Math.round(current.airTemperature)}°`,
-                    `Temperature at ${weatherData.locationName} has exceeded your ${notifications.tempHigh.threshold}° threshold.`,
+                    `🌡️ Heat Alert: ${formatTemp(current.airTemperature, units)}`,
+                    `Temperature at ${weatherData.locationName} has exceeded your ${formatTemp(notifications.tempHigh.threshold, units)} threshold.`,
                 );
             }
         }
@@ -174,8 +215,8 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.airTemperature != null && current.airTemperature <= notifications.tempLow.threshold) {
                 checkAndNotify(
                     'tempLow',
-                    `🥶 Freeze Alert: ${Math.round(current.airTemperature)}°`,
-                    `Temperature at ${weatherData.locationName} has dropped below your ${notifications.tempLow.threshold}° threshold.`,
+                    `🥶 Freeze Alert: ${formatTemp(current.airTemperature, units)}`,
+                    `Temperature at ${weatherData.locationName} has dropped below your ${formatTemp(notifications.tempLow.threshold, units)} threshold.`,
                 );
             }
         }
@@ -194,7 +235,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [identityScope, weatherData, settings.notifications, onNotify, user?.id]);
+    }, [identityScope, weatherData, settings.notifications, settings.units, onNotify, user?.id]);
 
     return null; // Headless component
 };

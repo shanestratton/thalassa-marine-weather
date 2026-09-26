@@ -192,6 +192,24 @@ describe('checkForecastThresholds', () => {
         expect(alerts[0]).toContain('High Temp');
     });
 
+    it('does not turn a missing hourly temperature into a 0° low-temp alert', () => {
+        // Providers report a missing hour as null; Math.min read it as 0.
+        const hourly = Array(24)
+            .fill(null)
+            .map((_, i) => makeHourly({ temperature: (i % 2 ? null : 18) as unknown as number }));
+        const prefs = {
+            ...defaultPrefs,
+            tempLow: { enabled: true, threshold: 2 },
+            tempHigh: { enabled: true, threshold: 30 },
+        };
+        expect(checkForecastThresholds(hourly, [], prefs)).toEqual([]);
+
+        const allMissing = Array(24)
+            .fill(null)
+            .map(() => makeHourly({ temperature: null as unknown as number }));
+        expect(checkForecastThresholds(allMissing, [], prefs)).toEqual([]);
+    });
+
     it('ignores disabled thresholds', () => {
         const hourly = Array(24)
             .fill(null)

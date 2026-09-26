@@ -9,6 +9,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import { mToFt } from '../../utils/units';
+import { ThermometerIcon, WaveIcon, WindIcon } from '../icons/WeatherIcons';
+import { GaugeIcon } from '../icons/MaritimeIcons';
+import { CheckIcon, RefreshIcon, StarIcon } from '../icons/UIIcons';
+import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 
 /**
  * Save affordance. The popup renders in its OWN React root (MapHub calls
@@ -68,27 +72,30 @@ const Shimmer: React.FC<{ w?: string }> = ({ w = 'w-12' }) => (
 // ── Metric row ──
 
 const Metric: React.FC<{
-    icon: string;
+    icon: React.ReactNode;
     label: string;
     value: string;
     sub?: string;
     loading?: boolean;
 }> = ({ icon, label, value, sub, loading }) => (
     <div className="flex items-center gap-2.5 py-1.5">
-        <span className="text-base shrink-0 w-5 text-center">{icon}</span>
+        <span className="shrink-0 w-5 flex items-center justify-center text-sky-300">{icon}</span>
         <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-white/50 font-bold uppercase tracking-wider leading-none">{label}</p>
+            <p className="text-xs text-white/50 font-bold uppercase tracking-wider leading-none">{label}</p>
             {loading ? (
                 <Shimmer />
             ) : (
                 <p className="text-[13px] text-white font-bold leading-tight">
                     {value}
-                    {sub && <span className="text-white/40 text-[11px] font-medium ml-1">{sub}</span>}
+                    {sub && <span className="text-white/40 text-xs font-medium ml-1">{sub}</span>}
                 </p>
             )}
         </div>
     </div>
 );
+
+/** Missing reading → '--', never an invented 0 (UX scorecard run 6). */
+const DASH = '--';
 
 // ── Wind direction arrow ──
 
@@ -147,14 +154,14 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
     if (save.savedAs) {
         return (
             <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-white/6">
-                <span className="text-emerald-400 text-xs shrink-0">✓</span>
-                <span className="flex-1 min-w-0 truncate text-[11px] text-white/60">
+                <CheckIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="flex-1 min-w-0 truncate text-xs text-white/60">
                     Saved as <span className="text-white/90 font-semibold">{save.savedAs}</span>
                 </span>
                 <button
                     type="button"
                     onClick={() => save.onUnsave(save.savedAs!)}
-                    className="hit-target-44 shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    className="hit-target-44 shrink-0 px-2 py-1 rounded-lg text-xs font-semibold text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                 >
                     Remove
                 </button>
@@ -172,7 +179,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
                 }}
                 className="w-full flex items-center justify-center gap-1.5 mt-2 pt-2 border-t border-white/6 py-2 text-amber-300 hover:text-amber-200 transition-colors"
             >
-                <span className="text-sm">★</span>
+                <StarIcon className="w-3.5 h-3.5" />
                 <span className="text-[12px] font-bold">Save this spot</span>
             </button>
         );
@@ -301,7 +308,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         {/* Loading label */}
                         <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-white/4">
                             <div className="w-3 h-3 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
-                            <span className="text-[11px] text-sky-400/50 font-medium tracking-wider uppercase">
+                            <span className="text-xs text-sky-400/50 font-medium tracking-wider uppercase">
                                 Loading weather…
                             </span>
                         </div>
@@ -313,9 +320,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                     the recovery action directly beside the failure. */}
                 {!loading && !data && error && (
                     <div role="alert" className="px-2 pb-2 pt-8 text-center">
-                        <div className="text-xl" aria-hidden="true">
-                            ↻
-                        </div>
+                        <RefreshIcon className="mx-auto w-5 h-5 text-amber-200" />
                         <p className="mt-1 text-sm font-bold text-amber-200">Weather unavailable</p>
                         <p className="mt-1 text-xs leading-relaxed text-slate-300">{error}</p>
                         {onRetry && (
@@ -339,7 +344,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                     >
                         {/* Coordinate header */}
                         <div className="flex items-center gap-1.5 mb-2 pr-6">
-                            <span className="text-[11px] text-sky-400/70 font-mono font-bold">
+                            <span className="text-xs text-sky-400/70 font-mono font-bold">
                                 {data
                                     ? `${Math.abs(data.lat).toFixed(2)}°${data.lat >= 0 ? 'N' : 'S'} ${Math.abs(data.lon).toFixed(2)}°${data.lon >= 0 ? 'E' : 'W'}`
                                     : '…'}
@@ -349,29 +354,51 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         {/* Atmospheric section */}
                         <div className="grid grid-cols-2 gap-x-3">
                             <Metric
-                                icon="💨"
+                                icon={<WindIcon className="w-4 h-4" />}
                                 label="Wind"
-                                value={data ? `${kmhToKnots(data.windSpeedKmh)} kts` : ''}
+                                value={
+                                    data
+                                        ? data.windSpeedKmh != null
+                                            ? `${kmhToKnots(data.windSpeedKmh)} kts`
+                                            : DASH
+                                        : ''
+                                }
                                 sub={data && data.windDirectionDeg != null ? degToCardinal(data.windDirectionDeg) : ''}
                                 loading={loading && !data}
                             />
                             <Metric
-                                icon="🌡"
+                                icon={<ThermometerIcon className="w-4 h-4" />}
                                 label="Temp"
-                                value={data ? `${Math.round(data.temperatureC)}°C` : ''}
+                                value={
+                                    data
+                                        ? data.temperatureC != null
+                                            ? `${Math.round(data.temperatureC)}°C`
+                                            : DASH
+                                        : ''
+                                }
                                 loading={loading && !data}
                             />
                             <Metric
-                                icon="🔻"
+                                icon={<GustIcon className="w-4 h-4" />}
                                 label="Gusts"
-                                value={data ? `${kmhToKnots(data.windGustsKmh)} kts` : ''}
+                                value={
+                                    data
+                                        ? data.windGustsKmh != null
+                                            ? `${kmhToKnots(data.windGustsKmh)} kts`
+                                            : DASH
+                                        : ''
+                                }
                                 loading={loading && !data}
                             />
                             <Metric
-                                icon="🔵"
+                                icon={<GaugeIcon className="w-4 h-4" />}
                                 label="Pressure"
                                 value={
-                                    data ? (data.pressureMsl != null ? `${Math.round(data.pressureMsl)} hPa` : '—') : ''
+                                    data
+                                        ? data.pressureMsl != null
+                                            ? `${Math.round(data.pressureMsl)} hPa`
+                                            : DASH
+                                        : ''
                                 }
                                 loading={loading && !data}
                             />
@@ -381,7 +408,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         {data && !loading && data.windDirectionDeg != null && (
                             <div className="flex items-center gap-1.5 mt-1 mb-1 px-0.5">
                                 <WindArrow deg={data.windDirectionDeg} />
-                                <span className="text-[11px] text-white/50 font-medium">
+                                <span className="text-xs text-white/50 font-medium">
                                     From {degToCardinal(data.windDirectionDeg)} ({Math.round(data.windDirectionDeg)}°)
                                 </span>
                             </div>
@@ -393,7 +420,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                                 <div className="h-px bg-white/6 my-1.5" />
                                 <div className="grid grid-cols-2 gap-x-3">
                                     <Metric
-                                        icon="🌊"
+                                        icon={<WaveIcon className="w-4 h-4" />}
                                         label="Waves"
                                         value={
                                             data && data.waveHeightM != null
@@ -403,7 +430,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                                         loading={loading && !data}
                                     />
                                     <Metric
-                                        icon="⏱"
+                                        icon={<WavePeriodIcon className="w-4 h-4" />}
                                         label="Period"
                                         value={
                                             data && data.wavePeriodS != null ? `${data.wavePeriodS.toFixed(0)}s` : ''
@@ -418,16 +445,18 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                                     {data && data.swellHeightM != null && data.swellHeightM > 0 && (
                                         <>
                                             <Metric
-                                                icon="〰️"
+                                                icon={<WaveIcon className="w-4 h-4" />}
                                                 label="Swell"
                                                 value={`${data.swellHeightM.toFixed(1)}m / ${metresToFeet(data.swellHeightM)}ft`}
                                                 loading={loading && !data}
                                             />
                                             <Metric
-                                                icon="🔄"
-                                                label="Swell Period"
+                                                icon={<WavePeriodIcon className="w-4 h-4" />}
+                                                label="Swell period"
                                                 value={
-                                                    data.swellPeriodS != null ? `${data.swellPeriodS.toFixed(0)}s` : '—'
+                                                    data.swellPeriodS != null
+                                                        ? `${data.swellPeriodS.toFixed(0)}s`
+                                                        : DASH
                                                 }
                                                 sub={
                                                     data.swellDirectionDeg != null
@@ -446,7 +475,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                             <div
                                 role="status"
                                 aria-live="polite"
-                                className="mt-2 flex items-center gap-2 rounded-lg border border-white/6 bg-white/3 px-2.5 py-2 text-[11px] text-white/55"
+                                className="mt-2 flex items-center gap-2 rounded-lg border border-white/6 bg-white/3 px-2.5 py-2 text-xs text-white/55"
                             >
                                 <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-400" />
                                 Sea state loading&hellip;
@@ -454,7 +483,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         )}
 
                         {data?.marineStatus === 'land' && !hasMarine && (
-                            <p className="mt-2 text-[11px] leading-relaxed text-white/45">
+                            <p className="mt-2 text-xs leading-relaxed text-white/45">
                                 No sea state here — this point is over land.
                             </p>
                         )}
@@ -462,14 +491,14 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         {data?.marineStatus === 'unavailable' && (
                             <div
                                 role="status"
-                                className="mt-2 rounded-lg border border-amber-300/20 bg-amber-400/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-100"
+                                className="mt-2 rounded-lg border border-amber-300/20 bg-amber-400/10 px-2.5 py-2 text-xs leading-relaxed text-amber-100"
                             >
                                 Marine wave data could not be reached. Wind and pressure above are still available.
                             </div>
                         )}
 
                         {data && !loading && (
-                            <p className="mt-2 border-t border-white/6 pt-2 text-[11px] text-white/55">
+                            <p className="mt-2 border-t border-white/6 pt-2 text-xs text-white/55">
                                 Open-Meteo · fetched{' '}
                                 {Math.max(0, Math.round((Date.now() - data.fetchedAt) / 60_000)) <= 1
                                     ? 'now'

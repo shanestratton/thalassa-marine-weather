@@ -23,14 +23,15 @@ export interface PointWeatherData {
      * its own request settles, which is a lie the punter can see.
      */
     marineStatus: 'available' | 'land' | 'unavailable' | 'pending';
-    // Atmospheric
-    windSpeedKmh: number;
+    // Atmospheric — null when the model did not supply the field. Never 0:
+    // "0 kts" and "0°C" are readings, and the popup shows '--' for null.
+    windSpeedKmh: number | null;
     windDirectionDeg: number | null;
-    windGustsKmh: number;
+    windGustsKmh: number | null;
     pressureMsl: number | null;
-    temperatureC: number;
-    humidity: number;
-    cloudCover: number;
+    temperatureC: number | null;
+    humidity: number | null;
+    cloudCover: number | null;
     // Marine (optional — null if on land)
     waveHeightM: number | null;
     wavePeriodS: number | null;
@@ -178,13 +179,13 @@ function shape(lat: number, lon: number, wx: AtmoData, sea: MarineData | null): 
 // ── Forecast (atmospheric) ──────────────────────────────────────
 
 interface AtmoData {
-    windSpeedKmh: number;
+    windSpeedKmh: number | null;
     windDirectionDeg: number | null;
-    windGustsKmh: number;
+    windGustsKmh: number | null;
     pressureMsl: number | null;
-    temperatureC: number;
-    humidity: number;
-    cloudCover: number;
+    temperatureC: number | null;
+    humidity: number | null;
+    cloudCover: number | null;
 }
 
 async function fetchForecastPoint(lat: string, lon: string): Promise<AtmoData | null> {
@@ -200,13 +201,13 @@ async function fetchForecastPoint(lat: string, lon: string): Promise<AtmoData | 
     if (!c) return null;
 
     return {
-        windSpeedKmh: c.wind_speed_10m ?? 0,
+        windSpeedKmh: c.wind_speed_10m ?? null,
         windDirectionDeg: c.wind_direction_10m ?? null,
-        windGustsKmh: c.wind_gusts_10m ?? 0,
+        windGustsKmh: c.wind_gusts_10m ?? null,
         pressureMsl: c.pressure_msl ?? null,
-        temperatureC: c.temperature_2m ?? 0,
-        humidity: c.relative_humidity_2m ?? 0,
-        cloudCover: c.cloud_cover ?? 0,
+        temperatureC: c.temperature_2m ?? null,
+        humidity: c.relative_humidity_2m ?? null,
+        cloudCover: c.cloud_cover ?? null,
     };
 }
 

@@ -26,6 +26,7 @@ import { piCache } from '../../PiCacheService';
 import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 import { resolveTimeZone, formatTimeInZone } from '../../../utils/timezone';
 import type { MarineWeatherReport, SourcedWeatherMetrics, HourlyForecast, ForecastDay } from '../../../types/weather';
+import { temperatureOrNull } from '../temperatureOrNull';
 
 const log = createLogger('UnifiedWeather');
 
@@ -69,14 +70,15 @@ interface StandardNowcast {
     summary: string;
 }
 
+/** Fields are null when the source did not supply them — never 0. */
 interface StandardHourly {
     time: string;
-    temperature: number;
-    windSpeed: number;
+    temperature: number | null;
+    windSpeed: number | null;
     windDirection: number | null;
     windGust: number | null;
     precipitation: number | null;
-    precipProbability: number;
+    precipProbability: number | null;
     condition: string;
     pressure: number | null;
     cloudCover: number | null;
@@ -88,9 +90,9 @@ interface StandardHourly {
 
 interface StandardDaily {
     date: string;
-    tempMax: number;
-    tempMin: number;
-    windSpeedMax: number;
+    tempMax: number | null;
+    tempMin: number | null;
+    windSpeedMax: number | null;
     windGustMax: number | null;
     condition: string;
     precipSum: number | null;
@@ -203,7 +205,8 @@ interface RawWKResponse {
     forecastNextHour?: { minutes?: RawWKMinute[] };
 }
 
-function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): StandardWeatherResponse | null {
+/** Exported for tests. */
+export function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): StandardWeatherResponse | null {
     const r = raw as RawWKResponse;
     if (!r.currentWeather) return null;
 
@@ -227,8 +230,8 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
 
     const hourly: StandardHourly[] = (r.forecastHourly?.hours || []).map((h) => ({
         time: h.forecastStart || '',
-        temperature: h.temperature ?? 0,
-        windSpeed: typeof h.windSpeed === 'number' ? h.windSpeed / 1.852 : 0,
+        temperature: h.temperature ?? null,
+        windSpeed: typeof h.windSpeed === 'number' ? h.windSpeed / 1.852 : null,
         windDirection: h.windDirection ?? null,
         windGust: typeof h.windGust === 'number' ? h.windGust / 1.852 : null,
         precipitation: h.precipitationAmount ?? null,
@@ -238,7 +241,7 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
         // hourly was missed, and the current-hour slot in HeroSlide.tsx
         // pulls from hourly first, which is why only the live card was
         // affected. Same fix for cloudCover + precipProbability.
-        precipProbability: typeof h.precipitationChance === 'number' ? Math.round(h.precipitationChance * 100) : 0,
+        precipProbability: typeof h.precipitationChance === 'number' ? Math.round(h.precipitationChance * 100) : null,
         condition: h.conditionCode || 'Unknown',
         pressure: h.pressure ?? null,
         cloudCover: typeof h.cloudCover === 'number' ? Math.round(h.cloudCover * 100) : null,
@@ -253,9 +256,9 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
 
     const daily: StandardDaily[] = (r.forecastDaily?.days || []).map((d) => ({
         date: (d.forecastStart || '').split('T')[0],
-        tempMax: d.temperatureMax ?? 0,
-        tempMin: d.temperatureMin ?? 0,
-        windSpeedMax: typeof d.windSpeedMax === 'number' ? d.windSpeedMax / 1.852 : 0,
+        tempMax: d.temperatureMax ?? null,
+        tempMin: d.temperatureMin ?? null,
+        windSpeedMax: typeof d.windSpeedMax === 'number' ? d.windSpeedMax / 1.852 : null,
         // Apple gives daily gust in km/h — convert to knots (matches windSpeedMax).
         // Was hardcoded null, so forecast-day cards showed no gust while today did
         // (today's gust comes from live current.windGust, not the daily forecast).
@@ -456,7 +459,13 @@ export async function fetchUnifiedWeather(
  * Fills atmospheric fields; marine fields (wave, swell, water temp) are left
  * null for the orchestrator to populate from StormGlass.
  */
-function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: number, name: string): MarineWeatherReport {
+/** Exported for tests. */
+export function mapToMarineReport(
+    resp: StandardWeatherResponse,
+    lat: number,
+    lon: number,
+    name: string,
+): MarineWeatherReport {
     const c = resp.current;
 
     // Resolve the target location's IANA timezone. OpenMeteo returns a real tz;
@@ -505,10 +514,10 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         windDirection: degreesToCompass(h.windDirection),
         windDegree: h.windDirection ?? undefined,
         waveHeight: null, // StormGlass fills it when it has coverage; null renders '--'
-        temperature: h.temperature,
+        temperature: temperatureOrNull(h.temperature),
         condition: h.condition,
         precipitation: h.precipitation,
-        precipChance: h.precipProbability,
+        precipChance: h.precipProbability ?? undefined,
         pressure: h.pressure ?? undefined,
         cloudCover: h.cloudCover,
         humidity: h.humidity,
@@ -522,8 +531,8 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         day: dayName(d.date),
         date: d.date,
         isoDate: d.date,
-        highTemp: d.tempMax,
-        lowTemp: d.tempMin,
+        highTemp: temperatureOrNull(d.tempMax),
+        lowTemp: temperatureOrNull(d.tempMin),
         windSpeed: d.windSpeedMax,
         windGust: d.windGustMax ?? undefined,
         waveHeight: null, // StormGlass fills it when it has coverage; null renders '--'

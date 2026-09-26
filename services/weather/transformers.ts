@@ -14,6 +14,7 @@ import { degreesToCardinal } from '../../utils/format';
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../utils/advisory';
 import { resolveTimeZone, formatTimeInZone } from '../../utils/timezone';
 import { resolveOffshoreModel } from './forecastModels';
+import { temperatureOrNull } from './temperatureOrNull';
 
 /** Availability travels with the cached report: legacy numeric placeholders
  * must never overwrite real fallback forecasts when a model omits a field. */
@@ -267,30 +268,33 @@ export const mapStormGlassToReport = (
     /** Scale, unrounded. null in → null out. */
     const scale = (v: number | null, factor: number): number | null => (v === null ? null : v * factor);
 
+    // The atmospherics carry absence the same way (UX scorecard run 6). A
+    // model without 10 m wind, gust, temperature, visibility, cloud or
+    // humidity at this hour reports null, which the Glass renders '--'. The
+    // old `?? 0` said "calm" and "0 °C" — and a 0 visibility raised a DENSE
+    // FOG advisory in generateSafetyAlerts off no reading at all.
     // Cast properties to compatible types for helpers
     // StormGlassHour keys are string | number | StormGlassValue...
-    const wSpeed = (getVal(currentHour.windSpeed as MultiSourceField) ?? 0) * 1.94384;
-    const wGust = (getVal(currentHour.gust as MultiSourceField) ?? 0) * 1.94384;
+    const wSpeed = scale(getVal(currentHour.windSpeed as MultiSourceField), 1.94384);
+    const wGust = scale(getVal(currentHour.gust as MultiSourceField), 1.94384);
     const wDir = getVal(currentHour.windDirection as MultiSourceField);
-    const temp = getVal(currentHour.airTemperature as MultiSourceField) ?? 0;
+    const temp = getVal(currentHour.airTemperature as MultiSourceField);
     const pressure = getVal(currentHour.pressure as MultiSourceField);
 
-    const vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
+    const vis = scale(getVal(currentHour.visibility as MultiSourceField), 0.539957);
     const dew = getVal(currentHour.dewPointTemperature as MultiSourceField); // Dewpoint from StormGlass API
     const fogRisk = false;
-    const cloudCover = getVal(currentHour.cloudCover as MultiSourceField) ?? 0;
-
-    const waveM = getVal(currentHour.waveHeight as MultiSourceField) ?? 0;
-    // Relaxed check: waveM could be 0, but isLandlocked usually implies < 0.2m
-    const _isLandlocked = waveM < 0.2;
+    const cloudCover = getVal(currentHour.cloudCover as MultiSourceField);
 
     // Weather data sourced from marine models (StormGlass, BOM beacons)
     // METAR/airport data removed in v20.0 - was skewing marine conditions
 
+    // No sun times (polar day/night) → no sunrise/sunset, not a made-up
+    // 06:00/18:00 that the solar arc and the night-sailing advice would trust.
     const sunTimes = getSunTimes(now, lat, lon);
     const fmtTime = (d: Date | null) => (d ? formatTimeInZone(d, tz) : '--:--');
-    const sRise = sunTimes ? fmtTime(sunTimes.sunrise) : '06:00';
-    const sSet = sunTimes ? fmtTime(sunTimes.sunset) : '18:00';
+    const sRise = sunTimes ? fmtTime(sunTimes.sunrise) : undefined;
+    const sSet = sunTimes ? fmtTime(sunTimes.sunset) : undefined;
 
     const rawUV = currentHour.uvIndex as MultiSourceField;
     const curUV = getVal(rawUV);
@@ -302,12 +306,15 @@ export const mapStormGlassToReport = (
         cIsDay,
     );
 
-    const hum = getVal(currentHour.humidity as MultiSourceField) ?? 0;
-    const calculatedFeels = calculateFeelsLike(temp, hum, wSpeed * 0.8);
+    const hum = getVal(currentHour.humidity as MultiSourceField);
+    // Feels-like needs all three of its inputs (atmosphericInputs.feelsLike);
+    // with one missing there is no feels-like, not one built on an invented 0.
+    const calculatedFeels =
+        temp != null && hum != null && wSpeed != null ? calculateFeelsLike(temp, hum, wSpeed * 0.8) : null;
 
     const current: WeatherMetrics = {
-        windSpeed: parseFloat(wSpeed.toFixed(1)),
-        windGust: parseFloat(wGust.toFixed(1)),
+        windSpeed: wSpeed == null ? null : parseFloat(wSpeed.toFixed(1)),
+        windGust: wGust == null ? null : parseFloat(wGust.toFixed(1)),
         windDirection: degreesToCardinal(wDir),
         windDegree: wDir ?? undefined,
         waveHeight: scale1(getVal(currentHour.waveHeight as MultiSourceField), 3.28084),
@@ -341,7 +348,7 @@ export const mapStormGlassToReport = (
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
 
-        cape: typeof currentHour.cape === 'number' ? currentHour.cape : 0,
+        cape: typeof currentHour.cape === 'number' ? currentHour.cape : null,
         isDay: true,
         isEstimated: false,
         sunrise: astro?.[0]?.sunrise ? formatTimeInZone(astro[0].sunrise, tz) : sRise,
@@ -365,7 +372,7 @@ export const mapStormGlassToReport = (
     // 2. Map Hourly
     const hourlyStr: HourlyForecast[] = hours.map((h, _i) => {
         coverage.hourly[h.time] = providedKeys([h]);
-        const windKts = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
+        const windKts = scale(getVal(h.windSpeed as MultiSourceField), 1.94384);
         const windDeg = getVal(h.windDirection as MultiSourceField);
         return {
             time: h.time,
@@ -379,14 +386,14 @@ export const mapStormGlassToReport = (
                 return (val + 180) % 360;
             })(),
             waterTemperature: getVal(h.waterTemperature as MultiSourceField) ?? undefined,
-            visibility: (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957,
-            humidity: getVal(h.humidity as MultiSourceField) ?? 0,
-            windGust: (getVal(h.gust as MultiSourceField) ?? 0) * 1.94384,
+            visibility: scale(getVal(h.visibility as MultiSourceField), 0.539957),
+            humidity: getVal(h.humidity as MultiSourceField),
+            windGust: scale(getVal(h.gust as MultiSourceField), 1.94384),
             waveHeight: scale(getVal(h.waveHeight as MultiSourceField), 3.28084),
-            temperature: getVal(h.airTemperature as MultiSourceField) ?? 0,
+            temperature: temperatureOrNull(getVal(h.airTemperature as MultiSourceField)),
             pressure: getVal(h.pressure as MultiSourceField),
             precipitation: getVal(h.precipitation as MultiSourceField),
-            cloudCover: getVal(h.cloudCover as MultiSourceField) ?? 0,
+            cloudCover: getVal(h.cloudCover as MultiSourceField),
             condition: getCondition(
                 getVal(h.cloudCover as MultiSourceField),
                 getVal(h.precipitation as MultiSourceField),
@@ -400,19 +407,22 @@ export const mapStormGlassToReport = (
                 return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
             })(),
             secondarySwellPeriod: getVal(h.secondarySwellPeriod as MultiSourceField) ?? null,
-            tideHeight: 0,
+            // No tideHeight: these are weather hours. A 0 here drew a flat
+            // zero-metre tide in TideGraph's hourly fallback.
             uvIndex: (() => {
                 const uvField = h.uvIndex as MultiSourceField;
                 return getVal(uvField);
             })(),
-            feelsLike: calculateFeelsLike(
-                getVal(h.airTemperature as MultiSourceField) ?? 0,
-                getVal(h.humidity as MultiSourceField) ?? 0,
-                windKts * 0.8,
-            ),
+            feelsLike: (() => {
+                const t = getVal(h.airTemperature as MultiSourceField);
+                const rh = getVal(h.humidity as MultiSourceField);
+                return t != null && rh != null && windKts != null
+                    ? calculateFeelsLike(t, rh, windKts * 0.8)
+                    : undefined;
+            })(),
             dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null,
 
-            cape: typeof h.cape === 'number' ? h.cape : 0,
+            cape: typeof h.cape === 'number' ? h.cape : null,
         };
     });
 
@@ -431,6 +441,12 @@ export const mapStormGlassToReport = (
             let maxWind = 0,
                 maxGust = 0,
                 maxWave = 0;
+            // Counted like waves below: a day where no hour carried wind, gust,
+            // humidity or visibility reports absence, not 0.
+            let windCount = 0,
+                gustCount = 0,
+                humCount = 0,
+                visCount = 0;
             // Counted, not null-seeded: 0 is a REAL reading ("calm"), so a day
             // where no hour carried a wave figure must report absence rather
             // than flat seas. A `number | null` accumulator reads better but
@@ -463,11 +479,17 @@ export const mapStormGlassToReport = (
                 if (t !== null && t < minT) minT = t;
                 if (t !== null && t > maxT) maxT = t;
 
-                const w = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
-                if (w > maxWind) maxWind = w;
+                const w = scale(getVal(h.windSpeed as MultiSourceField), 1.94384);
+                if (w !== null) {
+                    windCount++;
+                    if (w > maxWind) maxWind = w;
+                }
 
-                const g = (getVal(h.gust as MultiSourceField) ?? 0) * 1.94384;
-                if (g > maxGust) maxGust = g;
+                const g = scale(getVal(h.gust as MultiSourceField), 1.94384);
+                if (g !== null) {
+                    gustCount++;
+                    if (g > maxGust) maxGust = g;
+                }
 
                 const wd = getVal(h.windDirection as MultiSourceField);
                 if (wd !== null && wd !== undefined) {
@@ -493,9 +515,18 @@ export const mapStormGlassToReport = (
                     totalCloud += hCloud;
                     cloudCount++;
                 }
-                totalPress += getVal(h.pressure as MultiSourceField) ?? 0;
-                totalHum += getVal(h.humidity as MultiSourceField) ?? 0;
-                totalVis += (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957;
+                const hPress = getVal(h.pressure as MultiSourceField);
+                if (hPress != null) totalPress += hPress;
+                const hHum = getVal(h.humidity as MultiSourceField);
+                if (hHum != null) {
+                    totalHum += hHum;
+                    humCount++;
+                }
+                const hVis = scale(getVal(h.visibility as MultiSourceField), 0.539957);
+                if (hVis != null) {
+                    totalVis += hVis;
+                    visCount++;
+                }
 
                 const wt = getVal(h.waterTemperature as MultiSourceField);
                 if (wt) {
@@ -540,42 +571,42 @@ export const mapStormGlassToReport = (
             const dateObj = new Date(parseInt(spl[0]), parseInt(spl[1]) - 1, parseInt(spl[2]));
             const sunTimesDay = getSunTimes(dateObj, lat, lon);
 
-            let avgCurrentDir = 0;
+            let avgCurrentDir: number | null = null;
             if (currentDirCount > 0) {
                 avgCurrentDir =
                     (Math.atan2(currentDirVectorY / currentDirCount, currentDirVectorX / currentDirCount) * 180) /
                     Math.PI;
                 if (avgCurrentDir < 0) avgCurrentDir += 360;
             } else {
-                avgCurrentDir = getVal(dayHours[0].currentDirection as MultiSourceField) ?? 0;
+                avgCurrentDir = getVal(dayHours[0].currentDirection as MultiSourceField);
             }
 
             dailies.push({
                 day: new Date(dayIso).toLocaleDateString('en-US', { weekday: 'long' }),
                 date: new Date(dayIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                 isoDate: dayIso,
-                highTemp: maxT === -100 ? 0 : parseFloat(maxT.toFixed(1)),
-                lowTemp: minT === 100 ? 0 : parseFloat(minT.toFixed(1)),
-                windSpeed: parseFloat(maxWind.toFixed(1)),
-                windGust: parseFloat(maxGust.toFixed(1)),
+                highTemp: temperatureOrNull(maxT === -100 ? null : parseFloat(maxT.toFixed(1))),
+                lowTemp: temperatureOrNull(minT === 100 ? null : parseFloat(minT.toFixed(1))),
+                windSpeed: windCount > 0 ? parseFloat(maxWind.toFixed(1)) : null,
+                windGust: gustCount > 0 ? parseFloat(maxGust.toFixed(1)) : null,
                 waveHeight: waveCount > 0 ? parseFloat(maxWave.toFixed(1)) : null,
                 condition: getCondition(cloudCount > 0 ? avgCloud : null, precipCount > 0 ? totalPrecip : null, true),
                 precipitation: precipCount > 0 ? parseFloat(totalPrecip.toFixed(1)) : undefined,
                 uvIndex: maxUV,
-                sunrise: sunTimesDay ? formatTimeInZone(sunTimesDay.sunrise, tz) : '06:00',
-                sunset: sunTimesDay ? formatTimeInZone(sunTimesDay.sunset, tz) : '18:00',
+                sunrise: sunTimesDay ? formatTimeInZone(sunTimesDay.sunrise, tz) : undefined,
+                sunset: sunTimesDay ? formatTimeInZone(sunTimesDay.sunset, tz) : undefined,
                 pressure: pressCount > 0 ? parseFloat((totalPress / count('pressure')).toFixed(1)) : undefined,
                 cloudCover: cloudCount > 0 ? Math.round(avgCloud) : undefined,
                 isEstimated: false,
-                humidity: Math.round(totalHum / count('humidity')),
-                visibility: parseFloat((totalVis / count('visibility')).toFixed(1)),
+                humidity: humCount > 0 ? Math.round(totalHum / humCount) : undefined,
+                visibility: visCount > 0 ? parseFloat((totalVis / visCount).toFixed(1)) : undefined,
                 waterTemperature:
                     waterTempCount > 0 ? parseFloat((totalWaterTemp / waterTempCount).toFixed(1)) : undefined,
                 // undefined, not null: ForecastDay.currentSpeed is `number?`
                 // (types/weather.ts:190) while waveHeight above is `number | null`.
                 // Both read as absent at every consumer, which checks `!= null`.
                 currentSpeed: currentSpeedCount > 0 ? parseFloat(maxCurrentSpeed.toFixed(1)) : undefined,
-                currentDirection: Math.round(avgCurrentDir),
+                currentDirection: avgCurrentDir != null ? Math.round(avgCurrentDir) : undefined,
                 precipLabel: getPrecipitationLabelV2(null, precipCount > 0 ? totalPrecip : null).label,
                 precipValue: getPrecipitationLabelV2(null, precipCount > 0 ? totalPrecip : null).value,
             });
@@ -586,8 +617,11 @@ export const mapStormGlassToReport = (
     const todayDaily = dailies.find((d) => d.isoDate === todayIso);
     if (todayDaily) {
         if (current.airTemperature !== null) {
-            if (current.airTemperature > todayDaily.highTemp) todayDaily.highTemp = current.airTemperature;
-            if (current.airTemperature < todayDaily.lowTemp) todayDaily.lowTemp = current.airTemperature;
+            // highTemp/lowTemp are null on a day no hour reported temperature.
+            if (todayDaily.highTemp == null || current.airTemperature > todayDaily.highTemp)
+                todayDaily.highTemp = current.airTemperature;
+            if (todayDaily.lowTemp == null || current.airTemperature < todayDaily.lowTemp)
+                todayDaily.lowTemp = current.airTemperature;
             current.highTemp = todayDaily.highTemp;
             current.lowTemp = todayDaily.lowTemp;
         }
@@ -656,7 +690,7 @@ export const mapStormGlassToReport = (
         boatingAdvice: advice,
         isLandlocked: locType === 'inland',
         locationType: locType,
-        alerts: generateSafetyAlerts(current, dailies[0]?.highTemp, dailies),
+        alerts: generateSafetyAlerts(current, dailies[0]?.highTemp ?? undefined, dailies),
         timeZone: tz, // Resolved (tz-lookup fallback when caller didn't pass one)
         utcOffset,
     };
