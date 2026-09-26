@@ -27,7 +27,7 @@ import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } fr
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { AlertTriangleIcon, ClockIcon, FlagIcon, MapIcon, MapPinIcon, RouteIcon, WaveIcon } from '../Icons';
-import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope } from '../../services/authIdentityScope';
 
 interface GpxImportPageProps {
     onBack: () => void;
@@ -73,11 +73,39 @@ const COMPATIBLE_APPS = [
 ];
 
 const IMPORTED_ITEMS: { Icon: React.FC<{ className?: string }>; label: string; desc: string }[] = [
-    { Icon: MapPinIcon, label: 'Route Waypoints', desc: 'Named waypoints with coordinates' },
-    { Icon: MapIcon, label: 'Track Points', desc: 'Position, speed, course, & timestamps' },
-    { Icon: WaveIcon, label: 'Weather Data', desc: 'Wind, waves, pressure (if available)' },
-    { Icon: RouteIcon, label: 'Distance & Speed', desc: 'Calculated from track if not in file' },
+    { Icon: MapPinIcon, label: 'Route waypoints', desc: 'Named waypoints with their positions' },
+    { Icon: MapIcon, label: 'Track points', desc: 'Position, speed, course and time' },
+    { Icon: WaveIcon, label: 'Weather data', desc: 'Wind, waves and pressure, when the file has them' },
+    { Icon: RouteIcon, label: 'Distance and speed', desc: 'Worked out from the track when the file has none' },
 ];
+
+/**
+ * A failure in words a skipper can act on. The raw exception ('Invalid GPX
+ * file: <parsererror dump>') went straight to the page (UX scorecard run 7);
+ * it still goes to the log.
+ */
+function importErrorMessage(err: unknown, stage: 'read' | 'import'): string {
+    const raw = err instanceof Error ? err.message : '';
+    if (stage === 'import') return "The voyage couldn't be saved to the Ship's Log. Try again.";
+    if (raw.startsWith('Invalid file type')) return "That isn't a GPX file. Choose a file ending in .gpx or .xml.";
+    if (raw.startsWith('Invalid GPX file'))
+        return "This file couldn't be read as GPX. It may be damaged, or saved in another format. Export it again as GPX and try once more.";
+    if (raw.startsWith('No track points')) return 'This file has no track, route or waypoints to import.';
+    if (raw === 'Failed to read file' || raw === 'Error reading file')
+        return "The file couldn't be opened. Choose it again.";
+    return "This file couldn't be read. Check it is a GPX file and try again.";
+}
+
+/** Back returns to the Boat Binder when the binder opened this page, else to Vessel. */
+function readParentCrumb(): string {
+    try {
+        return sessionStorage.getItem(authScopedStorageKey('thalassa_boat_binder_return')) === '1'
+            ? 'Boat Binder'
+            : 'Vessel';
+    } catch {
+        return 'Vessel';
+    }
+}
 
 /**
  * Height of the fixed preview CTA stack, from the page bottom: the 4rem +
@@ -93,6 +121,9 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     const [preview, setPreview] = useState<GpxPreview | null>(null);
     const [routeData, setRouteData] = useState<GpxRouteData | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Every other Boat Binder page carries a crumb; this one had none (UX
+    // scorecard run 7). It names where Back actually goes.
+    const [parentCrumb] = useState(readParentCrumb);
     const [importResult, setImportResult] = useState<{ voyageId: string; savedCount: number } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { setPage } = useUI();
@@ -113,7 +144,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         const metaTime = getText('metadata > time') || getText('time') || '';
 
         return {
-            name: metaName || 'Unnamed Route',
+            name: metaName || 'Unnamed route',
             description: metaDesc,
             creator: metaCreator,
             time: metaTime,
@@ -211,8 +242,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                     `[Import] Parsed ${file.name}: ${trackPoints} track points, ${waypoints} waypoints, ${totalDistanceNM.toFixed(1)} NM`,
                 );
             } catch (err) {
-                const msg = err instanceof Error ? err.message : 'Failed to parse GPX file';
-                setError(msg);
+                setError(importErrorMessage(err, 'read'));
                 setState('error');
                 triggerHaptic('heavy');
                 log.error('[Import] Parse error:', err);
@@ -235,8 +265,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
             triggerHaptic('light');
             log.info(`[Import] ✓ Imported ${result.savedCount} entries as voyage ${result.voyageId}`);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to import voyage';
-            setError(msg);
+            setError(importErrorMessage(err, 'import'));
             setState('error');
             triggerHaptic('heavy');
             log.error('[Import] Import error:', err);
@@ -316,7 +345,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         <div className="relative flex h-full flex-1 flex-col overflow-hidden bg-slate-950 slide-up-enter">
             {/* No brand names in the subtitle: PageHeader uppercases it (ISAILOR,
                 QTVLM), and the app list below names them properly. */}
-            <PageHeader title="Import GPX" subtitle="Routes and tracks from other apps" onBack={onBack} />
+            <PageHeader
+                title="Import GPX"
+                subtitle="Routes and tracks from other apps"
+                onBack={onBack}
+                breadcrumbs={[parentCrumb, 'Import GPX']}
+            />
 
             {/* ═══ CONTENT ═══ */}
             {/* The scroller runs to the bottom of the screen, under the tab bar.
@@ -396,7 +430,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     <AlertTriangleIcon className="w-5 h-5 mt-0.5 shrink-0 text-red-400" />
                                     <div className="flex-1">
                                         <p className="text-[13px] font-bold text-red-300">Import failed</p>
-                                        <p className="text-[11px] text-red-400/80 mt-1">{error}</p>
+                                        <p className="text-xs text-red-300/90 mt-1">{error}</p>
                                     </div>
                                     <button
                                         aria-label="Dismiss import error"
@@ -511,7 +545,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             {/* Stats grid */}
                             <div className="grid grid-cols-2 gap-2">
                                 <StatCard
-                                    label="Track Points"
+                                    label="Track points"
                                     value={preview.stats.trackPoints.toLocaleString()}
                                     Icon={MapPinIcon}
                                     color="sky"
@@ -675,7 +709,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                         {routeData && (
                             <button
                                 onClick={handleRouteToPlanner}
-                                className="w-full h-14 rounded-2xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-white font-extrabold text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                                className="w-full h-14 rounded-2xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-white font-extrabold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                             >
                                 <svg
                                     className="w-5 h-5 text-sky-400"
@@ -690,15 +724,15 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                         d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"
                                     />
                                 </svg>
-                                Route to Passage Planner
-                                <span className="text-sky-400/60 text-[11px] font-mono ml-1">
+                                Route to passage planner
+                                <span className="text-sky-300/80 text-[11px] font-mono ml-1">
                                     {routeData.waypoints.length} WP · {routeData.totalDistanceNM} NM
                                 </span>
                             </button>
                         )}
                         <button
                             onClick={handleImport}
-                            className="w-full h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-white font-extrabold text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                            className="w-full h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-white font-extrabold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                         >
                             <svg
                                 className="w-5 h-5 text-emerald-400"
@@ -719,7 +753,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             root size). previewCtaFootprint counts this height. */}
                         <button
                             onClick={handleReset}
-                            className="w-full h-11 rounded-xl text-gray-500 hover:text-gray-300 text-[12px] font-bold uppercase tracking-wider transition-colors"
+                            className="w-full h-11 rounded-xl text-gray-400 hover:text-gray-200 text-sm font-bold transition-colors"
                         >
                             Cancel
                         </button>

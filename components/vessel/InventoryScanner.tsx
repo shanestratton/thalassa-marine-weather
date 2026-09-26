@@ -28,7 +28,9 @@ interface InventoryScannerProps {
     startInManualMode?: boolean; // Skip camera and go straight to add form
 }
 
-import { INVENTORY_CATEGORIES as CATEGORIES, INVENTORY_CATEGORY_ICONS as CATEGORY_ICONS } from '../../types';
+import { INVENTORY_CATEGORIES as CATEGORIES } from '../../types';
+import { storesCategoryIcon } from './inventory/categoryIcons';
+import { Button } from '../ui/Button';
 
 export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     onClose,
@@ -409,32 +411,37 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
     if (startInManualMode && sheetMode === 'new') {
         return (
-            <ModalSheet isOpen={true} onClose={onClose} title="Add Item" zIndex="z-2000">
+            <ModalSheet isOpen={true} onClose={onClose} title="Add item" zIndex="z-2000">
                 <div className="space-y-2">
                     {/* Category — first */}
                     <div>
                         <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Category</label>
                         <div className="grid grid-cols-4 gap-1.5 mt-0.5">
-                            {CATEGORIES.map((cat) => (
-                                <button
-                                    aria-label={cat}
-                                    key={cat}
-                                    onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
-                                    className={`py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
-                                        newItem.category === cat
-                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                            : 'bg-white/5 text-gray-400 border border-white/5'
-                                    }`}
-                                >
-                                    <span aria-hidden="true">{CATEGORY_ICONS[cat]}</span> {cat}
-                                </button>
-                            ))}
+                            {CATEGORIES.map((cat) => {
+                                const CategoryIcon = storesCategoryIcon(cat);
+                                return (
+                                    <button
+                                        type="button"
+                                        aria-pressed={newItem.category === cat}
+                                        key={cat}
+                                        onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
+                                        className={`flex items-center justify-center gap-1 py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
+                                            newItem.category === cat
+                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                : 'bg-white/5 text-gray-400 border border-white/5'
+                                        }`}
+                                    >
+                                        <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
+                                        {cat}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 
                     {/* Item name */}
                     <FormField
-                        label="Item Name"
+                        label="Item name"
                         value={newItem.item_name}
                         onChange={(v) => setNewItem((prev) => ({ ...prev, item_name: v }))}
                         placeholder="e.g. Racor 2010PM-OR Fuel Filter"
@@ -453,7 +460,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 className="flex-2 min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-hidden focus:border-sky-500/30 transition-colors placeholder:text-gray-400"
                             />
                             <button
-                                aria-label="Inline Scanner"
+                                aria-label="Scan barcode"
                                 type="button"
                                 onClick={openInlineScanner}
                                 className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
@@ -532,7 +539,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             min={0}
                         />
                         <FormField
-                            label="Min Alert"
+                            label="Min alert"
                             type="number"
                             value={newItem.min_quantity}
                             onChange={(v) => setNewItem((prev) => ({ ...prev, min_quantity: parseInt(v) || 0 }))}
@@ -549,7 +556,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             placeholder="Engine Room"
                         />
                         <FormField
-                            label="Exact Spot"
+                            label="Exact spot"
                             value={newItem.location_specific}
                             onChange={(v) => setNewItem((prev) => ({ ...prev, location_specific: v }))}
                             placeholder="Stbd drawer"
@@ -566,7 +573,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
 
                     {/* Expiry / Service — full width */}
                     <FormField
-                        label="Expiry / Service"
+                        label="Expiry / service"
                         type="date"
                         value={newItem.expiry_date}
                         onChange={(v) => setNewItem((prev) => ({ ...prev, expiry_date: v }))}
@@ -578,18 +585,18 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     <button
                         aria-label="Cancel adding item"
                         onClick={onClose}
-                        className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
+                        className="flex-1 min-h-[44px] py-2.5 bg-white/5 text-gray-300 rounded-xl text-sm font-bold"
                     >
                         Cancel
                     </button>
-                    <button
-                        aria-label={saving ? 'Adding item' : 'Add item'}
+                    <Button
+                        variant="primary"
                         onClick={handleSaveNew}
                         disabled={!newItem.item_name.trim() || saving}
-                        className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
+                        className="flex-1"
                     >
-                        {saving ? 'Saving…' : 'Add Item'}
-                    </button>
+                        {saving ? 'Adding…' : 'Add item'}
+                    </Button>
                 </div>
             </ModalSheet>
         );
@@ -649,13 +656,12 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
-                        <span className="text-sm font-black text-white uppercase tracking-widest">Scan Item</span>
+                        <span className="text-sm font-black text-white uppercase tracking-widest">Scan item</span>
                         <button
-                            aria-label="Manual Entry"
                             onClick={handleManualEntry}
-                            className="px-3 py-2 rounded-xl bg-white/10 text-xs font-bold text-white"
+                            className="min-h-[44px] px-3 py-2 rounded-xl bg-white/10 text-xs font-bold text-white"
                         >
-                            + Manual
+                            Type it in
                         </button>
                     </div>
                 </div>
@@ -666,11 +672,10 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         <div className="text-center px-8">
                             <p className="text-amber-400 text-sm font-bold mb-4">{cameraError}</p>
                             <button
-                                aria-label="Manual Entry"
                                 onClick={handleManualEntry}
-                                className="px-6 py-3 bg-sky-600 text-white rounded-xl text-sm font-bold"
+                                className="min-h-[44px] px-6 py-3 bg-sky-600 text-white rounded-xl text-sm font-bold"
                             >
-                                Enter Manually
+                                Type it in instead
                             </button>
                         </div>
                     </div>
@@ -724,7 +729,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         </button>
                         <div className="text-center">
                             <p className="text-4xl font-black text-white tabular-nums">{foundItem.quantity}</p>
-                            <p className="text-label text-gray-400 uppercase tracking-widest">In Stock</p>
+                            <p className="text-label text-gray-400 uppercase tracking-widest">In stock</p>
                         </div>
                         <button
                             aria-label="Increase quantity"
@@ -760,7 +765,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             {/* New Item Form (camera mode) — centred ModalSheet, as above */}
             {/* ═══════════════════════════════════════════ */}
             {sheetMode === 'new' && (
-                <ModalSheet isOpen={true} onClose={dismissSheet} title="Add New Item" zIndex="z-2000">
+                <ModalSheet isOpen={true} onClose={dismissSheet} title="Add new item" zIndex="z-2000">
                     <div className="space-y-3">
                         {/* Category — first */}
                         <div>
@@ -768,21 +773,25 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Category
                             </label>
                             <div className="grid grid-cols-4 gap-1.5 mt-1">
-                                {CATEGORIES.map((cat) => (
-                                    <button
-                                        aria-label={cat}
-                                        aria-pressed={newItem.category === cat}
-                                        key={cat}
-                                        onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
-                                        className={`py-1.5 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
-                                            newItem.category === cat
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-400 border border-white/5'
-                                        }`}
-                                    >
-                                        <span aria-hidden="true">{CATEGORY_ICONS[cat]}</span> {cat}
-                                    </button>
-                                ))}
+                                {CATEGORIES.map((cat) => {
+                                    const CategoryIcon = storesCategoryIcon(cat);
+                                    return (
+                                        <button
+                                            type="button"
+                                            aria-pressed={newItem.category === cat}
+                                            key={cat}
+                                            onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
+                                            className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
+                                                newItem.category === cat
+                                                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                    : 'bg-white/5 text-gray-400 border border-white/5'
+                                            }`}
+                                        >
+                                            <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
+                                            {cat}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 
@@ -920,18 +929,18 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         <button
                             aria-label="Cancel adding item"
                             onClick={dismissSheet}
-                            className="flex-1 py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
+                            className="flex-1 min-h-[44px] py-3 bg-white/5 text-gray-300 rounded-xl text-sm font-bold"
                         >
                             Cancel
                         </button>
-                        <button
-                            aria-label={saving ? 'Adding item' : 'Add item'}
+                        <Button
+                            variant="primary"
                             onClick={handleSaveNew}
                             disabled={!newItem.item_name.trim() || saving}
-                            className="flex-1 py-3 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
+                            className="flex-1"
                         >
-                            {saving ? 'Saving…' : 'Add Item'}
-                        </button>
+                            {saving ? 'Adding…' : 'Add item'}
+                        </Button>
                     </div>
                 </ModalSheet>
             )}

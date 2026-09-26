@@ -177,7 +177,7 @@ describe('InventoryList identity isolation', () => {
         render(<InventoryList onBack={vi.fn()} />);
         await screen.findByText('Private A stores');
         fireEvent.click(screen.getByRole('button', { name: 'Edit Private A stores' }));
-        expect(screen.getByRole('region', { name: 'Edit Item' })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Edit item' })).toBeInTheDocument();
 
         const accountBLoad = deferred<InventoryItem[]>();
         mocks.getAll.mockReturnValueOnce(accountBLoad.promise);
@@ -189,7 +189,7 @@ describe('InventoryList identity isolation', () => {
         });
 
         expect(screen.queryByText('Private A stores')).not.toBeInTheDocument();
-        expect(screen.queryByRole('region', { name: 'Edit Item' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Edit item' })).not.toBeInTheDocument();
 
         accountBLoad.resolve([item('b-item', 'Private B stores')]);
         await screen.findByText('Private B stores');

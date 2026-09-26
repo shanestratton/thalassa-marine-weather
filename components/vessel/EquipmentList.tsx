@@ -19,6 +19,7 @@ import { TapToAction } from '../ui/TapToAction';
 import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
+import { Button } from '../ui/Button';
 import { toast } from '../Toast';
 import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
@@ -29,7 +30,12 @@ import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { SwipeableEquipmentCard, CATEGORIES, CATEGORY_ICONS } from './equipment/SwipeableEquipmentCard';
+import {
+    SwipeableEquipmentCard,
+    CATEGORIES,
+    CATEGORY_ICONS,
+    FALLBACK_CATEGORY_ICON,
+} from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
 import {
     getAuthIdentityScope,
@@ -383,15 +389,16 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                 {/* Edit Equipment Modal */}
                 {showEditForm && (
-                    <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit Equipment">
+                    <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit equipment">
                         {renderFormFields()}
-                        <button
+                        <Button
+                            variant="primary"
                             aria-label="Save equipment changes"
                             onClick={handleSaveEdit}
-                            className="w-full py-3.5 bg-linear-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
+                            className="w-full mt-2"
                         >
-                            Save Changes
-                        </button>
+                            Save changes
+                        </Button>
                     </ModalSheet>
                 )}
             </>
@@ -412,19 +419,20 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 aria-pressed={newCategory === cat.id}
                                 key={cat.id}
                                 onClick={() => setNewCategory(cat.id)}
-                                className={`py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                                className={`flex items-center justify-center gap-1.5 py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                             >
-                                <span aria-hidden="true">{cat.icon}</span> {cat.label}
+                                <cat.Icon className="h-3.5 w-3.5 shrink-0" />
+                                {cat.label}
                             </button>
                         ))}
                     </div>
                 </div>
 
                 <FormField
-                    label="Equipment Name"
+                    label="Equipment name"
                     value={newName}
                     onChange={setNewName}
-                    placeholder="Main Engine"
+                    placeholder="Main engine"
                     required
                 />
 
@@ -434,7 +442,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 </div>
 
                 <FormField
-                    label="Serial Number"
+                    label="Serial number"
                     value={newSerial}
                     onChange={setNewSerial}
                     placeholder="YNM-4JH4TE-12345"
@@ -442,9 +450,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 />
 
                 <div className="grid grid-cols-2 gap-2">
-                    <FormField label="Install Date" type="date" value={newInstallDate} onChange={setNewInstallDate} />
+                    <FormField label="Install date" type="date" value={newInstallDate} onChange={setNewInstallDate} />
                     <FormField
-                        label="Warranty Expiry"
+                        label="Warranty expiry"
                         type="date"
                         value={newWarrantyExpiry}
                         onChange={setNewWarrantyExpiry}
@@ -452,16 +460,18 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 </div>
 
                 <FormField
-                    label="Notes (Optional)"
+                    label="Notes (optional)"
                     type="textarea"
                     value={newNotes}
                     onChange={setNewNotes}
-                    placeholder="Additional details..."
+                    placeholder="Additional details…"
                     rows={1}
                 />
             </div>
         );
     }
+
+    const ContextCategoryIcon = (contextItem && CATEGORY_ICONS[contextItem.category]) || FALLBACK_CATEGORY_ICON;
 
     // ── List View ──
     return (
@@ -469,9 +479,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Equipment"
-                    subtitle={`${visibleItems.length} ${visibleItems.length === 1 ? 'Item' : 'Items'} Registered`}
+                    // One count, worded like the sibling pages; 'registered' repeated
+                    // the empty state's heading (UX scorecard run 7).
+                    subtitle={`${visibleItems.length} ${visibleItems.length === 1 ? 'item' : 'items'}`}
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Equipment']}
+                    breadcrumbs={['Boat Binder', 'Equipment']}
                     status={<OfflineBadge />}
                     action={
                         <div className="relative">
@@ -481,6 +493,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 aria-label="Page actions"
                             >
                                 <svg
+                                    aria-hidden="true"
                                     className="w-5 h-5 text-gray-400"
                                     fill="none"
                                     viewBox="0 0 24 24"
@@ -540,16 +553,20 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     }
                 />
 
-                {/* ── Search ── */}
-                <div className="shrink-0 px-4 pb-3">
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search equipment, make, model, serial..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
-                    />
-                </div>
+                {/* ── Search ── only once there is something to search (UX
+                    scorecard run 7: a live field sat over an empty list). */}
+                {(visibleItems.length > 0 || searchQuery) && (
+                    <div className="shrink-0 px-4 pb-3">
+                        <input
+                            type="text"
+                            aria-label="Search equipment"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search equipment, make, model, serial…"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
 
                 {/* ── Equipment list (scrollable) ── */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
@@ -590,9 +607,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             return (
                                 <div key={group.category}>
                                     <div className="flex items-center gap-2 mb-2 mt-1">
-                                        <span className="text-sm" aria-hidden="true">
-                                            {catConfig?.icon}
-                                        </span>
+                                        {catConfig && <catConfig.Icon className="h-4 w-4 shrink-0 text-gray-400" />}
                                         <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                             {catConfig?.label}
                                         </span>
@@ -680,7 +695,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <button
                                 ref={contextCloseRef}
                                 onClick={() => setContextItem(null)}
-                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                                className="absolute top-2 right-2 flex h-11 w-11 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
                                 aria-label={`Close actions for ${contextItem.equipment_name}`}
                             >
                                 <svg
@@ -695,17 +710,17 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             </button>
 
                             {/* Item header */}
-                            <div className="flex items-center gap-3 mb-5">
-                                <span className="text-lg" aria-hidden="true">
-                                    {CATEGORY_ICONS[contextItem.category] || '📋'}
-                                </span>
+                            <div className="flex items-center gap-3 mb-5 pr-12">
+                                <ContextCategoryIcon className="h-5 w-5 shrink-0 text-gray-400" />
                                 <div className="flex-1 min-w-0">
                                     <h3 id="equipment-actions-title" className="text-lg font-black text-white truncate">
                                         {contextItem.equipment_name}
                                         <span className="sr-only"> equipment actions</span>
                                     </h3>
                                     <p className="text-xs text-slate-400 font-bold">
-                                        {contextItem.make} — {contextItem.model}
+                                        {[contextItem.make, contextItem.model]
+                                            .filter((part) => part && part.trim())
+                                            .join(' — ') || '--'}
                                     </p>
                                 </div>
                             </div>
@@ -739,7 +754,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                             d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                                         />
                                     </svg>
-                                    <span className="text-sm font-bold text-white">View Details</span>
+                                    <span className="text-sm font-bold text-white">View details</span>
                                 </button>
 
                                 {/* Copy Serial */}
@@ -766,7 +781,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                             />
                                         </svg>
                                         <div className="flex-1 text-left">
-                                            <span className="text-sm font-bold text-white">Copy Serial Number</span>
+                                            <span className="text-sm font-bold text-white">Copy serial number</span>
                                             <p className="text-label text-slate-400 font-mono mt-0.5">
                                                 {contextItem.serial_number}
                                             </p>
@@ -799,7 +814,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                                 d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
                                             />
                                         </svg>
-                                        <span className="text-sm font-bold text-white">Open Manual (PDF)</span>
+                                        <span className="text-sm font-bold text-white">Open manual (PDF)</span>
                                     </button>
                                 )}
 
@@ -826,7 +841,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                             d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
                                         />
                                     </svg>
-                                    <span className="text-sm font-bold text-sky-400">Edit Equipment</span>
+                                    <span className="text-sm font-bold text-sky-400">Edit equipment</span>
                                 </button>
 
                                 {/* Delete */}
@@ -850,7 +865,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                                         />
                                     </svg>
-                                    <span className="text-sm font-bold text-red-400">Delete Equipment</span>
+                                    <span className="text-sm font-bold text-red-400">Delete equipment</span>
                                 </button>
                             </div>
                         </div>
@@ -860,7 +875,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add Equipment">
+                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add equipment">
                     {renderFormFields()}
                     {!newName.trim() && (
                         <p className="text-micro text-amber-400/80 text-center mt-2">Equipment name is required</p>
@@ -869,9 +884,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         aria-label="Register new equipment"
                         onClick={handleAdd}
                         disabled={!newName.trim()}
-                        className="w-full py-3 mt-2 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
+                        className="w-full min-h-[44px] py-3 mt-2 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-bold text-base rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
                     >
-                        Register Equipment
+                        Register equipment
                     </button>
                 </ModalSheet>
             )}

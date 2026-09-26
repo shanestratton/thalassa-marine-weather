@@ -207,7 +207,7 @@ describe('Galley and Grocery account boundaries', () => {
         render(<GroceryListPage onBack={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: 'Mark Account A tomatoes as purchased' }));
         fireEvent.click(
-            within(screen.getByRole('dialog', { name: /Mark as Purchased/ })).getByRole('button', {
+            within(screen.getByRole('dialog', { name: /Mark as purchased/ })).getByRole('button', {
                 name: 'Confirm purchase of Account A tomatoes',
             }),
         );
@@ -224,6 +224,6 @@ describe('Galley and Grocery account boundaries', () => {
 
         await waitFor(() => expect(screen.getByText('Account B milk')).toBeInTheDocument());
         expect(screen.queryByText('Account A tomatoes')).not.toBeInTheDocument();
-        expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
     });
 });

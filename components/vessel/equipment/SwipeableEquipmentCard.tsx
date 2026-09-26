@@ -8,24 +8,30 @@ import React from 'react';
 import type { EquipmentItem, EquipmentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { ClipboardIcon, GearIcon, RadioIcon } from '../../icons/UIIcons';
+import { DropletIcon, ThermometerIcon } from '../../icons/WeatherIcons';
+import { FoodIcon, SailBoatIcon } from '../../icons/MaritimeIcons';
 
-export const CATEGORIES: { id: EquipmentCategory; label: string; icon: string }[] = [
-    { id: 'Propulsion', label: 'Propulsion', icon: '⚙️' },
-    { id: 'Electronics', label: 'Electronics', icon: '📡' },
-    { id: 'HVAC', label: 'HVAC', icon: '❄️' },
-    { id: 'Plumbing', label: 'Plumbing', icon: '🔧' },
-    { id: 'Rigging', label: 'Rigging', icon: '⛵' },
-    { id: 'Galley', label: 'Galley', icon: '🍳' },
-];
+/** A stroke icon from components/icons; each one is aria-hidden. */
+export type EquipmentCategoryIcon = (props: { className?: string }) => React.JSX.Element;
 
-export const CATEGORY_ICONS: Record<EquipmentCategory, string> = {
-    Propulsion: '⚙️',
-    Electronics: '📡',
-    HVAC: '❄️',
-    Plumbing: '🔧',
-    Rigging: '⛵',
-    Galley: '🍳',
+// Line icons, not emoji (⚙️ 📡 ❄️ 🔧 ⛵ 🍳 rendered as OS-varying colour
+// glyphs beside the app's stroke icons; UX scorecard run 7).
+export const CATEGORY_ICONS: Record<EquipmentCategory, EquipmentCategoryIcon> = {
+    Propulsion: GearIcon,
+    Electronics: RadioIcon,
+    HVAC: ThermometerIcon,
+    Plumbing: DropletIcon,
+    Rigging: SailBoatIcon,
+    Galley: FoodIcon,
 };
+
+/** For a category the register does not know (older rows). */
+export const FALLBACK_CATEGORY_ICON: EquipmentCategoryIcon = ClipboardIcon;
+
+export const CATEGORIES: { id: EquipmentCategory; label: string; Icon: EquipmentCategoryIcon }[] = (
+    ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'] as EquipmentCategory[]
+).map((id) => ({ id, label: id, Icon: CATEGORY_ICONS[id] }));
 
 interface SwipeableCardProps {
     item: EquipmentItem;
@@ -38,6 +44,9 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
+    const CategoryIcon = CATEGORY_ICONS[item.category] ?? FALLBACK_CATEGORY_ICON;
+    // Make and model, whichever are set; a lone ' — ' said nothing.
+    const makeModel = [item.make, item.model].filter((part) => part && part.trim()).join(' — ') || '--';
 
     const warrantyActive = item.warranty_expiry ? new Date(item.warranty_expiry).getTime() > Date.now() : null;
 
@@ -75,7 +84,7 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
             >
                 {/* Category badge — top of card */}
                 <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-micro">{CATEGORY_ICONS[item.category] || '📋'}</span>
+                    <CategoryIcon className="h-3 w-3 shrink-0 text-gray-400" />
                     <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
                         {item.category}
                     </span>
@@ -104,9 +113,14 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
                             onContextMenu();
                         }}
                         className="hit-target-44 p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
-                        aria-label="Equipment options"
+                        aria-label={`Options for ${item.equipment_name}`}
                     >
-                        <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                        <svg
+                            aria-hidden="true"
+                            className="w-4 h-4 text-slate-400"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                        >
                             <circle cx="12" cy="5" r="1.5" />
                             <circle cx="12" cy="12" r="1.5" />
                             <circle cx="12" cy="19" r="1.5" />
@@ -115,9 +129,7 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
                 </div>
 
                 {/* Row 2: Make — Model */}
-                <p className="text-label text-slate-400 font-bold mt-1">
-                    {item.make} — {item.model}
-                </p>
+                <p className="text-label text-slate-400 font-bold mt-1">{makeModel}</p>
             </div>
         </div>
     );

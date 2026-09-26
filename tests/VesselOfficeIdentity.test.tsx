@@ -162,7 +162,7 @@ describe('vessel office identity boundary', () => {
         expect(await screen.findByText('A private windlass')).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Add equipment' }));
-        fireEvent.change(screen.getByRole('textbox', { name: /^Equipment Name/ }), {
+        fireEvent.change(screen.getByRole('textbox', { name: /^Equipment name/ }), {
             target: { value: 'A pending radar' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Register new equipment' }));
@@ -207,7 +207,7 @@ describe('vessel office identity boundary', () => {
 
         mocks.checklistRows = [];
         act(() => setAuthIdentityScope('account-b'));
-        expect(screen.queryByRole('dialog', { name: 'Run Checklist' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Run checklist' })).not.toBeInTheDocument();
         expect(screen.queryByText('A private bilge check')).not.toBeInTheDocument();
 
         saveRun.resolve({});

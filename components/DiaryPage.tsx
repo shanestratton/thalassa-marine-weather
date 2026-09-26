@@ -18,7 +18,8 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
-import { CompassIcon, CheckIcon, DownloadIcon, ShareIcon, XIcon } from './Icons';
+import { AnchorIcon, CheckIcon, DeviceIcon, DownloadIcon, ShareIcon, XIcon } from './Icons';
+import { PenIcon } from './vesselHub/icons';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
@@ -1344,7 +1345,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                     }}
                                     className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-4 text-left"
                                 >
-                                    <span className="text-xl">⚓</span>
+                                    <AnchorIcon className="h-5 w-5 shrink-0 text-cyan-200" />
                                     <span>
                                         <span className="block text-sm font-bold text-cyan-200">On the boat</span>
                                         <span className="block text-[11px] text-gray-400">
@@ -1361,7 +1362,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                     }}
                                     className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-violet-500/25 bg-violet-500/10 px-4 text-left"
                                 >
-                                    <span className="text-xl">📱</span>
+                                    <DeviceIcon className="h-5 w-5 shrink-0 text-violet-200" />
                                     <span>
                                         <span className="block text-sm font-bold text-violet-200">
                                             Where I'm standing
@@ -1402,7 +1403,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     gpsLoading={gpsLoading}
                     coordsLabel={
                         lat != null && lon != null
-                            ? `${gpsSource === 'vessel' ? '⚓ ' : gpsSource === 'phone' ? '📱 ' : ''}${formatCoord(lat, lon)}`
+                            ? `${gpsSource === 'vessel' ? 'Boat · ' : gpsSource === 'phone' ? 'Phone · ' : ''}${formatCoord(lat, lon)}`
                             : null
                     }
                     polishStyle={polishStyle}
@@ -1459,10 +1460,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 <PageHeader
                     title="Diary"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Diary']}
+                    // Diary opens from the Vessel hub's own card, and Back goes
+                    // there, so that is its parent (UX scorecard run 7).
+                    breadcrumbs={['Vessel', 'Diary']}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
+                            {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
                             {selectedIds.size > 0 && (
                                 <span className="text-sky-400 ml-2 inline-flex items-center gap-1">
                                     <CheckIcon className="w-3 h-3" />
@@ -1483,7 +1486,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                     aria-haspopup="menu"
                                     aria-controls={menuOpen ? pageActionsMenuId : undefined}
                                 >
-                                    <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                    <svg
+                                        aria-hidden="true"
+                                        className="w-5 h-5 text-gray-400"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                    >
                                         <circle cx="12" cy="5" r="1.5" />
                                         <circle cx="12" cy="12" r="1.5" />
                                         <circle cx="12" cy="19" r="1.5" />
@@ -1516,7 +1524,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                         className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
                                                     >
                                                         <CheckIcon className="w-4 h-4 text-sky-400" />
-                                                        Select All
+                                                        Select all
                                                     </button>
                                                     <div role="separator" className="border-t border-white/5" />
                                                 </>
@@ -1533,7 +1541,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                 className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                             >
                                                 <DownloadIcon className="w-4 h-4 text-sky-400" />
-                                                Download Selected
+                                                Download selected
                                             </button>
                                             <div role="separator" className="border-t border-white/5" />
                                             <button
@@ -1548,7 +1556,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                 className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                             >
                                                 <ShareIcon className="w-4 h-4 text-emerald-400" />
-                                                Share Selected
+                                                Share selected
                                             </button>
                                             {selectedIds.size > 0 && (
                                                 <>
@@ -1563,7 +1571,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                         className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
                                                     >
                                                         <XIcon className="w-4 h-4" />
-                                                        Clear Selection
+                                                        Clear selection
                                                     </button>
                                                 </>
                                             )}
@@ -1596,10 +1604,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         </div>
                     ) : entries.length === 0 ? (
                         <EmptyState
-                            // White line icon at the size its Ship's Office siblings use.
-                            icon={<CompassIcon className="w-8 h-8" rotation={0} />}
+                            // The pen the Vessel hub's Diary card uses, not a compass, at
+                            // its siblings' height (py-16, as on Stores and Equipment); it
+                            // sat ~85 pt higher (UX scorecard run 7).
+                            icon={<PenIcon color="currentColor" />}
                             title="Your story starts here"
                             description="Tap Write entry below to add one. An entry can hold photos, a short video and your position."
+                            className="py-16"
                         />
                     ) : (
                         <div className="space-y-6 stagger-in">
@@ -1656,7 +1667,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                             triggerHaptic('medium');
                             openCompose();
                         }}
-                        // Emerald = "add" across the Ship's Office (Stores, Maintenance, Documents…).
+                        // Emerald = "add" across the Boat Binder pages (Stores, Maintenance, Documents…).
                         theme="emerald"
                     />
                 </div>

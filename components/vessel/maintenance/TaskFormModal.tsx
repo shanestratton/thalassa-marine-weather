@@ -6,7 +6,9 @@ import React from 'react';
 import type { MaintenanceTriggerType } from '../../../types';
 import { FormField } from '../../ui/FormField';
 import { ModalSheet } from '../../ui/ModalSheet';
-import { CATEGORIES, TRIGGER_LABELS } from './constants';
+import { Button } from '../../ui/Button';
+import { RefreshIcon, WrenchIcon } from '../../icons/UIIcons';
+import { CATEGORIES, TRIGGER_LABELS, TRIGGER_PERIODS } from './constants';
 import type { UseMaintenanceFormReturn } from '../../../hooks/useMaintenanceForm';
 
 interface TaskFormModalProps {
@@ -39,7 +41,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
     if (isAdd) {
         return (
-            <ModalSheet isOpen={true} onClose={onClose} title="New Task">
+            <ModalSheet isOpen={true} onClose={onClose} title="New task">
                 <div className="flex flex-col gap-2">
                     {/* Task Type Selector */}
                     <div>
@@ -48,32 +50,36 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         </label>
                         <div className="grid grid-cols-2 gap-2">
                             <button
-                                aria-label="Maintenance"
+                                type="button"
+                                aria-pressed={form.taskType === 'maintenance'}
                                 onClick={() => {
                                     setTaskType('maintenance');
                                     setCategory('Engine');
                                 }}
-                                className={`py-2 rounded-xl text-xs font-black transition-all text-center ${
+                                className={`flex min-h-[44px] items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black transition-all text-center ${
                                     form.taskType === 'maintenance'
                                         ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
                                         : 'bg-white/5 text-gray-400 border-2 border-white/5'
                                 }`}
                             >
-                                🔄 Maintenance
+                                <RefreshIcon className="h-3.5 w-3.5 shrink-0" />
+                                Maintenance
                             </button>
                             <button
-                                aria-label="Repair"
+                                type="button"
+                                aria-pressed={form.taskType === 'repair'}
                                 onClick={() => {
                                     setTaskType('repair');
                                     setCategory('Repair');
                                 }}
-                                className={`py-2 rounded-xl text-xs font-black transition-all text-center ${
+                                className={`flex min-h-[44px] items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black transition-all text-center ${
                                     form.taskType === 'repair'
                                         ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
                                         : 'bg-white/5 text-gray-400 border-2 border-white/5'
                                 }`}
                             >
-                                🔧 Repair
+                                <WrenchIcon className="h-3.5 w-3.5 shrink-0" />
+                                Repair
                             </button>
                         </div>
                     </div>
@@ -86,17 +92,21 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             </label>
                             <div className="grid grid-cols-3 gap-1.5">
                                 {CATEGORIES.filter((cat) => cat.id !== 'Repair').map((cat) => (
+                                    // Named by its label (every chip was 'Select category'),
+                                    // with its state (UX scorecard run 7).
                                     <button
-                                        aria-label="Select category"
+                                        type="button"
+                                        aria-pressed={form.category === cat.id}
                                         key={cat.id}
                                         onClick={() => setCategory(cat.id)}
-                                        className={`py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${
+                                        className={`flex items-center justify-center gap-1.5 py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${
                                             form.category === cat.id
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/5'
                                         }`}
                                     >
-                                        {cat.icon} {cat.label}
+                                        <cat.Icon className="h-3.5 w-3.5 shrink-0" />
+                                        {cat.label}
                                     </button>
                                 ))}
                             </div>
@@ -105,17 +115,17 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
                     {/* Title */}
                     <FormField
-                        label="Task Name"
+                        label="Task name"
                         value={form.title}
                         onChange={(v) => setField('title', v)}
-                        placeholder="Main Engine Oil Change"
+                        placeholder="Main engine oil change"
                         required
                         error={!form.title.trim() && form.title !== '' ? 'Task name is required' : undefined}
                     />
 
                     {/* Notes */}
                     <FormField
-                        label="Notes (Optional)"
+                        label="Notes (optional)"
                         type="textarea"
                         value={form.description}
                         onChange={(v) => setField('description', v)}
@@ -132,7 +142,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             <div className="grid grid-cols-3 gap-1.5">
                                 {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                                     <button
-                                        aria-label={TRIGGER_LABELS[t]}
+                                        type="button"
+                                        aria-pressed={form.trigger === t}
                                         key={t}
                                         onClick={() => setTrigger(t)}
                                         className={`py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${
@@ -178,7 +189,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             hint={
                                 form.trigger === 'daily'
                                     ? 'Checked before every trip'
-                                    : `Repeats every ${TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}`
+                                    : `Repeats every ${TRIGGER_PERIODS[form.trigger] ?? TRIGGER_LABELS[form.trigger].toLowerCase()}`
                             }
                         />
                     )}
@@ -188,28 +199,28 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 {!form.title.trim() && (
                     <p className="text-micro text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
                 )}
-                <button
-                    aria-label="Submit form"
+                <Button
+                    variant="primary"
                     onClick={onSubmit}
                     disabled={!form.title.trim()}
-                    className="w-full py-3 mt-2 bg-linear-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
+                    className="w-full mt-2 shrink-0 disabled:cursor-not-allowed"
                 >
-                    Create Task
-                </button>
+                    Create task
+                </Button>
             </ModalSheet>
         );
     }
 
     // ── Edit Mode (uses ModalSheet) ──
     return (
-        <ModalSheet isOpen={true} onClose={onClose} title="Edit Task">
+        <ModalSheet isOpen={true} onClose={onClose} title="Edit task">
             {/* Task Name */}
             <div className="mb-3">
                 <FormField
-                    label="Task Name"
+                    label="Task name"
                     value={form.title}
                     onChange={(v) => setField('title', v)}
-                    placeholder="Main Engine Oil Change"
+                    placeholder="Main engine oil change"
                     required
                 />
             </div>
@@ -217,7 +228,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             {/* Notes */}
             <div className="mb-4">
                 <FormField
-                    label="Notes (Optional)"
+                    label="Notes (optional)"
                     type="textarea"
                     value={form.description}
                     onChange={(v) => setField('description', v)}
@@ -234,12 +245,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                     {CATEGORIES.map((cat) => (
                         <button
-                            aria-label="Select category"
+                            type="button"
+                            aria-pressed={form.category === cat.id}
                             key={cat.id}
                             onClick={() => setCategory(cat.id)}
-                            className={`py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                            className={`flex items-center justify-center gap-1.5 py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
-                            {cat.icon} {cat.label}
+                            <cat.Icon className="h-3.5 w-3.5 shrink-0" />
+                            {cat.label}
                         </button>
                     ))}
                 </div>
@@ -253,7 +266,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                         <button
-                            aria-label={TRIGGER_LABELS[t]}
+                            type="button"
+                            aria-pressed={form.trigger === t}
                             key={t}
                             onClick={() => setTrigger(t)}
                             className={`py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -300,14 +314,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 </div>
             )}
 
-            <button
-                aria-label="Submit form"
+            <Button
+                variant="primary"
                 onClick={onSubmit}
                 disabled={!form.title.trim()}
-                className="w-full py-3.5 bg-linear-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                className="w-full disabled:cursor-not-allowed"
             >
-                Save Changes
-            </button>
+                Save changes
+            </Button>
         </ModalSheet>
     );
 };

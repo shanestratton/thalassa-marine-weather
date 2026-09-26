@@ -75,7 +75,7 @@ describe('InventoryScanner', () => {
             });
 
             expect(LocalInventoryService.findByBarcode).toHaveBeenCalledTimes(1);
-            expect(screen.getByRole('dialog', { name: 'Add New Item' })).toBeInTheDocument();
+            expect(screen.getByRole('dialog', { name: 'Add new item' })).toBeInTheDocument();
         } finally {
             play.mockRestore();
             vi.useRealTimers();

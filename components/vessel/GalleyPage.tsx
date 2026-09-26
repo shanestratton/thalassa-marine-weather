@@ -1,7 +1,7 @@
 /**
  * GalleyPage — Standalone galley view for solo sailors.
  *
- * Accessible directly from VesselHub Ship's Office grid.
+ * Opened from the Boat Binder's Reference group on the Vessel hub.
  * Renders Chef's Plate cards for all active meals + recipe browser.
  * Works fully offline — recipes are persisted to LocalDatabase.
  */
@@ -10,7 +10,9 @@ import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
-import { CartIcon, ClipboardIcon, FoodIcon, PackageIcon, StarIcon } from '../Icons';
+import { Button } from '../ui/Button';
+import { SignInScreen } from '../SignInScreen';
+import { CartIcon, ClipboardIcon, FoodIcon, PackageIcon, ShareIcon, StarIcon } from '../Icons';
 import {
     getMealsByStatus,
     getMealPlans as _getMealPlans,
@@ -69,6 +71,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const [activeCookingMeal, setActiveCookingMeal] = useState<MealPlan | null>(null);
     const [editorRecipe, setEditorRecipe] = useState<StoredRecipe | 'new' | null>(null);
     const [showGroceryList, setShowGroceryList] = useState(false);
+    const [showSignIn, setShowSignIn] = useState(false);
     const restoreShoppingFocusRef = useRef(false);
     const shoppingListButtonRef = useRef<HTMLButtonElement>(null);
     const identityOwnsRenderedData =
@@ -96,6 +99,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         setActiveCookingMeal(null);
         setEditorRecipe(null);
         setShowGroceryList(false);
+        setShowSignIn(false);
 
         if (operationScope.userId !== currentUserId) {
             return () => {
@@ -246,23 +250,29 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 <PageHeader
                     title="Galley"
                     // Same parent crumb as its binder siblings (Stores, Maintenance…).
-                    breadcrumbs={["Ship's Office", 'Galley']}
+                    breadcrumbs={['Boat Binder', 'Galley']}
                     subtitle={
                         /* PageHeader's own grey subtitle, like every other page. Each
                            count is one unbreakable unit and the separator binds to the
                            count before it, so a wrap never starts a line with '·'.
-                           'Stores held' = ship's stores held back for planned meals. */
+                           The stores count says what it is ('0 stores held' was
+                           opaque) and only shows when something is held back for a
+                           planned meal (UX scorecard run 7). */
                         <p className="ui-caption text-xs text-gray-300 uppercase tracking-widest">
                             <span className="whitespace-nowrap">
-                                {visibleActiveMeals.length} meal{visibleActiveMeals.length === 1 ? '' : 's'}&nbsp;·
-                            </span>{' '}
-                            <span className="whitespace-nowrap">
-                                {visibleSavedRecipes.length} recipe{visibleSavedRecipes.length === 1 ? '' : 's'}
+                                {visibleActiveMeals.length} meal{visibleActiveMeals.length === 1 ? '' : 's'}
                                 &nbsp;·
                             </span>{' '}
                             <span className="whitespace-nowrap">
-                                {reservedCount} {reservedCount === 1 ? 'store' : 'stores'} held
+                                {visibleSavedRecipes.length} recipe{visibleSavedRecipes.length === 1 ? '' : 's'}
+                                {reservedCount > 0 && <>&nbsp;·</>}
                             </span>
+                            {reservedCount > 0 && (
+                                <>
+                                    {' '}
+                                    <span className="whitespace-nowrap">{reservedCount} reserved from stores</span>
+                                </>
+                            )}
                         </p>
                     }
                     onBack={onBack}
@@ -286,10 +296,12 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     aria-selected={tab === 'active'}
                     aria-controls="galley-active-panel"
                     tabIndex={tab === 'active' ? 0 : -1}
+                    // The house tab accent: amber made Galley the odd one out (UX
+                    // scorecard run 7).
                     className={`min-h-[44px] flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
                         tab === 'active'
-                            ? 'text-amber-400 border-b-2 border-amber-400'
-                            : 'text-gray-500 hover:text-gray-300'
+                            ? 'text-sky-400 border-b-2 border-sky-400'
+                            : 'text-gray-400 hover:text-gray-200'
                     }`}
                 >
                     <span className="inline-flex items-center justify-center gap-1.5">
@@ -309,7 +321,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     className={`min-h-[44px] flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
                         tab === 'recipes'
                             ? 'text-sky-400 border-b-2 border-sky-400'
-                            : 'text-gray-500 hover:text-gray-300'
+                            : 'text-gray-400 hover:text-gray-200'
                     }`}
                 >
                     <span className="inline-flex items-center justify-center gap-1.5">
@@ -330,28 +342,37 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         className="space-y-4 p-4"
                     >
                         {visibleActiveMeals.length === 0 ? (
-                            // Not a dead end: the primary action goes where meals are
-                            // actually planned — the Departure Brief on the Passage
-                            // Planning page ('crew' view) — and the recipes stay one
-                            // tap away as the secondary action.
-                            <EmptyState
-                                icon={<FoodIcon className="h-8 w-8 [stroke-width:1.5]" />}
-                                title="No active meals"
-                                subtitle="Plan meals in a passage's Departure Brief and they appear here, ready to cook."
-                                actionLabel="Plan meals in Departure Brief"
-                                onAction={() => {
-                                    triggerHaptic('light');
-                                    window.dispatchEvent(
-                                        new CustomEvent('thalassa:navigate', { detail: { tab: 'crew' } }),
-                                    );
-                                }}
-                                secondaryLabel="Open saved recipes"
-                                onSecondary={() => {
-                                    triggerHaptic('light');
-                                    setTab('recipes');
-                                    document.getElementById('galley-recipes-tab')?.focus();
-                                }}
-                            />
+                            // Not a dead end: the action goes where meals are actually
+                            // planned — the Departure Brief on the Passage Planning page
+                            // ('crew' view). Signed out, that page is a sign-in wall
+                            // about routes, so the action says so and signs in here
+                            // instead. The recipes are the tab above; the duplicate
+                            // 'Open saved recipes' link is gone (UX scorecard run 7).
+                            currentUserId ? (
+                                <EmptyState
+                                    icon={<FoodIcon className="h-8 w-8 [stroke-width:1.5]" />}
+                                    title="No active meals"
+                                    subtitle="Plan meals in a passage's Departure Brief and they appear here, ready to cook."
+                                    actionLabel="Plan meals in Departure Brief"
+                                    onAction={() => {
+                                        triggerHaptic('light');
+                                        window.dispatchEvent(
+                                            new CustomEvent('thalassa:navigate', { detail: { tab: 'crew' } }),
+                                        );
+                                    }}
+                                />
+                            ) : (
+                                <EmptyState
+                                    icon={<FoodIcon className="h-8 w-8 [stroke-width:1.5]" />}
+                                    title="No active meals"
+                                    subtitle="Meals are planned in a passage's Departure Brief, which needs an account."
+                                    actionLabel="Sign in to plan meals"
+                                    onAction={() => {
+                                        triggerHaptic('light');
+                                        setShowSignIn(true);
+                                    }}
+                                />
+                            )
                         ) : (
                             visibleActiveMeals.map((meal) => (
                                 <div
@@ -390,7 +411,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                         <button
                                             type="button"
                                             onClick={() => handleCookNow(meal)}
-                                            className="flex-1 py-2.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 disabled:opacity-40 active:scale-[0.97]"
+                                            className="flex-1 min-h-[44px] py-2.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-sm font-bold text-amber-300 disabled:opacity-40 active:scale-[0.97]"
                                         >
                                             {meal.status === 'cooking' ? 'Resume cooking' : 'Cook now'}
                                         </button>
@@ -405,22 +426,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                         .writeText(text)
                                                         .then(() => triggerHaptic('light'));
                                             }}
-                                            className="w-10 flex items-center justify-center border border-white/8 bg-white/3 rounded-xl text-gray-400"
-                                            aria-label="Share active meal details"
+                                            className="w-11 min-h-[44px] flex items-center justify-center border border-white/8 bg-white/3 rounded-xl text-gray-400"
+                                            aria-label={`Share ${meal.title}`}
                                         >
-                                            <svg
-                                                className="w-4 h-4"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={1.5}
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
-                                                />
-                                            </svg>
+                                            <ShareIcon className="w-4 h-4" />
                                         </button>
                                     </div>
                                 </div>
@@ -510,13 +519,13 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 <p className="text-xs font-bold text-white">Your recipe library</p>
                                 <p className="text-[11px] text-gray-500">Available offline in your galley</p>
                             </div>
-                            <button
-                                type="button"
+                            <Button
+                                variant="secondary"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     setEditorRecipe('new');
                                 }}
-                                className="inline-flex shrink-0 min-h-[44px] items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-300 transition-all hover:bg-amber-500/25 active:scale-95"
+                                className="shrink-0 text-white"
                             >
                                 <svg
                                     aria-hidden="true"
@@ -529,7 +538,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                                 </svg>
                                 New recipe
-                            </button>
+                            </Button>
                         </div>
 
                         {visibleSavedRecipes.length === 0 ? (
@@ -603,6 +612,12 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     </div>
                 )}
             </div>
+
+            <SignInScreen
+                isOpen={showSignIn}
+                onClose={() => setShowSignIn(false)}
+                prompt="Sign in to plan meals in a passage's Departure Brief."
+            />
 
             {identityOwnsRenderedData && editorRecipe && (
                 <RecipeEditor

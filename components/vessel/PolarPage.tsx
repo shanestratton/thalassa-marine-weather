@@ -30,9 +30,9 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea, 
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Polars"
-                    subtitle="Performance Data"
+                    subtitle="Performance data"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Polars']}
+                    breadcrumbs={['Boat Binder', 'Polars']}
                 />
 
                 {/* ═══ POLAR MANAGER CONTENT ═══ */}

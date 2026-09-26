@@ -7,7 +7,9 @@ test.describe('Diary', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
         // Navigate to vessel tab then diary
-        const vesselTab = page.locator('button, [role="tab"]').filter({ hasText: /vessel|boat/i });
+        const vesselTab = page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Vessel', exact: true });
         if ((await vesselTab.count()) > 0) {
             await vesselTab.first().click();
             await page.waitForTimeout(500);

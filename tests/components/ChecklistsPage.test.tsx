@@ -103,7 +103,7 @@ describe('ChecklistsPage', () => {
         render(<ChecklistsPage onBack={vi.fn()} />);
         openChecklistRun();
 
-        const dialog = screen.getByRole('dialog', { name: 'Run Checklist' });
+        const dialog = screen.getByRole('dialog', { name: 'Run checklist' });
         const exitButton = screen.getByRole('button', { name: 'Exit checklist run' });
         expect(dialog.getAttribute('aria-modal')).toBe('true');
         expect(document.activeElement).toBe(exitButton);
@@ -139,7 +139,7 @@ describe('ChecklistsPage', () => {
 
         fireEvent.keyDown(exitButton, { key: 'Escape' });
 
-        expect(screen.queryByRole('dialog', { name: 'Run Checklist' })).toBeNull();
+        expect(screen.queryByRole('dialog', { name: 'Run checklist' })).toBeNull();
         expect(document.activeElement).toBe(pageActions);
     });
 });

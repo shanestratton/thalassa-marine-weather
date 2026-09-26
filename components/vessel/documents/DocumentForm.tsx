@@ -7,15 +7,57 @@
 import React, { useRef } from 'react';
 import type { DocumentCategory } from '../../../types';
 import { FormField } from '../../ui/FormField';
+import { Button } from '../../ui/Button';
 import { triggerHaptic } from '../../../utils/system';
+import { FlagIcon } from '../../icons/NavigationIcons';
+import { RadioIcon, UsersIcon } from '../../icons/UIIcons';
+import { BoatIcon } from '../../icons/MaritimeIcons';
 
-export const CATEGORIES: { id: DocumentCategory; label: string; icon: string }[] = [
-    { id: 'Registration', label: 'Registration', icon: '🚢' },
-    { id: 'Insurance', label: 'Insurance', icon: '🛡️' },
-    { id: 'Crew Visas/IDs', label: 'Crew IDs', icon: '🪪' },
-    { id: 'Radio/MMSI', label: 'Radio/MMSI', icon: '📻' },
-    { id: 'Customs Clearances', label: 'Customs', icon: '🛂' },
-    { id: 'User Manuals', label: 'Manuals', icon: '📖' },
+/** A stroke icon; each one is aria-hidden. */
+export type DocumentCategoryIcon = (props: { className?: string }) => React.JSX.Element;
+
+// The icon set has no shield or book, so these two are drawn here with its
+// stroke conventions (24 grid, 2 px round strokes, aria-hidden).
+const ShieldIcon: DocumentCategoryIcon = ({ className }) => (
+    <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+    >
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+);
+
+const BookIcon: DocumentCategoryIcon = ({ className }) => (
+    <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+    >
+        <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z" />
+        <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" />
+    </svg>
+);
+
+// Line icons, not emoji: 🚢 🛡️ 🪪 📻 🛂 📖 rendered as OS-varying colour glyphs
+// beside the app's stroke icons (UX scorecard run 7).
+export const CATEGORIES: { id: DocumentCategory; label: string; Icon: DocumentCategoryIcon }[] = [
+    { id: 'Registration', label: 'Registration', Icon: BoatIcon },
+    { id: 'Insurance', label: 'Insurance', Icon: ShieldIcon },
+    { id: 'Crew Visas/IDs', label: 'Crew IDs', Icon: UsersIcon },
+    { id: 'Radio/MMSI', label: 'Radio/MMSI', Icon: RadioIcon },
+    { id: 'Customs Clearances', label: 'Customs', Icon: FlagIcon },
+    { id: 'User Manuals', label: 'Manuals', Icon: BookIcon },
 ];
 
 interface DocumentFormProps {
@@ -71,9 +113,11 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                             aria-pressed={formCategory === cat.id}
                             key={cat.id}
                             onClick={() => onCategoryChange(cat.id)}
-                            className={`py-1.5 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                            type="button"
+                            className={`flex items-center justify-center gap-1.5 py-1.5 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
-                            {cat.icon} {cat.label}
+                            <cat.Icon className="h-3.5 w-3.5 shrink-0" />
+                            {cat.label}
                         </button>
                     ))}
                 </div>
@@ -82,24 +126,24 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
             {/* Document Name */}
             <div className="mb-3">
                 <FormField
-                    label="Document Name"
+                    label="Document name"
                     value={formName}
                     onChange={onNameChange}
-                    placeholder="Vessel Registration, Hull Insurance 2026..."
+                    placeholder="Vessel registration, hull insurance 2026…"
                     required
                 />
             </div>
 
             {/* Dates */}
             <div className="grid grid-cols-2 gap-2 mb-3 overflow-hidden">
-                <FormField label="Issue Date" type="date" value={formIssueDate} onChange={onIssueDateChange} />
-                <FormField label="Expiry Date" type="date" value={formExpiryDate} onChange={onExpiryDateChange} />
+                <FormField label="Issue date" type="date" value={formIssueDate} onChange={onIssueDateChange} />
+                <FormField label="Expiry date" type="date" value={formExpiryDate} onChange={onExpiryDateChange} />
             </div>
 
             {/* Attach Document */}
             <div className="mb-3">
                 <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1">
-                    Attach Document
+                    Attach document
                 </label>
                 <input
                     ref={fileInputRef}
@@ -157,7 +201,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                                 d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"
                             />
                         </svg>
-                        Attach PDF, Photo or Document
+                        Attach PDF, photo or document
                     </button>
                 )}
             </div>
@@ -165,11 +209,11 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
             {/* Notes */}
             <div className="mb-4">
                 <FormField
-                    label="Notes (Optional)"
+                    label="Notes (optional)"
                     type="textarea"
                     value={formNotes}
                     onChange={onNotesChange}
-                    placeholder="Policy number, agent contact..."
+                    placeholder="Policy number, agent contact…"
                     rows={2}
                 />
             </div>
@@ -177,18 +221,14 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
             {!formName.trim() && (
                 <p className="text-micro text-amber-400/80 text-center mt-2">Document name is required</p>
             )}
-            <button
-                aria-label="Save changes"
+            <Button
+                variant="primary"
                 onClick={onSave}
                 disabled={!formName.trim()}
-                className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${
-                    isEdit
-                        ? 'bg-linear-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                        : 'bg-linear-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
-                }`}
+                className="w-full mt-1 disabled:cursor-not-allowed"
             >
-                {isEdit ? 'Save Changes' : 'Add Document'}
-            </button>
+                {isEdit ? 'Save changes' : 'Add document'}
+            </Button>
         </>
     );
 };

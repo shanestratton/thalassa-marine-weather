@@ -34,6 +34,7 @@ import {
 } from '../../services/authIdentityScope';
 
 import { ZONE_EMOJI } from '../chat/galleyTokens';
+import { CartIcon, CheckCircleIcon, CheckIcon, ClipboardIcon, ClockIcon } from '../Icons';
 
 interface GroceryListPageProps {
     onBack: () => void;
@@ -524,9 +525,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         >
             <div className="flex flex-col h-full">
                 <PageHeader
-                    title="Grocery List"
+                    title="Grocery list"
                     onBack={onBack}
-                    breadcrumbs={['Galley', 'Grocery List']}
+                    breadcrumbs={['Galley', 'Grocery list']}
                     subtitle={
                         visibleSummary ? (
                             <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
@@ -560,17 +561,32 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             tabIndex={filter === f ? 0 : -1}
                             onClick={() => setFilter(f)}
                             onKeyDown={(event) => handleFilterKeyDown(event, index)}
-                            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
+                            // The house tab accent and line icons, like the Galley tabs it
+                            // opens from (UX scorecard run 7: 🛒 ✅ 📋 were emoji).
+                            className={`min-h-[44px] flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
                                 filter === f
-                                    ? 'text-emerald-400 border-b-2 border-emerald-400'
-                                    : 'text-gray-500 hover:text-gray-300'
+                                    ? 'text-sky-400 border-b-2 border-sky-400'
+                                    : 'text-gray-400 hover:text-gray-200'
                             }`}
                         >
-                            {f === 'remaining'
-                                ? `🛒 Need (${visibleSummary?.remaining ?? 0})`
-                                : f === 'purchased'
-                                  ? `✅ Done (${visibleSummary?.purchased ?? 0})`
-                                  : `📋 All (${visibleSummary?.total ?? 0})`}
+                            <span className="inline-flex items-center justify-center gap-1.5">
+                                {f === 'remaining' ? (
+                                    <>
+                                        <CartIcon className="h-3.5 w-3.5 shrink-0" />
+                                        Need ({visibleSummary?.remaining ?? 0})
+                                    </>
+                                ) : f === 'purchased' ? (
+                                    <>
+                                        <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                        Done ({visibleSummary?.purchased ?? 0})
+                                    </>
+                                ) : (
+                                    <>
+                                        <ClipboardIcon className="h-3.5 w-3.5 shrink-0" />
+                                        All ({visibleSummary?.total ?? 0})
+                                    </>
+                                )}
+                            </span>
                         </button>
                     ))}
                 </div>
@@ -649,14 +665,14 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     />
                                 </svg>
                             }
-                            title="No Grocery Items Yet"
+                            title="No grocery items yet"
                             subtitle="Use the + button, or add missing ingredients from the Meal Calendar"
                             className="py-16"
                         />
                     ) : filteredZones.length === 0 ? (
                         <EmptyState
-                            icon={<span className="text-3xl">✅</span>}
-                            title={filter === 'remaining' ? 'All Done!' : 'No Purchased Items'}
+                            icon={<CheckCircleIcon className="h-8 w-8" />}
+                            title={filter === 'remaining' ? 'All done' : 'No purchased items'}
                             subtitle={
                                 filter === 'remaining'
                                     ? "All items have been purchased and added to Ship's Stores"
@@ -738,7 +754,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                                             />
                                                         </svg>
                                                     )}
-                                                    {isPurchasing && <span className="text-[11px]">⏳</span>}
+                                                    {isPurchasing && <ClockIcon className="h-3 w-3 text-gray-400" />}
                                                 </button>
 
                                                 {/* Name + purchase info */}
@@ -751,8 +767,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                                         {item.ingredient_name}
                                                     </p>
                                                     {item.purchased && item.purchased_at && (
-                                                        <p className="text-[11px] text-emerald-500/60">
-                                                            ✅ {new Date(item.purchased_at).toLocaleDateString()}
+                                                        <p className="flex items-center gap-1 text-[11px] text-emerald-400/80">
+                                                            <CheckIcon className="h-3 w-3 shrink-0" />
+                                                            {new Date(item.purchased_at).toLocaleDateString()}
                                                             {item.purchase_retailer
                                                                 ? ` · ${item.purchase_retailer}`
                                                                 : ''}
@@ -790,7 +807,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     <div className="shrink-0 mx-4 mb-3 p-3 rounded-xl bg-linear-to-r from-emerald-500/6 to-teal-500/4 border border-emerald-500/10">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
-                                💰 Voyage Spend
+                                Voyage spend
                             </span>
                             <span className="text-sm font-black text-emerald-400 tabular-nums">
                                 ${visibleBudget.total.toFixed(2)}
@@ -914,7 +931,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             </svg>
                         </button>
                         <h3 id="grocery-purchase-title" className="text-sm font-black text-white mb-1 pr-10">
-                            ✅ Mark as Purchased
+                            Mark as purchased
                         </h3>
                         <p id="grocery-purchase-item" className="text-[11px] text-gray-400 mb-4">
                             {priceItem.ingredient_name}
@@ -1010,19 +1027,19 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                 type="button"
                                 onClick={handleSkipPrice}
                                 disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
-                                aria-label={`Mark ${priceItem.ingredient_name} as purchased without a price`}
-                                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/8 text-[11px] font-bold text-gray-400 uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
+                                aria-label={`Skip price and mark ${priceItem.ingredient_name} as purchased`}
+                                className="flex-1 min-h-[44px] py-3 rounded-xl bg-white/5 border border-white/8 text-sm font-bold text-gray-300 active:scale-[0.97] disabled:opacity-40"
                             >
-                                Skip Price
+                                Skip price
                             </button>
                             <button
                                 type="button"
                                 onClick={handleConfirmPurchase}
                                 disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
                                 aria-label={`Confirm purchase of ${priceItem.ingredient_name}`}
-                                className="flex-1 py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
+                                className="flex-1 min-h-[44px] py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-sm font-black text-white active:scale-[0.97] disabled:opacity-40"
                             >
-                                {purchasingId ? '⏳ Saving…' : '✅ Confirm'}
+                                {purchasingId ? 'Saving…' : 'Confirm'}
                             </button>
                         </div>
                     </div>
@@ -1068,7 +1085,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             </svg>
                         </button>
                         <h3 id="grocery-add-title" className="text-sm font-black text-white mb-4 pr-10">
-                            ➕ Add to Shopping List
+                            Add to shopping list
                         </h3>
 
                         {/* Item name */}
@@ -1076,7 +1093,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             htmlFor="grocery-add-name"
                             className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
                         >
-                            Item Name
+                            Item name
                         </label>
                         <input
                             id="grocery-add-name"
@@ -1086,7 +1103,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             onChange={(e) => setAddName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
                             disabled={isAdding || !canManageShoppingList}
-                            placeholder="Shampoo, dish soap, shackle pins..."
+                            placeholder="Shampoo, dish soap, shackle pins…"
                             className="w-full mt-1 mb-3 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
                         />
 
@@ -1189,9 +1206,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             onClick={handleAddItem}
                             disabled={!addName.trim() || isAdding || !canManageShoppingList}
                             aria-label="Add item to grocery list"
-                            className="w-full py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-30 transition-all"
+                            className="w-full min-h-[44px] py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-sm font-black text-white active:scale-[0.97] disabled:opacity-30 transition-all"
                         >
-                            {isAdding ? '⏳ Adding…' : '➕ Add to List'}
+                            {isAdding ? 'Adding…' : 'Add to list'}
                         </button>
                     </div>
                 </div>

@@ -9,7 +9,8 @@ import type { EquipmentItem } from '../../../types';
 import { createLogger } from '../../../utils/createLogger';
 import { triggerHaptic } from '../../../utils/system';
 import { DocumentSyncService } from '../../../services/vessel/DocumentSyncService';
-import { CATEGORY_ICONS } from './SwipeableEquipmentCard';
+import { CheckIcon, XIcon } from '../../icons/UIIcons';
+import { CATEGORY_ICONS, FALLBACK_CATEGORY_ICON } from './SwipeableEquipmentCard';
 
 const log = createLogger('EquipmentDetail');
 
@@ -22,6 +23,7 @@ interface EquipmentDetailProps {
 
 export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit, onDelete }) => {
     const warrantyActive = item.warranty_expiry ? new Date(item.warranty_expiry).getTime() > Date.now() : null;
+    const CategoryIcon = CATEGORY_ICONS[item.category] ?? FALLBACK_CATEGORY_ICON;
 
     const copySerial = () => {
         navigator.clipboard
@@ -63,8 +65,9 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                         </button>
                         <div className="flex-1">
                             <h2 className="text-lg font-black text-white">{item.equipment_name}</h2>
-                            <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                                {CATEGORY_ICONS[item.category]} {item.category}
+                            <p className="flex items-center gap-1.5 text-label text-gray-400 font-bold uppercase tracking-widest">
+                                <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
+                                {item.category}
                             </p>
                         </div>
                     </div>
@@ -88,23 +91,23 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                 <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                     Make
                                 </p>
-                                <p className="text-sm font-bold text-white">{item.make || '—'}</p>
+                                <p className="text-sm font-bold text-white">{item.make || '--'}</p>
                             </div>
                             <div>
                                 <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                     Model
                                 </p>
-                                <p className="text-sm font-bold text-white">{item.model || '—'}</p>
+                                <p className="text-sm font-bold text-white">{item.model || '--'}</p>
                             </div>
                         </div>
 
                         {/* Serial */}
                         <div className="mt-4">
                             <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-1">
-                                Serial Number
+                                Serial number
                             </p>
                             <div className="flex items-center gap-2">
-                                <p className="text-sm font-mono font-bold text-sky-400">{item.serial_number || '—'}</p>
+                                <p className="text-sm font-mono font-bold text-sky-400">{item.serial_number || '--'}</p>
                                 {item.serial_number && (
                                     <button
                                         onClick={copySerial}
@@ -154,11 +157,14 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                         }`}
                     >
                         <h3 className="text-label text-gray-400 font-bold uppercase tracking-widest mb-2">
-                            Warranty Status
+                            Warranty status
                         </h3>
                         {warrantyActive === true && (
                             <>
-                                <p className="text-sm font-black text-emerald-400">✓ Active</p>
+                                <p className="flex items-center gap-1.5 text-sm font-black text-emerald-400">
+                                    <CheckIcon className="h-4 w-4 shrink-0" />
+                                    Active
+                                </p>
                                 <p className="text-label text-emerald-400/70 font-bold mt-1">
                                     Expires {new Date(item.warranty_expiry!).toLocaleDateString()}
                                 </p>
@@ -166,7 +172,10 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                         )}
                         {warrantyActive === false && (
                             <>
-                                <p className="text-sm font-black text-red-400">✗ Expired</p>
+                                <p className="flex items-center gap-1.5 text-sm font-black text-red-400">
+                                    <XIcon className="h-4 w-4 shrink-0" />
+                                    Expired
+                                </p>
                                 <p className="text-label text-red-400/70 font-bold mt-1">
                                     Expired {new Date(item.warranty_expiry!).toLocaleDateString()}
                                 </p>
@@ -180,7 +189,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                     {/* Open Manual button */}
                     {item.manual_uri && (
                         <button
-                            aria-label="Enter manual mode"
+                            aria-label="Open manual (PDF)"
                             onClick={openManual}
                             className="w-full py-4 bg-linear-to-r from-sky-600/20 to-sky-600/20 border border-sky-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-sky-600/30 hover:to-sky-600/30 transition-all active:scale-[0.98]"
                         >
@@ -197,9 +206,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                     d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
                                 />
                             </svg>
-                            <span className="text-sm font-black text-sky-400 uppercase tracking-[0.15em]">
-                                Open Manual (PDF)
-                            </span>
+                            <span className="text-sm font-black text-sky-400">Open manual (PDF)</span>
                         </button>
                     )}
 
@@ -213,11 +220,11 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
 
                     {/* Delete button */}
                     <button
-                        aria-label="Delete this item"
+                        aria-label={`Delete ${item.equipment_name}`}
                         onClick={onDelete}
                         className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-2xl text-sm font-bold text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.98]"
                     >
-                        Delete Equipment
+                        Delete equipment
                     </button>
                 </div>
 
