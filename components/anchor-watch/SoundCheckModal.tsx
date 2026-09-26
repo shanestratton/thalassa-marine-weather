@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
+import { AnchorIcon, BellIcon, DeviceIcon, SpeakerWaveIcon } from '../Icons';
 import { AlarmAudioService } from '../../services/AlarmAudioService';
 import { AnchorSafetyNotificationService } from '../../services/AnchorSafetyNotificationService';
 
@@ -261,9 +262,11 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 <div className="anchor-sound-check-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
                     {/* Header */}
                     <div className="px-5 pt-5 pb-3 text-center">
-                        <div className="text-4xl mb-3">🔊</div>
+                        <div className="mb-3 flex justify-center text-emerald-400">
+                            <SpeakerWaveIcon className="h-10 w-10" />
+                        </div>
                         <h2 id="sound-check-title" className="text-lg font-black text-white tracking-tight">
-                            Sound Check
+                            Sound check
                         </h2>
                         <p className="text-sm text-slate-400 mt-1 leading-relaxed">
                             Before you anchor up, make sure your alarm will wake you.
@@ -274,7 +277,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                     <div className="px-5 pb-4 space-y-2.5">
                         <div className="bg-emerald-500/6 border border-emerald-500/10 rounded-xl px-3.5 py-3">
                             <div className="flex items-start gap-3">
-                                <span className="text-lg mt-0.5">🔊</span>
+                                <SpeakerWaveIcon className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
                                 <div className="min-w-0 flex-1">
                                     <p className="text-sm font-bold text-emerald-400">Test the actual alarm</p>
                                     <p className="text-xs text-emerald-400/70 leading-snug">
@@ -344,7 +347,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                         </div>
 
                         <div className="flex items-start gap-3 bg-amber-500/6 border border-amber-500/10 rounded-xl px-3.5 py-2.5">
-                            <span className="text-lg mt-0.5">🔔</span>
+                            <BellIcon className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
                             <div>
                                 <p className="text-sm font-bold text-amber-400">Volume &amp; Focus</p>
                                 <p className="text-xs text-amber-400/70 leading-snug">
@@ -355,7 +358,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                         </div>
 
                         <div className="flex items-start gap-3 bg-sky-500/6 border border-sky-500/10 rounded-xl px-3.5 py-2.5">
-                            <span className="text-lg mt-0.5">📱</span>
+                            <DeviceIcon className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" />
                             <div className="min-w-0 flex-1">
                                 <p className="text-sm font-bold text-sky-400">
                                     {isNative ? 'Locked-screen fallback' : 'Keep Thalassa visible'}
@@ -443,7 +446,10 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                                 boxShadow: '0 4px 16px rgba(249,115,22,0.3)',
                             }}
                         >
-                            ⚓ Drop Anchor
+                            <span className="inline-flex items-center justify-center gap-1.5">
+                                <AnchorIcon className="h-4 w-4 shrink-0" />
+                                Drop anchor
+                            </span>
                         </button>
                     </div>
                     {(!alarmAudibilityConfirmed || audioCleanupBlocked) && (

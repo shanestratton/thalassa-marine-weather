@@ -33,13 +33,13 @@ export function ShoreWatchReadings({
         { label: 'Swing Radius', value: formatDistance(data.swingRadius), color: 'text-slate-100' },
         {
             label: 'Rode',
-            value: data.config?.rodeLength !== undefined ? `${Math.round(data.config.rodeLength)}m` : '--',
-            color: 'text-amber-400',
+            value: data.config?.rodeLength !== undefined ? `${Math.round(data.config.rodeLength)} m` : '--',
+            color: 'text-slate-100',
         },
         {
             label: 'Depth',
-            value: data.config?.waterDepth !== undefined ? `${data.config.waterDepth.toFixed(1)}m` : '--',
-            color: 'text-sky-400',
+            value: data.config?.waterDepth !== undefined ? `${data.config.waterDepth.toFixed(1)} m` : '--',
+            color: 'text-slate-100',
         },
         {
             label: fresh ? 'Last Update' : 'Last-Known Update',

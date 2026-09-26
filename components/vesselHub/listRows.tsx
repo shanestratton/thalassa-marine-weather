@@ -111,6 +111,7 @@ export const OfficeRow: React.FC<{
             }`}
         >
             <div
+                aria-hidden="true"
                 className="shrink-0 p-1.5 rounded-lg"
                 style={{ background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))' }}
             >

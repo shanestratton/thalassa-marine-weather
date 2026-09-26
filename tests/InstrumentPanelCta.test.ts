@@ -34,6 +34,12 @@ describe('the Instrument Panel CTA', () => {
     });
 
     it('the scroller clears the pinned button, so no card hides behind it', () => {
-        expect(nmea).toMatch(/paddingBottom: 'calc\(4rem \+ env\(safe-area-inset-bottom\) \+ 68px\)'/);
+        // Nav + inset + the 8px gap + the button's own height + 12px (UX
+        // scorecard run 6), with the button's height named once and shared.
+        expect(nmea).toContain('const CTA_HEIGHT_PX = 52;');
+        expect(nmea).toContain(
+            'paddingBottom: `calc(4rem + env(safe-area-inset-bottom) + 8px + ${CTA_HEIGHT_PX}px + 12px)`',
+        );
+        expect(nmea).toContain('style={{ minHeight: CTA_HEIGHT_PX }}');
     });
 });

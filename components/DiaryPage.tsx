@@ -1596,9 +1596,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         </div>
                     ) : entries.length === 0 ? (
                         <EmptyState
-                            icon={<CompassIcon className="w-10 h-10 text-sky-400/60" rotation={0} />}
-                            title="Your Story Starts Here"
-                            description="Tap Write Entry below to start your first. Add photos, a short video and your position."
+                            // White line icon at the size its Ship's Office siblings use.
+                            icon={<CompassIcon className="w-8 h-8" rotation={0} />}
+                            title="Your story starts here"
+                            description="Tap Write entry below to add one. An entry can hold photos, a short video and your position."
                         />
                     ) : (
                         <div className="space-y-6 stagger-in">
@@ -1639,10 +1640,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Write Entry"
-                        thumbIcon={
+                        label="Write entry"
+                        icon={
                             <svg
-                                className="w-5 h-5 text-white"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"

@@ -34,11 +34,13 @@ describe('VesselHub safety controls', () => {
             ),
         );
 
-        expect(safetyControls).toContain('aria-label="Anchor Watch"');
+        // Names lead with the visible tile name and end with the live state, so
+        // VoiceOver hears OFF / UP (UX scorecard run 6).
+        expect(safetyControls).toContain('aria-label={`Anchor watch, ${anchorSpoken}`}');
         expect(safetyControls).toContain("anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD");
-        expect(safetyControls).toContain('aria-label="Open Guardian bay watch"');
-        expect(safetyControls).toContain('aria-label="Man Overboard"');
-        expect(safetyControls).toContain('aria-label="Open radio position reporting"');
+        expect(safetyControls).toContain('aria-label={`Guardian, ${');
+        expect(safetyControls).toContain('aria-label="MOB, man overboard"');
+        expect(safetyControls).toContain('aria-label="Radio, position reporting"');
         expect(safetyControls.match(/style=\{SAFETY_CONTROL_CARD\}/g)).toHaveLength(2);
         expect(safetyControls.match(/style=\{ALERT_SAFETY_CONTROL_CARD\}/g)).toHaveLength(1);
         expect(safetyControls.match(/focus-visible:outline-emerald-300/g)).toHaveLength(4);

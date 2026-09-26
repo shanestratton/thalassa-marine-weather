@@ -279,9 +279,7 @@ describe('AnchorWatchPage', () => {
         render(<AnchorWatchPage {...defaultProps} />);
 
         expect(screen.queryByText(/alarm if you drag, even with the screen off/i)).not.toBeInTheDocument();
-        expect(
-            screen.getByText(/Background warning depends on this device’s GPS and notification permissions/i),
-        ).toBeInTheDocument();
+        expect(screen.getByText(/Background alerts need GPS and notification access/i)).toBeInTheDocument();
     });
 
     it('keeps local Anchor Watch anonymous but clearly gates Shore Watch sharing on sign-in', () => {

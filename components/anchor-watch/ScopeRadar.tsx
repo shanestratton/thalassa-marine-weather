@@ -178,7 +178,8 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                         );
                     })}
 
-                    {/* Cardinal labels */}
+                    {/* Cardinal labels. E/S/W at .85 alpha: .75 measured 2.8:1 over the
+                        tinted ocean fill in dark mode (UX scorecard run 6). */}
                     {[
                         {
                             label: 'N',
@@ -190,19 +191,19 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                             label: 'E',
                             x: 100 + cardinalR,
                             y: 101,
-                            color: 'var(--day-ui-muted, rgba(148,163,184,0.75))',
+                            color: 'var(--day-ui-muted, rgba(148,163,184,0.85))',
                         },
                         {
                             label: 'S',
                             x: 100,
                             y: 100 + cardinalR,
-                            color: 'var(--day-ui-muted, rgba(148,163,184,0.75))',
+                            color: 'var(--day-ui-muted, rgba(148,163,184,0.85))',
                         },
                         {
                             label: 'W',
                             x: 100 - cardinalR,
                             y: 101,
-                            color: 'var(--day-ui-muted, rgba(148,163,184,0.75))',
+                            color: 'var(--day-ui-muted, rgba(148,163,184,0.85))',
                         },
                     ].map(({ label, x, y, color }) => (
                         <text

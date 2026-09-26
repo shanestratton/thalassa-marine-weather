@@ -547,7 +547,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search equipment, make, model, serial..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -576,11 +576,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title={searchQuery ? 'No Equipment Matches' : 'No Equipment Registered'}
+                            title={searchQuery ? 'No equipment matches' : 'No equipment registered'}
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Keep make, model, serial and warranty for everything aboard. Tap Add Equipment below to register your first item.'
+                                    : 'Keep make, model, serial and warranty for everything aboard. Tap Add equipment below to register an item.'
                             }
                             className="py-16"
                         />
@@ -629,10 +629,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Add Equipment"
-                        thumbIcon={
+                        label="Add equipment"
+                        icon={
                             <svg
-                                className="w-5 h-5 text-white"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"

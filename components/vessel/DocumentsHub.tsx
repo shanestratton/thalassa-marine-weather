@@ -517,7 +517,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {visibleDocuments.length} {visibleDocuments.length === 1 ? 'Document' : 'Documents'}
+                            {/* '0 documents' under the title 'Documents' only repeated it. */}
+                            {visibleDocuments.length} filed
                             {selectedIds.size > 0 && (
                                 <span className="text-sky-400 ml-2">
                                     <span aria-hidden="true">✓ </span>
@@ -646,7 +647,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search documents..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -675,11 +676,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title={searchQuery ? 'No Documents Match' : 'No Documents Filed'}
+                            title={searchQuery ? 'No documents match' : 'No documents filed'}
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : "Registration, insurance, radio licence, crew passports — keep the ship's papers in one place. Tap Add Document below to file your first one."
+                                    : "Keep the ship's papers in one place: registration, insurance, radio licence, crew passports. Tap Add document below to file one."
                             }
                             className="py-16"
                         />
@@ -720,10 +721,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Add Document"
-                        thumbIcon={
+                        label="Add document"
+                        icon={
                             <svg
-                                className="w-5 h-5 text-white"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"

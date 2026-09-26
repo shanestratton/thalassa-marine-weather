@@ -675,9 +675,8 @@ export const AvNavPage: React.FC<AvNavPageProps> = (props) => {
     if (PI_INTEGRATION_ENABLED) return <AvNavPageDevelopment {...props} />;
     return (
         <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
-            {/* The same words as the card below ("unavailable in this build") —
-                one state, one phrase. */}
-            <PageHeader title="Boat Network" subtitle="Unavailable in this build" onBack={props.onBack} />
+            {/* Says what to use instead, like the card below (UX scorecard run 6). */}
+            <PageHeader title="Boat Network" subtitle="iPhone app only" onBack={props.onBack} />
             <div className="flex-1 overflow-y-auto">
                 <PiPublicBetaUnavailable onOpenEncLibrary={props.onOpenEncLibrary} />
             </div>

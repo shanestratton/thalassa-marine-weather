@@ -18,7 +18,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import './instrumentDaylight.css';
-import { POSITION_FONT_SIZE, WIND_CELL_STYLE, windHeroStyle } from './instrumentLayout';
+import { CLOCK_MAX_WIDTH, POSITION_FONT_SIZE, WIND_CELL_STYLE, windHeroStyle } from './instrumentLayout';
 import { useCrewInstrumentShare } from '../../hooks/useCrewInstrumentShare';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
@@ -88,6 +88,16 @@ interface TheGlassPageProps {
 // don't reintroduce "—" beside it (UX run 5 saw "— kts" next to "-- kts").
 function fmt(val: number | null | undefined, decimals: number = 1): string {
     return val !== null && val !== undefined && Number.isFinite(val) ? val.toFixed(decimals) : '--';
+}
+
+/**
+ * One readout as one spoken phrase — "Depth, no data", "Speed through water,
+ * 6.2 knots". The visible label/value pair is aria-hidden beside it: read as
+ * loose paragraphs it came out as "Depth" … "dash dash" with nothing tying
+ * them together (UX scorecard run 6).
+ */
+function spokenReading(label: string, shown: string, unit: string): string {
+    return shown === '--' || shown.trim() === '' ? `${label}, no data` : `${label}, ${shown} ${unit}`.trim();
 }
 
 // ── Sparkline component — rolling SVG polyline ──
@@ -208,6 +218,14 @@ function formatFix(lat: number | null, lon: number | null): string | null {
     return a === null || b === null ? null : `${a}  ${b}`;
 }
 
+/** What the flank abbreviations are called out loud. */
+const FLANK_SPOKEN: Record<string, string> = {
+    SOG: 'Speed over ground',
+    COG: 'Course over ground',
+    HDG: 'Heading',
+};
+const FLANK_UNIT_SPOKEN: Record<string, string> = { m: 'metres', kts: 'knots', '°': 'degrees' };
+
 const FlankMetricComponent: React.FC<{
     label: string;
     value: number | null;
@@ -247,10 +265,21 @@ const FlankMetricComponent: React.FC<{
        colour has been decided from the signed value — otherwise every reading
        would be starboard green. */
     const display = sideColoured && shown !== null ? Math.abs(shown).toFixed(digits) : text;
+    // The colour carries the side on screen; the reader has to hear it.
+    const side = sideColoured && shown !== null && shown !== 0 ? (shown < 0 ? ' to port' : ' to starboard') : '';
+    const spoken = spokenReading(
+        FLANK_SPOKEN[label] ?? label,
+        has ? `${display}${side}` : '--',
+        has ? (FLANK_UNIT_SPOKEN[unit] ?? unit) : '',
+    );
     return (
         <div className="rounded-lg border border-white/6 bg-white/3 px-1 py-1.5 text-center">
-            <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
+            <span className="sr-only">{spoken}</span>
+            <p aria-hidden="true" className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">
+                {label}
+            </p>
             <p
+                aria-hidden="true"
                 data-testid={`flank-${label.toLowerCase()}`}
                 style={sideTone ? { color: `var(--nmea-${shown! < 0 ? 'port' : 'stbd'}, ${sideTone})` } : undefined}
                 className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
@@ -262,6 +291,28 @@ const FlankMetricComponent: React.FC<{
     );
 };
 const FlankMetric = React.memo(FlankMetricComponent);
+
+/** One of the three small readouts under a page's hero number, spoken as one
+ *  phrase ("Speed through water, no data"). */
+const StatCell: React.FC<{
+    label: string;
+    spoken: string;
+    value: string;
+    unit: string;
+    unitSpoken: string;
+    tone: string;
+}> = ({ label, spoken, value, unit, unitSpoken, tone }) => (
+    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+        <span className="sr-only">{spokenReading(spoken, value, unitSpoken)}</span>
+        <p aria-hidden="true" className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+            {label}
+        </p>
+        <p aria-hidden="true" className={`text-xl font-black tabular-nums font-mono ${tone}`}>
+            {value}
+            <span className="text-[9px] font-bold text-gray-400"> {unit}</span>
+        </p>
+    </div>
+);
 
 // ── Wind panel: which instrument owns the hero bezel ──────────────────────────
 /**
@@ -583,10 +634,16 @@ const BARO_SEVERITY: Record<TendencySeverity, { pill: string; text: string }> = 
    every tick — a fresh literal here defeats any memo below it. */
 const ROSE_CELL_STYLE = WIND_CELL_STYLE;
 
-const SectionPlateComponent: React.FC<{ title: string }> = ({ title }) => (
+/* `place` says where this page sits among the snap pages — "Clock · 1 of 9".
+   Nothing on the opening Clock page said eight more lay below it, and the
+   owner ruled out a swipe chevron (UX scorecard run 6). */
+const SectionPlateComponent: React.FC<{ title: string; place?: string }> = ({ title, place }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0">
         <div aria-hidden="true" className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
-        <h2 className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">{title}</h2>
+        <h2 className="whitespace-nowrap text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">
+            {title}
+            {place && <span className="font-bold tracking-[0.2em]"> · {place}</span>}
+        </h2>
         <div aria-hidden="true" className="h-px flex-1 bg-linear-to-l from-transparent to-white/15" />
     </div>
 );
@@ -762,6 +819,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         };
     }, []);
     const hasMyWatch = myWatchList.length > 0;
+    // The snap pages in render order, for each plate's "n of N". Watch mounts
+    // only for a crew member on the bill, so the count follows it.
+    const panelPages = [
+        'Clock',
+        ...(hasMyWatch ? ['Watch'] : []),
+        'Wind',
+        'Barometer',
+        'Position',
+        'Speed',
+        'Depth',
+        'Sea temp',
+        'Heading',
+        'Helm',
+    ];
+    const placeOf = (title: string) => `${panelPages.indexOf(title) + 1} of ${panelPages.length}`;
 
     // COG is a GPS-derived course made good. Below a knot it is noise — a
     // moored boat's fixes wander, and the compass card was reporting 053 while
@@ -1263,16 +1335,19 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Clock" />
+                            <SectionPlate title="Clock" place={placeOf('Clock')} />
                             {/* Centred in whatever is left after the plate, so
                                 the face is as big as the screen allows and no
                                 bigger. Nothing else on this page competes. */}
-                            <div className="flex-1 min-h-0 flex items-center justify-center pb-2">
+                            <div className="flex-1 min-h-0 flex items-center justify-center pb-2 [container-type:size]">
                                 <ShipsBellClock
                                     hour={zoneClock.hour}
                                     minute={zoneClock.minute}
                                     second={zoneClock.second}
                                     zoneLabel={zoneClock.label}
+                                    // The bells and watch now sit under the face,
+                                    // so the face yields their height (~3.5rem).
+                                    faceMaxWidth={`min(${CLOCK_MAX_WIDTH}, calc(100cqh - 3.5rem))`}
                                 />
                             </div>
                         </section>
@@ -1294,7 +1369,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <section
                                 className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                             >
-                                <SectionPlate title="Watch" />
+                                <SectionPlate title="Watch" place={placeOf('Watch')} />
                                 <div className="flex-1 min-h-0 overflow-y-auto pb-2">
                                     <MyWatchCard
                                         watches={myWatchList}
@@ -1349,7 +1424,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 the coloured dot still reports the state at a
                                 glance, and tapping it opens the detail. Zero
                                 layout cost, and nothing is hidden. */}
-                            <SectionPlate title="Wind" />
+                            <SectionPlate title="Wind" place={placeOf('Wind')} />
                             {/* justify-between, not evenly: now the section
                                 reserves the tab bar there is less free space
                                 to spread, and evenly banked what was left into
@@ -1529,7 +1604,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Barometer" />
+                            <SectionPlate title="Barometer" place={placeOf('Barometer')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 <div className="text-center">
                                     <BarometerGauge
@@ -1579,42 +1654,41 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </p>
 
                                 <div className="grid grid-cols-3 gap-2">
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            3 h
-                                        </p>
-                                        <p
-                                            className={`text-xl font-black tabular-nums font-mono ${baroTendency ? BARO_SEVERITY[baroTendency.severity].text : 'text-white'}`}
-                                        >
-                                            {baroTendency
+                                    <StatCell
+                                        label="3 h"
+                                        spoken="Three-hour change"
+                                        value={
+                                            baroTendency
                                                 ? `${baroTendency.deltaHpa >= 0 ? '+' : ''}${baroTendency.deltaHpa.toFixed(1)}`
-                                                : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> hPa</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Rate
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
-                                            {baroTendency ? baroTendency.perHour.toFixed(1) : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> /h</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Record
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-white">
-                                            {baro.samples.length > 1
+                                                : '--'
+                                        }
+                                        unit="hPa"
+                                        unitSpoken="hectopascals"
+                                        tone={baroTendency ? BARO_SEVERITY[baroTendency.severity].text : 'text-white'}
+                                    />
+                                    <StatCell
+                                        label="Rate"
+                                        spoken="Rate"
+                                        value={baroTendency ? baroTendency.perHour.toFixed(1) : '--'}
+                                        unit="/h"
+                                        unitSpoken="hectopascals per hour"
+                                        tone="text-cyan-300"
+                                    />
+                                    <StatCell
+                                        label="Record"
+                                        spoken="Record length"
+                                        value={
+                                            baro.samples.length > 1
                                                 ? (
                                                       (baro.samples[baro.samples.length - 1].t - baro.samples[0].t) /
                                                       3_600_000
                                                   ).toFixed(1)
-                                                : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> h</span>
-                                        </p>
-                                    </div>
+                                                : '--'
+                                        }
+                                        unit="h"
+                                        unitSpoken="hours"
+                                        tone="text-white"
+                                    />
                                 </div>
 
                                 {baro.source === 'phone' && (
@@ -1645,7 +1719,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Position" />
+                            <SectionPlate title="Position" place={placeOf('Position')} />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-7">
                                 {formatFix(latitude.value, longitude.value) ? (
                                     <>
@@ -1694,16 +1768,27 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Speed" />
+                            <SectionPlate title="Speed" place={placeOf('Speed')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 <div className="text-center">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
+                                    <span className="sr-only">
+                                        {spokenReading('Speed over ground', fmt(sog.value), 'knots')}
+                                    </span>
+                                    <p
+                                        aria-hidden="true"
+                                        className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400"
+                                    >
                                         SOG
                                     </p>
-                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
+                                    <p
+                                        aria-hidden="true"
+                                        className="text-7xl font-black tabular-nums font-mono text-white leading-none"
+                                    >
                                         {fmt(sog.value)}
                                     </p>
-                                    <p className="text-xs font-bold text-gray-500 mt-1">knots over ground</p>
+                                    <p aria-hidden="true" className="text-xs font-bold text-gray-400 mt-1">
+                                        knots over ground
+                                    </p>
                                     <div className="mt-3 mx-auto max-w-xs h-1.5 rounded-full bg-white/6 overflow-hidden">
                                         <div
                                             className="h-full rounded-full bg-linear-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
@@ -1712,33 +1797,30 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2">
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            STW
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
-                                            {fmt(stw.value)}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Best
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-emerald-300">
-                                            {sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Trip
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-white">
-                                            {fmt(tripDisplay)}
-                                            <span className="text-[9px] font-bold text-gray-500"> NM</span>
-                                        </p>
-                                    </div>
+                                    <StatCell
+                                        label="STW"
+                                        spoken="Speed through water"
+                                        value={fmt(stw.value)}
+                                        unit="kts"
+                                        unitSpoken="knots"
+                                        tone="text-cyan-300"
+                                    />
+                                    <StatCell
+                                        label="Best"
+                                        spoken="Best speed"
+                                        value={sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
+                                        unit="kts"
+                                        unitSpoken="knots"
+                                        tone="text-emerald-300"
+                                    />
+                                    <StatCell
+                                        label="Trip"
+                                        spoken="Trip"
+                                        value={fmt(tripDisplay)}
+                                        unit="NM"
+                                        unitSpoken="nautical miles"
+                                        tone="text-white"
+                                    />
                                 </div>
                                 <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
                                     <Sparkline
@@ -1769,10 +1851,16 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Depth" />
+                            <SectionPlate title="Depth" place={placeOf('Depth')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 <div className="text-center">
-                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
+                                    <span className="sr-only">
+                                        {spokenReading('Depth', fmt(depth.value), 'metres')}
+                                    </span>
+                                    <p
+                                        aria-hidden="true"
+                                        className="text-7xl font-black tabular-nums font-mono text-white leading-none"
+                                    >
                                         {fmt(depth.value)}
                                         <span className="text-2xl text-gray-500"> m</span>
                                     </p>
@@ -1798,7 +1886,18 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                         {depthTrend.label}
                                     </p>
-                                    <p className="text-lg font-black text-white">{depthTrend.text}</p>
+                                    {/* The brain's no-data glyph is an em dash; the panel's
+                                        one no-data glyph is '--'. */}
+                                    <p className="text-lg font-black text-white">
+                                        {depthTrend.text === '—' ? (
+                                            <>
+                                                <span aria-hidden="true">--</span>
+                                                <span className="sr-only">no data</span>
+                                            </>
+                                        ) : (
+                                            depthTrend.text
+                                        )}
+                                    </p>
                                     {depthTrend.note && <p className="text-[11px] text-gray-400">{depthTrend.note}</p>}
                                     <p className="mt-1 text-[10px] text-gray-500">
                                         Comfort line {COMFORT_M.toFixed(1)} m under the keel
@@ -1833,10 +1932,20 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Sea temp" />
+                            <SectionPlate title="Sea temp" place={placeOf('Sea temp')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 <div className="text-center">
-                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
+                                    <span className="sr-only">
+                                        {spokenReading(
+                                            'Sea temperature',
+                                            formatSeaTemp(waterTemp.value, tempUnit),
+                                            tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius',
+                                        )}
+                                    </span>
+                                    <p
+                                        aria-hidden="true"
+                                        className="text-7xl font-black tabular-nums font-mono text-white leading-none"
+                                    >
                                         {formatSeaTemp(waterTemp.value, tempUnit)}
                                         <span className="text-2xl text-gray-500"> °{tempUnit}</span>
                                     </p>
@@ -1879,37 +1988,38 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </p>
 
                                 <div className="grid grid-cols-3 gap-2">
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Low
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
-                                            {waterTempReal.history.length > 0
+                                    <StatCell
+                                        label="Low"
+                                        spoken="Low"
+                                        value={
+                                            waterTempReal.history.length > 0
                                                 ? formatSeaTemp(waterTempReal.min, tempUnit)
-                                                : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> °{tempUnit}</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            High
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-orange-300">
-                                            {waterTempReal.history.length > 0
+                                                : '--'
+                                        }
+                                        unit={`°${tempUnit}`}
+                                        unitSpoken={tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius'}
+                                        tone="text-cyan-300"
+                                    />
+                                    <StatCell
+                                        label="High"
+                                        spoken="High"
+                                        value={
+                                            waterTempReal.history.length > 0
                                                 ? formatSeaTemp(waterTempReal.max, tempUnit)
-                                                : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> °{tempUnit}</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Change
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-white">
-                                            {seaTrend ? formatSeaTempDelta(seaTrend.deltaC, tempUnit) : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> °</span>
-                                        </p>
-                                    </div>
+                                                : '--'
+                                        }
+                                        unit={`°${tempUnit}`}
+                                        unitSpoken={tempUnit === 'F' ? 'degrees Fahrenheit' : 'degrees Celsius'}
+                                        tone="text-orange-300"
+                                    />
+                                    <StatCell
+                                        label="Change"
+                                        spoken="Change"
+                                        value={seaTrend ? formatSeaTempDelta(seaTrend.deltaC, tempUnit) : '--'}
+                                        unit="°"
+                                        unitSpoken="degrees"
+                                        tone="text-white"
+                                    />
                                 </div>
 
                                 <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
@@ -1935,7 +2045,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Heading" />
+                            <SectionPlate title="Heading" place={placeOf('Heading')} />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
                                 <HeadingGauge
                                     value={heading.value}
@@ -1974,7 +2084,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
-                            <SectionPlate title="Helm" />
+                            <SectionPlate title="Helm" place={placeOf('Helm')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 {rudder.value !== null ? (
                                     <>

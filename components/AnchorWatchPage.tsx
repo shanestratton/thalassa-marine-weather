@@ -36,7 +36,17 @@ import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
-import { AnchorIcon, AlertTriangleIcon, CheckIcon, PhoneIcon, PowerBoatIcon } from './Icons';
+import {
+    AnchorIcon,
+    AlertTriangleIcon,
+    CheckIcon,
+    DeviceIcon,
+    PhoneIcon,
+    PowerBoatIcon,
+    SunIcon,
+    WaveIcon,
+    WindIcon,
+} from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
@@ -163,7 +173,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const waveM = waveFt / 3.28084; // convert back to meters for scope thresholds
         const rec = getWeatherRecommendation(wind, gust, waveM);
         const recRode = Math.min(100, Math.round(rec.scope * waterDepth));
-        return { ...rec, rode: recRode, wind, gust, wave: waveFt };
+        // The recommendation still falls back to the light-air scope, but the
+        // strip must not print that fallback as a measured 0 kts.
+        const windKnown = typeof weatherData?.current?.windSpeed === 'number';
+        return { ...rec, rode: recRode, wind, gust, wave: waveFt, windKnown };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData?.current?.windSpeed, weatherData?.current?.windGust, weatherData?.current?.waveHeight, waterDepth]);
 
@@ -790,19 +803,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     subtitle={
                         <span
                             role="status"
-                            className={`mt-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest ${fixTone}`}
+                            className={`mt-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixTone}`}
                         >
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />
                             {fixWord}
                         </span>
                     }
                     action={
+                        // "Shore · Sign in" was cryptic (UX scorecard run 6). The
+                        // feature is named in full, stacked over its action so
+                        // the button stays narrow enough not to fold the title.
                         <button
                             aria-label={authedUser ? 'Open Shore Watch join' : 'Sign in to use Shore Watch'}
                             onClick={() => (authedUser ? setShowShoreModal(true) : setShowShoreSignIn(true))}
-                            className="min-h-11 px-3 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/6 hover:text-slate-300 transition-colors"
+                            className="min-h-11 px-3 py-1 rounded-lg flex flex-col items-center justify-center text-xs font-bold leading-tight text-slate-300 bg-slate-800/60 border border-white/6 hover:text-white transition-colors"
                         >
-                            {authedUser ? 'Shore' : 'Shore · Sign in'}
+                            <span className="whitespace-nowrap">Shore Watch</span>
+                            {!authedUser && (
+                                <span className="whitespace-nowrap font-semibold text-slate-400">Sign in</span>
+                            )}
                         </button>
                     }
                 />
@@ -832,14 +851,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         the user successfully arms once. */}
                     {!armedOnce && (
                         <div className="anchor-setup-guidance shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
-                            <p className="text-[12px] text-sky-200 leading-relaxed">
-                                <span className="font-bold text-sky-300">Drop anchor, then arm the watch.</span> Set
-                                your <span className="font-semibold text-white">water depth</span>,{' '}
-                                <span className="font-semibold text-white">rode out</span>, and{' '}
-                                <span className="font-semibold text-white">tackle type</span> below — Thalassa
-                                calculates a safe swing circle. Slide the bar at the bottom to arm. Background warning
-                                depends on this device’s GPS and notification permissions, so run the Sound Check and
-                                keep Thalassa running.
+                            {/* Two lines, so both sliders sit above the arming bar
+                                on an 852 pt phone (UX scorecard run 6: six lines
+                                pushed RODE under it). The permission caveat stays;
+                                the Sound Check that arming opens says the rest. */}
+                            <p className="text-[12px] text-sky-200 leading-snug">
+                                <span className="block font-bold text-sky-300">
+                                    Set depth, rode and tackle, then slide to arm.
+                                </span>
+                                <span className="block">Background alerts need GPS and notification access.</span>
                             </p>
                         </div>
                     )}
@@ -857,10 +877,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     {/* ── Controls Section ── */}
                     <div className="anchor-setup-controls shrink-0 px-4 space-y-3">
                         {/* Tackle Type — compact segmented row */}
-                        <div className="flex gap-1.5">
+                        <div role="group" aria-label="Rode type" className="flex gap-1.5">
                             {(['chain', 'rope', 'mixed'] as const).map((type) => (
                                 <button
-                                    aria-label={`Select ${type} anchor rode type`}
+                                    type="button"
+                                    aria-pressed={rodeType === type}
                                     key={type}
                                     onClick={() => setRodeType(type)}
                                     className={`flex-1 min-h-11 rounded-xl text-sm font-bold transition-all ${
@@ -880,10 +901,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             <div>
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">
-                                        Water Depth
+                                        Water depth
                                     </label>
-                                    <span className="text-sm font-black text-sky-400 font-mono tabular-nums">
-                                        {waterDepth}m
+                                    {/* One value colour for both sliders, and '5 m'
+                                        spaced like the track ends (UX run 6). */}
+                                    <span className="text-sm font-black text-white font-mono tabular-nums">
+                                        {waterDepth} m
                                     </span>
                                 </div>
                                 <input
@@ -912,10 +935,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             <div>
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">
-                                        Rode Deployed
+                                        Rode deployed
                                     </label>
-                                    <span className="text-sm font-black text-amber-400 font-mono tabular-nums">
-                                        {rodeLength}m
+                                    <span className="text-sm font-black text-white font-mono tabular-nums">
+                                        {rodeLength} m
                                     </span>
                                 </div>
                                 <input
@@ -946,21 +969,32 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 aria-label={`Set rode to ${wxRecommendation.rode} metres for ${wxRecommendation.scope}:1 scope`}
                                 onClick={() => setRodeLength(wxRecommendation.rode)}
                                 className="flex-1 min-h-11 flex items-center gap-1.5 text-left group"
-                                title={`Tap to set rode to ${wxRecommendation.rode}m (${wxRecommendation.scope}:1)`}
+                                title={`Tap to set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`}
                             >
-                                <span className="text-base">{wxRecommendation.icon}</span>
+                                {/* Stroke icons, not the emoji glyphs the util still carries. */}
+                                {wxRecommendation.severity === 'red' ? (
+                                    <WaveIcon className="h-4 w-4 shrink-0 text-red-300" />
+                                ) : wxRecommendation.severity === 'emerald' ? (
+                                    <SunIcon className="h-4 w-4 shrink-0 text-emerald-300" />
+                                ) : (
+                                    <WindIcon
+                                        className={`h-4 w-4 shrink-0 ${wxRecommendation.severity === 'amber' ? 'text-amber-300' : 'text-sky-300'}`}
+                                    />
+                                )}
                                 <div className="min-w-0">
                                     <div className="text-xs text-slate-300 font-bold truncate group-hover:text-white transition-colors">
-                                        {wxRecommendation.label} · {wxRecommendation.wind.toFixed(0)}kts
+                                        {wxRecommendation.windKnown
+                                            ? `${wxRecommendation.label} · ${wxRecommendation.wind.toFixed(0)} kts`
+                                            : 'Wind · -- kts'}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 group-hover:text-slate-400 transition-colors inline-flex items-center gap-1">
+                                    <div className="text-xs text-slate-400 group-hover:text-slate-400 transition-colors inline-flex items-center gap-1">
                                         {rodeLength === wxRecommendation.rode ? (
                                             <>
                                                 <CheckIcon className="w-3 h-3" />
                                                 <span>{`${wxRecommendation.scope}:1 set`}</span>
                                             </>
                                         ) : (
-                                            `Tap → ${wxRecommendation.rode}m`
+                                            `Tap → ${wxRecommendation.rode} m`
                                         )}
                                     </div>
                                 </div>
@@ -1105,7 +1139,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         }}
                                     >
                                         <span className="text-sm font-bold text-amber-300/70 tracking-wider uppercase">
-                                            Slide to Drop Anchor
+                                            Slide to drop anchor
                                         </span>
                                     </div>
 
@@ -1550,8 +1584,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     onClick={() => setShowPiWatchOffer(true)}
                     className="mx-3 mb-2 flex min-h-[56px] items-center gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 text-left transition-all active:scale-[0.99]"
                 >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-500/15 text-lg">
-                        ⚓
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-500/15 text-sky-300">
+                        <AnchorIcon className="h-5 w-5" />
                     </span>
                     <span className="min-w-0 flex-1">
                         <span className="block text-[15px] font-black tracking-tight text-sky-200">
@@ -1618,9 +1652,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.labelSm}>
                                 {snapshot?.gpsSource === 'nmea' ? (
-                                    <span className="text-cyan-300">⚓ BOAT GPS</span>
+                                    <span className="inline-flex items-center gap-1 text-cyan-300">
+                                        <AnchorIcon className="h-3 w-3 shrink-0" />
+                                        BOAT GPS
+                                    </span>
                                 ) : snapshot?.gpsSource === 'native' ? (
-                                    <span className="text-amber-300">📱 PHONE GPS</span>
+                                    <span className="inline-flex items-center gap-1 text-amber-300">
+                                        <DeviceIcon className="h-3 w-3 shrink-0" />
+                                        PHONE GPS
+                                    </span>
                                 ) : (
                                     'GPS'
                                 )}
@@ -1628,7 +1668,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             <div
                                 className={`text-sm font-black font-mono ${(snapshot?.gpsAccuracy ?? 99) < 10 ? 'text-emerald-400' : (snapshot?.gpsAccuracy ?? 99) < 20 ? 'text-amber-400' : 'text-red-400'}`}
                             >
-                                ±{snapshot?.gpsAccuracy.toFixed(0) ?? '--'}m
+                                {snapshot ? `±${snapshot.gpsAccuracy.toFixed(0)} m` : '--'}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
@@ -1647,14 +1687,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Rode</div>
-                            <div className="text-sm font-black font-mono text-amber-400">
-                                {snapshot ? `${Math.round(snapshot.config.rodeLength)}m` : '--'}
+                            <div className="text-sm font-black font-mono text-slate-200">
+                                {snapshot ? `${Math.round(snapshot.config.rodeLength)} m` : '--'}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Depth</div>
-                            <div className="text-sm font-black font-mono text-sky-400">
-                                {snapshot ? `${snapshot.config.waterDepth.toFixed(1)}m` : '--'}
+                            <div className="text-sm font-black font-mono text-slate-200">
+                                {snapshot ? `${snapshot.config.waterDepth.toFixed(1)} m` : '--'}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">

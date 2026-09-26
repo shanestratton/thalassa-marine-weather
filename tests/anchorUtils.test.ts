@@ -88,9 +88,9 @@ describe('getWeatherRecommendation', () => {
 
 describe('formatDistance', () => {
     it('formats meters under 1000m as meters', () => {
-        expect(formatDistance(500)).toBe('500m');
-        expect(formatDistance(0)).toBe('0m');
-        expect(formatDistance(999)).toBe('999m');
+        expect(formatDistance(500)).toBe('500 m');
+        expect(formatDistance(0)).toBe('0 m');
+        expect(formatDistance(999)).toBe('999 m');
     });
 
     it('formats >= 1000m as nautical miles', () => {
@@ -99,7 +99,7 @@ describe('formatDistance', () => {
     });
 
     it('rounds meters to whole numbers', () => {
-        expect(formatDistance(123.456)).toBe('123m');
+        expect(formatDistance(123.456)).toBe('123 m');
     });
 });
 

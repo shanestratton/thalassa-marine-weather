@@ -42,7 +42,7 @@ function safetyDeck(hub: string): string {
     const bare = hub.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
     const start = bare.indexOf('data-testid="vessel-safety-controls"');
     expect(start, 'the safety deck must be findable').toBeGreaterThan(-1);
-    const lastTile = bare.indexOf('aria-label="Anchor Watch"', start);
+    const lastTile = bare.indexOf('aria-label={`Anchor watch, ', start);
     expect(lastTile, 'the Anchor tile closes the deck').toBeGreaterThan(start);
     const end = bare.indexOf('</button>', lastTile);
     return bare.slice(start, end);
@@ -70,7 +70,7 @@ describe('the Vessel hero card at anchor', () => {
 
     it('the arc is gone from the tile, and the tile is the route to it', () => {
         // No conditional swap in the tile: the same 8x8 dot in every state.
-        const tile = hub.slice(hub.indexOf('aria-label="Anchor Watch"'));
+        const tile = hub.slice(hub.indexOf('aria-label={`Anchor watch, '));
         const body = tile.slice(0, tile.indexOf('</button>'));
         expect(body).not.toContain('<SwingArc');
         expect(body).not.toContain('anchorShowSwing');

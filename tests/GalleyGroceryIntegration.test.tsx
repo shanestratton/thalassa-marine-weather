@@ -174,8 +174,8 @@ describe('Galley production workflows', () => {
         render(<GalleyPage onBack={vi.fn()} />);
 
         expect(screen.getByRole('tablist', { name: 'Galley sections' })).toBeInTheDocument();
-        const activeTab = screen.getByRole('tab', { name: /Active Meals/ });
-        const recipesTab = screen.getByRole('tab', { name: /Saved Recipes/ });
+        const activeTab = screen.getByRole('tab', { name: /Active meals/i });
+        const recipesTab = screen.getByRole('tab', { name: /Saved recipes/i });
         expect(activeTab).toHaveAttribute('aria-selected', 'true');
         expect(activeTab).toHaveAttribute('aria-controls', 'galley-active-panel');
         expect(recipesTab).toHaveAttribute('tabindex', '-1');
@@ -309,7 +309,7 @@ describe('Galley production workflows', () => {
         mealMocks.getMealsByStatus.mockImplementation((status: string) => (status === 'reserved' ? [meal] : []));
         render(<GalleyPage onBack={vi.fn()} />);
 
-        fireEvent.click(screen.getByRole('button', { name: /Cook Now/ }));
+        fireEvent.click(screen.getByRole('button', { name: /Cook now/i }));
 
         expect(screen.getByRole('dialog', { name: 'Cooking Mode: Sea pasta' })).toBeInTheDocument();
         expect(mealMocks.startCooking).not.toHaveBeenCalled();

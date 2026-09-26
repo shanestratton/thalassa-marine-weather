@@ -111,12 +111,14 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const radio = useRadioPosition();
     const fixWord =
         radio.position && radio.isFresh && !radio.error ? 'Ready' : radio.acquiring ? 'Finding GPS…' : 'No fix';
-    const fixTone =
+    // The same bordered pill Radio Console and Anchor Watch use, in the
+    // header's status row, rather than a floating red word (UX scorecard run 6).
+    const fixPill =
         radio.position && radio.isFresh && !radio.error
-            ? 'text-emerald-400'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
             : radio.acquiring
-              ? 'text-amber-400'
-              : 'text-red-400';
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+              : 'bg-red-500/10 border-red-500/30 text-red-400';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const vessel = (settings as any)?.vessel;
     const vesselName = emergencyIdentity(vessel?.name);
@@ -339,19 +341,28 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     if (!state.active) {
         return (
             <div
-                className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-y-auto"
+                // The nav fade: at 375×667 the procedure ran under the tab bar
+                // cut mid-line; now it fades out above the bar instead.
+                className="thalassa-scroll-fade thalassa-scroll-fade--nav w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-y-auto"
                 style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
             >
-                <PageHeader title="Man Overboard" subtitle="Mark & Track" onBack={onBack} />
-                <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8">
-                    <div className="text-center max-w-sm">
-                        <div
+                <PageHeader
+                    title="Man Overboard"
+                    subtitle="Mark & track"
+                    onBack={onBack}
+                    status={
+                        <span
                             role="status"
-                            className={`text-[11px] font-extrabold tracking-[0.2em] uppercase mb-2 ${fixTone}`}
+                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixPill}`}
                         >
+                            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
                             {fixWord}
-                        </div>
-                        <h2 className="text-2xl font-black text-white mb-3">Mark MOB Position</h2>
+                        </span>
+                    }
+                />
+                <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8 [@media(max-height:700px)]:gap-5">
+                    <div className="text-center max-w-sm">
+                        <h2 className="text-2xl font-black text-white mb-3">Mark MOB position</h2>
                         <p className="text-[13px] text-slate-400 leading-relaxed">
                             Tap to snapshot the current GPS fix. The app will keep a live bearing and distance back to
                             the position so the helm can return to it.
@@ -371,9 +382,14 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         onClick={handleActivate}
                         disabled={activating}
                         aria-label="Activate Man Overboard"
-                        className="relative w-56 h-56 rounded-full flex items-center justify-center active:scale-[0.97] transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="relative w-56 h-56 [@media(max-height:700px)]:w-48 [@media(max-height:700px)]:h-48 rounded-full flex items-center justify-center active:scale-[0.97] transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
                         style={{
-                            background: 'radial-gradient(circle at 30% 30%, #f87171 0%, #ef4444 40%, #b91c1c 100%)',
+                            // The highlight stays top-left; from just under the
+                            // pivot down the face is #c81e1e → #b91c1c, so the
+                            // 12 px white caption reads 5.7–6.5:1 (it was ~4.0:1
+                            // on #ea4040, UX scorecard run 6).
+                            background:
+                                'radial-gradient(circle at 30% 30%, #f87171 0%, #ef4444 22%, #c81e1e 36%, #b91c1c 50%, #991b1b 100%)',
                             boxShadow:
                                 '0 0 40px rgba(239,68,68,0.5), 0 0 80px rgba(239,68,68,0.25), inset 0 -6px 16px rgba(0,0,0,0.25)',
                             border: '3px solid rgba(255,255,255,0.15)',

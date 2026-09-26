@@ -75,7 +75,10 @@ export const SectionHeader: React.FC<{
     }, [expanded, id]);
 
     return (
-        <h2 ref={headingRef} className="mb-2">
+        // No bottom margin: two collapsed headers sat ~40pt apart (UX scorecard
+        // run 6). The gap to the rows lives inside the collapsible content, so
+        // it animates open with them and costs nothing while closed.
+        <h2 ref={headingRef}>
             <button
                 ref={buttonRef}
                 type="button"

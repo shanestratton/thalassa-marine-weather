@@ -7,11 +7,11 @@
  *   ── the scrolling area starts here (Shane 2026-08-30) ──
  *   Diary + Scuttlebutt: the two read-most screens, so they lead
  *   Skipper device:      publishing authority · which GPS speaks for the boat
- *   Passage Planning:    voyage prep, directly below Skipper device
+ *   Crew & Float Plan:   voyage prep (was "Passage Planning"), below Skipper device
  *   Boat Binder:         GPX import + inventory + reference
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
- *   Atmosphere:          Music (Apple Music) — "music on watch", non-essential
+ *   Music:               Music (Apple Music) — "music on watch", non-essential
  *   Connect:             NMEA Gateway · Boat Network
  *   Account:             Settings + tier
  *
@@ -39,7 +39,18 @@ import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
-import { AnchorIcon, WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
+import {
+    AnchorIcon,
+    WindIcon,
+    WaveIcon,
+    ThermometerIcon,
+    DropletIcon,
+    EyeIcon,
+    GearIcon,
+    SailBoatIcon,
+    ServerIcon,
+    SpeakerWaveIcon,
+} from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 import {
@@ -59,6 +70,7 @@ import { vesselCrewAboard } from '../services/units';
 import { CONTOUR_BG, GLASS, PASSAGE_PLANNING_GROUP } from './vesselHub/glass';
 import { formatCoord, formatDuration, formatTimeSince, pressureTrendIndicator } from './vesselHub/format';
 import {
+    BinderIcon,
     BookIcon,
     BoxIcon,
     ChartIcon,
@@ -70,14 +82,29 @@ import {
     DocShieldIcon,
     GalleyIcon,
     GpxIcon,
-    MapChartIcon,
     MobIcon,
     PenIcon,
+    PlugIcon,
     ShieldIcon,
     SignalIcon,
-    UserIcon,
     WrenchIcon,
 } from './vesselHub/icons';
+
+// The shared stroke icons are drawn at 2px; the hub's own set at 1.5px. This
+// brings the borrowed glyphs down to the hub's line weight.
+const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
+
+// Scroll-port edge fades (UX scorecard run 6, Y-vessel-hub-fades): the bottom
+// always fades so a cut-off row reads as "more below", and the top fades once
+// the content has moved, so a sliver of a card under the pinned deck fades out
+// instead of showing as a hard line. Same 14px as .thalassa-scroll-fade; kept
+// as utilities because that class masks the bottom edge only. The top fade is
+// off at scrollTop 0 (pt-2 is narrower than the fade and would dim the first
+// row), and at the end of the scroll the bottom fade lands in pb-4.
+const HUB_PORT_FADE_BOTTOM =
+    '[-webkit-mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)]';
+const HUB_PORT_FADE_BOTH =
+    '[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_14px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent,#000_14px,#000_calc(100%_-_14px),transparent)]';
 import { BinderSubLabel, CollapsibleContent, ListDivider, OfficeRow } from './vesselHub/listRows';
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SectionHeader } from './vesselHub/SectionHeader';
@@ -312,6 +339,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         refreshData(true);
     }, [weatherData, isOnline, refreshData]);
 
+    // Whether the lower port has moved off its resting position — switches on
+    // its top-edge fade (see HUB_PORT_FADE_BOTH). React bails out when the
+    // value is unchanged, so this re-renders only when crossing the threshold.
+    const [portScrolled, setPortScrolled] = useState(false);
+    const handlePortScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        setPortScrolled(event.currentTarget.scrollTop > 1);
+    }, []);
+    const hubPortFade = portScrolled ? HUB_PORT_FADE_BOTH : HUB_PORT_FADE_BOTTOM;
+
     const toggleSection = (id: string) => {
         triggerHaptic('light');
         setExpanded((prev) => {
@@ -407,15 +443,21 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // trigger, so the "{n} crew" planning hint could go stale while
     // the Nav Station stayed open. useRealtimeSync mirrors the
     // pattern the Documents / Equipment tiles already use.
-    const configuredPassageCrewCount = vesselCrewAboard((ctx as { vessel?: { crewCount?: number } }).vessel);
+    // Only a count the skipper actually set, or real registered crew, may show.
+    // vesselCrewAboard() answers 2 for an unset field, and "2 crew" on a fresh
+    // or signed-out install read as a count (UX scorecard run 6).
+    const passageVessel = (ctx as { vessel?: { crewCount?: number } }).vessel;
+    const crewCountSet = typeof passageVessel?.crewCount === 'number' && Number.isFinite(passageVessel.crewCount);
+    const configuredPassageCrewCount = crewCountSet ? vesselCrewAboard(passageVessel) : 0;
     const loadPassageCrew = useCallback(async () => {
         const scope = getAuthIdentityScope();
         if (scope.userId !== authenticatedUserId) return;
         try {
             const c = await getMyCrew();
             if (!isAuthIdentityScopeCurrent(scope)) return;
-            // max(settings count, actual crew + captain)
-            const actualWithCaptain = c.length + 1;
+            // max(settings count, actual crew + captain) — the captain is only
+            // counted alongside registered crew, never on his own as a default.
+            const actualWithCaptain = c.length > 0 ? c.length + 1 : 0;
             setPassageCrewCount(Math.max(configuredPassageCrewCount, actualWithCaptain));
         } catch {
             /* offline — keep previous count */
@@ -505,6 +547,21 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 ? 'Down · Pi'
                 : 'Up';
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorEffectivelyArmed ? '#22d3ee' : '#9ca3af';
+    // The tile's second line is a STATE here, so it is inked as one: the
+    // descriptors (MOB's "Overboard", Radio's "Position") are the dim slate
+    // words, and a grey "Up" read as one of them (UX scorecard run 6). The
+    // glyph keeps the grey; only the word moves to full ink.
+    const anchorWordColor = anchorStatus === 'alarm' || anchorEffectivelyArmed ? anchorColor : '#e2e8f0';
+    // What VoiceOver hears. The tile's aria-label used to be a fixed "Anchor
+    // Watch", which overrode the visible state entirely.
+    const anchorSpoken =
+        anchorStatus === 'alarm'
+            ? 'dragging'
+            : anchorStatus === 'armed'
+              ? 'down'
+              : anchorWatchedRemotely
+                ? 'down, watched by the Pi'
+                : 'up';
     // The hero card asks the same question ("At Anchor" vs "Underway"), so it
     // must get the same answer. A boat whose anchor is watched by the Pi is at
     // anchor; only this phone's involvement changed.
@@ -875,8 +932,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 first — the one you reach for in a genuine
                                 emergency — then Radio position, Guardian,
                                 Anchor. */}
+                            {/* Accessible names lead with the visible tile name
+                                (voice control) and end with the state word, so
+                                VoiceOver hears OFF / UP rather than a fixed label
+                                (UX scorecard run 6). Second lines: descriptors
+                                (Overboard, Position) are dim slate; states (Off,
+                                Up, Watching, Down) carry colour or full ink. */}
                             <button
-                                aria-label="Man Overboard"
+                                aria-label="MOB, man overboard"
                                 onClick={() => {
                                     triggerHaptic('heavy');
                                     onNavigate('mob');
@@ -891,13 +954,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <MobIcon color="var(--day-ui-danger, #ef4444)" />
                                 </div>
                                 <h3 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h3>
-                                <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-red-400">
+                                <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
                                     Overboard
                                 </p>
                             </button>
 
                             <button
-                                aria-label="Open radio position reporting"
+                                aria-label="Radio, position reporting"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('radio');
@@ -919,7 +982,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                             {FEATURE_VISIBILITY.guardian && (
                                 <button
-                                    aria-label="Open Guardian bay watch"
+                                    aria-label={`Guardian, ${
+                                        guardianArmed
+                                            ? guardianNearby > 0
+                                                ? `watching, ${guardianNearby} nearby`
+                                                : 'watching'
+                                            : 'off'
+                                    }`}
                                     onClick={() => {
                                         triggerHaptic('light');
                                         onNavigate('guardian');
@@ -952,7 +1021,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             )}
 
                             <button
-                                aria-label="Anchor Watch"
+                                aria-label={`Anchor watch, ${anchorSpoken}`}
                                 onClick={() => {
                                     // 'compass', NOT 'anchor' — the Anchor Watch screen
                                     // has always been routed under the compass key, and
@@ -999,7 +1068,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <h3 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h3>
                                 <p
                                     className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
-                                    style={{ color: daylightUiColor(anchorColor) }}
+                                    style={{ color: daylightUiColor(anchorWordColor) }}
                                 >
                                     {anchorLabelShort}
                                 </p>
@@ -1048,7 +1117,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 mb-3 rows, mb-4 headers) is sized so the whole page fits an
                 844pt phone without scrolling; smaller phones still scroll. */}
             <div
-                className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in"
+                className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in ${hubPortFade}`}
                 // The ROOT already ends 8px above the tab bar, so this port's own
                 // bottom padding must not repeat that: with the tab-bar calc here
                 // too, a page with nothing expanded still had ~100px of dead
@@ -1065,6 +1134,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     scrollPaddingTop: '0.5rem',
                     scrollPaddingBottom: '1rem',
                 }}
+                onScroll={handlePortScroll}
             >
                 {/* Diary + Scuttlebutt lead the scrolling area (Shane
                     2026-08-30). They are the two things opened most often and
@@ -1170,13 +1240,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     workflow look like stored paperwork. Import GPX remains in
                     the Binder; planning the voyage belongs on the live hub. */}
                 <div className="mb-3" style={PASSAGE_PLANNING_GROUP}>
+                    {/* Named "Crew & Float Plan" from the app glossary (UX
+                        scorecard run 6, W-glossary): "Passage Planning / Plan
+                        your voyage" collided with the Plan tab's route planner. */}
                     <OfficeRow
                         icon={<CrewIcon color="var(--day-ui-purple, #c4b5fd)" />}
-                        label="Passage Planning"
+                        label="Crew & Float Plan"
                         status={
                             pendingCrewInvites > 0
                                 ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
-                                : 'Plan your voyage'
+                                : 'Readiness checks & cast off'
                         }
                         statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#a78bfa'}
                         value={passageCrewCount > 0 ? `${passageCrewCount} crew` : undefined}
@@ -1211,18 +1284,19 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 <button
                     onClick={() => {
                         triggerHaptic('light');
+                        // The hub port remounts at the top on the way back.
+                        setPortScrolled(false);
                         setBinderOpen(true);
                     }}
                     style={GLASS.card}
                     className="mb-3 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/3 active:scale-[0.99] card-lift"
                 >
                     <div
+                        aria-hidden="true"
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
                         style={{ background: 'rgba(103, 232, 249, 0.12)' }}
                     >
-                        <span aria-hidden className="text-base leading-none">
-                            📒
-                        </span>
+                        <BinderIcon color="var(--day-ui-accent, #67E8F9)" className="h-5 w-5" />
                     </div>
                     <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-black tracking-wide text-white">Boat Binder</span>
@@ -1254,18 +1328,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     route were never deleted, only this entry; the mic and the
                     now-playing bar remained the only ways in, and neither helps
                     if you want to go and choose something. */}
-                <div className="mb-4">
+                {/* Section label "Music", not "Atmosphere": it holds only the
+                    Music row (UX scorecard run 6). The id stays 'atmosphere'.
+                    mb-3 keeps two collapsed headers ~12pt apart. */}
+                <div className="mb-3">
                     <SectionHeader
                         color="var(--day-ui-purple, #f0abfc)"
-                        label="Atmosphere"
+                        label="Music"
                         id="atmosphere"
                         expanded={expanded.has('atmosphere')}
                         onToggle={toggleSection}
                     />
                     <CollapsibleContent open={expanded.has('atmosphere')}>
-                        <div style={GLASS.listContainer}>
+                        <div className="mt-2" style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<span style={{ fontSize: 18 }}>🎧</span>}
+                                icon={
+                                    <span className="flex" style={{ color: 'var(--day-ui-muted, #cbd5e1)' }}>
+                                        <SpeakerWaveIcon className={HUB_ICON} />
+                                    </span>
+                                }
                                 label="Music"
                                 status="Apple Music & speakers"
                                 statusColor="var(--day-ui-muted, #94a3b8)"
@@ -1297,9 +1378,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         onToggle={toggleSection}
                     />
                     <CollapsibleContent open={expanded.has('setup')}>
-                        <div style={GLASS.listContainer}>
+                        <div className="mt-2" style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<SignalIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                                icon={<PlugIcon color="var(--day-ui-muted, #cbd5e1)" />}
                                 label="NMEA Gateway"
                                 status={gatewayStatus}
                                 statusColor={gatewayStatusColor}
@@ -1316,7 +1397,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 punter picks deliberately. */}
                             <ListDivider />
                             <OfficeRow
-                                icon={<MapChartIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                                // A server, not the folded map the OBS tab uses:
+                                // this row is the boat computer (UX scorecard run 6).
+                                icon={
+                                    <span className="flex" style={{ color: 'var(--day-ui-muted, #cbd5e1)' }}>
+                                        <ServerIcon className={HUB_ICON} />
+                                    </span>
+                                }
                                 label="Boat Network"
                                 // Plain words (UX referee W-developer-speak): the
                                 // row used to list the software on the Pi.
@@ -1329,9 +1416,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<UserIcon color="var(--day-ui-muted, #cbd5e1)" />}
-                                label="Account & Settings"
-                                status={(() => {
+                                // "Settings", with what is in it, not "Account &
+                                // Settings" over a sign-in status alone: this row
+                                // is the only way into Settings (UX scorecard run 6).
+                                icon={
+                                    <span className="flex" style={{ color: 'var(--day-ui-muted, #cbd5e1)' }}>
+                                        <GearIcon className={HUB_ICON} />
+                                    </span>
+                                }
+                                label="Settings"
+                                status={`Units, alerts, vessel · ${(() => {
                                     // During the free public beta there is no
                                     // plan to name, so say what is true of this
                                     // account instead of "Free public beta"
@@ -1347,7 +1441,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ??
                                         TIER_INFO.free
                                     ).label;
-                                })()}
+                                })()}`}
                                 statusColor={(() => {
                                     if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#67E8F9' : '#94a3b8';
                                     // Tier badge stays its own colour —
@@ -1433,7 +1527,17 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     // Shane 2026-09-06: "Release - this is not the Primary Device" / "Press to make this the Primary Device".
     // Same two meanings, in sentence case: the full-width capitals shouted over
     // the card's own status (UX referee 2026-09-26).
-    const actionLabel = claimHeld ? 'Release — stop being the primary device' : 'Make this the primary device';
+    // Signed out, a claim publishes nothing — only a signed-in device can — so
+    // the button asks for the sign-in instead of offering a claim that would
+    // quietly do nothing (UX scorecard run 6). Releasing a held claim still works.
+    const signedIn = !!authenticatedUserId;
+    const needsSignIn = !signedIn && !claimHeld;
+    const [signInOpen, setSignInOpen] = useState(false);
+    const actionLabel = claimHeld
+        ? 'Release — stop being the primary device'
+        : needsSignIn
+          ? 'Sign in to make this the primary device'
+          : 'Make this the primary device';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;
         claim: SkipperClaim;
@@ -1443,6 +1547,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     useEffect(() => {
         actionInFlight.current = false;
         setTakeoverRequest(null);
+        setSignInOpen(false);
     }, [authenticatedUserId]);
 
     useEffect(
@@ -1471,6 +1576,11 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
 
     const handleAction = useCallback(() => {
         if (actionInFlight.current || takeoverRequest) return;
+        if (needsSignIn) {
+            triggerHaptic('light');
+            setSignInOpen(true);
+            return;
+        }
         triggerHaptic('medium');
         if (claimHeld) {
             // null, never undefined: the cloud patch is JSON, and an undefined
@@ -1488,7 +1598,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
             return;
         }
         applyClaim(buildClaim());
-    }, [applyClaim, authenticatedUserId, claim, claimHeld, takeoverRequest]);
+    }, [applyClaim, authenticatedUserId, claim, claimHeld, needsSignIn, takeoverRequest]);
 
     const confirmTakeover = useCallback(() => {
         const request = takeoverRequest;
@@ -1523,8 +1633,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     not press (UX referee 2026-09-26). The status is now said
                     in words on the second line instead. */}
                 <div className="mb-1.5 flex h-5 items-center gap-2">
-                    <span aria-hidden="true" className="shrink-0 text-[12px] leading-none text-cyan-300">
-                        ⚓
+                    {/* A hull, not the anchor text glyph: the anchor belongs to
+                        the Anchor watch tile above (UX scorecard run 6). */}
+                    <span aria-hidden="true" className="flex shrink-0 text-cyan-300">
+                        <SailBoatIcon className="h-4 w-4" />
                     </span>
                     {vesselName ? (
                         <span
@@ -1599,7 +1711,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                                 ? claimHeld
                                     ? 'Primary: this phone'
                                     : `Primary: ${claim.deviceName} · ${claimAgeLabel(claim)}`
-                                : 'No primary yet'}
+                                : // The rest of the sentence ("any signed-in device
+                                  // can publish") is in the title and the sr-only
+                                  // line: it cannot fit this fixed one-line row.
+                                  'No primary device yet'}
                         </span>
                     )}
                     {!piPrimary && <p className="sr-only">{statusDescription}</p>}
@@ -1640,6 +1755,15 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     if (!actionInFlight.current) setTakeoverRequest(null);
                 }}
             />
+            {/* Portalled; closes itself once sign-in succeeds, after which the
+                button offers the claim. */}
+            {needsSignIn && (
+                <SignInScreen
+                    isOpen={signInOpen}
+                    onClose={() => setSignInOpen(false)}
+                    prompt="Sign in to make this device the one that publishes your boat’s position."
+                />
+            )}
         </>
     );
 };
@@ -2056,7 +2180,7 @@ const NavStationHero: React.FC<{
                 <button
                     type="button"
                     onClick={handleVoyageTap}
-                    aria-label="Open passage planning"
+                    aria-label="Open crew & float plan"
                     className="w-full flex items-center gap-2 px-4 py-1 active:opacity-70 transition-opacity text-left"
                 >
                     <p className="text-[12px] font-semibold text-white/80 truncate flex-1">

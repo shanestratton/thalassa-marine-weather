@@ -187,13 +187,13 @@ describe('Galley and Grocery account boundaries', () => {
 
     it('synchronously hides account A recipes when auth switches to B', () => {
         render(<GalleyPage onBack={vi.fn()} />);
-        fireEvent.click(screen.getByRole('tab', { name: /Saved Recipes/ }));
+        fireEvent.click(screen.getByRole('tab', { name: /Saved recipes/i }));
         expect(screen.getByText('Account A private curry')).toBeInTheDocument();
 
         act(() => switchAccount(accountB));
 
         expect(screen.queryByText('Account A private curry')).not.toBeInTheDocument();
-        expect(screen.getByRole('tab', { name: /Saved Recipes \(0\)/ })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /Saved recipes \(0\)/i })).toBeInTheDocument();
     });
 
     it('drops an account A purchase completion after B becomes active', async () => {

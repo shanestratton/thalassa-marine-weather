@@ -32,6 +32,18 @@ export const LIGHT_COLORS: Record<TrafficLight, { dot: string; bg: string; borde
     grey: { dot: 'bg-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/20', text: 'text-gray-400' },
 };
 
+/**
+ * 'Due in 365 days' is slow to read (UX scorecard run 6): beyond about two
+ * months, say months. The card still shows the exact date beside it.
+ */
+function readableStatusLabel(label: string): string {
+    const match = /^(Due in|Overdue by) (\d+) days$/.exec(label);
+    if (!match) return label;
+    const days = Number(match[2]);
+    if (days <= 60) return label;
+    return `${match[1]} ${Math.round(days / 30.44)} months`;
+}
+
 interface SwipeableTaskCardProps {
     task: TaskWithStatus;
     onTap: () => void;
@@ -117,7 +129,9 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
 
                 {/* Row 2: Status label + due info */}
                 <div className="flex items-center justify-between mt-1.5">
-                    <p className={`text-label font-bold uppercase tracking-widest ${light.text}`}>{task.statusLabel}</p>
+                    <p className={`text-label font-bold uppercase tracking-widest ${light.text}`}>
+                        {readableStatusLabel(task.statusLabel)}
+                    </p>
                     <div className="flex items-center gap-2">
                         {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
                             <span className="text-label text-slate-400 font-mono">

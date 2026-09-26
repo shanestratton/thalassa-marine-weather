@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
-import { ClipboardIcon, FoodIcon } from '../Icons';
+import { CartIcon, ClipboardIcon, FoodIcon, PackageIcon, StarIcon } from '../Icons';
 import {
     getMealsByStatus,
     getMealPlans as _getMealPlans,
@@ -251,23 +251,28 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         /* PageHeader's own grey subtitle, like every other page. Each
                            count is one unbreakable unit and the separator binds to the
                            count before it, so a wrap never starts a line with '·'.
-                           'Stores set aside' says what the bare 'reserved' did not:
-                           ship's stores held back for planned meals. */
+                           'Stores held' = ship's stores held back for planned meals. */
                         <p className="ui-caption text-xs text-gray-300 uppercase tracking-widest">
-                            <span className="whitespace-nowrap">{visibleActiveMeals.length} active&nbsp;·</span>{' '}
-                            <span className="whitespace-nowrap">{visibleSavedRecipes.length} saved&nbsp;·</span>{' '}
-                            <span className="whitespace-nowrap">{reservedCount} stores set aside</span>
+                            <span className="whitespace-nowrap">
+                                {visibleActiveMeals.length} meal{visibleActiveMeals.length === 1 ? '' : 's'}&nbsp;·
+                            </span>{' '}
+                            <span className="whitespace-nowrap">
+                                {visibleSavedRecipes.length} recipe{visibleSavedRecipes.length === 1 ? '' : 's'}
+                                &nbsp;·
+                            </span>{' '}
+                            <span className="whitespace-nowrap">
+                                {reservedCount} {reservedCount === 1 ? 'store' : 'stores'} held
+                            </span>
                         </p>
                     }
                     onBack={onBack}
-                    // A note, not a control — it lives under the title so the
-                    // action slot stays free.
-                    status={
-                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/15 text-xs font-bold text-amber-300 tracking-widest uppercase">
-                            Works offline
-                        </span>
-                    }
                 />
+                {/* A static note, so plain grey caption text (UX scorecard run 6):
+                    as an amber chip it read as a warning or as the live offline
+                    badge. It sits under the header, aligned to the title column
+                    (16 px gutter + 44 px back button + 12 px gap), so the back
+                    chevron stays level with its sibling pages. */}
+                <p className="-mt-1.5 pb-3 pl-[72px] pr-4 text-xs text-gray-400">Works offline</p>
             </div>
 
             {/* Tab bar */}
@@ -289,7 +294,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 >
                     <span className="inline-flex items-center justify-center gap-1.5">
                         <FoodIcon className="h-3.5 w-3.5" />
-                        Active Meals
+                        Active meals
                     </span>
                 </button>
                 <button
@@ -309,7 +314,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 >
                     <span className="inline-flex items-center justify-center gap-1.5">
                         <ClipboardIcon className="h-3.5 w-3.5" />
-                        Saved Recipes ({visibleSavedRecipes.length})
+                        Saved recipes ({visibleSavedRecipes.length})
                     </span>
                 </button>
             </div>
@@ -325,15 +330,23 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         className="space-y-4 p-4"
                     >
                         {visibleActiveMeals.length === 0 ? (
-                            // Not a dead end: the one control this tab lacked is the
-                            // way to the recipes, and the copy names where meals are
-                            // actually planned (a passage's Departure Brief).
+                            // Not a dead end: the primary action goes where meals are
+                            // actually planned — the Departure Brief on the Passage
+                            // Planning page ('crew' view) — and the recipes stay one
+                            // tap away as the secondary action.
                             <EmptyState
-                                icon="🍽️"
-                                title="No Active Meals"
-                                subtitle="Plan meals under Voyage Provisioning in a passage's Departure Brief and they appear here, ready to cook."
-                                actionLabel="Open Saved Recipes"
+                                icon={<FoodIcon className="h-8 w-8 [stroke-width:1.5]" />}
+                                title="No active meals"
+                                subtitle="Plan meals in a passage's Departure Brief and they appear here, ready to cook."
+                                actionLabel="Plan meals in Departure Brief"
                                 onAction={() => {
+                                    triggerHaptic('light');
+                                    window.dispatchEvent(
+                                        new CustomEvent('thalassa:navigate', { detail: { tab: 'crew' } }),
+                                    );
+                                }}
+                                secondaryLabel="Open saved recipes"
+                                onSecondary={() => {
                                     triggerHaptic('light');
                                     setTab('recipes');
                                     document.getElementById('galley-recipes-tab')?.focus();
@@ -359,7 +372,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     <div className="p-3 space-y-1">
                                         {meal.ingredients.slice(0, 5).map((ing, i) => (
                                             <div key={i} className="flex items-center gap-2 text-xs">
-                                                <span className="w-4 text-center">📦</span>
+                                                <PackageIcon className="h-3.5 w-3.5 shrink-0 text-gray-500" />
                                                 <span className="text-gray-300">
                                                     {ing.amount} {ing.unit} {ing.name}
                                                 </span>
@@ -379,7 +392,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                             onClick={() => handleCookNow(meal)}
                                             className="flex-1 py-2.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 disabled:opacity-40 active:scale-[0.97]"
                                         >
-                                            {meal.status === 'cooking' ? '🔥 Resume Cooking' : '🔥 Cook Now'}
+                                            {meal.status === 'cooking' ? 'Resume cooking' : 'Cook now'}
                                         </button>
                                         <button
                                             type="button"
@@ -438,8 +451,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                           : 'bg-white/2 border-white/6 hover:bg-white/5'
                                 }`}
                             >
-                                <span className="text-lg" aria-hidden="true">
-                                    🛒
+                                <span
+                                    aria-hidden="true"
+                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5"
+                                >
+                                    <CartIcon className="h-5 w-5 text-gray-300" />
                                 </span>
                                 <div className="flex-1">
                                     <p
@@ -500,16 +516,26 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     triggerHaptic('light');
                                     setEditorRecipe('new');
                                 }}
-                                className="shrink-0 rounded-xl border border-amber-500/25 bg-amber-500/15 px-3 py-2 text-[11px] font-bold text-amber-300 transition-all hover:bg-amber-500/25 active:scale-95"
+                                className="inline-flex shrink-0 min-h-[44px] items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-300 transition-all hover:bg-amber-500/25 active:scale-95"
                             >
-                                + New Recipe
+                                <svg
+                                    aria-hidden="true"
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                                New recipe
                             </button>
                         </div>
 
                         {visibleSavedRecipes.length === 0 ? (
                             <EmptyState
-                                icon="📖"
-                                title="No Saved Recipes"
+                                icon={<ClipboardIcon className="h-8 w-8 [stroke-width:1.5]" />}
+                                title="No saved recipes"
                                 subtitle="Create your own recipe or save one when you schedule a meal plan."
                             />
                         ) : (
@@ -519,17 +545,20 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     className="p-3 rounded-xl bg-white/3 border border-white/6 space-y-2"
                                 >
                                     <div className="flex items-start gap-3">
-                                        <div className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0 text-xl">
-                                            🍽️
+                                        <div className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0">
+                                            <FoodIcon className="h-6 w-6 text-amber-300" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
                                             <p className="text-[11px] text-gray-500">
-                                                ⏱️ {recipe.ready_in_minutes} min · 👥 {recipe.servings} serves ·{' '}
+                                                {recipe.ready_in_minutes} min · {recipe.servings} serves ·{' '}
                                                 {recipe.ingredients.length} ingredients
                                             </p>
                                             {recipe.is_favorite && (
-                                                <span className="text-[11px] text-amber-400">⭐ Favourite</span>
+                                                <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
+                                                    <StarIcon filled className="h-3 w-3" />
+                                                    Favourite
+                                                </span>
                                             )}
                                         </div>
                                         {recipe.is_custom &&
@@ -566,9 +595,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     </div>
 
                                     {recipe.source_url && (
-                                        <p className="text-[11px] text-gray-500">
-                                            🔗 Imported recipe · available offline
-                                        </p>
+                                        <p className="text-[11px] text-gray-500">Imported recipe · available offline</p>
                                     )}
                                 </div>
                             ))
