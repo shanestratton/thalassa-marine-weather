@@ -81,8 +81,9 @@ export interface CardDisplayValues extends HeroDisplayValues {
 
 /**
  * Compute pre-rendered display values for a single hourly/current card.
- * This is the per-card equivalent of computeDisplayValues (which handles the
- * main "active" card). Here we handle the full carousel of cards.
+ * Values for every card in the carousel. (Its old twin for the "active" card,
+ * computeDisplayValues, was dead code that still invented a gust from the
+ * sustained wind × 1.3; it is gone and must not come back.)
  */
 export function computeCardDisplayValues(
     cardData: SourcedWeatherMetrics,
@@ -104,8 +105,9 @@ export function computeCardDisplayValues(
             : cardData.waveHeight !== null && cardData.waveHeight !== undefined
               ? String(convertLength(cardData.waveHeight, units.length))
               : '--',
+        // != null, not truthiness: 0 is dense fog, a reading, not a missing one.
         vis:
-            cardData.visibility && !isNaN(cardData.visibility)
+            cardData.visibility != null && !isNaN(cardData.visibility)
                 ? convertDistance(cardData.visibility, units.visibility || 'nm')
                 : '--',
         // Real gusts only. This used to fall back to windSpeed * 1.3, so a
@@ -222,6 +224,13 @@ export interface GlassForecastRange {
     modelLabel: string | null;
     /** "today" or "Sat 3 Oct"; null when not even today has a number. */
     lastDayLabel: string | null;
+}
+
+/** What a day past the pinned model's range says in place of its dashes. */
+export function horizonCaption(range: GlassForecastRange | undefined): string {
+    if (!range?.modelLabel) return 'Beyond the forecast horizon — check back tomorrow';
+    const ends = range.lastDayLabel ? ` (ends ${range.lastDayLabel})` : '';
+    return `Beyond ${range.modelLabel}’s range${ends} — try another model`;
 }
 
 /**
@@ -684,81 +693,6 @@ export interface HeroDisplayValues {
     currentDirection: string;
     secondarySwellHeight: number | string;
     secondarySwellPeriod: number | string;
-}
-
-/**
- * Compute all display values from raw weather data + units.
- */
-export function computeDisplayValues(
-    displayData: SourcedWeatherMetrics,
-    units: UnitPreferences,
-    index: number,
-    isLandlocked?: boolean,
-): HeroDisplayValues {
-    const hasWind = displayData.windSpeed !== null && displayData.windSpeed !== undefined;
-    const hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
-    const rawGust = displayData.windGust || (displayData.windSpeed || 0) * 1.3;
-
-    return {
-        airTemp: displayData.airTemperature !== null ? convertTemp(displayData.airTemperature, units.temp) : '--',
-        highTemp: displayData.highTemp !== undefined ? convertTemp(displayData.highTemp, units.temp) : '--',
-        lowTemp: displayData.lowTemp !== undefined ? convertTemp(displayData.lowTemp, units.temp) : '--',
-        windSpeed: hasWind ? Math.round(convertSpeed(displayData.windSpeed!, units.speed)!) : '--',
-        waveHeight: isLandlocked ? '0' : hasWave ? String(convertLength(displayData.waveHeight, units.length)) : '--',
-        vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
-        gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
-        precip: (() => {
-            if (index === 0) {
-                if (displayData.precipitation == null) return '--';
-                return convertPrecip(displayData.precipitation, units.temp) ?? '0';
-            }
-            const chance = displayData.precipChance;
-            return typeof chance === 'number' && Number.isFinite(chance) ? Math.round(chance) : '--';
-        })(),
-        precipUnit: index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
-        pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
-        cloudCover:
-            displayData.cloudCover !== null && displayData.cloudCover !== undefined
-                ? Math.round(displayData.cloudCover)
-                : '--',
-        uv: displayData.uvIndex !== undefined && displayData.uvIndex !== null ? Math.round(displayData.uvIndex) : '--',
-        sunrise: displayData.sunrise || '--:--',
-        sunset: displayData.sunset || '--:--',
-        currentSpeed:
-            displayData.currentSpeed !== undefined && displayData.currentSpeed !== null
-                ? Number(displayData.currentSpeed).toFixed(1)
-                : '--',
-        humidity:
-            displayData.humidity !== undefined && displayData.humidity !== null
-                ? Math.round(displayData.humidity)
-                : '--',
-        feelsLike:
-            displayData.feelsLike !== undefined && displayData.feelsLike !== null
-                ? convertTemp(displayData.feelsLike, units.temp)
-                : '--',
-        dewPoint:
-            displayData.dewPoint !== undefined && displayData.dewPoint !== null
-                ? convertTemp(displayData.dewPoint, units.temp)
-                : '--',
-        waterTemperature:
-            displayData.waterTemperature !== undefined && displayData.waterTemperature !== null
-                ? convertTemp(displayData.waterTemperature, units.temp)
-                : '--',
-        currentDirection: (() => {
-            const val = displayData.currentDirection;
-            if (typeof val === 'number') return degreesToCardinal(val);
-            if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
-            return '--';
-        })(),
-        secondarySwellHeight: (() => {
-            const v = displayData.secondarySwellHeight;
-            return v !== undefined && v !== null && !isNaN(v) ? v : '--';
-        })(),
-        secondarySwellPeriod: (() => {
-            const v = displayData.secondarySwellPeriod;
-            return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
-        })(),
-    };
 }
 
 /**

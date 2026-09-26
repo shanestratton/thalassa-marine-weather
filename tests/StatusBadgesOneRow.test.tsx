@@ -4,6 +4,9 @@
  * "we have no spare real estate to add lines to the page"; 2026-09-08: "remove
  * all of the references to which gps we are using" — the header glyph says
  * boat or phone instead (components/GpsSourceGlyph.tsx).
+ *
+ * Nothing sits under the row either: the forecast data credit is printed in
+ * the model sheet, where it costs the Glass no height (UX scorecard run 7).
  */
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -95,7 +98,9 @@ describe('the Glass status strip stays one row and names no receiver', () => {
         renderStrip(fix(kind, kind === 'held' ? 3 * 3_600_000 : 0));
         const strip = row();
         expect(strip.children).toHaveLength(3);
+        // Nothing under the row: no GPS line and no credit line.
         expect(strip.parentElement!.children).toHaveLength(1);
+        expect(screen.queryByTestId('glass-forecast-credit')).toBeNull();
         expect(strip.textContent).toContain(formatAge(AGE_MS));
         expect(strip.textContent).not.toMatch(/PHONE|VESSEL|Phone GPS|Boat GPS|last fix/);
         expect(screen.queryByRole('button', { name: /tap to change|tap to choose/ })).toBeNull();
@@ -108,12 +113,18 @@ describe('the Glass status strip stays one row and names no receiver', () => {
         expect(strip.textContent).toContain(formatAge(AGE_MS));
     });
 
-    it.each(['inshore', 'offshore', 'coastal', 'inland'] as const)(
-        '%s: the left pill names only the environment; the right pill names the model',
-        (locationType) => {
+    it.each([
+        ['inshore', 'Inshore'],
+        ['offshore', 'Offshore'],
+        ['coastal', 'Coastal'],
+        ['inland', 'Inland'],
+    ] as const)(
+        '%s: the left pill names only the kind of forecast; the right pill names the model',
+        (locationType, label) => {
             renderStrip(null, { locationType });
-            const label = locationType.toUpperCase();
-            expect(screen.getByRole('status', { name: `Location type: ${label}` })).toHaveTextContent(
+            // Sentence case on screen; the accessible name says it in full and
+            // starts with the visible word.
+            expect(screen.getByRole('status', { name: `${label} forecast` })).toHaveTextContent(
                 new RegExp(`^${label}$`),
             );
             expect(within(row()).getAllByText('ECMWF')).toHaveLength(1);
@@ -123,7 +134,7 @@ describe('the Glass status strip stays one row and names no receiver', () => {
 
     it('an offshore override never puts the model into the location label', () => {
         renderStrip(null, { locationType: 'coastal', isOffshore: true, modelUsed: 'ECMWF IFS' });
-        expect(screen.getByRole('status', { name: 'Location type: OFFSHORE' })).toHaveTextContent(/^OFFSHORE$/);
+        expect(screen.getByRole('status', { name: 'Offshore forecast' })).toHaveTextContent(/^Offshore$/);
         expect(screen.getByRole('button', { name: 'Choose forecast model — showing ECMWF IFS' })).toHaveAttribute(
             'title',
             'Served by ECMWF IFS',
@@ -144,7 +155,7 @@ describe('the Glass status strip stays one row and names no receiver', () => {
 
     it('draws the location badge as status, without the model button chrome', () => {
         renderStrip(null, { locationType: 'coastal' });
-        const badge = screen.getByRole('status', { name: 'Location type: COASTAL' });
+        const badge = screen.getByRole('status', { name: 'Coastal forecast' });
         expect(badge.className).not.toMatch(/\bborder\b|\bbg-|status-badge-glow/);
         expect(screen.getByRole('button', { name: 'Choose forecast model' }).className).toMatch(/\bborder\b/);
     });

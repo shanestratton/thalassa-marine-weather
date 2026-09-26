@@ -55,7 +55,8 @@ export interface ForecastModelInfo {
     label: string;
     /** Issuing agency, for the picker's helper text and attribution. */
     provider: string;
-    /** One-line description for the picker row. */
+    /** One-line description for the picker row, in a skipper's words (the
+     *  picker and PassageModelModal both show it). */
     blurb: string;
     /** Line colour in the convergence chart. */
     hex: string;
@@ -88,21 +89,21 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
         id: 'dwd_icon',
         label: 'ICON',
         provider: 'DWD',
-        blurb: 'German global model — strong on convection',
+        blurb: 'German global model — good with thunderstorms and squalls',
         hex: '#a78bfa',
     },
     {
         id: 'ecmwf_ifs025',
         label: 'ECMWF',
         provider: 'ECMWF',
-        blurb: 'The classic European physics model',
+        blurb: 'The main European model — a trusted all-rounder',
         hex: '#38bdf8',
     },
     {
         id: 'ecmwf_aifs025_single',
         label: 'AIFS',
         provider: 'ECMWF',
-        blurb: 'ECMWF AI model — no gust field',
+        blurb: 'ECMWF AI model — no gust forecast',
         hex: '#34d399',
         missing: ['gust'],
     },
@@ -117,7 +118,7 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
         id: 'jma_gsm',
         label: 'JMA',
         provider: 'JMA',
-        blurb: 'Japan — western Pacific, no gust field',
+        blurb: 'Japan — western Pacific, no gust forecast',
         hex: '#fb923c',
         missing: ['gust'],
     },

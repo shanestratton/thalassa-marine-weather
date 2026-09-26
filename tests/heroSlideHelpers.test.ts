@@ -6,7 +6,6 @@ import {
     buildSlides,
     reconcileDayCondition,
     computeCardDisplayValues,
-    computeDisplayValues,
     computeTrends,
     resolveHeroRowTemperatureRange,
 } from '../components/dashboard/hero/heroSlideHelpers';
@@ -46,9 +45,12 @@ const metricUnits = {
     visibility: 'nm' as const,
 };
 
-describe('computeDisplayValues', () => {
+// computeDisplayValues (the dead "active card" twin) was removed in UX
+// scorecard run 7: nothing rendered it, and it still invented a gust from the
+// sustained wind × 1.3. Its cases now cover the helper the carousel uses.
+describe('computeCardDisplayValues', () => {
     it('converts temperatures to Celsius', () => {
-        const result = computeDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0);
+        const result = computeCardDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0, false);
         expect(result.airTemp).toBe('24');
         expect(result.sunrise).toBe('06:00');
         expect(result.sunset).toBe('18:30');
@@ -61,38 +63,50 @@ describe('computeDisplayValues', () => {
             windSpeed: null,
             waveHeight: null,
         } as unknown as SourcedWeatherMetrics;
-        const result = computeDisplayValues(emptyData, metricUnits, 0);
+        const result = computeCardDisplayValues(emptyData, metricUnits, 0, false);
         expect(result.airTemp).toBe('--');
         expect(result.windSpeed).toBe('--');
         expect(result.waveHeight).toBe('--');
     });
 
     it('uses precipChance for forecast days (index > 0)', () => {
-        const result = computeDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 1);
+        const result = computeCardDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 1, false);
         expect(result.precipUnit).toBe('%');
         expect(result.precip).toBe(30);
     });
 
     it('uses precipitation total for today (index === 0)', () => {
-        const result = computeDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0);
+        const result = computeCardDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0, false);
         expect(result.precipUnit).toBe('mm');
     });
 
     it('returns "0" for wave height when landlocked', () => {
-        const result = computeDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0, true);
+        const result = computeCardDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0, false, true);
         expect(result.waveHeight).toBe('0');
     });
 
     it('converts current direction from degrees to cardinal', () => {
-        const result = computeDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0);
+        const result = computeCardDisplayValues(baseData as SourcedWeatherMetrics, metricUnits, 0, false);
         expect(result.currentDirection).toBe('S');
     });
 
     it('handles default sunrise/sunset when missing', () => {
         const noSun = { ...baseData, sunrise: undefined, sunset: undefined } as unknown as SourcedWeatherMetrics;
-        const result = computeDisplayValues(noSun, metricUnits, 0);
+        const result = computeCardDisplayValues(noSun, metricUnits, 0, false);
         expect(result.sunrise).toBe('--:--');
         expect(result.sunset).toBe('--:--');
+    });
+
+    it('never invents a gust from the sustained wind', () => {
+        const noGust = { ...baseData, windGust: null } as unknown as SourcedWeatherMetrics;
+        expect(computeCardDisplayValues(noGust, metricUnits, 0, false).gusts).toBe('--');
+    });
+
+    it('reads a visibility of 0 (dense fog) as a reading, not a missing one', () => {
+        const fog = { ...baseData, visibility: 0 } as SourcedWeatherMetrics;
+        expect(computeCardDisplayValues(fog, metricUnits, 0, false).vis).not.toBe('--');
+        const none = { ...baseData, visibility: null } as unknown as SourcedWeatherMetrics;
+        expect(computeCardDisplayValues(none, metricUnits, 0, false).vis).toBe('--');
     });
 });
 
@@ -296,15 +310,15 @@ describe('rain chance never shows an invented value (UX scorecard run 7)', () =>
     it('shows -- for a forecast hour with no chance, not 0 % or the millimetres', () => {
         const noChance = { ...baseData, precipChance: undefined, precipitation: 5 } as SourcedWeatherMetrics;
         expect(computeCardDisplayValues(noChance, metricUnits, 3, true).precip).toBe('--');
-        expect(computeDisplayValues(noChance, metricUnits, 2).precip).toBe('--');
+        expect(computeCardDisplayValues(noChance, metricUnits, 2, false).precip).toBe('--');
     });
     it('keeps a real chance, rounded', () => {
         const chance = { ...baseData, precipChance: 42.4 } as SourcedWeatherMetrics;
         expect(computeCardDisplayValues(chance, metricUnits, 3, true).precip).toBe(42);
-        expect(computeDisplayValues(chance, metricUnits, 2).precip).toBe(42);
+        expect(computeCardDisplayValues(chance, metricUnits, 2, false).precip).toBe(42);
     });
     it('shows -- for a day total the model did not supply', () => {
         const noAmount = { ...baseData, precipitation: null } as unknown as SourcedWeatherMetrics;
-        expect(computeDisplayValues(noAmount, metricUnits, 0).precip).toBe('--');
+        expect(computeCardDisplayValues(noAmount, metricUnits, 0, false).precip).toBe('--');
     });
 });

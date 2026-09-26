@@ -28,7 +28,11 @@ describe('units agree with their labels', () => {
     it('rain conversion is keyed on the temperature unit, as convertPrecip requires', () => {
         const src = read('components/dashboard/hero/heroSlideHelpers.ts');
         expect(src).not.toMatch(/convertPrecip\([^)]*units\.length\)/);
-        expect((src.match(/convertPrecip\([^)]*units\.temp\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+        // One call since UX scorecard run 7 removed the dead computeDisplayValues
+        // twin — and every call there is keyed on the temperature unit.
+        const calls = (src.match(/convertPrecip\(/g) ?? []).length;
+        expect(calls).toBeGreaterThanOrEqual(1);
+        expect((src.match(/convertPrecip\([^)]*units\.temp\)/g) ?? []).length).toBe(calls);
     });
     it('the radar wind badge knows metres per second', () => {
         const src = read('components/dashboard/hero/EssentialMapSlide.tsx');

@@ -38,6 +38,7 @@ import {
     type GpsDiagnosticsPresentation,
 } from './gpsDiagnosticsPresentation';
 import { CORNER_STATUS_DOT_CLASS } from './map/cornerStatusDot';
+import { Button } from './ui/Button';
 
 // ── Types ──
 
@@ -150,15 +151,29 @@ const GpsQualityPanel: React.FC<{
 
 // ── SystemStatusModal ──
 
-/** The platform in plain words for the version line. appBuildLabel ends with
- *  the raw Capacitor platform id ("· web", "· ios"), which read as developer
- *  speak (UX referee W-developer-speak). The id itself still goes, untouched,
- *  to the feedback link, which resolves it separately. */
-const PLATFORM_WORDS: Record<string, string> = { ios: 'iOS app', android: 'Android app', web: 'browser' };
-function plainBuildLabel(label: string): string {
-    return label.replace(/ · (\w+)$/, (whole, platform: string) =>
-        platform === 'unknown' ? '' : PLATFORM_WORDS[platform] ? ` · ${PLATFORM_WORDS[platform]}` : whole,
-    );
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * The version line in plain words: "Version 1.2.0 (106)" in the iPhone app,
+ * "Version 1.2.0 · 26 Sep, 18:55" on the web build, whose build is a bundle
+ * stamp. appBuildLabel says "1.2.0 (2026-09-26 08:55Z) · web", which read as a
+ * developer string (UX scorecard run 7: 'Z' and '· browser'). The build stays
+ * on screen because it is what tells two builds of one version apart (Shane
+ * 2026-08-28); the raw label still goes, untouched, to the feedback link.
+ */
+export function plainBuildLabel(label: string): string {
+    const parts = /^(.+?) \((.*)\) · \w+$/.exec(label.trim());
+    if (!parts) return `Version ${label.replace(/ · \w+$/, '')}`;
+    const [, version, build] = parts;
+    const stamp = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})Z$/.exec(build);
+    if (stamp) {
+        const when = new Date(`${stamp[1]}T${stamp[2]}:00Z`);
+        if (!Number.isNaN(when.getTime())) {
+            const time = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
+            return `Version ${version} · ${when.getDate()} ${MONTHS[when.getMonth()]}, ${time}`;
+        }
+    }
+    return !build || build === 'unknown' ? `Version ${version}` : `Version ${version} (${build})`;
 }
 
 const SystemStatusModal: React.FC<{
@@ -203,6 +218,7 @@ const SystemStatusModal: React.FC<{
         // so the panel never says one more than the badge that opened it.
         state.n2k.active && state.n2k.health === 'green',
     ].filter(Boolean).length;
+    const nmeaDot = state.nmea.active ? 'bg-emerald-400' : state.nmea.faulted ? 'bg-rose-400' : 'bg-slate-600';
 
     return createPortal(
         <div
@@ -210,19 +226,24 @@ const SystemStatusModal: React.FC<{
             onClick={onClose}
             role="presentation"
         >
-            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen").
+                Header and footer stay put and the systems scroll between them, so
+                the bottom Close is always in thumb reach (UX scorecard run 7). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="system-status-title"
-                className="w-full max-w-md bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl max-h-[80dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
+                className="flex w-full max-w-md max-h-[80dvh] flex-col overflow-hidden bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 z-10 border-b border-white/6">
+                <div className="flex shrink-0 items-center justify-between px-5 pt-5 pb-3 bg-slate-900/95 border-b border-white/6">
                     <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
+                        <div
+                            aria-hidden="true"
+                            className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center"
+                        >
                             <InfoIcon className="w-4 h-4 text-sky-400" />
                         </div>
                         <h2 id="system-status-title" className="text-base font-bold text-white tracking-tight">
@@ -254,25 +275,27 @@ const SystemStatusModal: React.FC<{
                     </button>
                 </div>
 
-                {/* Systems Grid */}
-                <div className="px-5 py-4 space-y-3">
+                {/* Systems */}
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-3">
                     {state.shoreWatch.active && (
                         <section aria-label="Shore Watch status" className="space-y-2">
-                            <SystemRow
-                                icon={<AnchorIcon className="w-4 h-4" />}
-                                label="Shore Watch"
-                                active
-                                detail={state.shoreWatch.label}
-                                dotColor={
-                                    state.shoreWatch.tone === 'red'
-                                        ? 'bg-red-400'
-                                        : state.shoreWatch.tone === 'yellow'
-                                          ? 'bg-amber-400'
-                                          : 'bg-sky-400'
-                                }
-                                pulse
-                                action={{ label: 'View', onClick: onNavigateAnchor }}
-                            />
+                            <ul role="list" className={SYSTEM_LIST_CLASS}>
+                                <SystemRow
+                                    icon={<AnchorIcon className="w-4 h-4" />}
+                                    label="Shore Watch"
+                                    active
+                                    detail={state.shoreWatch.label}
+                                    dotColor={
+                                        state.shoreWatch.tone === 'red'
+                                            ? 'bg-red-400'
+                                            : state.shoreWatch.tone === 'yellow'
+                                              ? 'bg-amber-400'
+                                              : 'bg-sky-400'
+                                    }
+                                    pulse
+                                    action={{ label: 'View', onClick: onNavigateAnchor }}
+                                />
+                            </ul>
                             <p className="px-3 text-xs leading-relaxed text-slate-200" role="status">
                                 {state.shoreWatch.detail}
                             </p>
@@ -348,174 +371,11 @@ const SystemStatusModal: React.FC<{
                         already jam packed screen." */}
                     <GpsQualityPanel phoneFixRef={phoneFixRef} receiver={state.extGps} />
                     <PassageHudInfoCard />
-                    {/* ── GPS Tracking (Passage) ── */}
-                    <SystemRow
-                        icon={
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <circle cx="12" cy="12" r="3" />
-                                <path strokeLinecap="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
-                            </svg>
-                        }
-                        label="GPS Tracking"
-                        active={state.gpsTracking.active}
-                        detail={
-                            state.gpsTracking.active
-                                ? `${state.gpsTracking.isMoving ? 'Moving' : 'Stationary'} · ${formatIntervalLabel(state.gpsTracking.isRapidMode ? 5000 : state.gpsTracking.intervalMs || 900_000)} interval${state.gpsTracking.isRapidMode ? ' · RAPID' : ''}`
-                                : 'Not tracking'
-                        }
-                        dotColor={
-                            state.gpsTracking.active
-                                ? state.gpsTracking.isMoving
-                                    ? 'bg-emerald-400'
-                                    : 'bg-red-400'
-                                : 'bg-slate-600'
-                        }
-                        pulse={state.gpsTracking.active}
-                    />
-
-                    {/* ── Anchor Watch ── */}
-                    <SystemRow
-                        icon={<AnchorIcon className="w-4 h-4" />}
-                        label="Anchor Watch"
-                        active={state.anchorWatch.active}
-                        detail={
-                            state.anchorWatch.active
-                                ? `${state.anchorWatch.state === 'alarm' ? 'ALARM' : state.anchorWatch.state === 'drifting' ? 'Drifting' : 'Holding'} · ${Math.round(state.anchorWatch.distance)}m / ${Math.round(state.anchorWatch.swingRadius)}m radius`
-                                : 'Not deployed'
-                        }
-                        dotColor={
-                            state.anchorWatch.active
-                                ? state.anchorWatch.state === 'holding'
-                                    ? 'bg-emerald-400'
-                                    : 'bg-red-400'
-                                : 'bg-slate-600'
-                        }
-                        pulse={state.anchorWatch.active && state.anchorWatch.state !== 'holding'}
-                        action={state.anchorWatch.active ? { label: 'View', onClick: onNavigateAnchor } : undefined}
-                    />
-
-                    {/* ── NMEA Connection ── */}
-                    <SystemRow
-                        icon={
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0"
-                                />
-                            </svg>
-                        }
-                        label="NMEA Backbone"
-                        active={state.nmea.active}
-                        detail={state.nmea.detail}
-                        dotColor={
-                            state.nmea.active ? 'bg-emerald-400' : state.nmea.faulted ? 'bg-rose-400' : 'bg-slate-600'
-                        }
-                        /* An inactive or quiet feed is not a diagnosed fault.
-                           Healthy Pi feeds do not need a second gateway socket. */
-                        action={
-                            state.nmea.active
-                                ? undefined
-                                : {
-                                      label: state.nmea.faulted ? 'Fix' : 'View',
-                                      onClick: () =>
-                                          window.dispatchEvent(
-                                              new CustomEvent('thalassa:navigate', { detail: { tab: 'nmea' } }),
-                                          ),
-                                  }
-                        }
-                    />
-
-                    {/* ── NMEA feed-rate diagnostic sparklines ──
-                        Only render for the direct socket: Pi snapshots do not
-                        populate its sentence counters. The two stacked sparklines let
-                        the skipper distinguish "GPS is slow" (top bar shows
-                        gappy/red) from "the whole feed is dropping" (both bars
-                        gappy/red). Catches Wi-Fi packet loss, YachtSense client-
-                        management cycles, and slow GPS broadcast rates that
-                        otherwise just present as the External GPS row flickering
-                        on/off above. */}
-                    {state.nmea.showRates && (
-                        <div className="space-y-1.5 px-1 pt-1">
-                            <NmeaRateSparkline category="gps" label="GPS sentences / sec" expectedRate={1.0} />
-                            <NmeaRateSparkline category="all" label="All NMEA / sec" expectedRate={5.0} />
-                        </div>
-                    )}
-
-                    {/* ── Follow Route (Passage Planning) ── */}
-                    <SystemRow
-                        icon={<RouteIcon className="w-4 h-4" />}
-                        label="Following Route"
-                        active={state.followRoute.active}
-                        detail={
-                            state.followRoute.active
-                                ? `${state.followRoute.origin} → ${state.followRoute.destination}${state.followRoute.routeChanged ? ' · Updated' : state.followRoute.isRefreshing ? ' · Refreshing...' : ''}`
-                                : 'No active route'
-                        }
-                        dotColor={
-                            state.followRoute.active
-                                ? state.followRoute.routeChanged
-                                    ? 'bg-amber-400'
-                                    : 'bg-sky-400'
-                                : 'bg-slate-600'
-                        }
-                        pulse={state.followRoute.active && state.followRoute.routeChanged}
-                        action={
-                            state.followRoute.active
-                                ? state.followRoute.routeChanged
-                                    ? { label: 'Accept', onClick: onAcceptChange }
-                                    : { label: 'Stop', onClick: onStopFollowing, destructive: true }
-                                : undefined
-                        }
-                    />
-
-                    {/* ── Pi Cache (Offline Data) ── */}
-                    {PI_INTEGRATION_ENABLED && (
-                        <SystemRow
-                            icon={
-                                <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0h.375a2.625 2.625 0 010 5.25H3.375a2.625 2.625 0 010-5.25H3.75"
-                                    />
-                                </svg>
-                            }
-                            label="Pi Cache"
-                            active={state.piCache.active}
-                            detail={
-                                state.piCache.active
-                                    ? `${state.piCache.host} · ${state.piCache.latencyMs}ms${state.piCache.cacheStats ? ` · ${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached` : ''}`
-                                    : 'Not connected'
-                            }
-                            dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
-                            pulse={state.piCache.active}
-                        />
-                    )}
-
-                    {/* ── NMEA 2000 Bus (PiCAN-M Hat → SignalK) ── */}
-                    {/* Only render when we have anything useful to say. */}
-                    {/* Reachable means we got a valid response from the */}
-                    {/* Pi's /api/n2k/status endpoint at least once. */}
-                    {PI_INTEGRATION_ENABLED && state.n2k.reachable && (
+                    {/* Plain list rows, not cards: only a row with a button does
+                        anything, and the cards made the inert ones look as
+                        tappable as the NMEA row (UX scorecard run 7). */}
+                    <ul role="list" aria-label="Systems" className={SYSTEM_LIST_CLASS}>
+                        {/* ── GPS Tracking (Passage) ── */}
                         <SystemRow
                             icon={
                                 <svg
@@ -525,40 +385,218 @@ const SystemStatusModal: React.FC<{
                                     stroke="currentColor"
                                     strokeWidth={2}
                                 >
-                                    {/* CAN-bus motif: H/L pair + termination */}
+                                    <circle cx="12" cy="12" r="3" />
+                                    <path strokeLinecap="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
+                                </svg>
+                            }
+                            label="GPS tracking"
+                            active={state.gpsTracking.active}
+                            detail={
+                                state.gpsTracking.active
+                                    ? `${state.gpsTracking.isMoving ? 'Moving' : 'Stationary'} · ${formatIntervalLabel(state.gpsTracking.isRapidMode ? 5000 : state.gpsTracking.intervalMs || 900_000)} interval${state.gpsTracking.isRapidMode ? ' · rapid' : ''}`
+                                    : 'Not tracking'
+                            }
+                            dotColor={
+                                state.gpsTracking.active
+                                    ? state.gpsTracking.isMoving
+                                        ? 'bg-emerald-400'
+                                        : 'bg-red-400'
+                                    : 'bg-slate-600'
+                            }
+                            pulse={state.gpsTracking.active}
+                        />
+
+                        {/* ── Anchor Watch ── */}
+                        <SystemRow
+                            icon={<AnchorIcon className="w-4 h-4" />}
+                            label="Anchor Watch"
+                            active={state.anchorWatch.active}
+                            detail={
+                                state.anchorWatch.active
+                                    ? `${state.anchorWatch.state === 'alarm' ? 'ALARM' : state.anchorWatch.state === 'drifting' ? 'Drifting' : 'Holding'} · ${Math.round(state.anchorWatch.distance)}m / ${Math.round(state.anchorWatch.swingRadius)}m radius`
+                                    : 'Not deployed'
+                            }
+                            dotColor={
+                                state.anchorWatch.active
+                                    ? state.anchorWatch.state === 'holding'
+                                        ? 'bg-emerald-400'
+                                        : 'bg-red-400'
+                                    : 'bg-slate-600'
+                            }
+                            pulse={state.anchorWatch.active && state.anchorWatch.state !== 'holding'}
+                            action={state.anchorWatch.active ? { label: 'View', onClick: onNavigateAnchor } : undefined}
+                        />
+
+                        {/* ── NMEA Connection ── */}
+                        <SystemRow
+                            icon={
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
                                     <path
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
-                                        d="M3 9h18M3 15h18M6 5v14M18 5v14"
+                                        d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0"
                                     />
                                 </svg>
                             }
-                            label="NMEA 2000"
-                            active={state.n2k.active}
+                            // The page it opens is the NMEA Gateway; 'Backbone' was a
+                            // second name for the same thing (UX scorecard run 7).
+                            label="NMEA Gateway"
+                            active={state.nmea.active}
+                            detail={state.nmea.detail}
+                            dotColor={nmeaDot}
+                            /* An inactive or quiet feed is not a diagnosed fault.
+                           Healthy Pi feeds do not need a second gateway socket. */
+                            action={
+                                state.nmea.active
+                                    ? undefined
+                                    : {
+                                          label: state.nmea.faulted ? 'Fix' : 'View',
+                                          onClick: () =>
+                                              window.dispatchEvent(
+                                                  new CustomEvent('thalassa:navigate', { detail: { tab: 'nmea' } }),
+                                              ),
+                                      }
+                            }
+                            /* Feed-rate sparklines, for the direct socket only: Pi
+                               snapshots do not populate its sentence counters. The
+                               two bars tell "GPS is slow" (top bar gappy/red) from
+                               "the whole feed is dropping" (both gappy/red): Wi-Fi
+                               packet loss, YachtSense client-management cycles and
+                               slow GPS broadcast rates. */
+                            extra={
+                                state.nmea.showRates ? (
+                                    <div className="space-y-1.5 pt-2">
+                                        <NmeaRateSparkline
+                                            category="gps"
+                                            label="GPS sentences / sec"
+                                            expectedRate={1.0}
+                                        />
+                                        <NmeaRateSparkline category="all" label="All NMEA / sec" expectedRate={5.0} />
+                                    </div>
+                                ) : undefined
+                            }
+                        />
+
+                        {/* ── Follow Route (Passage Planning) ── */}
+                        <SystemRow
+                            icon={<RouteIcon className="w-4 h-4" />}
+                            label="Following route"
+                            active={state.followRoute.active}
                             detail={
-                                state.n2k.summary ||
-                                (state.n2k.health === 'green'
-                                    ? `Live · ${state.n2k.pathsSeen}/${state.n2k.pathsTotal} paths`
-                                    : 'Bus quiet')
+                                state.followRoute.active
+                                    ? `${state.followRoute.origin} → ${state.followRoute.destination}${state.followRoute.routeChanged ? ' · Updated' : state.followRoute.isRefreshing ? ' · Refreshing...' : ''}`
+                                    : 'No active route'
                             }
                             dotColor={
-                                state.n2k.health === 'green'
-                                    ? 'bg-emerald-400'
-                                    : state.n2k.health === 'amber'
-                                      ? 'bg-amber-400'
-                                      : state.n2k.health === 'red'
-                                        ? 'bg-red-400'
-                                        : 'bg-slate-600'
+                                state.followRoute.active
+                                    ? state.followRoute.routeChanged
+                                        ? 'bg-amber-400'
+                                        : 'bg-sky-400'
+                                    : 'bg-slate-600'
                             }
-                            pulse={state.n2k.health === 'green'}
+                            pulse={state.followRoute.active && state.followRoute.routeChanged}
+                            action={
+                                state.followRoute.active
+                                    ? state.followRoute.routeChanged
+                                        ? { label: 'Accept', onClick: onAcceptChange }
+                                        : { label: 'Stop', onClick: onStopFollowing, destructive: true }
+                                    : undefined
+                            }
                         />
-                    )}
+
+                        {/* ── Pi Cache (Offline Data) ── */}
+                        {PI_INTEGRATION_ENABLED && (
+                            <SystemRow
+                                icon={
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={1.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0h.375a2.625 2.625 0 010 5.25H3.375a2.625 2.625 0 010-5.25H3.75"
+                                        />
+                                    </svg>
+                                }
+                                label="Pi cache"
+                                active={state.piCache.active}
+                                detail={
+                                    state.piCache.active
+                                        ? `${state.piCache.host} · ${state.piCache.latencyMs}ms${state.piCache.cacheStats ? ` · ${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached` : ''}`
+                                        : 'Not connected'
+                                }
+                                dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
+                                pulse={state.piCache.active}
+                            />
+                        )}
+
+                        {/* ── NMEA 2000 Bus (PiCAN-M Hat → SignalK) ── */}
+                        {/* Only render when we have anything useful to say. */}
+                        {/* Reachable means we got a valid response from the */}
+                        {/* Pi's /api/n2k/status endpoint at least once. */}
+                        {PI_INTEGRATION_ENABLED && state.n2k.reachable && (
+                            <SystemRow
+                                icon={
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        {/* CAN-bus motif: H/L pair + termination */}
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M3 9h18M3 15h18M6 5v14M18 5v14"
+                                        />
+                                    </svg>
+                                }
+                                label="NMEA 2000"
+                                active={state.n2k.active}
+                                detail={
+                                    state.n2k.summary ||
+                                    (state.n2k.health === 'green'
+                                        ? `Live · ${state.n2k.pathsSeen}/${state.n2k.pathsTotal} paths`
+                                        : 'Bus quiet')
+                                }
+                                dotColor={
+                                    state.n2k.health === 'green'
+                                        ? 'bg-emerald-400'
+                                        : state.n2k.health === 'amber'
+                                          ? 'bg-amber-400'
+                                          : state.n2k.health === 'red'
+                                            ? 'bg-red-400'
+                                            : 'bg-slate-600'
+                                }
+                                pulse={state.n2k.health === 'green'}
+                            />
+                        )}
+                    </ul>
                     {/* What build this actually is. The last line, quiet, and
-                        always present — a version you have to go and find is a
+                        always present: a version you have to go and find is a
                         version nobody knows. */}
-                    <p className="pt-1 text-center text-xs font-medium tracking-wide text-slate-500">
-                        Thalassa {buildLabel ?? '…'}
+                    <p className="pt-1 text-center text-xs font-medium tracking-wide text-slate-400">
+                        {buildLabel ?? 'Version …'}
                     </p>
+                </div>
+
+                {/* The same full-width bottom Close as the pin and model dialogs:
+                    the corner × is out of one-handed reach on a 640 pt panel. */}
+                <div className="shrink-0 border-t border-white/6 px-4 py-3">
+                    <Button onClick={onClose} className="w-full text-slate-300">
+                        Close
+                    </Button>
                 </div>
             </div>
         </div>,
@@ -579,6 +617,9 @@ function readNmeaBackboneStatus(): SystemState['nmea'] {
     });
 }
 
+/** The systems list: one grouped surface, rows divided by hairlines. */
+const SYSTEM_LIST_CLASS = 'divide-y divide-white/6 overflow-hidden rounded-xl border border-white/8 bg-white/2';
+
 const SystemRow: React.FC<{
     icon: React.ReactNode;
     label: string;
@@ -587,57 +628,59 @@ const SystemRow: React.FC<{
     dotColor: string;
     pulse?: boolean;
     action?: { label: string; onClick: () => void; destructive?: boolean };
-}> = ({ icon, label, active, detail, dotColor, pulse, action }) => (
-    <div
-        className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-            active ? 'bg-white/4 border-white/10' : 'bg-white/1 border-white/4'
-        }`}
-    >
-        {/* Status dot */}
-        <div className="relative shrink-0">
-            <span className={`block w-2.5 h-2.5 rounded-full ${dotColor} transition-colors`} />
-            {pulse && (
-                <span className={`absolute inset-0 rounded-full ${dotColor} motion-safe:animate-ping opacity-50`} />
+    /** Shown under the row, inside the same list item (the NMEA rate bars). */
+    extra?: React.ReactNode;
+}> = ({ icon, label, active, detail, dotColor, pulse, action, extra }) => (
+    <li className="px-3 py-3">
+        <div className="flex items-center gap-3">
+            {/* Status dot: decoration, the detail line says the state in words. */}
+            <div aria-hidden="true" className="relative shrink-0">
+                <span className={`block w-2.5 h-2.5 rounded-full ${dotColor} transition-colors`} />
+                {pulse && (
+                    <span className={`absolute inset-0 rounded-full ${dotColor} motion-safe:animate-ping opacity-50`} />
+                )}
+            </div>
+
+            {/* Icon: decoration, the label names the system. */}
+            <div aria-hidden="true" className={`shrink-0 ${active ? 'text-white' : 'text-slate-400'}`}>
+                {icon}
+            </div>
+
+            {/* Text */}
+            <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${active ? 'text-white' : 'text-slate-300'}`}>{label}</p>
+                {/* Two lines, not one truncated: the NMEA fault sentence and the
+                    anchor distance are the whole point of the row. */}
+                <p className="text-xs leading-snug mt-0.5 line-clamp-2 text-slate-300">{detail}</p>
+            </div>
+
+            {/* Action button */}
+            {action && (
+                <button
+                    type="button"
+                    /* Was hard-coded to "View signal propagation forecast" on
+                       EVERY row, so a screen reader announced the anchor's View
+                       button and the route's Stop button as a propagation
+                       forecast, which is neither. Two buttons also cannot share
+                       one accessible name and stay addressable; adding a third
+                       is what surfaced it. Named from the row it belongs to. */
+                    aria-label={`${action.label} ${label}`}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        action.onClick();
+                    }}
+                    className={`shrink-0 min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 ${
+                        action.destructive
+                            ? 'bg-red-500/15 border border-red-500/30 text-red-300'
+                            : 'bg-sky-500/15 border border-sky-500/30 text-sky-300'
+                    }`}
+                >
+                    {action.label}
+                </button>
             )}
         </div>
-
-        {/* Icon */}
-        <div className={`shrink-0 ${active ? 'text-white' : 'text-slate-500'}`}>{icon}</div>
-
-        {/* Text */}
-        <div className="flex-1 min-w-0">
-            <p className={`text-xs font-bold uppercase tracking-widest ${active ? 'text-white' : 'text-slate-500'}`}>
-                {label}
-            </p>
-            {/* Two lines, not one truncated: the NMEA fault sentence and the
-                anchor distance are the whole point of the row. */}
-            <p className="text-xs leading-snug mt-0.5 line-clamp-2 text-slate-300">{detail}</p>
-        </div>
-
-        {/* Action button */}
-        {action && (
-            <button
-                /* Was hard-coded to "View signal propagation forecast" on
-                   EVERY row — so a screen reader announced the anchor's View
-                   button and the route's Stop button as a propagation
-                   forecast, which is neither. Two buttons also cannot share
-                   one accessible name and stay addressable; adding a third
-                   is what surfaced it. Named from the row it belongs to. */
-                aria-label={`${action.label} ${label}`}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    action.onClick();
-                }}
-                className={`shrink-0 min-h-[44px] px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all active:scale-95 ${
-                    action.destructive
-                        ? 'bg-red-500/15 border border-red-500/30 text-red-400'
-                        : 'bg-sky-500/15 border border-sky-500/30 text-sky-400'
-                }`}
-            >
-                {action.label}
-            </button>
-        )}
-    </div>
+        {extra}
+    </li>
 );
 
 // ── Main Button Component ──
@@ -988,10 +1031,15 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             : hasUrgent || (systemState.shoreWatch.active && systemState.shoreWatch.tone === 'yellow')
               ? 'yellow'
               : 'blue';
+    // Healthy is quiet: slate glass with a sky glyph, like the chart's other
+    // buttons. The saturated sky fill was the loudest control on the Glass and
+    // the chart after MOB, read as a 'broadcasting' toggle, and its white glyph
+    // measured 2.9:1 (UX scorecard run 7). Full fills are kept for the states
+    // that need attention, with a glyph that clears 4.5:1 on them.
     const toneClass = {
-        blue: 'bg-linear-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40',
-        yellow: 'bg-linear-to-br from-amber-400 to-amber-600 border-amber-300/50 shadow-amber-500/40',
-        red: 'bg-linear-to-br from-red-400 to-red-700 border-red-300/50 shadow-red-500/40',
+        blue: 'bg-slate-900/90 border-white/10 shadow-black/40 text-sky-300 backdrop-blur-md',
+        yellow: 'bg-linear-to-br from-amber-400 to-amber-500 border-amber-300/50 shadow-amber-500/40 text-slate-950',
+        red: 'bg-linear-to-br from-red-600 to-red-700 border-red-300/50 shadow-red-500/40 text-white',
     }[fabTone];
 
     return (
@@ -1002,7 +1050,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 aria-haspopup="dialog"
                 aria-expanded={showModal}
                 data-shore-status={systemState.shoreWatch.active ? systemState.shoreWatch.tone : undefined}
-                className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto active:scale-[0.95] ${toneClass}`}
+                data-tone={fabTone}
+                className={`system-status-fab relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto active:scale-[0.95] ${toneClass}`}
             >
                 {/* Slow connection halo only for an active Shore Watch; no
                     constant animation for ordinary multi-system activity. */}
@@ -1014,14 +1063,17 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                     />
                 )}
 
-                {/* Subtle inner highlight for depth — matches the glass aesthetic */}
-                <span className="absolute inset-0 rounded-2xl bg-linear-to-b from-white/25 via-transparent to-transparent pointer-events-none" />
+                {/* Subtle inner highlight for depth, matching the glass aesthetic */}
+                <span
+                    aria-hidden="true"
+                    className={`absolute inset-0 rounded-2xl bg-linear-to-b ${fabTone === 'blue' ? 'from-white/8' : 'from-white/25'} via-transparent to-transparent pointer-events-none`}
+                />
 
                 {/* A pulse/signal glyph, not a circle-i: Mapbox's own (i) sits a
                     few centimetres away on the chart and the two were being read
                     as the same control. This one says "systems and fix". */}
                 <svg
-                    className="relative w-6 h-6 text-white drop-shadow-xs"
+                    className="relative w-6 h-6 drop-shadow-xs"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"

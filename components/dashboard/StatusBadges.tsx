@@ -110,7 +110,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         const hasError = !!error && !isSyncing;
 
         // BADGES Logic — each variant carries a label, a text colour and an
-        // SVG glyph.
+        // SVG glyph. The label is the kind of forecast in sentence case
+        // ('Coastal'); the accessible name says it in full and starts with
+        // that visible word ('Coastal forecast'). The visible cell is max-w-32
+        // beside a model pill of the same width, so '<Type> forecast' does not
+        // fit it on a 375 pt phone and the visible word stays short.
         const offshore = isOffshoreProp ?? locationType === 'offshore';
         let statusBadgeLabel: string;
         // Text colour only. The pill used to wear the model button's chrome
@@ -127,7 +131,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         if (offshore) {
             // The selected model belongs in the picker on the right. Repeating
             // it here made offshore wrap and grow taller than the other modes.
-            statusBadgeLabel = 'OFFSHORE';
+            statusBadgeLabel = 'Offshore';
             // Gradient gives the pill depth vs a flat wash
             statusBadgeColor = 'text-sky-200 [.display-light_&]:text-sky-800!';
             // Compass rose — offshore = open water navigation
@@ -139,7 +143,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 </svg>
             );
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
-            statusBadgeLabel = 'INLAND';
+            statusBadgeLabel = 'Inland';
             statusBadgeColor = 'text-amber-200 [.display-light_&]:text-amber-800!';
             // Little mountain silhouette
             statusBadgeIcon = (
@@ -148,7 +152,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 </svg>
             );
         } else if (locationType === 'inshore') {
-            statusBadgeLabel = 'INSHORE';
+            statusBadgeLabel = 'Inshore';
             statusBadgeColor = 'text-teal-200 [.display-light_&]:text-teal-800!';
             // Anchor — tight-to-shore waters
             statusBadgeIcon = (
@@ -160,7 +164,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 </svg>
             );
         } else {
-            statusBadgeLabel = 'COASTAL';
+            statusBadgeLabel = 'Coastal';
             statusBadgeColor = 'text-emerald-200 [.display-light_&]:text-emerald-800!';
             // Stylized wave
             statusBadgeIcon = (
@@ -273,8 +277,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             on the right. */}
                         <div
                             role="status"
-                            aria-label={`Location type: ${statusBadgeLabel}`}
-                            className={`h-8 w-full max-w-32 min-w-0 justify-self-start px-1.5 text-micro leading-4 whitespace-nowrap font-bold uppercase tracking-wider ${statusBadgeColor} text-left flex items-center justify-start gap-1`}
+                            aria-label={`${statusBadgeLabel} forecast`}
+                            className={`h-8 w-full max-w-32 min-w-0 justify-self-start px-1.5 text-micro leading-4 whitespace-nowrap font-bold ${statusBadgeColor} text-left flex items-center justify-start gap-1`}
                         >
                             {/* Reserve the text first in narrow phone/split panes;
                                 decorative glyphs never squeeze labels or age. */}

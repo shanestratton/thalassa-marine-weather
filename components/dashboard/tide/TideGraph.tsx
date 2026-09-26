@@ -55,6 +55,7 @@ export const TideGraphOriginal = ({
     stationPosition = 'bottom',
     customTime,
     showAllDayEvents,
+    reserveRightPx = 0,
     className,
     style,
 }: {
@@ -71,6 +72,9 @@ export const TideGraphOriginal = ({
     stationPosition?: 'top' | 'bottom';
     customTime?: number;
     showAllDayEvents?: boolean;
+    /** Keep this strip along the right edge clear of captions and curve — the
+     *  Glass draws its day pager rail there. */
+    reserveRightPx?: number;
     className?: string;
     style?: React.CSSProperties;
 }) => {
@@ -210,6 +214,22 @@ export const TideGraphOriginal = ({
 
     const visibleMarkers = React.useMemo(() => allMarkers.filter((m) => m.time >= 0 && m.time <= 24), [allMarkers]);
 
+    // The hero caption band's rendered height, so the chart can keep the
+    // curve's crest below it rather than drawing through the values.
+    const heroHeaderRef = React.useRef<HTMLDivElement | null>(null);
+    const [heroHeaderPx, setHeroHeaderPx] = React.useState(0);
+    const hasPoints = dataPoints.length > 0;
+    React.useLayoutEffect(() => {
+        const el = heroHeaderRef.current;
+        if (!el) return;
+        const measure = () => setHeroHeaderPx(Math.ceil(el.getBoundingClientRect().height));
+        measure();
+        if (typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [stationPosition, hasPoints]);
+
     if (dataPoints.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
@@ -284,6 +304,39 @@ export const TideGraphOriginal = ({
     const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
 
     const heroLabelClass = 'glass-tide-caption text-[11px] text-sky-300/80 font-bold uppercase tracking-widest';
+    // One unit convention for every value in the band: a thin space, then the
+    // unit in this one style ('3.3m' in bold sat beside '4.1 m' in light mono).
+    const unitClass = 'text-xs font-sans font-medium text-sky-200/80 glass-tide-caption';
+    // A card-coloured backing for the second line (event heights and day
+    // cues) — the one line a short card's crest can still reach — so it
+    // stays legible over the curve (UX scorecard run 7).
+    // Arbitrary colours on purpose: daylight.css turns bg-slate-950/70 white.
+    const scrimClass = 'rounded-md px-1 -mx-1 bg-[rgb(2_6_23/0.7)] [.display-light_&]:bg-[rgb(226_232_240/0.7)]';
+
+    // An event after midnight is the next day's, on a chart whose axis ends
+    // at midnight: at 18:56, 'LOW 03:13' read as this morning's low.
+    const dayCue = (() => {
+        const dayKey = (d: Date) => {
+            try {
+                return d.toLocaleDateString('en-CA', { timeZone });
+            } catch {
+                return d.toLocaleDateString('en-CA');
+            }
+        };
+        const cardIsToday = dayKey(effectiveTime) === dayKey(new Date());
+        return (eventHour: number): { shown: string; spoken: string } | null => {
+            if (eventHour < 24) return null;
+            if (cardIsToday) return { shown: 'Tmrw', spoken: 'tomorrow' };
+            const at = new Date(effectiveTime.getTime() + (eventHour - currentHour) * 3_600_000);
+            let weekday: string;
+            try {
+                weekday = at.toLocaleDateString('en-GB', { weekday: 'short', timeZone });
+            } catch {
+                weekday = at.toLocaleDateString('en-GB', { weekday: 'short' });
+            }
+            return { shown: weekday, spoken: weekday };
+        };
+    })();
 
     return (
         <div
@@ -293,17 +346,22 @@ export const TideGraphOriginal = ({
             {/* INTUITIVE HEADER OVERLAYS */}
             {stationPosition === 'bottom' ? (
                 /* HERO MODE (Clean, Single Line) */
-                <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline px-2 pt-1.5 pointer-events-none">
+                <div
+                    ref={heroHeaderRef}
+                    className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline pl-2 pt-1.5 pointer-events-none"
+                    style={{ paddingRight: 8 + reserveRightPx }}
+                >
                     {/* LEFT: Height */}
                     {!showAllDayEvents ? (
-                        <div className="flex items-baseline gap-1.5 pointer-events-auto">
+                        <div className="flex items-baseline gap-1 pointer-events-auto">
                             <span className={heroLabelClass}>Height</span>
-                            <div className="flex items-baseline gap-0.5">
+                            <span className="whitespace-nowrap leading-none">
                                 <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
                                     {currentHeight.toFixed(1)}
                                 </span>
-                                <span className="text-[11px] text-sky-200 font-medium">{unit}</span>
-                            </div>
+                                {'\u2009'}
+                                <span className={unitClass}>{unit}</span>
+                            </span>
                             <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                         </div>
                     ) : (
@@ -312,16 +370,22 @@ export const TideGraphOriginal = ({
 
                     {/* RIGHT: High / Low Events */}
                     <div
-                        className={`flex items-baseline gap-4 pointer-events-auto ${showAllDayEvents ? 'w-full justify-between px-2' : ''}`}
+                        className={`flex items-baseline gap-3 pointer-events-auto ${showAllDayEvents ? 'w-full justify-between px-2' : ''}`}
                     >
                         {(showAllDayEvents ? visibleMarkers : [nextHigh, nextLow])
                             .filter(Boolean)
                             .sort((a, b) => a!.time - b!.time)
-                            .map((event, idx) => (
-                                <div key={idx} className="flex items-start gap-1.5">
-                                    <span className={`${heroLabelClass} mt-[2px]`}>{event!.type}</span>
-                                    <div className="flex flex-col items-end">
-                                        <span className="text-base font-bold text-white tracking-tight leading-none font-mono">
+                            .map((event, idx) => {
+                                const cue = dayCue(event!.time);
+                                return (
+                                    // Label over its day cue, value over its height: baselines
+                                    // pair across each row.
+                                    <div
+                                        key={idx}
+                                        className="grid grid-cols-[auto_auto] items-baseline gap-x-1 gap-y-1"
+                                    >
+                                        <span className={`${heroLabelClass} justify-self-end`}>{event!.type}</span>
+                                        <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
                                             {(() => {
                                                 // Round to whole minutes FIRST, then split — rounding the
                                                 // fraction alone produced "HH:60" (audit 2026-09-02).
@@ -331,12 +395,31 @@ export const TideGraphOriginal = ({
                                                 return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                             })()}
                                         </span>
-                                        <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none mt-1 font-mono">
-                                            {event!.height.toFixed(1)} {unit}
+                                        {cue ? (
+                                            // tracking-normal: at 375 pt the band has ~6 px to spare,
+                                            // and 'TMRW' spaced like 'LOW' would push past the rail.
+                                            <span
+                                                className={`${heroLabelClass} tracking-normal! justify-self-end ${scrimClass}`}
+                                                data-testid="tide-day-cue"
+                                            >
+                                                <span aria-hidden="true">{cue.shown}</span>
+                                                <span className="sr-only">{cue.spoken}</span>
+                                            </span>
+                                        ) : (
+                                            <span aria-hidden="true" />
+                                        )}
+                                        <span
+                                            className={`justify-self-end whitespace-nowrap leading-none ${scrimClass}`}
+                                        >
+                                            <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
+                                                {event!.height.toFixed(1)}
+                                            </span>
+                                            {'\u2009'}
+                                            <span className={unitClass}>{unit}</span>
                                         </span>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                     </div>
                 </div>
             ) : (
@@ -390,6 +473,8 @@ export const TideGraphOriginal = ({
                     minHeight={minHeight}
                     maxHeight={maxHeight}
                     domainBuffer={domainBuffer}
+                    topBandPx={stationPosition === 'bottom' ? heroHeaderPx : 0}
+                    rightInsetPx={reserveRightPx}
                 />
                 {/* Station name — bottom left, lifted clear of the 14 px hour
                     axis band TideCanvas draws along the bottom edge. */}

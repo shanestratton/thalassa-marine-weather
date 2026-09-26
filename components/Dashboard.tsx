@@ -7,7 +7,7 @@ import { t } from '../theme';
 import { useDashboardController } from '../hooks/useDashboardController';
 import { triggerHaptic } from '../utils/system';
 
-import { HeroSection } from './dashboard/Hero';
+import { HeroSection, type ShownGlassDay } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
 // safety app must warn when the displayed weather is stale or the device is
@@ -176,6 +176,30 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // (the referee's land-dashboard HIGH: footer and dot rail painted across
     // the widget grid). Portrait keeps the fixed stack exactly as shipped.
     const landscapeFlow = Boolean(props.isMobileLandscape);
+    // The Glass footer (status badges + forecast credit) grows when the credit
+    // wraps, so the hero and the hour dots stand on its measured height, not
+    // on the 47 px it used to be: a two-line credit covered the tide card's
+    // hour axis (UX scorecard run 7). 74 px is the footer's own bottom offset;
+    // 3 px keeps the old gap between the hero and the badges.
+    const [glassFooterHeightPx, setGlassFooterHeightPx] = useState(47);
+    const glassFooterObserverRef = useRef<ResizeObserver | null>(null);
+    // A callback ref, because the footer mounts after the first render (it
+    // waits for weather data): observe it whenever the element attaches.
+    const glassFooterRef = useCallback((el: HTMLDivElement | null) => {
+        glassFooterObserverRef.current?.disconnect();
+        glassFooterObserverRef.current = null;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const measure = () => {
+            const h = Math.round(el.getBoundingClientRect().height);
+            if (h > 0) setGlassFooterHeightPx((prev) => (prev === h ? prev : h));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        glassFooterObserverRef.current = observer;
+    }, []);
+    useEffect(() => () => glassFooterObserverRef.current?.disconnect(), []);
+    const glassHeroBottom = `calc(env(safe-area-inset-bottom) + ${74 + glassFooterHeightPx + 3}px)`;
     const glassLayerPos = landscapeFlow ? 'absolute' : 'fixed';
     // A 667 pt phone held upright. (A landscape phone is under 700 tall too,
     // but its column scrolls, so it keeps the roomier hero.)
@@ -623,6 +647,57 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, []);
 
+    // The day on screen, as the carousel reports it: whether it has hours for
+    // the hour dots to page, and why its grid is empty past the model's range.
+    const [shownDay, setShownDay] = useState<ShownGlassDay>({ hasHours: true, rangeNote: null });
+    const handleShownDayChange = useCallback((day: ShownGlassDay) => {
+        setShownDay((prev) => (prev.hasHours === day.hasHours && prev.rangeNote === day.rangeNote ? prev : day));
+    }, []);
+
+    // One tap from a later day back to today's live card: the same reset a
+    // second tap on The Glass tab performs (UX scorecard run 7).
+    const handleReturnToToday = useCallback(() => {
+        triggerHaptic('light');
+        window.dispatchEvent(new Event('hero-reset-scroll'));
+    }, []);
+
+    // Every reset to live/now — this Today control, a second tap on The Glass
+    // tab — clears the header's day as the collapse path does, refs as well as
+    // state. The carousel's reset fires handleDayChange first, and its pending
+    // rAF flushes only day and hour, so today's card data arriving behind it
+    // was dropped: the header read live over the later day's numbers
+    // (measured 2026-09-27: 24 °C and '--' pressure from Wed, marked live).
+    useEffect(() => {
+        const onReset = () => {
+            activeDayRef.current = 0;
+            activeHourRef.current = 0;
+            activeDayDataRef.current = null;
+            setActiveDay(0);
+            setActiveHour(0);
+            setActiveDayData(null);
+        };
+        window.addEventListener('hero-reset-scroll', onReset);
+        return () => window.removeEventListener('hero-reset-scroll', onReset);
+    }, []);
+
+    // Landscape: the column scrolls, but its first view ends on the grid with
+    // the rain strip, tide card and footer all below the fold and nothing to
+    // say so. A fade and chevron show until the column's end is on screen.
+    const landscapeEndRef = useRef<HTMLDivElement | null>(null);
+    const [landscapeMoreBelow, setLandscapeMoreBelow] = useState(false);
+    const landscapeCueActive = landscapeFlow && props.viewMode !== 'details';
+    useEffect(() => {
+        const end = landscapeEndRef.current;
+        if (!landscapeCueActive || !end || typeof IntersectionObserver === 'undefined') {
+            setLandscapeMoreBelow(false);
+            return;
+        }
+        const io = new IntersectionObserver(([entry]) => setLandscapeMoreBelow(!entry.isIntersecting));
+        io.observe(end);
+        return () => io.disconnect();
+        // data/current: the column (and so the sentinel) mounts once they land.
+    }, [landscapeCueActive, data, current]);
+
     // PERFORMANCE: Memoize expensive inline computations that were previously IIFEs
     const widgetCardTime = useMemo(() => {
         if (activeDay === 0 && activeHour === 0) return Date.now();
@@ -912,6 +987,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         ],
     );
 
+    const moon = getMoonPhase(new Date(widgetCardTime));
+
     // GUARD: All hooks above, early return here is safe
     if (!data || !current || !safeActive) {
         return (
@@ -1104,7 +1181,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             alerts={data.alerts}
                                             sunrise={activeDayData?.sunrise || current?.sunrise}
                                             sunset={activeDayData?.sunset || current?.sunset}
-                                            moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
+                                            moonPhase={moon.emoji}
+                                            moonPhaseName={moon.phase}
                                             dashboardMode={userSettings.dashboardMode || 'full'}
                                             onToggleDashboardMode={handleToggleDashboardMode}
                                         />
@@ -1121,9 +1199,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     }}
                                 ></div>
 
-                                {/* Conditions header — held to the same 8px Glass rhythm. */}
+                                {/* Conditions header — held to the same 8px Glass rhythm.
+                                    z-115, one step over the card layers below it: its
+                                    first-run coach mark hangs off the card's foot over
+                                    the grid instead of sitting on the temperature (UX
+                                    scorecard run 7). The card itself stays in its slot. */}
                                 <div
-                                    className={`${glassLayerPos} left-0 right-0 z-110 px-4`}
+                                    className={`${glassLayerPos} left-0 right-0 z-115 px-4`}
                                     style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
                                 >
                                     <HeroHeader
@@ -1138,6 +1220,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         isExpanded={isExpanded}
                                         locationType={data.locationType}
                                         onToggleExpand={isInland || isOffshore ? undefined : handleToggleExpand}
+                                        onReturnToToday={activeDay > 0 ? handleReturnToToday : undefined}
                                     />
                                 </div>
 
@@ -1201,6 +1284,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         coordinates={data.coordinates}
                                         spreadMetric={spreadMetric}
                                         onSpreadHandled={handleSpreadHandled}
+                                        emptyDayNote={activeDay > 0 ? shownDay.rangeNote : null}
                                     />
                                 </div>
 
@@ -1224,7 +1308,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
                                         ...(landscapeFlow
                                             ? { height: `${landscapeHeroHeightPx}px` }
-                                            : { bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }),
+                                            : { bottom: glassHeroBottom }),
                                     }}
                                 >
                                     {/* STATIC RAIN FORECAST — always visible */}
@@ -1235,6 +1319,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             rainSummary={rainSummary}
                                             source={rainSource}
                                             status={rainStatus}
+                                            // A nowcast: on another day or hour it says 'Right now:'.
+                                            isLive={activeDay === 0 && activeHour === 0}
+                                            coordinates={data.coordinates}
                                         />
                                     </div>
                                     <HeroSection
@@ -1263,11 +1350,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         minutelyRain={minutelyRain}
                                         forecastModelLabel={forecastModelLabel}
                                         compact={shortPortrait}
+                                        onShownDayChange={handleShownDayChange}
                                     />
                                 </div>
 
-                                {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
-                                {isExpanded && (
+                                {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only).
+                                    Not under a day with no hours to page: past the model's
+                                    range 24 dots sat under one caption (UX scorecard run 7). */}
+                                {isExpanded && shownDay.hasHours && (
                                     <div
                                         className={`${glassLayerPos} left-0 right-0 z-125 flex justify-center`}
                                         style={
@@ -1280,7 +1370,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                               landscapeHeroHeightPx,
                                                       ),
                                                   }
-                                                : { bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }
+                                                : { bottom: glassHeroBottom }
                                         }
                                     >
                                         <div className="flex gap-[3px] px-4 py-1">
@@ -1322,6 +1412,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
                                 <div
+                                    ref={glassFooterRef}
                                     className={`${glassLayerPos} left-0 right-0 z-125 px-4`}
                                     style={
                                         landscapeFlow
@@ -1359,6 +1450,37 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         />
                                     </div>
                                 </div>
+
+                                {landscapeFlow && (
+                                    <>
+                                        {/* The column's last pixel: once it is on screen there is
+                                            nothing more below, and the fold cue goes. */}
+                                        <div
+                                            ref={landscapeEndRef}
+                                            className="absolute bottom-0 left-0 h-px w-full pointer-events-none"
+                                            aria-hidden="true"
+                                        />
+                                        {landscapeMoreBelow && (
+                                            <div
+                                                data-testid="glass-fold-cue"
+                                                className="fixed inset-x-0 bottom-0 z-130 h-10 flex items-end justify-center pb-[max(4px,env(safe-area-inset-bottom))] bg-linear-to-t from-black/80 to-transparent pointer-events-none animate-in fade-in duration-300"
+                                                aria-hidden="true"
+                                            >
+                                                <svg
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2.5"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    className="w-5 h-5 text-sky-300 animate-bounce-subtle"
+                                                >
+                                                    <polyline points="6 9 12 15 18 9" />
+                                                </svg>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </div>
                         )}
 

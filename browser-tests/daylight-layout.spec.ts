@@ -177,8 +177,11 @@ async function openGlassFixture(page: Page) {
     });
     await page.goto('/e2e/fixtures/glass-legibility.html');
     await expect(page.locator('.glass-metric-heading')).toHaveCount(16);
-    await expect(page.locator('.glass-forecast-caption')).toHaveCount(7);
-    await expect(page.locator('.glass-tide-caption')).toHaveCount(5);
+    // Seven, plus the day card's High and Low captions (UX scorecard run 6).
+    await expect(page.locator('.glass-forecast-caption')).toHaveCount(9);
+    // Three labels, two event heights and (since UX scorecard run 7) the three
+    // unit spans, which share one style with the daylight caption ink.
+    await expect(page.locator('.glass-tide-caption')).toHaveCount(8);
     // The real cell wrapper fades in on mount; measure its settled appearance
     // while still accounting for every persistent ancestor opacity below.
     await expect(page.locator('.metric-swap-enter').first()).toHaveCSS('opacity', '1');
@@ -294,7 +297,8 @@ for (const { viewport, pane } of [
             expect(hourDraws.draws.map((draw) => draw.text)).toEqual(['00', '04', '08', '12', '16', '20']);
             hourDraws.draws.forEach((draw, index) => {
                 expect(draw.font).toBe('600 12px system-ui, sans-serif');
-                expect(draw.x).toBeCloseTo((index / 6) * hourDraws.width);
+                // '00' is inset 8 px so the card edge doesn't clip it (UX scorecard run 6).
+                expect(draw.x).toBeCloseTo(index === 0 ? 8 : (index / 6) * hourDraws.width);
                 expect(draw.y).toBe(hourDraws.height - 1);
                 expect(draw.align).toBe(index === 0 ? 'left' : 'center');
             });

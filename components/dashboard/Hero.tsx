@@ -16,8 +16,16 @@ import {
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import { useSettings } from '../../context/SettingsContext';
-import { forecastDayHasWeather, heroRowDayName, setSlideInert } from './hero/heroSlideHelpers';
+import { forecastDayHasWeather, heroRowDayName, horizonCaption, setSlideInert } from './hero/heroSlideHelpers';
 import type { GlassForecastRange } from './hero/heroSlideHelpers';
+
+/** What the page around the carousel needs to know about the day on screen. */
+export interface ShownGlassDay {
+    /** The day has hours to swipe through (today always does). */
+    hasHours: boolean;
+    /** Why this day's numbers are missing, or null when it has a forecast. */
+    rangeNote: string | null;
+}
 
 export const HeroSection = ({
     current,
@@ -49,6 +57,7 @@ export const HeroSection = ({
     minutelyRain,
     forecastModelLabel = null,
     compact = false,
+    onShownDayChange,
 }: {
     current: WeatherMetrics;
     forecasts: ForecastDay[];
@@ -83,6 +92,10 @@ export const HeroSection = ({
     forecastModelLabel?: string | null;
     /** Short viewport: the slides drop their day label row. */
     compact?: boolean;
+    /** Reports the shown day to the chrome outside the carousel: whether it
+     *  has any hours to page through, and — past the pinned model's range —
+     *  the caption that explains its empty grid. */
+    onShownDayChange?: (day: ShownGlassDay) => void;
 }) => {
     const { settings, updateSettings } = useSettings();
     const [activeIndex, setActiveIndex] = useState(0);
@@ -380,6 +393,16 @@ export const HeroSection = ({
     // Clamped so a stale index past a shortened forecast never hides every day.
     const shownIndex = Math.min(activeIndex, Math.max(0, dayRows.length - 1));
 
+    // A day past the model's range has no hours worth paging (its frames, if
+    // any, are all empty), so the hour dots go; and its caption is handed up
+    // so the grid can say why it is empty before ten 'no reading' cells.
+    const shownRow = dayRows[shownIndex];
+    const shownRangeNote = shownRow && !shownRow.hasWeather ? horizonCaption(forecastRange) : null;
+    const shownHasHours = shownIndex === 0 || (!!shownRow && shownRow.hasWeather && shownRow.hourly.length > 0);
+    useEffect(() => {
+        onShownDayChange?.({ hasHours: shownHasHours, rangeNote: shownRangeNote });
+    }, [onShownDayChange, shownHasHours, shownRangeNote]);
+
     return (
         <div
             className={`w-full h-full relative flex flex-col items-center justify-start overflow-hidden ${className || ''}`}
@@ -465,13 +488,17 @@ export const HeroSection = ({
             {/* Pagination Dots (Vertical) — hidden in essential mode.
                 6 px and at least 3:1, just inside the card's right edge rather
                 than in the screen gutter, where 4 px grey dots at ~2.3:1 read
-                as stray pixels (UX scorecard run 6). 18 px from the edge sits
-                them beside, never on, the tide card's right-aligned header
-                (which ends 24 px in). The box spans the card — below the day
-                label row, above the hour-dot band — and centres the rail. */}
+                as stray pixels (UX scorecard run 6). The rail sits 2–8 px in
+                from the card's edge; the tide card keeps its captions 24 px in
+                and its curve 16 px in (TideGraph reserveRightPx), so no dot
+                lands on the header or the curve (run 7). The box spans the
+                card — below the day label row, above the hour-dot band — and
+                centres the rail. On a short phone the ~94 pt card is shorter
+                than the 96 px rail, so it steps to 5 px dots on a 2 px gap
+                inset from the card's top border. */}
             {!isEssentialMode && dayRows.length > 1 && (
                 <div
-                    className={`absolute right-[18px] ${compact ? 'top-0' : 'top-5'} bottom-4 z-30 flex flex-col justify-center gap-[3px] pointer-events-none`}
+                    className={`absolute right-[18px] ${compact ? 'top-1.5 bottom-[22px] gap-0.5' : 'top-5 bottom-4 gap-[3px]'} z-30 flex flex-col justify-center pointer-events-none`}
                     aria-hidden="true"
                 >
                     {dayRows.map((_, i) => (
@@ -481,7 +508,7 @@ export const HeroSection = ({
                             // by day (4.8:1 on the white card; slate-400 was 2.6:1). The
                             // active dot steps to sky-600 by day so it still out-weighs
                             // the inactive ones.
-                            className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i === shownIndex ? 'bg-sky-400 [.display-light_&]:bg-sky-600' : 'bg-white/45 [.display-light_&]:bg-slate-500'}`}
+                            className={`${compact ? 'w-[5px] h-[5px]' : 'w-1.5 h-1.5'} shrink-0 rounded-full transition-colors duration-300 ${i === shownIndex ? 'bg-sky-400 [.display-light_&]:bg-sky-600' : 'bg-white/45 [.display-light_&]:bg-slate-500'}`}
                         />
                     ))}
                 </div>

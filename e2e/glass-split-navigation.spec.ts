@@ -64,10 +64,11 @@ async function openGlass(page: Page, baseURL: string, width: number, height: num
     });
     await page.goto('/');
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Navigate to The Glass', exact: true })).toHaveAttribute(
-        'aria-selected',
-        'true',
-    );
+    await expect(
+        page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'The Glass', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('[data-split-pane="glass"]')).toHaveCount(0);
     await page.evaluate(async () => {
         await document.fonts.ready;
@@ -97,14 +98,18 @@ test('Glass hold toggles dual screen while a short press refreshes the pinned Gl
 }) => {
     test.setTimeout(60_000);
     await openGlass(page, baseURL!, 1024, 768);
-    const glass = page.getByRole('tab', { name: 'Navigate to The Glass', exact: true });
-    const log = page.getByRole('tab', { name: 'Navigate to Log', exact: true });
+    const glass = page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'The Glass', exact: true });
+    const log = page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Log', exact: true });
     const initialResets = await resetCount(page);
 
     await hold(page, glass);
     await expect(page.locator('[data-split-pane="glass"]')).toBeVisible();
     await expect(page.locator('[data-split-pane="page"]')).toBeVisible();
-    await expect(log).toHaveAttribute('aria-selected', 'true');
+    await expect(log).toHaveAttribute('aria-current', 'page');
     expect(await splitPreference(page)).toBe('1');
     expect(await resetCount(page)).toBe(initialResets);
     const rightPage = await navigationCrumb(page);
@@ -114,14 +119,14 @@ test('Glass hold toggles dual screen while a short press refreshes the pinned Gl
     await expect.poll(() => resetCount(page)).toBe(initialResets + 1);
     await expect(page.locator('[data-split-pane="glass"]')).toBeVisible();
     await expect(page.locator('[data-split-pane="page"]')).toBeVisible();
-    await expect(log).toHaveAttribute('aria-selected', 'true');
+    await expect(log).toHaveAttribute('aria-current', 'page');
     expect(await splitPreference(page)).toBe('1');
     expect(await navigationCrumb(page)).toBe(rightPage);
 
     await hold(page, glass);
     await expect(page.locator('[data-split-pane="glass"]')).toHaveCount(0);
     await expect(page.locator('[data-split-pane="page"]')).toHaveCount(0);
-    await expect(log).toHaveAttribute('aria-selected', 'true');
+    await expect(log).toHaveAttribute('aria-current', 'page');
     expect(await splitPreference(page)).toBe('0');
     expect(await resetCount(page)).toBe(initialResets + 1);
     expect(await navigationCrumb(page)).toBe(rightPage);
@@ -129,8 +134,8 @@ test('Glass hold toggles dual screen while a short press refreshes the pinned Gl
     // Outside dual screen, the first tap navigates; tapping the active Glass
     // retains its established reset-to-live behavior without fetching weather.
     await glass.click();
-    await expect(glass).toHaveAttribute('aria-selected', 'true');
-    await expect(log).toHaveAttribute('aria-selected', 'false');
+    await expect(glass).toHaveAttribute('aria-current', 'page');
+    await expect(log).not.toHaveAttribute('aria-current', 'page');
     expect(JSON.parse((await navigationCrumb(page))!).view).toBe('dashboard');
     expect(await resetCount(page)).toBe(initialResets + 1);
     await glass.click();
@@ -142,7 +147,9 @@ test('Glass hold toggles dual screen while a short press refreshes the pinned Gl
 test('phone-width Glass hold cannot enable dual screen and ordinary taps still work', async ({ page, baseURL }) => {
     test.setTimeout(60_000);
     await openGlass(page, baseURL!, 390, 844);
-    const glass = page.getByRole('tab', { name: 'Navigate to The Glass', exact: true });
+    const glass = page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'The Glass', exact: true });
     const initialResets = await resetCount(page);
 
     await hold(page, glass);
@@ -151,11 +158,13 @@ test('phone-width Glass hold cannot enable dual screen and ordinary taps still w
     // With no long-press callback at phone width, release is the ordinary tap.
     await expect.poll(() => resetCount(page)).toBe(initialResets + 1);
 
-    const vessel = page.getByRole('tab', { name: 'Navigate to Vessel', exact: true });
+    const vessel = page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Vessel', exact: true });
     await vessel.click();
-    await expect(vessel).toHaveAttribute('aria-selected', 'true');
+    await expect(vessel).toHaveAttribute('aria-current', 'page');
     await glass.click();
-    await expect(glass).toHaveAttribute('aria-selected', 'true');
+    await expect(glass).toHaveAttribute('aria-current', 'page');
     expect(await resetCount(page)).toBe(initialResets + 1);
     await glass.click();
     await expect.poll(() => resetCount(page)).toBe(initialResets + 2);

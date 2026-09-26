@@ -12,6 +12,7 @@ import type { GpsReceiverStatus } from '../services/GpsReceiverStatusService';
 import type { ShoreAlarmSnapshot } from '../services/ShoreWatchAlarmService';
 import type { ShorePushReadiness } from '../services/AnchorWatchSyncService';
 import { publishPassageHudInfo, setPassageSquallInfoVisible } from '../stores/passageHudInfoStore';
+import { NO_GPS_FIX_LINE } from '../components/gpsDiagnosticsPresentation';
 
 const instruments = vi.hoisted(() => ({
     store: {} as NmeaStoreState,
@@ -161,7 +162,7 @@ vi.mock('../stores/followRouteStore', () => ({
     useFollowRouteStore: () => followRouteState,
 }));
 
-import { SystemStatusButton } from '../components/SystemStatusButton';
+import { SystemStatusButton, plainBuildLabel } from '../components/SystemStatusButton';
 
 describe('SystemStatusButton', () => {
     beforeEach(() => {
@@ -258,9 +259,29 @@ describe('SystemStatusButton', () => {
         openStatus();
         const boat = within(screen.getByRole('region', { name: 'Boat GPS' }));
         expect(boat.getByText(/Waiting for GPS position/)).toBeVisible();
-        expect(boat.getByText('Position time unavailable')).toBeVisible();
-        expect(boat.getAllByText('Not reported')).toHaveLength(3);
+        // No fix at all: each card drops the position line and the three
+        // "nothing" tiles and says it once. The boat card keeps its receiver
+        // news (the link is up) above that line, so a connected gateway never
+        // reads as a position; the phone card has no receiver line to repeat.
+        expect(boat.queryByText('Position time unavailable')).toBeNull();
+        expect(boat.queryByText('Not reported')).toBeNull();
+        expect(boat.getByText(NO_GPS_FIX_LINE)).toBeVisible();
+        expect(within(screen.getByRole('region', { name: 'Phone location' })).getByText(NO_GPS_FIX_LINE)).toBeVisible();
         expect(screen.queryByText('On-board GPS')).not.toBeInTheDocument();
+    });
+
+    it("says no fix once on the phone card instead of repeating the phone receiver's own no-position line", () => {
+        instruments.receiver = {
+            ...instruments.receiver,
+            kind: 'phone',
+            detail: 'No position yet — nothing is supplying a fix',
+        };
+        openStatus();
+        const phone = within(screen.getByRole('region', { name: 'Phone location' }));
+        expect(phone.getByText(NO_GPS_FIX_LINE)).toBeVisible();
+        expect(phone.queryByText(/No position yet/)).toBeNull();
+        expect(phone.queryByTestId('gps-receiver-connection')).toBeNull();
+        expect(phone.queryByText('Position time unavailable')).toBeNull();
     });
 
     it('retains an external iPhone receiver identity in the separate phone section', () => {
@@ -274,6 +295,8 @@ describe('SystemStatusButton', () => {
         openStatus();
         const phone = within(screen.getByRole('region', { name: 'Phone location' }));
         expect(phone.getByText('Bad Elf GPS Pro · Connected to iPhone · iPhone GPS currently in use')).toBeVisible();
+        // A connected accessory is not a fix: with no position the card still says so.
+        expect(phone.getByText(NO_GPS_FIX_LINE)).toBeVisible();
         expect(screen.queryByRole('region', { name: /Boat GPS/ })).not.toBeInTheDocument();
     });
 
@@ -283,7 +306,7 @@ describe('SystemStatusButton', () => {
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={navigate} />);
         const opener = screen.getByRole('button', { name: /Shore Watch: Receiving vessel data/ });
         expect(opener).toHaveAttribute('data-shore-status', 'blue');
-        expect(opener).toHaveClass('from-sky-400');
+        expect(opener).toHaveAttribute('data-tone', 'blue');
         expect(screen.getByTestId('system-status-halo')).toHaveClass('motion-safe:animate-pulse');
         expect(screen.queryByRole('region', { name: 'Shore Watch status' })).not.toBeInTheDocument();
         fireEvent.click(opener);
@@ -302,7 +325,7 @@ describe('SystemStatusButton', () => {
         expect(opener).toHaveClass('from-amber-400');
         expect(opener).toHaveAccessibleName(/Waiting for vessel data/);
         emitShoreWatch({ cause: 'contact-lost', muted: true });
-        expect(opener).toHaveClass('from-red-400');
+        expect(opener).toHaveClass('from-red-600');
         expect(opener).toHaveAccessibleName(/Vessel connection lost/);
         fireEvent.click(opener);
         expect(screen.getByRole('region', { name: 'Shore Watch status' })).toHaveTextContent(
@@ -311,7 +334,7 @@ describe('SystemStatusButton', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Close system status' }));
         emitShoreWatch({ sessionCode: null });
         expect(opener).not.toHaveAttribute('data-shore-status');
-        expect(opener).toHaveClass('from-sky-400');
+        expect(opener).toHaveAttribute('data-tone', 'blue');
         expect(screen.queryByTestId('system-status-halo')).toBeNull();
     });
 
@@ -510,12 +533,12 @@ describe('SystemStatusButton', () => {
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /^Systems and GPS source: 1 active/ }));
 
-        expect(screen.getByText('Following Route')).toBeInTheDocument();
+        expect(screen.getByText('Following route')).toBeInTheDocument();
         // Named for the row it belongs to. Every SystemRow action button used
         // to carry the same hard-coded "View signal propagation forecast",
         // which described none of them and made two buttons share one
         // accessible name.
-        fireEvent.click(screen.getByRole('button', { name: 'Stop Following Route' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Stop Following route' }));
         expect(followRouteState.stopFollowing).toHaveBeenCalledOnce();
     });
 
@@ -538,8 +561,8 @@ describe('SystemStatusButton', () => {
         // The inactive NMEA row offers View (not an invented fault); the route row
         // offers Stop. Two buttons, two names — a screen reader can tell them
         // apart, and so can a query.
-        expect(screen.getByRole('button', { name: 'View NMEA Backbone' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Stop Following Route' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Stop Following route' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'View signal propagation forecast' })).not.toBeInTheDocument();
     });
 
@@ -574,8 +597,8 @@ describe('SystemStatusButton', () => {
             expect(
                 screen.getByText(via === 'lan' ? 'Connected via the Pi' : 'Receiving instruments via the Pi · cloud'),
             ).toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'Fix NMEA Backbone' })).not.toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'View NMEA Backbone' })).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'View NMEA Gateway' })).not.toBeInTheDocument();
             expect(screen.queryByText('GPS sentences / sec')).not.toBeInTheDocument();
             expect(screen.queryByText('All NMEA / sec')).not.toBeInTheDocument();
         },
@@ -586,27 +609,27 @@ describe('SystemStatusButton', () => {
         instruments.viaRemoteAccess = true;
         openStatus();
         expect(screen.getByText(/Connected via the Pi.*tailnet/i)).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Backbone' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
     });
 
     it('ages a stalled feed without new samples, then recovers from a store notification', async () => {
         vi.useFakeTimers();
         seedPi('cloud');
         openStatus();
-        expect(screen.queryByRole('button', { name: 'View NMEA Backbone' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'View NMEA Gateway' })).not.toBeInTheDocument();
 
         await act(async () => {
             await vi.advanceTimersByTimeAsync(65_000);
         });
-        expect(screen.getByRole('button', { name: 'View NMEA Backbone' })).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Backbone' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
 
         act(() => {
             seedPi('cloud');
             instruments.storeListeners.forEach((cb) => cb(instruments.store));
         });
         expect(screen.getByText('Receiving instruments via the Pi · cloud')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'View NMEA Backbone' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'View NMEA Gateway' })).not.toBeInTheDocument();
     });
 
     it.each(['quiet', 'phone', 'health-only'])('does not claim a backbone connection from %s evidence', (kind) => {
@@ -615,9 +638,9 @@ describe('SystemStatusButton', () => {
         if (kind === 'phone') instruments.store.remote!.source = 'device';
         instruments.piReachable = true;
         openStatus();
-        expect(screen.getByRole('button', { name: 'View NMEA Backbone' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
         expect(screen.queryByText(/Receiving instruments via the Pi/)).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Backbone' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
     });
 
     it('keeps Fix for a real direct gateway fault and updates immediately when it connects', () => {
@@ -628,7 +651,7 @@ describe('SystemStatusButton', () => {
         const navigate = vi.fn();
         window.addEventListener('thalassa:navigate', navigate);
         try {
-            fireEvent.click(screen.getByRole('button', { name: 'Fix NMEA Backbone' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Fix NMEA Gateway' }));
             expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ detail: { tab: 'nmea' } }));
         } finally {
             window.removeEventListener('thalassa:navigate', navigate);
@@ -638,7 +661,7 @@ describe('SystemStatusButton', () => {
             instruments.store.connectionStatus = 'connected';
             instruments.socketListeners.forEach((cb) => cb());
         });
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Backbone' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
         expect(screen.getByText(/waiting for instrument/i)).toBeInTheDocument();
         expect(screen.getByText('GPS sentences / sec')).toBeInTheDocument();
     });
@@ -675,11 +698,48 @@ describe('SystemStatusButton', () => {
             vi.setSystemTime(Date.now() + 65_000);
             hidden.mockReturnValue(false);
             fireEvent(document, new Event('visibilitychange'));
-            expect(screen.getByRole('button', { name: 'View NMEA Backbone' })).toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'Fix NMEA Backbone' })).not.toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
         } finally {
             hidden.mockRestore();
         }
+    });
+
+    // UX scorecard run 7 (C-L-systems-button, system-status-nits, T-no-bottom-close).
+    it('draws the healthy state as quiet slate glass, keeping full fills for attention', () => {
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        const opener = screen.getByRole('button', { name: /^Systems and GPS source/ });
+        expect(opener).toHaveAttribute('data-tone', 'blue');
+        expect(opener).toHaveClass('bg-slate-900/90', 'text-sky-300');
+        expect(opener.className).not.toMatch(/from-sky-/);
+    });
+
+    it('lists the systems as plain rows with decorative icons, and closes from the bottom', () => {
+        openStatus();
+        const dialog = screen.getByRole('dialog', { name: 'System status' });
+        const list = within(dialog).getByRole('list', { name: 'Systems' });
+        const rows = within(list).getAllByRole('listitem');
+        expect(rows.length).toBeGreaterThanOrEqual(4);
+        for (const row of rows) {
+            for (const svg of Array.from(row.querySelectorAll('svg'))) {
+                expect(svg.closest('[aria-hidden="true"]')).not.toBeNull();
+            }
+        }
+        expect(within(list).getByText('GPS tracking')).toBeInTheDocument();
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+        expect(screen.queryByRole('dialog', { name: 'System status' })).not.toBeInTheDocument();
+    });
+
+    it('words the version line for a skipper, keeping the build that tells two builds apart', () => {
+        const when = new Date('2026-09-26T08:55:00Z');
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const pad = (n: number) => String(n).padStart(2, '0');
+        expect(plainBuildLabel('1.2.0 (2026-09-26 08:55Z) · web')).toBe(
+            `Version 1.2.0 · ${when.getDate()} ${months[when.getMonth()]}, ${pad(when.getHours())}:${pad(when.getMinutes())}`,
+        );
+        expect(plainBuildLabel('1.2.0 (106) · ios')).toBe('Version 1.2.0 (106)');
+        expect(plainBuildLabel('1.2.0 (unknown) · web')).toBe('Version 1.2.0');
+        expect(plainBuildLabel('1.2.0 (106) · ios')).not.toMatch(/browser|ios|Z\)/);
     });
 });
 

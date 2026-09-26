@@ -1,8 +1,12 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useId, useRef } from 'react';
+import SunCalc from 'suncalc';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useWeatherStore } from '../../stores/weatherStore';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { Button } from '../ui/Button';
 import { XIcon } from '../Icons';
+import { ChevronRightIcon } from '../icons/GlassGlyphs';
 import { analyzeRain, getIntensityLabel, type RainAnalysis } from './rainAnalysis';
 
 interface MinutelyRain {
@@ -27,6 +31,82 @@ interface RainForecastCardProps {
      * so a skipper out of coverage got a dry verdict that never changed.
      */
     status?: 'loading' | 'loaded' | 'error';
+    /**
+     * False while the Glass shows another day or hour. The strip is always a
+     * nowcast from this minute, and on a page ten days out 'No rain expected
+     * next 3½ hours' read as that day's forecast (UX scorecard run 7), so
+     * there it says 'Right now:' first. Defaults to true.
+     */
+    isLive?: boolean;
+    /** The Glass report's position, for the detail's day or night scene.
+     *  Falls back to the report in the weather store. */
+    coordinates?: { lat: number; lon: number };
+}
+
+/** Most bars the detail chart draws. A 240-frame Rainbow feed is bucketed so
+ *  every bar fits the dialog and lines up with the time axis. */
+const MAX_CHART_BARS = 60;
+/** The chart's lowest full-scale value, mm/hr: bars are drawn against the
+ *  larger of this and the peak, so a 0.4 mm/hr drizzle is a low bar rather
+ *  than a full-height wall. 2.5 is where 'Moderate' starts. */
+const CHART_AXIS_FLOOR = 2.5;
+
+/**
+ * How far ahead the remaining frames reach, in the words rainAnalysis uses
+ * for the dry headline ('58 min', '3½ hours'): the end of the last one-minute
+ * frame, floored to the half hour from 100 min. The provenance line and the
+ * chart summary repeat it, so the dialog names one horizon rather than
+ * '3½ hours' over '4 hours ahead' (UX scorecard run 7).
+ */
+function liveWindowLabel(frames: MinutelyRain[], now: number): string {
+    if (frames.length === 0) return '';
+    const spanMin = Math.max(
+        1,
+        Math.round((new Date(frames[frames.length - 1].time).getTime() + 60_000 - now) / 60_000),
+    );
+    if (spanMin >= 100) {
+        const h = Math.floor(spanMin / 60);
+        const halves = spanMin - h * 60 >= 30;
+        return `${h}${halves ? '\u00bd' : ''} hour${h === 1 && !halves ? '' : 's'}`;
+    }
+    return `${spanMin} min`;
+}
+
+/**
+ * Is the sun down at this position? The dry scene painted a blazing sun at
+ * 18:56, an hour after the 17:53 sunset printed on the same screen (UX
+ * scorecard run 7). Sunset is the disc's upper edge on the horizon, −0.833°
+ * with refraction, the instant the Glass prints. Without a position the
+ * location's clock decides, 06–18 counting as day.
+ */
+function isSunDown(now: number, coords: { lat: number; lon: number } | undefined, timeZone?: string): boolean {
+    if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) {
+        const altitude = SunCalc.getPosition(new Date(now), coords.lat, coords.lon).altitude;
+        return altitude < (-0.833 * Math.PI) / 180;
+    }
+    let hour = new Date(now).getHours();
+    try {
+        hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone }).format(now));
+    } catch {
+        // Unknown zone: the phone's own clock stands in.
+    }
+    return hour < 6 || hour >= 18;
+}
+
+/**
+ * The frames as at most MAX_CHART_BARS bars, each the WETTEST minute of its
+ * bucket so a short burst is never averaged away. `bucket` is the frames per
+ * bar, for mapping the peak's frame index onto its bar.
+ */
+function chartBars(frames: MinutelyRain[]): { bars: number[]; bucket: number } {
+    const bucket = Math.max(1, Math.ceil(frames.length / MAX_CHART_BARS));
+    const bars: number[] = [];
+    for (let i = 0; i < frames.length; i += bucket) {
+        let peak = 0;
+        for (let j = i; j < Math.min(i + bucket, frames.length); j++) peak = Math.max(peak, frames[j].intensity);
+        bars.push(peak);
+    }
+    return { bars, bucket };
 }
 
 /**
@@ -38,11 +118,14 @@ interface RainForecastCardProps {
 export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     data,
     className = '',
-    timeZone: _timeZone,
+    timeZone,
     rainSummary,
     source = 'unknown',
     status = 'loaded',
+    isLive = true,
+    coordinates,
 }) => {
+    const headlineId = useId();
     // Label text for the provenance tag in the bottom-right corner.
     //
     // The vendor names are gone (Shane 2026-08-28: "get rid of the Rainbow.AI
@@ -64,8 +147,13 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
         return () => clearInterval(id);
     }, []);
 
-    const analysis = useMemo(
-        () => analyzeRain(data, { rainSummary, status, now: Date.now() }),
+    const { analysis, analysedAt } = useMemo(
+        () => {
+            // One clock for the verdict and the detail, so the detail's
+            // horizon phrase matches the headline to the minute.
+            const at = Date.now();
+            return { analysis: analyzeRain(data, { rainSummary, status, now: at }), analysedAt: at };
+        },
         // `source` no longer feeds the analysis: the dry-verdict window is
         // computed from the live span of the remaining frames, not from the
         // provider's nominal horizon. `tick` re-evaluates every 60 s so
@@ -92,20 +180,28 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 
     // --- COMPACT CARD (always visible) ---
     const isActive = analysis.hasRain;
+    const hasDetail = analysis.frames.length > 0;
+    const axisMax = Math.max(analysis.maxIntensity, CHART_AXIS_FLOOR);
 
     return (
         <>
             <button
                 aria-label="Open rain forecast detail"
+                // The label names the action; the verdict is read as its
+                // description, so a screen reader hears both.
+                aria-describedby={headlineId}
+                aria-disabled={hasDetail ? undefined : true}
                 onClick={openModal}
                 // By day the card takes the metric grid's white card surface and
                 // border: the translucent slate was about 1.1:1 against the
                 // daylight page (UX scorecard run 6). Important, because the
                 // daylight remap of bg-slate-800/40 is unlayered and would win.
                 // On short portrait (Dashboard root data-glass-rhythm="short")
-                // the strip is one 36 pt line so the tide card keeps its room:
-                // headline, badge and any Estimated tag in a single centred row.
-                className={`w-full min-h-[76px] rounded-xl overflow-hidden relative text-left transition-all duration-500 in-data-[glass-rhythm=short]:min-h-9 in-data-[glass-rhythm=short]:flex in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center [.display-light_&]:bg-white! ${className} ${
+                // the strip is one 44 pt line so the tide card keeps its room:
+                // headline, badge and any Estimated tag in a single centred row,
+                // with a chevron standing in for 'Tap for detail' (UX scorecard
+                // run 7: at 34 pt it was under the touch floor and had no cue).
+                className={`w-full min-h-[76px] rounded-xl overflow-hidden relative text-left transition-all duration-500 in-data-[glass-rhythm=short]:min-h-[44px] in-data-[glass-rhythm=short]:flex in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:px-6 [.display-light_&]:bg-white! ${className} ${
                     isActive
                         ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10 [.display-light_&]:border-sky-600/50!'
                         : 'bg-slate-800/40 border border-blue-400/10 [.display-light_&]:border-slate-900/20!'
@@ -119,7 +215,9 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     </div>
                 )}
 
-                <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between in-data-[glass-rhythm=short]:flex-row in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:py-0">
+                {/* On short portrait the button pads both sides equally, so the
+                    centred row stays clear of the chevron at the right edge. */}
+                <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between in-data-[glass-rhythm=short]:flex-row in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:py-0 in-data-[glass-rhythm=short]:px-1">
                     {/* Header Row */}
                     <div className="flex items-center justify-center">
                         <div className="flex items-center gap-1.5">
@@ -128,7 +226,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                                 height="12"
                                 viewBox="0 0 24 24"
                                 fill="none"
-                                className={isActive ? 'text-sky-400' : 'text-sky-400/60'}
+                                aria-hidden="true"
+                                className={`shrink-0 ${isActive ? 'text-sky-400' : 'text-sky-400/60'}`}
                             >
                                 <path
                                     d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
@@ -139,8 +238,10 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                                 />
                             </svg>
                             <span
-                                className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-sky-300' : 'text-ivory'}`}
+                                id={headlineId}
+                                className={`text-xs font-bold uppercase tracking-wider text-center ${isActive ? 'text-sky-300' : 'text-ivory'}`}
                             >
+                                {!isLive && hasDetail && 'Right now: '}
                                 {analysis.headline}
                             </span>
                         </div>
@@ -156,27 +257,23 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 
                     {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain.
                         Dropped on short portrait: the one-line strip has no room. */}
-                    {analysis.frames.length > 0 && analysis.hasRain && (
-                        <div className="flex items-end gap-px w-full mt-1 h-[22px] in-data-[glass-rhythm=short]:hidden">
-                            {analysis.frames.map((point, i) => {
-                                const normalizedHeight =
-                                    analysis.maxIntensity > 0
-                                        ? Math.max(
-                                              (point.intensity / analysis.maxIntensity) * 100,
-                                              point.intensity > 0 ? 10 : 0,
-                                          )
-                                        : 0;
-                                const barColor = getBarColor(point.intensity, analysis.maxIntensity, isActive);
+                    {hasDetail && analysis.hasRain && (
+                        <div
+                            aria-hidden="true"
+                            className="flex items-end gap-px w-full mt-1 h-[22px] overflow-hidden in-data-[glass-rhythm=short]:hidden"
+                        >
+                            {chartBars(analysis.frames).bars.map((intensity, i) => {
+                                const normalizedHeight = Math.max((intensity / axisMax) * 100, intensity > 0 ? 10 : 0);
+                                const barColor = getBarColor(intensity, axisMax, isActive);
 
                                 return (
-                                    <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
+                                    <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
                                         <div
                                             className="absolute bottom-0 left-0 right-0 rounded-t-[1px]"
                                             style={{
                                                 height: `${normalizedHeight}%`,
                                                 background: barColor,
-                                                minWidth: '1px',
-                                                boxShadow: point.intensity > 0 ? `0 0 3px ${barColor}30` : 'none',
+                                                boxShadow: intensity > 0 ? `0 0 3px ${barColor}30` : 'none',
                                             }}
                                         />
                                     </div>
@@ -185,16 +282,22 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                         </div>
                     )}
 
-                    {/* Tap hint — dropped on short portrait, where the whole
-                        strip is already the button named 'Open rain forecast detail'. */}
-                    {analysis.frames.length > 0 && (
-                        <div className="flex items-center justify-center mt-0.5 in-data-[glass-rhythm=short]:hidden">
+                    {/* Tap hint — on short portrait the chevron says it. */}
+                    {hasDetail && (
+                        <div
+                            aria-hidden="true"
+                            className="flex items-center justify-center mt-0.5 in-data-[glass-rhythm=short]:hidden"
+                        >
                             <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
                                 Tap for detail
                             </span>
                         </div>
                     )}
                 </div>
+
+                {hasDetail && (
+                    <ChevronRightIcon className="hidden in-data-[glass-rhythm=short]:block absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60 pointer-events-none" />
+                )}
 
                 {/* Honesty tag — bottom-right, and only when the numbers are
                     estimated rather than measured. On short portrait it joins
@@ -212,6 +315,9 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     data={analysis.frames}
                     analysis={analysis}
                     source={source}
+                    now={analysedAt}
+                    timeZone={timeZone}
+                    coordinates={coordinates}
                     onClose={() => setIsModalOpen(false)}
                 />
             )}
@@ -227,22 +333,54 @@ interface ModalProps {
     analysis: RainAnalysis;
     /** Which feed answered. Named here rather than on the card face. */
     source?: 'rainbow' | 'weatherkit' | 'synthetic' | 'unknown';
+    /** The instant `analysis` was computed at. */
+    now: number;
+    timeZone?: string;
+    coordinates?: { lat: number; lon: number };
     onClose: () => void;
 }
 
-const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', onClose }) => {
+const RainModal: React.FC<ModalProps> = ({
+    data,
+    analysis,
+    source = 'unknown',
+    now,
+    timeZone,
+    coordinates,
+    onClose,
+}) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
+    const reportCoords = useWeatherStore((s) => s.weatherData?.coordinates);
+    const sunDown = isSunDown(now, coordinates ?? reportCoords, timeZone);
 
+    // How far ahead the frames still reach, in the headline's own words: the
+    // provenance and the chart summary name the same horizon as the verdict.
+    const horizon = liveWindowLabel(data, now);
     const feedProvenance = (() => {
-        if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km, 4 hours ahead';
-        if (source === 'weatherkit') return 'Apple WeatherKit · minute-by-minute, 1 hour ahead';
+        if (source === 'rainbow') return `Rainbow.ai nowcast · 1 km, next ${horizon}`;
+        if (source === 'weatherkit') return `Apple WeatherKit · minute-by-minute, next ${horizon}`;
         if (source === 'synthetic') return 'Estimated from the hourly forecast — not a live rain feed';
         return null;
     })();
+
+    // The chart as at most MAX_CHART_BARS bars on a fixed floor, and one
+    // spoken summary in place of 60 unnamed bars and loose axis ticks.
+    const { bars, bucket } = chartBars(data);
+    const axisMax = Math.max(analysis.maxIntensity, CHART_AXIS_FLOOR);
+    const peakBar = Math.floor(analysis.peakIdx / bucket);
+    const peakPct = (peakBar + 0.5) / Math.max(bars.length, 1);
+    const peakInMin = data[analysis.peakIdx]
+        ? Math.max(0, Math.round((new Date(data[analysis.peakIdx].time).getTime() - now) / 60_000))
+        : 0;
+    const chartSummary = analysis.hasRain
+        ? `Rain intensity, next ${horizon}: peak ${analysis.maxIntensity.toFixed(1)} mm/hr ${
+              peakInMin <= 1 ? 'now' : `in ${peakInMin} min`
+          }`
+        : `Rain intensity, next ${horizon}: none`;
 
     // Prevent body scroll when modal is open
     useEffect(() => {
@@ -274,7 +412,6 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
         if (!data || data.length === 0) {
             return [{ pct: 0, label: 'Now' }];
         }
-        const now = Date.now();
         const firstMin = Math.max(0, Math.round((new Date(data[0].time).getTime() - now) / 60_000));
         const lastMin = Math.max(
             firstMin + 1,
@@ -293,10 +430,16 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
             labels.push({ pct, label: formatMin(m) });
         }
         return labels;
-    }, [data]);
+    }, [data, now]);
 
     return (
-        <OverlayPortal className="flex items-center justify-center p-6" onClick={onClose} role="presentation">
+        // Centred and clear of the tab bar like the pin and model dialogs; the
+        // body scrolls inside when a short or landscape phone cannot fit it.
+        <OverlayPortal
+            className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            onClick={onClose}
+            role="presentation"
+        >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/80" />
 
@@ -306,7 +449,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="rain-forecast-title"
-                className="relative w-full max-w-md rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                className="relative w-full max-w-md max-h-full flex flex-col rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
                 // Daylight gets the light day surface: the text inside already
                 // inverts to navy by day, and on this navy gradient it went
@@ -320,17 +463,75 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                 }}
             >
                 {/* Weather-themed background scene.
-                    Two moods: "sunny day" when no rain is expected,
-                    "rain on glass" when rain is coming. Both are pure
+                    Three moods: a clear day or a clear night when no rain is
+                    expected, "rain on glass" when rain is coming. All pure
                     SVG + gradients — no image assets, no infinite
-                    animations (battery), and they sit BEHIND a z-10
-                    content layer so they never interfere with
-                    readability. */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
-                    {!analysis.hasRain ? (
-                        /* ☀️ Sunny day — warm sky gradient + prominent sun with
-                            layered rays + friendly cloud puffs. Mood:
-                            optimistic, clear-weather reassurance. */
+                    animations (battery), decorative (aria-hidden), and they
+                    sit BEHIND a z-10 content layer so they never interfere
+                    with readability. */}
+                <div aria-hidden="true" className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
+                    {!analysis.hasRain && sunDown ? (
+                        /* Clear night — after sunset the dry scene is a
+                            crescent moon and a few stars, not the sun (UX
+                            scorecard run 7). On the daylight display the wash
+                            steps back and the stars go, so the light surface
+                            stays clean. */
+                        <>
+                            <div
+                                className="absolute inset-0 [.display-light_&]:opacity-30"
+                                style={{
+                                    background:
+                                        'linear-gradient(180deg, rgba(49, 46, 129, 0.32) 0%, rgba(30, 27, 75, 0.16) 45%, rgba(15, 23, 42, 0) 100%)',
+                                }}
+                            />
+                            <svg
+                                className="absolute top-0 left-0 w-full h-40 [.display-light_&]:hidden"
+                                viewBox="0 0 300 160"
+                                preserveAspectRatio="xMidYMin slice"
+                            >
+                                {[
+                                    [28, 70, 1],
+                                    [64, 112, 0.8],
+                                    [118, 58, 0.9],
+                                    [168, 96, 0.7],
+                                    [196, 40, 1.1],
+                                    [226, 132, 0.8],
+                                    [250, 84, 0.9],
+                                    [284, 124, 1],
+                                    [90, 146, 0.7],
+                                    [140, 128, 0.8],
+                                ].map(([cx, cy, r]) => (
+                                    <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} fill="rgba(226,232,240,0.75)" />
+                                ))}
+                            </svg>
+                            <svg className="absolute top-16 right-4 w-14 h-14" viewBox="0 0 100 100">
+                                <defs>
+                                    <radialGradient id="rain-moon-disc" cx="40%" cy="40%" r="60%">
+                                        <stop offset="0%" stopColor="rgba(254,249,195,0.95)" />
+                                        <stop offset="100%" stopColor="rgba(253,224,71,0.7)" />
+                                    </radialGradient>
+                                    <mask id="rain-moon-cut">
+                                        <rect width="100" height="100" fill="white" />
+                                        <circle cx="64" cy="40" r="26" fill="black" />
+                                    </mask>
+                                </defs>
+                                <circle
+                                    cx="50"
+                                    cy="50"
+                                    r="30"
+                                    fill="url(#rain-moon-disc)"
+                                    stroke="rgba(202,138,4,0.45)"
+                                    strokeWidth="1.5"
+                                    mask="url(#rain-moon-cut)"
+                                />
+                            </svg>
+                        </>
+                    ) : !analysis.hasRain ? (
+                        /* Clear day — warm sky gradient + prominent sun with
+                            layered rays. Mood: optimistic, clear-weather
+                            reassurance. The cloud puffs and second flare that
+                            sat under the credit line like smudges are gone
+                            (UX scorecard run 7). */
                         <>
                             {/* Sky wash — sky blue at top fading to warm amber at
                                 bottom, so the whole panel has a "good day"
@@ -356,7 +557,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                 the modal's data stays primary. Starts BELOW the
                                 header row: at top-6 it sat behind the close
                                 button and crowded it. */}
-                            <svg className="absolute top-16 right-3 w-16 h-16" viewBox="0 0 100 100" aria-hidden="true">
+                            <svg className="absolute top-16 right-3 w-16 h-16" viewBox="0 0 100 100">
                                 <defs>
                                     <radialGradient id="sun-disc" cx="45%" cy="40%" r="55%">
                                         <stop offset="0%" stopColor="rgba(254,249,195,0.95)" />
@@ -395,24 +596,6 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                 <circle cx="50" cy="50" r="18" fill="url(#sun-disc)" />
                                 {/* Inner highlight for 3D feel */}
                                 <circle cx="44" cy="44" r="6" fill="rgba(254,249,195,0.7)" />
-                            </svg>
-                            {/* Secondary lens-flare blob — classic "sun-washing-
-                                the-camera" effect, placed diagonally opposite
-                                the sun so the eye reads it as an echo. */}
-                            <div className="absolute bottom-16 left-6 w-14 h-14 rounded-full bg-yellow-200/15 blur-xl" />
-                            {/* Cloud puffs — soft, friendly, anchored at the
-                                bottom so they feel like a blue-sky horizon
-                                reference, not a gathering storm. */}
-                            <svg
-                                className="absolute bottom-0 left-0 w-full opacity-70"
-                                viewBox="0 0 300 80"
-                                preserveAspectRatio="xMidYEnd slice"
-                                aria-hidden="true"
-                            >
-                                <ellipse cx="50" cy="72" rx="42" ry="12" fill="rgba(255,255,255,0.10)" />
-                                <ellipse cx="80" cy="68" rx="28" ry="9" fill="rgba(255,255,255,0.12)" />
-                                <ellipse cx="220" cy="74" rx="50" ry="11" fill="rgba(255,255,255,0.08)" />
-                                <ellipse cx="255" cy="70" rx="30" ry="8" fill="rgba(255,255,255,0.10)" />
                             </svg>
                         </>
                     ) : (
@@ -589,48 +772,48 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                     )}
                 </div>
 
-                <div className="relative z-10 p-5">
-                    {/* Header */}
-                    {/* The one Glass dialog header: icon, sentence-case title,
-                        top-right close (UX scorecard run 6). */}
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
-                                <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    className="text-sky-400"
-                                    aria-hidden="true"
-                                >
-                                    <path
-                                        d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                                        fill="currentColor"
-                                        fillOpacity="0.4"
-                                        stroke="currentColor"
-                                        strokeWidth="1.5"
-                                    />
-                                </svg>
-                            </div>
-                            <h2 id="rain-forecast-title" className="text-base font-bold text-white tracking-tight">
-                                Rain forecast
-                            </h2>
+                {/* Header — the one Glass dialog header: icon, sentence-case
+                    title, top-right close (UX scorecard run 6). */}
+                <div className="relative z-10 shrink-0 flex items-center justify-between px-5 pt-5 pb-3">
+                    <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                className="text-sky-400"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                    fill="currentColor"
+                                    fillOpacity="0.4"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                />
+                            </svg>
                         </div>
-                        <button
-                            ref={closeButtonRef}
-                            onClick={onClose}
-                            className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                            aria-label="Close rain forecast detail"
-                        >
-                            <XIcon className="w-4 h-4" />
-                        </button>
+                        <h2 id="rain-forecast-title" className="text-base font-bold text-white tracking-tight">
+                            Rain forecast
+                        </h2>
                     </div>
+                    <button
+                        ref={closeButtonRef}
+                        onClick={onClose}
+                        className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                        aria-label="Close rain forecast detail"
+                    >
+                        <XIcon className="w-4 h-4" />
+                    </button>
+                </div>
 
-                    {/* Intensity Gauge */}
+                <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-4">
+                    {/* Intensity Gauge — decoration; the words under it and the
+                        chart summary carry the reading. */}
                     <div className="flex flex-col items-center mb-5">
                         <div className="relative w-36 h-20">
-                            <svg viewBox="0 0 120 65" className="w-full h-full overflow-visible">
+                            <svg viewBox="0 0 120 65" className="w-full h-full overflow-visible" aria-hidden="true">
                                 {/* Background arc */}
                                 <path
                                     d="M 10 60 A 50 50 0 0 1 110 60"
@@ -671,18 +854,26 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             </svg>
                         </div>
 
-                        {/* Intensity label */}
+                        {/* Intensity label. A dry window reads 'Dry': '0.0 mm/hr
+                            peak' under 'Clear' was a number with nothing to
+                            measure (UX scorecard run 7). */}
                         <div className="text-center -mt-2">
-                            {/* text-sky-400 steps to sky-800 by day (legibility.css),
-                                which holds on the light day surface below. */}
-                            <div className="text-[11px] font-bold uppercase tracking-widest mb-0.5 text-sky-400">
-                                {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
-                            </div>
-                            <div className="text-2xl font-black text-white tabular-nums">
-                                {analysis.hasRain ? analysis.maxIntensity.toFixed(1) : '0.0'}
-                            </div>
-                            {/* Units stay lower case: 'MM/HR' is not how the unit is written. */}
-                            <div className="text-[11px] text-white/60 tracking-wider">mm/hr peak</div>
+                            {analysis.hasRain ? (
+                                <>
+                                    {/* text-sky-400 steps to sky-800 by day (legibility.css),
+                                        which holds on the light day surface below. */}
+                                    <div className="text-[11px] font-bold uppercase tracking-widest mb-0.5 text-sky-400">
+                                        {getIntensityLabel(analysis.maxIntensity)}
+                                    </div>
+                                    <div className="text-2xl font-black text-white tabular-nums">
+                                        {analysis.maxIntensity.toFixed(1)}
+                                    </div>
+                                    {/* Units stay lower case: 'MM/HR' is not how the unit is written. */}
+                                    <div className="text-[11px] text-white/60 tracking-wider">mm/hr peak</div>
+                                </>
+                            ) : (
+                                <div className="text-2xl font-black text-white">Dry</div>
+                            )}
                         </div>
                     </div>
 
@@ -691,64 +882,67 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                         <p className="text-sm font-bold text-white uppercase tracking-wide">{analysis.headline}</p>
                     </div>
 
-                    {/* 60-Bar Chart */}
-                    <div className="relative">
-                        {/* Peak intensity marker */}
+                    {/* Rain chart — one image with a spoken summary; the bars
+                        and axis ticks are not read one by one. */}
+                    <div role="img" aria-label={chartSummary} className="relative">
+                        {/* Peak intensity marker, held inside the chart's width
+                            at either end. */}
                         {analysis.hasRain && (
                             <div
                                 className="absolute -top-4 text-[11px] text-sky-400 font-bold uppercase tracking-wider whitespace-nowrap"
                                 style={{
-                                    left: `${(analysis.peakIdx / Math.max(data.length - 1, 1)) * 100}%`,
-                                    transform: 'translateX(-50%)',
+                                    left: `${peakPct * 100}%`,
+                                    transform:
+                                        peakPct < 0.1
+                                            ? 'translateX(0)'
+                                            : peakPct > 0.9
+                                              ? 'translateX(-100%)'
+                                              : 'translateX(-50%)',
                                 }}
                             >
                                 Peak
                             </div>
                         )}
 
-                        {/* Dry window: the chart collapses to a 32 pt baseline over
-                            the time axis. The headline above already says there
-                            is no rain; a full-height empty chart with the verdict
-                            printed in it again said it a third time (UX
-                            scorecard run 6). */}
+                        {/* Dry window: the chart is only a 32 pt baseline over the
+                            time axis, with no bars — trace below the rain
+                            threshold, scaled to its own 0.1 mm/hr peak, drew a
+                            full chart under 'No rain expected' (UX scorecard
+                            run 7). With rain, bars are buckets of the feed (at
+                            most MAX_CHART_BARS) against a fixed floor, clipped to
+                            the padded box so they share one width with the axis. */}
                         <div
-                            className={`relative flex items-end gap-[2px] w-full ${analysis.hasRain ? 'h-[120px]' : 'h-8'}`}
+                            className={`relative flex items-end gap-px w-full overflow-hidden ${analysis.hasRain ? 'h-[120px]' : 'h-8'}`}
                         >
-                            {!analysis.hasRain && (
-                                <div
-                                    className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
-                                    style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
-                                    aria-hidden="true"
-                                />
-                            )}
-                            {data.map((point, i) => {
-                                const normalizedHeight =
-                                    analysis.maxIntensity > 0
-                                        ? Math.max(
-                                              (point.intensity / analysis.maxIntensity) * 100,
-                                              point.intensity > 0 ? 8 : 0,
-                                          )
-                                        : 0;
-                                const barColor = getBarColor(point.intensity, analysis.maxIntensity, true);
-                                const isPeak = i === analysis.peakIdx && analysis.hasRain;
+                            <div
+                                className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
+                                style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
+                            />
+                            {analysis.hasRain &&
+                                bars.map((intensity, i) => {
+                                    const normalizedHeight = Math.max(
+                                        (intensity / axisMax) * 100,
+                                        intensity > 0 ? 4 : 0,
+                                    );
+                                    const barColor = getBarColor(intensity, axisMax, true);
+                                    const isPeak = i === peakBar;
 
-                                return (
-                                    <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
-                                        <div
-                                            className={`absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 ${isPeak ? 'ring-1 ring-cyan-400/50' : ''}`}
-                                            style={{
-                                                height: `${normalizedHeight}%`,
-                                                background: barColor,
-                                                minWidth: '2px',
-                                                boxShadow:
-                                                    point.intensity > 0
-                                                        ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
-                                                        : 'none',
-                                            }}
-                                        />
-                                    </div>
-                                );
-                            })}
+                                    return (
+                                        <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
+                                            <div
+                                                className={`absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 ${isPeak ? 'ring-1 ring-cyan-400/50' : ''}`}
+                                                style={{
+                                                    height: `${normalizedHeight}%`,
+                                                    background: barColor,
+                                                    boxShadow:
+                                                        intensity > 0
+                                                            ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
+                                                            : 'none',
+                                                }}
+                                            />
+                                        </div>
+                                    );
+                                })}
                         </div>
 
                         {/* Time Axis — labels positioned by true pct across the
@@ -780,19 +974,23 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                         </div>
                     </div>
 
-                    {/* Stats Row */}
+                    {/* Stats Row — the gauge's one decimal, so a 0.6 mm/hr peak
+                        is not '1 mm/hr' beside '0.6'. */}
                     {analysis.hasRain && (
                         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Total</div>
                                 <div className="text-sm font-bold text-white tabular-nums">
-                                    {Math.round(analysis.totalPrecip)} mm
+                                    {analysis.totalPrecip < 10
+                                        ? analysis.totalPrecip.toFixed(1)
+                                        : Math.round(analysis.totalPrecip)}{' '}
+                                    mm
                                 </div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Peak</div>
                                 <div className="text-sm font-bold text-sky-400 tabular-nums">
-                                    {Math.round(analysis.maxIntensity)} mm/hr
+                                    {analysis.maxIntensity.toFixed(1)} mm/hr
                                 </div>
                             </div>
                             <div className="text-center">
@@ -802,12 +1000,21 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                         </div>
                     )}
 
-                    {/* Which feed answered, and how far ahead it can see.
-                        Off the card face and in here, where someone standing
-                        in rain the card called dry comes looking for it. */}
+                    {/* Which feed answered, and how far ahead it can see — the
+                        same horizon as the headline. Off the card face and in
+                        here, where someone standing in rain the card called
+                        dry comes looking for it. */}
                     {feedProvenance && (
-                        <p className="mt-3 text-[10px] text-white/60 text-center leading-relaxed">{feedProvenance}</p>
+                        <p className="mt-3 text-[12px] text-white/60 text-center leading-relaxed">{feedProvenance}</p>
                     )}
+                </div>
+
+                {/* Footer — the full-width Close the pin and model dialogs
+                    have, in one-handed reach (UX scorecard run 7). */}
+                <div className="relative z-10 shrink-0 px-4 py-3 border-t border-white/6">
+                    <Button onClick={onClose} className="w-full text-slate-300">
+                        Close
+                    </Button>
                 </div>
             </div>
         </OverlayPortal>

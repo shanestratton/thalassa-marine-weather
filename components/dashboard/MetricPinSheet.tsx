@@ -88,6 +88,12 @@ function midSentence(helper: string): string {
     return /^[A-Z][a-z]/.test(helper) ? helper[0].toLowerCase() + helper.slice(1) : helper;
 }
 
+/** 'WIND' → 'Wind' for a spoken name that starts with the row's visible
+ *  label; two-letter acronyms such as 'UV' keep their capitals. */
+function spokenLabel(label: string): string {
+    return label.length <= 2 ? label : label[0] + label.slice(1).toLowerCase();
+}
+
 export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
     visible,
     currentMetric,
@@ -160,11 +166,19 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
 
                 {/* Scrollable list */}
                 <div className="overflow-y-auto max-h-[60dvh] px-3 py-3 space-y-1.5">
-                    {/* Temperature — reset to default */}
+                    {/* Temperature — reset to default. Every row is a pressed or
+                        unpressed toggle, and the pressed one is named for what
+                        it is, not for an action that would do nothing (UX
+                        scorecard run 7: 'Reset to temperature' on the row
+                        already showing it). */}
                     <button
                         onClick={() => onPick('temp')}
-                        aria-label="Reset to temperature"
-                        aria-current={currentMetric === 'temp' ? 'true' : undefined}
+                        aria-label={
+                            currentMetric === 'temp'
+                                ? 'Temperature, pinned'
+                                : 'Show air temperature as the big number at the top'
+                        }
+                        aria-pressed={currentMetric === 'temp'}
                         className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                             currentMetric === 'temp'
                                 ? 'bg-sky-500/15 border-sky-400/40'
@@ -205,8 +219,12 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                             <button
                                 key={m.id}
                                 onClick={() => onPick(m.id)}
-                                aria-label={`Show ${midSentence(m.helper)} as the big number at the top`}
-                                aria-current={isActive ? 'true' : undefined}
+                                aria-label={
+                                    isActive
+                                        ? `${spokenLabel(m.label)}, pinned — ${midSentence(m.helper)}`
+                                        : `Show ${midSentence(m.helper)} as the big number at the top`
+                                }
+                                aria-pressed={isActive}
                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                                     isActive
                                         ? 'bg-sky-500/15 border-sky-400/40'

@@ -95,7 +95,11 @@ test.describe('Glass wind versus tide card', () => {
         }, ONBOARDED_STORAGE.origins[0].localStorage);
 
         await page.goto('/');
-        await expect(page.getByRole('tab', { name: 'Navigate to The Glass' })).toHaveAttribute('aria-selected', 'true');
+        await expect(
+            page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'The Glass', exact: true }),
+        ).toHaveAttribute('aria-current', 'page');
         // Each tide card is named for its own hour and height; the live card
         // leads with 'Now'.
         const graph = page.getByRole('button', {

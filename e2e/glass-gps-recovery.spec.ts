@@ -144,10 +144,11 @@ for (const outcome of ['live', 'timeout'] as const) {
 
         await page.goto('/');
         await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
-        await expect(page.getByRole('tab', { name: 'Navigate to The Glass', exact: true })).toHaveAttribute(
-            'aria-selected',
-            'true',
-        );
+        await expect(
+            page
+                .getByRole('navigation', { name: 'Main', exact: true })
+                .getByRole('button', { name: 'The Glass', exact: true }),
+        ).toHaveAttribute('aria-current', 'page');
         await expect
             .poll(() => page.evaluate(() => (window as unknown as { __startupGps: StartupGps }).__startupGps.requests))
             .toBeGreaterThan(0);
@@ -165,7 +166,8 @@ for (const outcome of ['live', 'timeout'] as const) {
 
         await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
         const source = page.getByTestId('gps-source-row');
-        await expect(source).toContainText('finding this phone’s GPS location');
+        // The row reads 'Weather position' then the state, in sentence case (UX scorecard run 7).
+        await expect(source).toContainText('Finding this phone’s GPS location');
         await expect(source).toHaveAttribute('data-glyph', 'phone');
         await expect(source).toHaveAttribute('data-tone', 'none');
         await expect(source).not.toContainText(/unavailable|live|boat/);
@@ -189,7 +191,7 @@ for (const outcome of ['live', 'timeout'] as const) {
         await expect(pending).toHaveCount(0);
         if (outcome === 'live') {
             await expect(metrics).toBeVisible();
-            await expect(metrics.getByLabel(/^WIND: 12 kts\./)).toBeVisible();
+            await expect(metrics.getByLabel(/^Wind speed 12 knots\b/)).toBeVisible();
             // External geocoding is blocked, so the acquired point is named
             // by its coordinates while the matching forecast remains usable.
             await expect(location).toHaveValue('33.8688°S, 151.2093°E');
@@ -211,7 +213,7 @@ for (const outcome of ['live', 'timeout'] as const) {
         await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
         await expect(source).toHaveAttribute('data-glyph', 'phone');
         await expect(source).toHaveAttribute('data-tone', outcome === 'live' ? 'phone' : 'none');
-        await expect(source).toContainText(outcome === 'live' ? 'this phone’s GPS' : 'this phone’s GPS unavailable');
+        await expect(source).toContainText(outcome === 'live' ? 'This phone’s GPS' : 'This phone’s GPS unavailable');
         await expect(source).not.toContainText(/finding|boat/);
     });
 }
@@ -318,10 +320,11 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
 
     await page.goto('/');
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Navigate to The Glass', exact: true })).toHaveAttribute(
-        'aria-selected',
-        'true',
-    );
+    await expect(
+        page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'The Glass', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
     const location = page.getByRole('textbox', { name: 'Current location', exact: true });
     const metrics = page.getByRole('region', { name: 'Weather metrics dashboard', exact: true });
     const retry = page.getByTestId('weather-position-retry');
@@ -332,7 +335,7 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
     // Verify the cache is not the only thing on screen: the real weather
     // context has accepted this phone as its selected, working receiver.
     await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
-    await expect(page.getByTestId('gps-source-row')).toContainText('this phone’s GPS');
+    await expect(page.getByTestId('gps-source-row')).toContainText('This phone’s GPS');
     await expect(page.getByTestId('gps-source-row')).not.toContainText('unavailable');
     await page.getByRole('button', { name: 'Close system status', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'System Status', exact: true })).toHaveCount(0);
