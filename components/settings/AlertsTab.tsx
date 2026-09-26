@@ -8,8 +8,103 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('AlertsTab');
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { WindIcon, WaveIcon, EyeIcon, SunIcon, ThermometerIcon, RainIcon } from '../Icons';
+import type { NotificationPreferences } from '../../types';
+
+type ThresholdKey = Exclude<keyof NotificationPreferences, 'precipitation'>;
+
+interface ThresholdSpec {
+    key: ThresholdKey;
+    title: string;
+    /** Reads straight into the value beside it: "Sustained wind above" 20 kts. */
+    trigger: string;
+    /** Shown in the value well; '' for the unitless UV index. */
+    unit: string;
+    icon: React.ComponentType<{ className?: string }>;
+    iconClass: string;
+    switchLabel: string;
+}
+
+// Units are the ones the evaluators compare in (NotificationManager and the
+// check-weather-alerts function): kts, ft (internal wave height), nm, and °C —
+// the raw forecast temperature. They are NOT the display preferences: a °F or
+// metre label here would describe a number the alert never compares against.
+const THRESHOLDS: ThresholdSpec[] = [
+    {
+        key: 'wind',
+        title: 'High Wind',
+        trigger: 'Sustained wind above',
+        unit: 'kts',
+        icon: WindIcon,
+        iconClass: 'bg-purple-500/20 text-purple-300',
+        switchLabel: 'High wind alert',
+    },
+    {
+        key: 'gusts',
+        title: 'Gusts',
+        trigger: 'Peak gust above',
+        unit: 'kts',
+        icon: WindIcon,
+        iconClass: 'bg-amber-500/20 text-amber-300',
+        switchLabel: 'Gust alert',
+    },
+    {
+        key: 'waves',
+        title: 'High Seas',
+        trigger: 'Significant wave height above',
+        unit: 'ft',
+        icon: WaveIcon,
+        iconClass: 'bg-sky-500/20 text-sky-300',
+        switchLabel: 'High seas alert',
+    },
+    {
+        key: 'swellPeriod',
+        title: 'Long Period',
+        trigger: 'Swell period above',
+        unit: 's',
+        icon: WaveIcon,
+        iconClass: 'bg-sky-500/20 text-sky-300',
+        switchLabel: 'Long period swell alert',
+    },
+    {
+        key: 'visibility',
+        title: 'Low Vis',
+        trigger: 'Visibility below',
+        unit: 'nm',
+        icon: EyeIcon,
+        iconClass: 'bg-gray-500/20 text-gray-300',
+        switchLabel: 'Low visibility alert',
+    },
+    {
+        key: 'uv',
+        title: 'High UV',
+        trigger: 'UV index above',
+        unit: '',
+        icon: SunIcon,
+        iconClass: 'bg-yellow-500/20 text-yellow-300',
+        switchLabel: 'High UV alert',
+    },
+    {
+        key: 'tempHigh',
+        title: 'Heat Alert',
+        trigger: 'Air temperature above',
+        unit: '°C',
+        icon: ThermometerIcon,
+        iconClass: 'bg-red-500/20 text-red-300',
+        switchLabel: 'Heat alert',
+    },
+    {
+        key: 'tempLow',
+        title: 'Freeze Alert',
+        trigger: 'Air temperature below',
+        unit: '°C',
+        icon: ThermometerIcon,
+        iconClass: 'bg-sky-500/20 text-sky-300',
+        switchLabel: 'Freeze alert',
+    },
+];
 
 export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+    const idBase = React.useId();
     const updateAlert = async (
         key: keyof typeof settings.notifications,
         field: 'enabled' | 'threshold',
@@ -35,290 +130,58 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
             <Section title="Thresholds">
-                {/* 1. High Wind */}
-                <Row onClick={() => updateAlert('wind', 'enabled', !settings.notifications.wind.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-purple-500/20 text-purple-300 rounded-lg">
-                            <WindIcon className="w-6 h-6" />
+                {/* Plain rows, not buttons: the switch alone is the toggle, so the
+                    number field and the switch are never nested inside another
+                    control. Every value well has the same shape (no "<" prefix —
+                    above/below lives in the trigger line) so the values align. */}
+                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel }) => (
+                    <Row key={key}>
+                        <div className="flex min-w-0 items-center gap-3">
+                            <div className={`p-2 rounded-lg shrink-0 ${iconClass}`}>
+                                <Icon className="w-6 h-6" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-white font-bold">{title}</p>
+                                <p id={`${idBase}-${key}-trigger`} className="text-xs leading-snug text-gray-400">
+                                    {trigger}
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-white font-bold">High Wind</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Sustained Forecast</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <input
-                                aria-label="High Wind threshold, kts"
-                                type="number"
-                                value={settings.notifications.wind.threshold}
-                                onChange={(e) => updateAlert('wind', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        <div className="flex shrink-0 items-center gap-3">
+                            <div className="flex min-h-11 items-center gap-1.5 bg-black/40 pl-2.5 pr-2 py-0 rounded-lg border border-white/10">
+                                <input
+                                    aria-label={`${title} threshold${unit ? `, ${unit}` : ''}`}
+                                    aria-describedby={`${idBase}-${key}-trigger`}
+                                    type="number"
+                                    value={settings.notifications[key].threshold}
+                                    onChange={(e) => updateAlert(key, 'threshold', Number(e.target.value))}
+                                    className="w-10 min-h-11 bg-transparent text-white text-right outline-hidden font-bold tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                />
+                                {/* Fixed-width unit slot, even when empty, keeps every well the same width. */}
+                                <span className="w-6 text-xs text-gray-400" aria-hidden="true">
+                                    {unit}
+                                </span>
+                            </div>
+                            <Toggle
+                                label={switchLabel}
+                                checked={settings.notifications[key].enabled}
+                                onChange={(v) => updateAlert(key, 'enabled', v)}
                             />
-                            <span className="text-xs text-gray-400">kts</span>
                         </div>
-                        <Toggle
-                            label="High Wind alert"
-                            checked={settings.notifications.wind.enabled}
-                            onChange={(v) => updateAlert('wind', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
+                    </Row>
+                ))}
 
-                {/* 2. Gusts */}
-                <Row onClick={() => updateAlert('gusts', 'enabled', !settings.notifications.gusts.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-amber-500/20 text-amber-300 rounded-lg">
-                            <WindIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">Gusts</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Peak Gust Forecast</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <input
-                                aria-label="Gusts threshold, kts"
-                                type="number"
-                                value={settings.notifications.gusts.threshold}
-                                onChange={(e) => updateAlert('gusts', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">kts</span>
-                        </div>
-                        <Toggle
-                            label="Gusts alert"
-                            checked={settings.notifications.gusts.enabled}
-                            onChange={(v) => updateAlert('gusts', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 3. High Seas */}
-                <Row onClick={() => updateAlert('waves', 'enabled', !settings.notifications.waves.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg">
-                            <WaveIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">High Seas</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Significant Wave Hgt</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <input
-                                aria-label="High Seas threshold, ft"
-                                type="number"
-                                value={settings.notifications.waves.threshold}
-                                onChange={(e) => updateAlert('waves', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">ft</span>
-                        </div>
-                        <Toggle
-                            label="High Seas alert"
-                            checked={settings.notifications.waves.enabled}
-                            onChange={(v) => updateAlert('waves', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 4. Long Period (Swell) */}
-                <Row onClick={() => updateAlert('swellPeriod', 'enabled', !settings.notifications.swellPeriod.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg">
-                            <WaveIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">Long Period</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Swell Interval</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <input
-                                aria-label="Long Period threshold, s"
-                                type="number"
-                                value={settings.notifications.swellPeriod.threshold}
-                                onChange={(e) => updateAlert('swellPeriod', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">s</span>
-                        </div>
-                        <Toggle
-                            label="Long Period alert"
-                            checked={settings.notifications.swellPeriod.enabled}
-                            onChange={(v) => updateAlert('swellPeriod', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 5. Low Vis */}
-                <Row onClick={() => updateAlert('visibility', 'enabled', !settings.notifications.visibility.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-gray-500/20 text-gray-300 rounded-lg">
-                            <EyeIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">Low Vis</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Fog / Mist</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <span className="text-xs text-gray-400 mr-1">&lt;</span>
-                            <input
-                                aria-label="Low Vis threshold, nm"
-                                type="number"
-                                value={settings.notifications.visibility.threshold}
-                                onChange={(e) => updateAlert('visibility', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">nm</span>
-                        </div>
-                        <Toggle
-                            label="Low Vis alert"
-                            checked={settings.notifications.visibility.enabled}
-                            onChange={(v) => updateAlert('visibility', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 6. High UV */}
-                <Row onClick={() => updateAlert('uv', 'enabled', !settings.notifications.uv.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-yellow-500/20 text-yellow-300 rounded-lg">
-                            <SunIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">High UV</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Sun Intensity</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <input
-                                aria-label="High UV threshold, idx"
-                                type="number"
-                                value={settings.notifications.uv.threshold}
-                                onChange={(e) => updateAlert('uv', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">idx</span>
-                        </div>
-                        <Toggle
-                            label="High UV alert"
-                            checked={settings.notifications.uv.enabled}
-                            onChange={(v) => updateAlert('uv', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 7. Heat Alert */}
-                <Row onClick={() => updateAlert('tempHigh', 'enabled', !settings.notifications.tempHigh.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-red-500/20 text-red-300 rounded-lg">
-                            <ThermometerIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">Heat Alert</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">High Temp</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <input
-                                aria-label="Heat Alert threshold, °"
-                                type="number"
-                                value={settings.notifications.tempHigh.threshold}
-                                onChange={(e) => updateAlert('tempHigh', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">°</span>
-                        </div>
-                        <Toggle
-                            label="Heat Alert alert"
-                            checked={settings.notifications.tempHigh.enabled}
-                            onChange={(v) => updateAlert('tempHigh', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 8. Freeze Alert */}
-                <Row onClick={() => updateAlert('tempLow', 'enabled', !settings.notifications.tempLow.enabled)}>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg">
-                            <ThermometerIcon className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-white font-bold">Freeze Alert</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Low Temp</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div
-                            className="flex min-h-11 items-center gap-2 bg-black/40 px-3 py-0 rounded-lg border border-white/10"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <span className="text-xs text-gray-400 mr-1">&lt;</span>
-                            <input
-                                aria-label="Freeze Alert threshold, °"
-                                type="number"
-                                value={settings.notifications.tempLow.threshold}
-                                onChange={(e) => updateAlert('tempLow', 'threshold', Number(e.target.value))}
-                                className="w-12 min-h-11 bg-transparent text-white text-right outline-hidden font-bold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <span className="text-xs text-gray-400">°</span>
-                        </div>
-                        <Toggle
-                            label="Freeze Alert alert"
-                            checked={settings.notifications.tempLow.enabled}
-                            onChange={(v) => updateAlert('tempLow', 'enabled', v)}
-                        />
-                    </div>
-                </Row>
-
-                {/* 9. Precipitation */}
-                <Row
-                    onClick={() =>
-                        updateAlert('precipitation', 'enabled', !settings.notifications.precipitation.enabled)
-                    }
-                >
-                    <div className="flex items-center gap-4">
-                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg">
+                <Row>
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg shrink-0">
                             <RainIcon className="w-6 h-6" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-white font-bold">Precipitation</p>
-                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">
-                                Notify on rain/storm forecast
-                            </p>
+                            <p className="text-xs leading-snug text-gray-400">Rain or storm in the forecast</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex shrink-0 items-center gap-3">
                         <Toggle
                             label="Precipitation alert"
                             checked={settings.notifications.precipitation.enabled}
