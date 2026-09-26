@@ -16,7 +16,7 @@ import { LocationsTab } from './settings/LocationsTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { RowChevron } from './settings/SettingsPrimitives';
 import { ConfirmDialog } from './ui/ConfirmDialog';
-import { BackButton } from './ui/BackButton';
+import { PageHeader } from './ui/PageHeader';
 import { authScopedStorageKey } from '../services/authIdentityScope';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
@@ -176,11 +176,13 @@ const MENU_ITEMS: {
     // entire aesthetics page to a section inside the preference page").
 ];
 
-/** Small section header used on both desktop sidebar and mobile menu. */
+/** Small section header used on both desktop sidebar and mobile menu. An h2
+ *  under the page's h1, not a <p>: ESSENTIALS and ACCOUNT & SHARING are the
+ *  menu's two sections (UX scorecard run 5). The look is unchanged. */
 const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <p className="ui-section-heading text-label font-bold uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">
+    <h2 className="ui-section-heading text-label font-bold uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">
         {children}
-    </p>
+    </h2>
 );
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
@@ -263,14 +265,15 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
                 {/* --- DESKTOP SIDEBAR (unchanged) --- */}
                 <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-linear-to-b from-transparent via-white/2 to-transparent">
+                    {/* The page title, in PageHeader's type: the h1 on a wide
+                        screen, where the phone header below is hidden. The gear
+                        and the mono sky caption made Settings the one page with
+                        its own header look (UX scorecard run 5). */}
                     <div className="mb-6 px-2">
-                        <h2 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
-                            <GearIcon className="w-6 h-6 text-sky-400" />
-                            SETTINGS
-                        </h2>
-                        <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
-                            Control Centre
-                        </p>
+                        <h1 className="ui-page-title text-xl font-extrabold leading-tight text-white uppercase tracking-wider">
+                            Settings
+                        </h1>
+                        <p className="ui-caption text-xs text-gray-300 uppercase tracking-widest">Control Centre</p>
                     </div>
 
                     {/* Tab search — solves "I know what I want to change
@@ -439,28 +442,26 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
                 {/* --- MOBILE: Vertical Menu Screen (shown when no tab selected) --- */}
                 {activeTab === null && (
-                    <div className="md:hidden flex-1 flex flex-col">
-                        <div className="px-6 pt-8 pb-4">
-                            <div className="flex items-center gap-3">
-                                {onBack && <BackButton onClick={onBack} />}
-                                <div>
-                                    <h1 className="ui-page-title text-xl font-extrabold text-white flex items-center gap-3">
-                                        <GearIcon className="w-6 h-6 text-sky-400" />
-                                        SETTINGS
-                                    </h1>
-                                    <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
-                                        Control Centre
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                    // The menu scrolls itself. It used to overflow into the app's
+                    // page scroller, which runs under the tab bar, so 'Voyage Log'
+                    // sat sliced at the bar's edge. Its own box ends where the root's
+                    // pb-24 stops, at the bar, and .thalassa-scroll-fade fades the
+                    // last 14px there instead of cutting a row in half.
+                    <div className="md:hidden flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain thalassa-scroll-fade">
+                        {/* The shared page header (title, grey caption, back), the
+                            same chrome as every other page. Back goes where it
+                            always went. */}
+                        <PageHeader title="Settings" subtitle="Control Centre" onBack={onBack} />
                         {/* Mobile menu — same grouping as the desktop
                             sidebar (single source of truth in MENU_ITEMS
                             + SETTINGS_GROUPS).
                             When search is active, sections collapse and
                             matching tabs render flat (same pattern as the
-                            desktop sidebar). */}
-                        <div className="flex-1 px-4 pb-32 space-y-3">
+                            desktop sidebar).
+                            pb-20 clears the floating now-playing bar (56px,
+                            parked 4px above the tab bar), as the tab scroller
+                            below does. */}
+                        <div className="flex-1 px-4 pb-20 space-y-3">
                             {/* Search input — same component shape as desktop,
                                 slightly taller (h-11 for thumb-friendly tap). */}
                             <div className="relative pt-1">
@@ -582,20 +583,42 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 <div
                     className={`flex-1 flex flex-col h-full bg-transparent overflow-hidden ${activeTab === null ? 'hidden md:flex' : ''}`}
                 >
-                    {/* Mobile: Section header with X close button */}
+                    {/* Mobile: the shared page header for a nested page — Settings
+                        breadcrumb, section title, back. Both the chevron and the
+                        crumb return to the settings menu, as the chevron did. */}
                     {activeTab !== null && (
-                        <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 border-b border-white/5">
-                            <BackButton onClick={() => setActiveTab(null)} label="Back to settings menu" />
-                            <h1 className="text-lg font-black text-white uppercase tracking-wider">
-                                {MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
-                            </h1>
+                        <div className="md:hidden relative z-20 shrink-0 bg-slate-950/90 border-b border-white/5">
+                            <PageHeader
+                                title={MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
+                                breadcrumbs={['Settings', MENU_ITEMS.find((m) => m.id === activeTab)?.label || '']}
+                                onBack={() => setActiveTab(null)}
+                            />
                         </div>
                     )}
                     {/* pb-20, not pb-48: the port already ends above the tab bar, so
                         192px left ~250pt of empty page under the last section. 80px
                         still clears the floating now-playing bar (56px, parked 4px
-                        above the tab bar) so the last row can scroll out from under it. */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-20">
+                        above the tab bar) so the last row can scroll out from under it.
+
+                        No .thalassa-scroll-fade here, unlike the menu: this scroller
+                        holds position:fixed overlays of its own (Vessel's Save bar,
+                        Preferences' 'Share what you hear' consent sheet), and a mask
+                        would fade and clip them to this box. It also ends at the tab
+                        bar, so nothing runs under it.
+
+                        Vessel Profile pads to its Save bar instead: the bar, 80px +
+                        safe area up and ~64px tall, overlaps this scroller by ~48px
+                        + safe area, so the last field needs that overlap plus the
+                        bar's 16px top fade plus 8px: 72px + safe area. The flat 80px
+                        left it under the bar on a notched phone; the old 192px left
+                        ~150pt of empty page above it. */}
+                    <div
+                        className={`flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 ${
+                            activeTab === 'vessel'
+                                ? 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-[calc(72px+env(safe-area-inset-bottom))]'
+                                : 'pb-20'
+                        }`}
+                    >
                         {activeTab === 'locations' && (
                             <LocationsTab settings={settings} onSave={onSave} onLocationSelect={onLocationSelect} />
                         )}

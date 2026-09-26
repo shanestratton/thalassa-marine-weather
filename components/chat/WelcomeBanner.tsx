@@ -10,8 +10,8 @@ export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({ onDismiss }) => (
         <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/3 border border-white/6">
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white/90">Welcome aboard</p>
-                <p className="text-[11px] text-white/50 mt-0.5">
-                    Pick a channel to join the conversation, or open a DM from any sailor's avatar.
+                <p className="text-xs text-gray-400 mt-0.5">
+                    Pick a channel to join the conversation, or message a sailor from their profile picture.
                 </p>
             </div>
             <button

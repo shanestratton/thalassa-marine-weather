@@ -286,6 +286,11 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
     const chatAuthedUser = useAuthStore((s) => s.user);
     const chatIsAuthed = !!chatAuthedUser;
     const [showChatAuth, setShowChatAuth] = useState(false);
+    // One notice at a time on the channel list. 'Welcome aboard' and 'Sign in
+    // to chat' stacked two cards above the channels (UX scorecard run 5), so
+    // while the sign-in card is owed, the welcome waits. Keyed on auth, not on
+    // the list loading, so the welcome never flashes and then swaps out.
+    const signInBannerOwed = !chatIsAuthed && chatAuthBanner;
 
     // Pull-to-refresh — actual message reload
     const pullRefresh = usePullToRefresh(async () => {
@@ -684,7 +689,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
             />
 
             {/* ═══════════ WELCOME BANNER ═══════════ */}
-            {isFirstVisit && view === 'channels' && <WelcomeBanner onDismiss={dismissWelcome} />}
+            {isFirstVisit && view === 'channels' && !signInBannerOwed && <WelcomeBanner onDismiss={dismissWelcome} />}
 
             {/* Hidden file input */}
             <input
@@ -715,11 +720,23 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
             {/* ═══════════════════ CONTENT ═══════════════════ */}
             <ChatErrorBoundary>
+                {/* The channel list runs under the tab bar, which sliced its last
+                    card ('Catches, spots…') at the bar's edge. There the scroller
+                    masks the band under the bar and fades the 14px above it, and
+                    tops ChannelList's own pb-24 up to the bar + 16px so the last
+                    card can still scroll fully clear. Channels only: the message
+                    views end at the composer and their menus/sheets must never be
+                    faded by a mask. */}
                 <div
                     key={view}
                     data-chat-scroll
                     ref={pullRefresh.containerRef}
-                    className={`min-h-0 flex-1 overflow-y-auto overscroll-contain overscroll-glow ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'}`}
+                    className={`min-h-0 flex-1 overflow-y-auto overscroll-contain overscroll-glow ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'} ${view === 'channels' ? 'thalassa-scroll-fade thalassa-scroll-fade--nav' : ''}`}
+                    style={
+                        view === 'channels'
+                            ? { paddingBottom: 'max(0px, calc(var(--thalassa-tabbar-height) + 16px - 6rem))' }
+                            : undefined
+                    }
                     {...pullRefresh.handlers}
                 >
                     {/* Pull-to-refresh indicator */}

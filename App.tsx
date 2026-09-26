@@ -623,7 +623,10 @@ const App: React.FC = () => {
     if (retainedLocationWeather) displayTitle = `Last location · ${displayTitle}`;
 
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
-    const showHeader = !['map', 'warnings'].includes(currentView);
+    // Every page but the chart wears the THALASSA banner. Active Warnings used
+    // to be excluded too, so it alone lost the banner landmark and the Systems
+    // / GPS button, and the chrome jumped on the way in (UX scorecard run 5).
+    const showHeader = currentView !== 'map';
     const isDashboard = currentView === 'dashboard';
     const glassTopLayout = getGlassTopLayout(isMobileLandscape, glassViewportHeightPx);
 
@@ -1253,7 +1256,7 @@ const App: React.FC = () => {
                     >
                         <main
                             id="main-content"
-                            className={`grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
+                            className={`grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${currentView === 'settings' ? 'overflow-y-auto' : 'overflow-hidden'}`}
                         >
                             {currentView === 'dashboard' && <h1 className="sr-only">The Glass</h1>}
                             <ErrorBoundary boundaryName="MainContent">
