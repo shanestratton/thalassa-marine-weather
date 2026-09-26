@@ -129,22 +129,25 @@ export function createVesselElement(): HTMLDivElement {
 
     // Reserve the AIS name row below the fix: at its largest size the name
     // spans ~17–32 CSS px below the centre (12px text, 1.4em offset). Start
-    // this badge at +40px, independent of text height, heading or map zoom.
-    // Only the badge moves; Mapbox must retain the root's exact GPS anchor.
+    // this badge at +54px, independent of text height, heading or map zoom:
+    // +40 still half-covered the basemap's place label under the dot, which
+    // Mapbox's collision cannot see (only "Bris…e" showed). The pill is
+    // opaque so whatever it does overlap reads as covered, not garbled
+    // (UX scorecard run 5). Only the badge moves; Mapbox must retain the
+    // root's exact GPS anchor.
     const badge = document.createElement('div');
     badge.className = 'vessel-sog-badge';
     badge.style.cssText = `
-        position: absolute; top: calc(100% + 16px); left: 50%;
+        position: absolute; top: calc(100% + 30px); left: 50%;
         transform: translateX(-50%);
-        background: rgba(15, 23, 42, 0.9);
+        background: rgb(15, 23, 42);
         border: 1px solid rgba(56, 189, 248, 0.3);
         border-radius: 8px;
-        padding: 1px 6px;
+        padding: 2px 8px;
         font-size: 12px; font-weight: 800;
         color: #38bdf8;
         white-space: nowrap;
         letter-spacing: 0.05em;
-        backdrop-filter: blur(8px);
         z-index: 3;
     `;
     badge.textContent = '0.0 kts';

@@ -4122,14 +4122,30 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
         bottom: calc(env(safe-area-inset-bottom) + 60px);
     }
+    /* …and clear of a landscape notch: the containers sat at the map's edge,
+       inside the ~59 pt inset on a notched iPhone. Containers only. */
+    .thalassa-chart-map .mapboxgl-ctrl-bottom-left {
+        left: env(safe-area-inset-left);
+    }
+    .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
+        right: env(safe-area-inset-right);
+    }
     .thalassa-map-action-fabs {
         bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
     }
 
     .anchor-setup-scroll {
-        /* room for the fixed nav toggle at bottom-left */
-        padding-bottom: calc(env(safe-area-inset-bottom) + 60px) !important;
+        /* No clearance on the scroller itself: a sticky bar honours the
+           scroller's padding, so the old 60 px (for the nav toggle) left a
+           band under the arming bar where WATER DEPTH and RODE scrolled
+           visibly (UX scorecard run 5). The toggle sits in the radar column,
+           never under the controls column, so the bar can stick flush and
+           carry its own inset (.anchor-setup-arm below). */
+        padding-bottom: 0 !important;
         -webkit-overflow-scrolling: touch;
+    }
+    .anchor-setup-arm {
+        padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
     }
 
     .anchor-setup-radar {
@@ -4181,17 +4197,15 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     .route-planner-page .ui-page-title + .ui-caption {
         display: none;
     }
-    /* a fade at the foot says the cards continue below the fold */
-    .route-planner-page::after {
-        content: '';
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 28px;
-        pointer-events: none;
-        background: linear-gradient(to bottom, transparent, var(--day-ui-surface-soft, #020617));
+    /* …and a tight title row, so the first card after the departure form
+       peeks out above the pinned CTA — the "more below" cue. */
+    .route-planner-page > .shrink-0:first-child {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
     }
+    /* The "cards continue below" fade is the pinned CTA's own (.route-planner-cta
+       below). A page ::after at bottom:0 painted at the END of the list, since
+       the page grows rather than scrolls, so nobody ever saw it at the fold. */
 
     .anchor-shore-watch-backdrop {
         justify-content: flex-start !important;
@@ -4267,15 +4281,20 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     }
 
     /* Route Planner's portrait CTA is deliberately pinned above the tab bar.
-       On a short phone in landscape that same geometry sat across the
-       departure controls, making the date/time row look selected but partly
-       untappable. Let this one page become a normal vertical scroller and put
-       the CTA after the form. The chart planner still keeps its purpose-built
-       landscape rails below. */
+       On a short phone in landscape that same FIXED geometry (with its 4rem
+       tab-bar clearance) sat across the departure controls, making the
+       date/time row look selected but partly untappable. So in landscape the
+       CTA joins the flow after the form and sticks to the bottom of the view's
+       scroller: pinned as in portrait, but a row of its own, so the last card
+       scrolls fully clear of it. The chart planner still keeps its
+       purpose-built landscape rails below.
+       The page itself never scrolls (it grows inside the view wrapper, which
+       does), so it must not be a scroll container either: `clip`, not
+       hidden/auto, or it would become the sticky CTA's scrollport and the CTA
+       could never pin. */
     .route-planner-page {
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        overscroll-behavior-y: contain;
+        overflow-x: clip !important;
+        overflow-y: visible !important;
     }
 
     .route-planner-form {
@@ -4289,11 +4308,38 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
         overflow: hidden;
     }
 
+    /* Opaque, with a fade above it, so the cards read as continuing beneath;
+       the side padding keeps the slide's thumb clear of the nav toggle at
+       bottom-left, and the top margin gives the fade blank page to sit on
+       once the list is scrolled to its end (UX scorecard run 5). */
     .route-planner-cta {
-        position: relative !important;
+        position: sticky !important;
         inset: auto !important;
+        bottom: 0 !important;
         flex-shrink: 0;
-        padding-top: 0.5rem;
+        margin-top: 2rem;
+        padding-top: 0.25rem;
+        padding-bottom: calc(env(safe-area-inset-bottom) + 0.25rem) !important;
+        padding-left: calc(env(safe-area-inset-left) + 112px) !important;
+        padding-right: calc(env(safe-area-inset-right) + 112px) !important;
+        pointer-events: auto !important;
+        background: #020617;
+    }
+    .route-planner-cta::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 100%;
+        height: 2rem;
+        pointer-events: none;
+        background: linear-gradient(to bottom, rgb(2 6 23 / 0), #020617);
+    }
+    .display-light .route-planner-cta {
+        background: rgb(226 232 240);
+    }
+    .display-light .route-planner-cta::before {
+        background: linear-gradient(to bottom, rgb(226 232 240 / 0), rgb(226 232 240));
     }
 
     .radial-helm-menu {
@@ -4989,7 +5035,12 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    behind it so scrolled content never shows through. */
 .anchor-setup-arm {
     background: var(--day-ui-surface-soft, #020617);
-    box-shadow: 0 -10px 16px -10px rgba(0, 0, 0, 0.45);
+    /* The second, solid shadow paints the 8px gap between the bar and the tab
+       bar in the page colour, so the gap stays but controls no longer scroll
+       visibly through it (the slider's "1 m / 20 m" peeked there). */
+    box-shadow:
+        0 -10px 16px -10px rgba(0, 0, 0, 0.45),
+        0 8px 0 0 var(--day-ui-surface-soft, #020617);
 }
 
 /* Radius sliders: appearance-none had left WebKit's default thumb — a 28 pt
@@ -5106,4 +5157,134 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    navy on the page). */
 .display-light .thalassa-action-thumb .text-white {
     color: #ffffff;
+}
+
+/* ══ UX scorecard run 5 — app chrome ════════════════════════════════════════ */
+
+/* Tab bar: App.tsx paints it from these, fully opaque — at 0.985 alpha plus a
+   blur, page text still ghosted through the tab labels. It stays a dark dock
+   in daylight ON PURPOSE: NavButton's white labels and the cyan PNG icons are
+   drawn for a dark bar. Daylight takes the palette's own ink (#0f172a, the
+   colour of the header wordmark) so the dock reads as the header's type set
+   in a bar, not as a night surface the remap missed. */
+:root {
+    --thalassa-tabbar-bg: rgb(10 15 20);
+    --thalassa-tabbar-border: rgba(56, 189, 248, 0.12);
+    /* The bar's real footprint, for anything that must clear it. */
+    --thalassa-tabbar-height: calc(4rem + 1px + env(safe-area-inset-bottom));
+}
+:root.display-light {
+    --thalassa-tabbar-bg: #0f172a;
+    --thalassa-tabbar-border: #0f172a;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+    /* The bar folds away behind the nav toggle on a landscape phone. */
+    :root {
+        --thalassa-tabbar-height: 0px;
+    }
+}
+
+/* Daylight: the header logo is a PNG with its night tile baked in, which sat
+   as a near-black square in the pale header. Invert + half-turn of hue gives
+   the light-tile variant (pale tile, navy/teal mark) without a second asset. */
+.display-light .thalassa-header-logo {
+    filter: invert(1) hue-rotate(180deg);
+}
+
+/* Scrollers that run under a fixed footer: content is either readable or out
+   of sight, never both. Masks the band under the footer and fades the last
+   14 px above it, so a card is never sliced mid-glyph at the bar's edge.
+   Opt in with .thalassa-scroll-fade on the SCROLLING element (the mask stays
+   put while the content moves); add --nav when the tab bar is the footer, or
+   set --thalassa-scroll-fade-inset to a page's own footer height. Keep the
+   scroller's padding-bottom >= inset + 16px so the last row can scroll clear.
+   Not for a scroller with position:fixed overlays inside it — a mask would
+   fade them too. */
+.thalassa-scroll-fade {
+    --thalassa-scroll-fade-inset: 0px;
+    --thalassa-scroll-fade-size: 14px;
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--thalassa-scroll-fade-inset) - var(--thalassa-scroll-fade-size)),
+        transparent calc(100% - var(--thalassa-scroll-fade-inset))
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--thalassa-scroll-fade-inset) - var(--thalassa-scroll-fade-size)),
+        transparent calc(100% - var(--thalassa-scroll-fade-inset))
+    );
+}
+.thalassa-scroll-fade--nav {
+    --thalassa-scroll-fade-inset: var(--thalassa-tabbar-height);
+}
+
+/* A pinned bar inside a scroller gets the same fade on its top edge, so a
+   control scrolling under it fades out rather than being cut through. */
+.anchor-setup-arm::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 12px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--day-ui-surface-soft, #020617));
+}
+
+/* Popover panels (saved locations, map base, the helm layer grid): opaque.
+   At /95 plus a blur, the page's text still read through under the rows.
+   Paired with the panel's own bg-slate-9xx/95 class so the day/onshore
+   remaps keep their hue; this only takes the alpha to 1. */
+.thalassa-popover-solid.bg-slate-900\/95 {
+    background-color: rgb(15 23 42);
+}
+.thalassa-popover-solid.bg-slate-950\/95 {
+    background-color: rgb(2 6 23);
+}
+/* :where() keeps onshore at the same specificity, so the daylight rule after
+   it still wins when both themes are on. */
+:where(.theme-onshore) .thalassa-popover-solid.bg-slate-900\/95 {
+    background-color: rgb(28 25 23);
+}
+.display-light .thalassa-popover-solid {
+    background-color: #ffffff;
+}
+
+/* 44 pt targets on small phones. Below 768 px the root font is fluid
+   (clamp 13–17px), so h-11 (2.75rem) fell to 41 px on a 375 pt phone. Floor
+   the 44 pt utilities rather than the root size; appended to the utilities
+   layer, so the normal cascade against other utilities is unchanged. */
+@layer utilities {
+    .h-11 {
+        height: max(44px, calc(var(--spacing) * 11));
+    }
+    .min-h-11 {
+        min-height: max(44px, calc(var(--spacing) * 11));
+    }
+    .w-11 {
+        width: max(44px, calc(var(--spacing) * 11));
+    }
+    .min-w-11 {
+        min-width: max(44px, calc(var(--spacing) * 11));
+    }
+}
+
+/* ── Daylight residuals (CSS half; components opt in) ──────────────────── */
+/* Scuttlebutt's top glow was a hardcoded slate-900 band over the pale page. */
+.display-light .overscroll-glow::before {
+    background: linear-gradient(to bottom, rgb(226 232 240 / 0.95), transparent);
+}
+/* Position dots (hour strip, day pager): the inactive dot is white/20, which
+   daylight lifts to white 0.85 — invisible on pale slate. Components swap
+   bg-white/20 for .thalassa-dot-idle: white/30 at night, slate-400 by day. */
+.thalassa-dot-idle {
+    background-color: rgb(255 255 255 / 0.3);
+}
+.display-light .thalassa-dot-idle {
+    background-color: #94a3b8;
+}
+/* Section-plate rules (the Instrument Panel's CLOCK plate, chat day breaks)
+   fade from transparent to a translucent white — nothing on a pale page. */
+.display-light :is([class~='to-white/15'], [class~='to-white/6']) {
+    --tw-gradient-to: rgb(71 85 105 / 0.55);
 }

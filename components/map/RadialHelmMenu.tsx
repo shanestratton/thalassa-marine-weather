@@ -918,7 +918,11 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     return (
         <div
             ref={containerRef}
-            className={`radial-helm-menu absolute z-700 top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
+            // z-700 already clears every marker layer (own-ship is z auto,
+            // cyclone/squall markers 500) while the storm card (760) stays on
+            // top as asked; what let the dot read through was the tiles'
+            // translucency, fixed below. The right rail clears a landscape notch.
+            className={`radial-helm-menu absolute z-700 top-[192px] right-[max(16px,env(safe-area-inset-right))] ${isOpen ? 'pointer-events-auto' : ''}`}
             onPointerDownCapture={noteTouch}
             onPointerMoveCapture={noteTouch}
             onKeyDown={handleMenuKeyDown}
@@ -1016,7 +1020,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                 key={`grid-${cat.id}`}
                                 role="menu"
                                 aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
-                                className="radial-helm-layer-grid fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 backdrop-blur-xl shadow-2xl"
+                                className="radial-helm-layer-grid thalassa-popover-solid fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl"
                                 style={{
                                     // Anchor the grid to the right edge of the viewport, BELOW the
                                     // Tier 1 category arc. Fixed (not absolute) so it escapes the
@@ -1074,14 +1078,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                     e.stopPropagation();
                                                     handleItemTap(item);
                                                 }}
-                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-colors ${
+                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter] hover:brightness-125 ${
                                                     active
                                                         ? 'bg-sky-500/20 border-sky-400/50 text-white'
                                                         : hovered
                                                           ? 'bg-white/10 border-white/25 text-white'
                                                           : 'bg-slate-800/70 border-white/8 text-gray-300'
                                                 }`}
-                                                whileHover={{ scale: 1.04 }}
                                                 whileTap={{ scale: 0.94 }}
                                             >
                                                 <span className="text-[18px] leading-none">{item.icon}</span>
@@ -1156,13 +1159,17 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         e.stopPropagation();
                                         handleCategoryTap(cat.id);
                                     }}
-                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-colors ${
+                                    // Opaque tiles: at /70–/90 the own-ship dot read through
+                                    // one while its badge seemed to sit on top. Hover is a
+                                    // brightness change only; the ring/glow belongs to the
+                                    // open category (aria-expanded) alone.
+                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter] hover:brightness-125 ${
                                         isActive
-                                            ? `bg-slate-800/90 border-white/20 ${cat.color}`
+                                            ? `bg-slate-800 border-white/20 ${cat.color}`
                                             : hasActive
-                                              ? `bg-slate-900/80 border-white/10 ${cat.color}`
-                                              : 'bg-slate-900/70 border-white/8 text-gray-500'
-                                    } backdrop-blur-xl`}
+                                              ? `bg-slate-900 border-white/10 ${cat.color}`
+                                              : 'bg-slate-900 border-white/8 text-gray-500'
+                                    }`}
                                     style={{
                                         width: 60,
                                         height: 60,
@@ -1170,7 +1177,6 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         right: -pos.x - 6,
                                         top: pos.y - 6,
                                     }}
-                                    whileHover={{ scale: 1.1 }}
                                     whileTap={{ scale: 0.92 }}
                                 >
                                     <motion.div

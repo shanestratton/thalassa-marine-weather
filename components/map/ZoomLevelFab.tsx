@@ -46,15 +46,20 @@ export const ZoomLevelFab: React.FC<ZoomLevelFabProps> = React.memo(({ mapRef, m
     }, [mapRef, mapReady]);
 
     if (zoomLevel === null) return null;
+    // "Zoom" in words, stacked over the number so the pill keeps its 48 px
+    // footprint beside the offline chip: a lone "Z" only decoded for a
+    // developer (UX scorecard run 5).
     return (
         <div
-            className="absolute left-4 z-700 h-12 min-w-12 rounded-full border border-white/10 bg-slate-900/85 px-2.5 shadow-lg backdrop-blur-md pointer-events-none flex items-center justify-center select-none"
-            style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
+            className="absolute z-700 h-12 min-w-12 rounded-full border border-white/10 bg-slate-900/85 px-2.5 shadow-lg backdrop-blur-md pointer-events-none flex flex-col items-center justify-center gap-0.5 select-none"
+            style={{ top: 'calc(env(safe-area-inset-top) + 8px)', left: 'max(16px, env(safe-area-inset-left))' }}
             aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}
             title="Map zoom level"
         >
-            <span className="text-[10px] font-bold text-sky-400/70 uppercase tracking-wider mr-1">Z</span>
-            <span className="text-sm font-mono font-bold text-white tabular-nums">{zoomLevel.toFixed(1)}</span>
+            <span className="text-[12px] font-bold leading-none text-sky-400 uppercase tracking-wider">Zoom</span>
+            <span className="text-sm font-mono font-bold leading-none text-white tabular-nums">
+                {zoomLevel.toFixed(1)}
+            </span>
         </div>
     );
 });

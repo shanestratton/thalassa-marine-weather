@@ -802,6 +802,67 @@ const App: React.FC = () => {
         </>
     );
 
+    // Which tab is under the landscape menu — the bar is hidden in landscape,
+    // so nothing else on screen says where you are (the Glass included).
+    const landscapeNavPageLabel =
+        currentView === 'dashboard' || splitActive
+            ? 'The Glass'
+            : currentView === 'map'
+              ? tracerActive
+                  ? 'Plan'
+                  : 'OBS'
+              : currentView === 'voyage'
+                ? 'Plan'
+                : currentView === 'details'
+                  ? 'Log'
+                  : isVesselView || currentView === 'chat'
+                    ? 'Vessel'
+                    : 'Menu';
+    // The landscape navigation toggle. Its own <nav> keeps a navigation
+    // landmark while the bar is folded away. `docked` puts it in the Glass's
+    // header row beside the status button: bottom-left it sat over the
+    // instrument grid's UV cell (UX scorecard run 5).
+    const renderLandscapeNavToggle = (docked: boolean) => (
+        <nav aria-label={landscapeNavOpen ? 'Navigation toggle' : 'Main'}>
+            <button
+                type="button"
+                onClick={() => setLandscapeNavOpen((v) => !v)}
+                // e2e/chart-warning.spec.ts finds this by its exact name.
+                aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
+                aria-expanded={landscapeNavOpen}
+                className={`press flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${docked ? '' : 'fixed bottom-2 z-901'} ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
+                style={
+                    docked
+                        ? undefined
+                        : {
+                              left: 'max(0.5rem, env(safe-area-inset-left))',
+                              marginBottom: 'env(safe-area-inset-bottom)',
+                          }
+                }
+            >
+                <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                >
+                    {landscapeNavOpen ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                    )}
+                </svg>
+                {!landscapeNavOpen && (
+                    <span className="whitespace-nowrap text-[12px] font-black uppercase tracking-wider">
+                        {landscapeNavPageLabel}
+                    </span>
+                )}
+            </button>
+        </nav>
+    );
+
     return (
         <div
             className={`relative h-screen supports-[height:100dvh]:h-dvh w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}
@@ -941,7 +1002,14 @@ const App: React.FC = () => {
                 {/* HEADER */}
                 {showHeader && (
                     <header
-                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} pt-[max(1rem,env(safe-area-inset-top))]`}
+                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${
+                            // Landscape pages collapse the brand block to one title row:
+                            // at 393 px tall the full header left the Plan page ~160 px
+                            // (UX scorecard run 5). The Glass keeps its own geometry.
+                            isMobileLandscape && !isDashboard
+                                ? 'pt-[max(0.5rem,env(safe-area-inset-top))]'
+                                : 'pt-[max(1rem,env(safe-area-inset-top))]'
+                        }`}
                         style={{ paddingBottom: isDashboard ? 0 : undefined, gap: `${GLASS_TOP_CARD_GAP_PX}px` }}
                     >
                         {/* Logo row — same style on all pages */}
@@ -960,7 +1028,7 @@ const App: React.FC = () => {
                                     alt=""
                                     width={64}
                                     height={64}
-                                    className={`${isDashboard && isMobileLandscape ? 'w-10 h-10' : 'w-[64px] h-[64px]'} rounded-lg`}
+                                    className={`thalassa-header-logo ${isMobileLandscape ? 'w-10 h-10' : 'w-[64px] h-[64px]'} rounded-lg`}
                                 />
                                 <div className="min-w-0">
                                     <div className="flex min-w-0 items-center gap-1">
@@ -1004,8 +1072,9 @@ const App: React.FC = () => {
                                     <p
                                         className={`flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md ${
                                             // The trimmed Glass rows (landscape 40 px, short phones 52 px)
-                                            // have no room for a second line under the wordmark.
-                                            isDashboard && (isMobileLandscape || glassTopLayout.isShortViewport)
+                                            // have no room for a second line under the wordmark, and
+                                            // no landscape page has room for it either.
+                                            isMobileLandscape || (isDashboard && glassTopLayout.isShortViewport)
                                                 ? 'hidden'
                                                 : ''
                                         }`}
@@ -1046,6 +1115,10 @@ const App: React.FC = () => {
 
                             {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right */}
                             <div className="flex shrink-0 items-center gap-2 pointer-events-auto">
+                                {isDashboard &&
+                                    isMobileLandscape &&
+                                    !isStandalonePlan &&
+                                    renderLandscapeNavToggle(true)}
                                 {canUseBosunVoice && (
                                     <button
                                         onClick={() => setPage('voice')}
@@ -1381,6 +1454,11 @@ const App: React.FC = () => {
                             // frames), and it owns the main-content id — two
                             // elements with one id is how skip-links break.
                             id={chartVisible && !splitChartActive ? 'main-content' : undefined}
+                            // Kept alive off-screen, this is a second <main> in the DOM;
+                            // `hidden` is how HTML allows one, so skip links and the
+                            // landmark rotor only ever find the page on screen.
+                            hidden={!chartVisible && !splitChartActive}
+                            aria-hidden={!chartVisible && !splitChartActive ? true : undefined}
                             className={
                                 splitChartActive && splitChartRect
                                     ? 'overflow-hidden rounded-2xl bg-slate-900'
@@ -1472,8 +1550,9 @@ const App: React.FC = () => {
                                         // The zoom readout now shares this top row.
                                         // Keep the offline indicator beside it rather
                                         // than allowing the two left-side pills to
-                                        // overlap on a chart with no signal.
-                                        left: '88px',
+                                        // overlap on a chart with no signal. Both sit
+                                        // clear of a landscape notch.
+                                        left: 'calc(max(16px, env(safe-area-inset-left)) + 72px)',
                                     }}
                                     title="Offline — using cached charts"
                                     aria-label="Offline"
@@ -1503,7 +1582,7 @@ const App: React.FC = () => {
                                 className="absolute z-601 pointer-events-auto flex items-center gap-2"
                                 style={{
                                     top: 'calc(env(safe-area-inset-top) + 8px)',
-                                    right: '16px',
+                                    right: 'max(16px, env(safe-area-inset-right))',
                                 }}
                             >
                                 {canUseBosunVoice && !tracerActive && (
@@ -1564,44 +1643,9 @@ const App: React.FC = () => {
 
                 {/* The escape hatch for landscape. Deliberately small and
                     bottom-left so it stays clear of the chart FABs, and z-ordered
-                    ABOVE the nav so it doubles as the close control once open. */}
-                {isMobileLandscape && !isStandalonePlan && (
-                    <button
-                        type="button"
-                        onClick={() => setLandscapeNavOpen((v) => !v)}
-                        aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
-                        aria-expanded={landscapeNavOpen}
-                        className={`press fixed bottom-2 left-2 z-901 flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${landscapeNavOpen || currentView === 'dashboard' ? '' : 'pl-2.5 pr-3'}`}
-                        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
-                    >
-                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            {landscapeNavOpen ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            ) : (
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                            )}
-                        </svg>
-                        {/* Which tab is under the menu — the bar is hidden in
-                            landscape, so nothing else on screen says where you are. */}
-                        {!landscapeNavOpen && currentView !== 'dashboard' && (
-                            <span className="text-[12px] font-black uppercase tracking-wider">
-                                {currentView === 'dashboard' || splitActive
-                                    ? 'The Glass'
-                                    : currentView === 'map'
-                                      ? tracerActive
-                                          ? 'Plan'
-                                          : 'OBS'
-                                      : currentView === 'voyage'
-                                        ? 'Plan'
-                                        : currentView === 'details'
-                                          ? 'Log'
-                                          : isVesselView || currentView === 'chat'
-                                            ? 'Vessel'
-                                            : 'Menu'}
-                            </span>
-                        )}
-                    </button>
-                )}
+                    ABOVE the nav so it doubles as the close control once open.
+                    On the Glass it docks in the header row instead (above). */}
+                {isMobileLandscape && !isStandalonePlan && !isDashboard && renderLandscapeNavToggle(false)}
 
                 {/* ═══ AIS GUARD ZONE ALERT — APP-WIDE ═══
                     Detection runs everywhere (AisGuardWatch), but the alert
@@ -1620,10 +1664,12 @@ const App: React.FC = () => {
                     <nav
                         className="fixed bottom-0 left-0 right-0 z-900 border-t pb-[env(safe-area-inset-bottom)]"
                         style={{
-                            background: 'rgba(10, 15, 20, 0.985)',
-                            backdropFilter: 'blur(10px)',
-                            WebkitBackdropFilter: 'blur(10px)',
-                            borderColor: 'rgba(56, 189, 248, 0.12)',
+                            // Fully opaque: at 0.985 + blur, page text still ghosted
+                            // through the tab labels (UX scorecard run 5). The tokens
+                            // live in index.css, which also states why the bar stays
+                            // a dark dock in daylight.
+                            background: 'var(--thalassa-tabbar-bg, rgb(10, 15, 20))',
+                            borderColor: 'var(--thalassa-tabbar-border, rgba(56, 189, 248, 0.12))',
                         }}
                         aria-label="Main"
                     >
