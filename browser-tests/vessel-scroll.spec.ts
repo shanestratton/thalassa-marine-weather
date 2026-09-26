@@ -78,7 +78,9 @@ for (const size of [
         const port = page.locator('.vessel-hub-surface > .overflow-y-auto').filter({ has: diary });
         const deck = page.getByRole('region', { name: 'Vessel status and safety controls' });
         await expect(port).toHaveCount(1);
-        await expect(page.getByRole('button', { name: 'Expand Settings & Connect' })).toBeVisible();
+        await expect(
+            page.getByRole('button', { name: 'Settings & Connect', exact: true, expanded: false }),
+        ).toBeVisible();
         // Both snap targets have staggered entrance transforms. Measure only
         // after every direct child's entrance has settled, not just the first.
         await port.evaluate(async (el) => {
@@ -113,14 +115,17 @@ for (const size of [
 
         // A proximity target must not trap the user at the top when a lower
         // section is expanded; its actual controls must remain reachable.
-        const expand = page.getByRole('button', { name: 'Expand Settings & Connect' });
+        const expand = page.getByRole('button', { name: 'Settings & Connect', exact: true, expanded: false });
         if (size.expansionDelay) {
             // A late CSS transition start models a busy rendering frame. The
             // section must reveal its final controls, not scroll to the height
             // sampled by a wall-clock timer while expansion is still running.
             await expand.evaluate((button, delay) => {
-                const group = button.parentElement!;
-                const content = button.nextElementSibling as HTMLElement;
+                // The toggle sits inside the section's h2: the group is the
+                // heading's parent and the content is the heading's sibling.
+                const heading = button.closest('h2')!;
+                const group = heading.parentElement!;
+                const content = heading.nextElementSibling as HTMLElement;
                 content.style.transitionDelay = `${delay}ms`;
                 const trace: unknown[] = [];
                 const record = (event: string) => {
@@ -149,16 +154,18 @@ for (const size of [
         // Let the real expansion and subsequent section scroll finish.
         // Racing that scroll with our return gesture would test two competing
         // programmatic scrolls rather than the user's settled page.
-        await page.getByRole('button', { name: 'Collapse Settings & Connect' }).evaluate(async (button) => {
-            const group = button.parentElement!;
-            void group.getBoundingClientRect();
-            await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
-        });
+        await page
+            .getByRole('button', { name: 'Settings & Connect', exact: true, expanded: true })
+            .evaluate(async (button) => {
+                const group = button.closest('h2')!.parentElement!;
+                void group.getBoundingClientRect();
+                await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
+            });
         if (size.expansionDelay) {
             await testInfo.attach('vessel-expansion-timeline', {
                 body: await page
-                    .getByRole('button', { name: 'Collapse Settings & Connect' })
-                    .evaluate((button) => button.parentElement!.dataset.scrollTrace ?? '[]'),
+                    .getByRole('button', { name: 'Settings & Connect', exact: true, expanded: true })
+                    .evaluate((button) => button.closest('h2')!.parentElement!.dataset.scrollTrace ?? '[]'),
                 contentType: 'application/json',
             });
         }

@@ -27,9 +27,7 @@ export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }
                 {PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE}
             </p>
             <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-white/50">
-                Thalassa continues using its normal on-device and HTTPS cloud paths. No Pi discovery, setup, Pi-hosted
-                chart/ENC sync, diary relay, or boat-network controls run in this build. Open Thalassa on your phone, on
-                the boat network, to pair with the Pi.
+                Open Thalassa on your iPhone, on the boat&rsquo;s Wi-Fi, to pair with the Pi.
             </p>
             {onOpenEncLibrary && (
                 <button

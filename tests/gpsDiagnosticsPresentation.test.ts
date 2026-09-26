@@ -173,7 +173,7 @@ describe('GPS diagnostics presentation', () => {
             ),
         ).toMatchObject({
             label: 'Phone location',
-            satellites: { text: 'Not exposed' },
+            satellites: { text: 'Not reported' },
             quality: { text: 'Position available' },
             accuracy: { text: '±5.2 m' },
         });

@@ -7,7 +7,13 @@ import { triggerHaptic } from '../../utils/system';
 /** Collapsible section header with colored pip and chevron.
  *  Tap target: min-h-[44px] meets Apple HIG minimum so wet-handed
  *  taps on a heeled boat actually hit. The previous py-1 was ~24pt
- *  and missed half the time. */
+ *  and missed half the time.
+ *
+ *  It is the section's h2 (the page's h1 is the hub title), with the toggle
+ *  button inside it, the standard disclosure-heading pattern. The button's
+ *  name is the plain label and never changes; open or closed is announced
+ *  from aria-expanded, so a screen reader does not hear "Expand Atmosphere"
+ *  become a different control called "Collapse Atmosphere" (UX referee). */
 export const SectionHeader: React.FC<{
     color: string;
     label: string;
@@ -15,6 +21,7 @@ export const SectionHeader: React.FC<{
     expanded: boolean;
     onToggle: (id: string) => void;
 }> = ({ color, label, id, expanded, onToggle }) => {
+    const headingRef = useRef<HTMLHeadingElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const revealRequested = useRef(false);
 
@@ -22,8 +29,11 @@ export const SectionHeader: React.FC<{
         if (!expanded || !revealRequested.current) return;
         revealRequested.current = false;
         const button = buttonRef.current;
-        const section = button?.parentElement;
-        const content = button?.nextElementSibling;
+        // The heading wraps the button, so the section and its collapsible
+        // content are the HEADING's parent and next sibling.
+        const heading = headingRef.current;
+        const section = heading?.parentElement;
+        const content = heading?.nextElementSibling;
         const port = section?.parentElement;
         if (!section || !content || !port) return;
 
@@ -65,38 +75,44 @@ export const SectionHeader: React.FC<{
     }, [expanded, id]);
 
     return (
-        <button
-            ref={buttonRef}
-            onClick={() => {
-                revealRequested.current = !expanded;
-                triggerHaptic('light');
-                onToggle(id);
-            }}
-            className="w-full flex items-center gap-2.5 mb-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
-        >
-            <div className="w-1.5 h-4 rounded-full" style={{ backgroundColor: color }} />
-            <span
-                className="ui-section-heading text-xs font-bold uppercase tracking-[0.2em] flex-1 text-left"
-                style={{ color }}
-            >
-                {label}
-            </span>
-            <svg
-                className="w-4 h-4 transition-transform duration-200"
-                style={{
-                    color,
-                    opacity: 0.6,
-                    transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        <h2 ref={headingRef} className="mb-2">
+            <button
+                ref={buttonRef}
+                type="button"
+                onClick={() => {
+                    revealRequested.current = !expanded;
+                    triggerHaptic('light');
+                    onToggle(id);
                 }}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
+                className="w-full flex items-center gap-2.5 py-3 min-h-[44px] active:opacity-70 transition-opacity"
+                aria-expanded={expanded}
+                aria-label={label}
             >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-            </svg>
-        </button>
+                {/* span, not div: a heading may only hold phrasing content. As a
+                    flex item it is blockified, so it still takes w/h. */}
+                <span aria-hidden="true" className="w-1.5 h-4 rounded-full" style={{ backgroundColor: color }} />
+                <span
+                    className="ui-section-heading text-xs font-bold uppercase tracking-[0.2em] flex-1 text-left"
+                    style={{ color }}
+                >
+                    {label}
+                </span>
+                <svg
+                    aria-hidden="true"
+                    className="w-4 h-4 transition-transform duration-200"
+                    style={{
+                        color,
+                        opacity: 0.6,
+                        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                    }}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+        </h2>
     );
 };

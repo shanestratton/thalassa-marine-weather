@@ -149,6 +149,17 @@ const GpsQualityPanel: React.FC<{
 
 // ── SystemStatusModal ──
 
+/** The platform in plain words for the version line. appBuildLabel ends with
+ *  the raw Capacitor platform id ("· web", "· ios"), which read as developer
+ *  speak (UX referee W-developer-speak). The id itself still goes, untouched,
+ *  to the feedback link, which resolves it separately. */
+const PLATFORM_WORDS: Record<string, string> = { ios: 'iOS app', android: 'Android app', web: 'browser' };
+function plainBuildLabel(label: string): string {
+    return label.replace(/ · (\w+)$/, (whole, platform: string) =>
+        platform === 'unknown' ? '' : PLATFORM_WORDS[platform] ? ` · ${PLATFORM_WORDS[platform]}` : whole,
+    );
+}
+
 const SystemStatusModal: React.FC<{
     state: SystemState;
     onClose: () => void;
@@ -168,7 +179,8 @@ const SystemStatusModal: React.FC<{
     useEffect(() => {
         let alive = true;
         void appBuildLabel()
-            .then((label) => {
+            .then((raw) => {
+                const label = plainBuildLabel(raw);
                 if (alive) setBuildLabel(label);
             })
             .catch(() => {
@@ -186,7 +198,9 @@ const SystemStatusModal: React.FC<{
         state.extGps.active,
         state.followRoute.active,
         state.piCache.active,
-        state.n2k.active,
+        // Same rule as the header button's badge (N2K counts only when green),
+        // so the panel never says one more than the badge that opened it.
+        state.n2k.active && state.n2k.health === 'green',
     ].filter(Boolean).length;
 
     return createPortal(
@@ -213,9 +227,14 @@ const SystemStatusModal: React.FC<{
                         <h2 id="system-status-title" className="text-base font-bold text-white tracking-tight">
                             System Status
                         </h2>
-                        <span className="text-[11px] font-bold text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded-lg">
-                            {activeCount} active
-                        </span>
+                        {/* No "0 active" pill: with nothing running the rows below
+                            already say "Not tracking", "Not deployed" and so on,
+                            and the header button hides its badge at zero too. */}
+                        {activeCount > 0 && (
+                            <span className="text-xs font-bold text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded-lg">
+                                {activeCount} active
+                            </span>
+                        )}
                     </div>
                     <button
                         ref={closeButtonRef}
@@ -536,7 +555,7 @@ const SystemStatusModal: React.FC<{
                     {/* What build this actually is. The last line, quiet, and
                         always present — a version you have to go and find is a
                         version nobody knows. */}
-                    <p className="pt-1 text-center text-[10px] font-medium tracking-wide text-slate-500">
+                    <p className="pt-1 text-center text-xs font-medium tracking-wide text-slate-500">
                         Thalassa {buildLabel ?? '…'}
                     </p>
                 </div>

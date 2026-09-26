@@ -417,7 +417,7 @@ describe('SystemStatusButton', () => {
         expect(boat.queryByText('±4.2 m')).toBeNull();
         const phone = within(screen.getByRole('region', { name: 'Phone location' }));
         expect(phone.getByText('±4.2 m')).toBeInTheDocument();
-        expect(phone.getByText('Not exposed')).toBeInTheDocument();
+        expect(phone.getByText('Not reported')).toBeInTheDocument();
     });
 
     it('retires stale receiver metrics independently of fresh coordinates while the info page stays open', () => {

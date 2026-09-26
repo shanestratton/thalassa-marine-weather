@@ -527,10 +527,13 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 title="Radio Console"
                 subtitle="Choose your call"
                 onBack={onBack}
-                action={
+                // The GPS pill is a status, not a control, so it rides on
+                // PageHeader's status row under the title instead of squeezing
+                // RADIO CONSOLE in the action slot. 12 px now it has the room.
+                status={
                     <div
                         role="status"
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold uppercase tracking-widest ${gpsStatusClass}`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-extrabold uppercase tracking-widest ${gpsStatusClass}`}
                     >
                         <span
                             className={`w-1.5 h-1.5 rounded-full bg-current ${radio.isLive ? 'animate-pulse' : ''}`}
