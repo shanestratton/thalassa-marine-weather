@@ -50,7 +50,8 @@ describe('Vessel tab running order', () => {
         // Not bare '<SkipperDeviceControl' — that also matches
         // React.FC<SkipperDeviceControlProps> where the component is defined.
         const skipper = at('<SkipperDeviceControl\n');
-        const passage = at('label="Passage Planning"');
+        // The row formerly labelled "Passage Planning" (glossary, UX scorecard run 6).
+        const passage = at('label="Crew & Float Plan"');
         const binder = at('BOAT BINDER — imports / inventory / reference');
         const firstHeader = firstAt('<SectionHeader');
 

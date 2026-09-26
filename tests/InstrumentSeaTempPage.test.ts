@@ -36,7 +36,7 @@ describe('the Sea temp page in the instrument panel', () => {
         expect(section).toContain('formatSeaTemp(waterTemp.value, tempUnit)');
         expect(section).toContain('<Sparkline');
         expect(section).toContain('history={waterTempReal.history}');
-        expect(section).toContain('<SectionPlate title="Sea temp" />');
+        expect(section).toContain('<SectionPlate title="Sea temp"');
     });
 
     it('is honest when the bus carries no water temperature', () => {

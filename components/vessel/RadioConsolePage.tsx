@@ -24,7 +24,7 @@ import {
     spokenMmsi,
     spokenSpeedOverGround,
 } from '../../services/voice/radioPhrasing';
-import { GearIcon } from '../Icons';
+import { CheckIcon, GearIcon } from '../Icons';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -447,13 +447,25 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                         onClick={() => setConfirmedReceiver(receiverVerified ? null : (position.receiverKey ?? null))}
                         className={`min-h-11 max-w-[58%] shrink-0 rounded-xl border px-2 py-1 text-xs font-bold ${receiverVerified ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300' : 'border-sky-400/40 bg-sky-500/15 text-sky-200'}`}
                     >
-                        {receiverVerified ? '✓ Position selected · undo' : 'Use this position'}
+                        {receiverVerified ? (
+                            <span className="inline-flex items-center gap-1">
+                                <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+                                Position selected · undo
+                            </span>
+                        ) : (
+                            'Use this position'
+                        )}
                     </button>
                 </div>
             )}
+            {/* The call-now line is distress advice, so it only speaks for an
+                emergency call; a routine report just needs a position from
+                somewhere else (UX scorecard run 6). */}
             {!position && (
                 <p className="mt-1">
-                    Need help? Call now. Give a reliable position, or your last known position and time.
+                    {dscMode === 'routine'
+                        ? 'Give a position from another reliable source, or your last known position and time.'
+                        : 'Need help? Call now. Give a reliable position, or your last known position and time.'}
                 </p>
             )}
             {gpsBlocked && gpsHealth?.actionable && (
@@ -462,7 +474,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     onClick={gpsHealth.reason === 'not-determined' ? () => void requestGpsAccess() : openDeviceSettings}
                     className="mt-2 min-h-11 rounded-lg bg-sky-600 px-4 py-2 font-bold text-white"
                 >
-                    {gpsHealth.reason === 'not-determined' ? 'Allow Location' : 'Open Settings'}
+                    {gpsHealth.reason === 'not-determined' ? 'Allow location' : 'Open Settings'}
                 </button>
             )}
         </div>
@@ -491,20 +503,35 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     </button>
                 )}
             </div>
-            {(callSign || mmsi) && (
-                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
-                    {callSign && (
-                        <span>
-                            Call sign <strong className="text-sky-300">{callSign}</strong>
-                        </span>
+            {/* Both rows always show: an unset call sign or MMSI used to drop
+                its row silently, so the card looked complete (UX scorecard
+                run 6). */}
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
+                <span>
+                    Call sign{' '}
+                    {callSign ? (
+                        <strong className="text-sky-300">{callSign}</strong>
+                    ) : (
+                        <span className="text-slate-400">· not set</span>
                     )}
-                    {mmsi && (
-                        <span>
-                            MMSI <strong className="font-mono text-sky-300">{mmsi}</strong>
-                        </span>
+                </span>
+                <span>
+                    MMSI{' '}
+                    {mmsi ? (
+                        <strong className="font-mono text-sky-300">{mmsi}</strong>
+                    ) : (
+                        <span className="text-slate-400">· not set</span>
                     )}
-                </div>
-            )}
+                </span>
+                {(!callSign || !mmsi) && onNavigate && (
+                    <span className="inline-flex items-center gap-1 text-slate-400">
+                        Tap
+                        <GearIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="sr-only">the settings button</span>
+                        to add
+                    </span>
+                )}
+            </div>
             {!vesselName && (
                 <p role="alert" className="mt-1 text-xs text-amber-200">
                     No name set. Say it yourself in the call.
@@ -563,29 +590,50 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 {dialogStep !== 'instructions' && gpsNotice}
 
                 {/* ── Live / last-known readouts ── */}
+                {/* Each cell is spoken as one phrase ("Speed over ground, no
+                    data"); the visible label/value pair is hidden from the
+                    reader, which used to hear "SOG, em dash kts". '--' is the
+                    app's one no-data glyph (UX scorecard run 6). */}
                 <div className="shrink-0 rounded-xl border border-white/6 bg-white/2 px-4 py-3 font-mono">
                     <div className="flex items-center">
                         <div className="flex-1 text-center">
-                            <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">SOG</div>
-                            <div className="text-[18px] font-black text-white">
-                                {sogKts !== null ? sogKts.toFixed(1) : '—'}
-                                <span className="text-xs font-bold text-slate-500 ml-1">kts</span>
+                            <span className="sr-only">
+                                {sogKts !== null
+                                    ? `Speed over ground, ${sogKts.toFixed(1)} knots`
+                                    : 'Speed over ground, no data'}
+                            </span>
+                            <div aria-hidden="true">
+                                <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">SOG</div>
+                                <div className="text-[18px] font-black text-white">
+                                    {sogKts !== null ? sogKts.toFixed(1) : '--'}
+                                    <span className="text-xs font-bold text-slate-400 ml-1">kts</span>
+                                </div>
                             </div>
                         </div>
                         <div className="w-px h-7 bg-white/8 shrink-0" />
                         <div className="flex-1 text-center">
-                            <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">COG</div>
-                            <div className="text-[18px] font-black text-white">
-                                {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '—'}
-                                <span className="text-xs font-bold text-slate-500 ml-1">°T</span>
+                            <span className="sr-only">
+                                {position && cogDeg !== null
+                                    ? `Course over ground, ${Math.round(cogDeg)} degrees true`
+                                    : 'Course over ground, no data'}
+                            </span>
+                            <div aria-hidden="true">
+                                <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">COG</div>
+                                <div className="text-[18px] font-black text-white">
+                                    {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '--'}
+                                    <span className="text-xs font-bold text-slate-400 ml-1">°T</span>
+                                </div>
                             </div>
                         </div>
                         <div className="w-px h-7 bg-white/8 shrink-0" />
                         <div className="flex-1 text-center">
-                            <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">UTC</div>
-                            {/* Same 18 px as SOG/COG; no extra tracking so HH:MM:SS
-                                still fits a third of a 375 pt row. */}
-                            <div className="text-[18px] font-black text-white">{utcTime}</div>
+                            <span className="sr-only">{`UTC time, ${utcTime}`}</span>
+                            <div aria-hidden="true">
+                                <div className="text-xs font-bold tracking-wider text-slate-400 uppercase">UTC</div>
+                                {/* Same 18 px as SOG/COG; no extra tracking so HH:MM:SS
+                                    still fits a third of a 375 pt row. */}
+                                <div className="text-[18px] font-black text-white">{utcTime}</div>
+                            </div>
                         </div>
                     </div>
                 </div>

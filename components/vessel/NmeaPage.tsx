@@ -4,13 +4,13 @@
  * Shows connection status, configuration controls, and AIS Hub settings.
  * The "Instrument Panel" CTA navigates to the full multimeter dashboard.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useId } from 'react';
 import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import { getPairing } from '../../services/PiPairingService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
-import { NmeaStatusDot, useNmeaConnectionStatus } from '../nmea/useNmeaStore';
+import { useNmeaConnectionStatus } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -23,6 +23,12 @@ import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';
 import { assessHostRoute, getInterfaces } from '../../services/network/networkContext';
 import { FormField } from '../ui/FormField';
 import { Button } from '../ui/Button';
+import { BoatIcon, GaugeIcon } from '../Icons';
+
+/** The pinned Instrument Panel button's height. The scroller clears it plus
+ *  12 px, and fades its content out just above it (UX scorecard run 6: at
+ *  375×667 the bar sat over CONNECT with only a hidden scrollbar hinting). */
+const CTA_HEIGHT_PX = 52;
 
 interface NmeaPageProps {
     onBack: () => void;
@@ -234,6 +240,44 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                 : 'Away · via the Pi'
             : 'Via the Pi · waiting for her';
 
+    // The connection state, said ONCE — in the header's status pill. The card
+    // used to repeat it as an h2 beside a second dot, under a pill that said
+    // it a third time (UX scorecard run 6).
+    const stateWord = isConnected
+        ? 'Connected'
+        : isConnecting
+          ? 'Connecting…'
+          : piMode
+            ? piHeadline
+            : hasFailed
+              ? 'Connection failed'
+              : 'Disconnected';
+    const statePill = isConnected
+        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+        : isConnecting
+          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+          : piMode
+            ? storeLink.status === 'remote' && storeLink.remote?.via === 'lan'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+            : hasFailed
+              ? 'bg-red-500/10 border-red-500/30 text-red-400'
+              : 'bg-white/5 border-white/15 text-gray-400';
+    const stateDot = isConnected
+        ? 'bg-emerald-400'
+        : isConnecting
+          ? 'bg-amber-400 animate-pulse'
+          : piMode
+            ? storeLink.status === 'remote'
+                ? storeLink.remote?.via === 'lan'
+                    ? 'bg-emerald-400'
+                    : 'bg-sky-400'
+                : 'bg-sky-400/50'
+            : hasFailed
+              ? 'bg-red-400'
+              : 'bg-gray-500';
+    const deviceSelectId = useId();
+
     // ── Position source ────────────────────────────────────────────────
     // Shane, 2026-08-02, with a Bad Elf GPS Pro+ paired: "there is no mention
     // of it anywhere in the app." He was right, and not because the detection
@@ -331,17 +375,31 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     // A status, not a control: in the action slot the chip
                     // squeezed NMEA GATEWAY onto two lines (four at 375 pt).
                     // PageHeader puts status on its own row under the title.
-                    status={<NmeaStatusDot />}
+                    status={
+                        <span
+                            role="status"
+                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${statePill}`}
+                        >
+                            <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${stateDot}`} />
+                            {stateWord}
+                        </span>
+                    }
                 />
 
                 {/* Content — fills viewport */}
                 <div
                     ref={keyboardScrollRef}
-                    className="flex-1 px-4 min-h-0 overflow-y-auto"
-                    // nav + inset + 8px gap + the pinned CTA (~52px) + 8px,
-                    // so the last card scrolls clear of the button instead of
-                    // stopping underneath it.
-                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 68px)' }}
+                    className={`flex-1 px-4 min-h-0 overflow-y-auto ${onNavigateToGlass ? 'thalassa-scroll-fade' : ''}`}
+                    // nav + inset + 8px gap + the pinned CTA + 12px, so the
+                    // last card scrolls clear of the button instead of
+                    // stopping underneath it. The fade ends at the CTA's top
+                    // edge, so a card running under it reads as continuing.
+                    style={
+                        {
+                            paddingBottom: `calc(4rem + env(safe-area-inset-bottom) + 8px + ${CTA_HEIGHT_PX}px + 12px)`,
+                            '--thalassa-scroll-fade-inset': `calc(4rem + env(safe-area-inset-bottom) + 8px + ${CTA_HEIGHT_PX}px)`,
+                        } as React.CSSProperties
+                    }
                 >
                     {/* ═══ POSITION SOURCE ═══
                         Always rendered — including when the answer is just
@@ -370,13 +428,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <div className="truncate text-[14px] font-bold text-white">
                                     {receiver.deviceName ?? receiver.label}
                                 </div>
-                                <div className="text-[11px] leading-snug text-gray-400">{receiver.detail}</div>
+                                <div className="text-xs leading-snug text-gray-400">{receiver.detail}</div>
                             </div>
                         </div>
                         {receiver.kind === 'phone' && (
-                            <p className="mt-2 text-[10px] leading-snug text-gray-500">
-                                An MFi receiver (Bad Elf and similar) feeds iOS system-wide — it appears here once it
-                                supplies a fix, with no setup needed.
+                            <p className="mt-2 text-xs leading-snug text-gray-400">
+                                An MFi receiver (Bad Elf and similar) shows here once it supplies a fix. No setup
+                                needed.
                             </p>
                         )}
                     </div>
@@ -391,51 +449,40 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                   : 'bg-white/3 border-white/6'
                         }`}
                     >
-                        <div className="flex items-center gap-3 mb-3">
-                            <div
-                                className={`w-3 h-3 rounded-full ${
-                                    isConnected
-                                        ? 'bg-emerald-400'
-                                        : isConnecting
-                                          ? 'bg-amber-400 animate-pulse'
-                                          : piMode
-                                            ? storeLink.status === 'remote'
-                                                ? storeLink.remote?.via === 'lan'
-                                                    ? 'bg-emerald-400'
-                                                    : 'bg-sky-400'
-                                                : 'bg-sky-400/50'
-                                            : 'bg-gray-500'
-                                }`}
-                            />
-                            <h2 className="text-sm font-black text-white">
-                                {isConnected
-                                    ? 'Connected'
-                                    : isConnecting
-                                      ? 'Connecting…'
-                                      : piMode
-                                        ? piHeadline
-                                        : hasFailed
-                                          ? 'Connection failed'
-                                          : 'Disconnected'}
-                            </h2>
-                            {readingViaCloud && !isConnected && !isConnecting && !piMode && (
-                                <span className="ml-auto rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-sky-300">
-                                    {storeLink.remote?.via === 'lan' ? 'Aboard · via the Pi' : 'Away · via the Pi'}
-                                </span>
-                            )}
-                            {/* Show host:port when connected or connecting */}
-                            {(isConnected || isConnecting || hasFailed) && !rolledUp && (
-                                <span className="text-xs text-white/70 font-mono ml-auto">
-                                    {host}:{port}
-                                </span>
-                            )}
-                            {/* AIS target count badge */}
-                            {isConnected && aisCount > 0 && (
-                                <span className="ml-2 px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/20 text-[11px] font-black text-sky-400 uppercase tracking-wider">
-                                    ⛴ {aisCount} AIS
-                                </span>
-                            )}
-                        </div>
+                        {/* No state heading here: the header pill says it (UX
+                            scorecard run 6). What stays is what only this card
+                            knows — where the socket points, what it hears, and
+                            that the panel is reading her through the Pi. */}
+                        {((readingViaCloud && !isConnected && !isConnecting && !piMode) ||
+                            ((isConnected || isConnecting || hasFailed) && !rolledUp)) && (
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                                {readingViaCloud && !isConnected && !isConnecting && !piMode && (
+                                    <span className="rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-300">
+                                        {storeLink.remote?.via === 'lan' ? 'Aboard · via the Pi' : 'Away · via the Pi'}
+                                    </span>
+                                )}
+                                {/* Show host:port when connected or connecting */}
+                                {(isConnected || isConnecting || hasFailed) && !rolledUp && (
+                                    <span className="text-xs text-white/70 font-mono">
+                                        {host}:{port}
+                                    </span>
+                                )}
+                                {/* AIS target count badge */}
+                                {isConnected && aisCount > 0 && (
+                                    <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/20 text-xs font-bold text-sky-400">
+                                        <BoatIcon className="h-3.5 w-3.5" />
+                                        {aisCount} AIS
+                                    </span>
+                                )}
+                            </div>
+                        )}
+
+                        {/* The next step, for the plain disconnected card. */}
+                        {!isConnected && !isConnecting && !hasFailed && !rolledUp && (
+                            <p className="mb-3 text-xs leading-snug text-gray-300">
+                                Join the boat&apos;s Wi-Fi, check the gateway IP, then Connect.
+                            </p>
+                        )}
 
                         {/*
                          * "Enable remote access" USED to sit here, and it did
@@ -477,7 +524,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     onClick={() => setShowDirect((v) => !v)}
                                     aria-expanded={showDirect}
                                     data-testid="nmea-gateway-direct-toggle"
-                                    className="mt-1.5 text-[11px] font-black uppercase tracking-wider text-sky-300 underline-offset-2 hover:underline"
+                                    className="mt-0.5 inline-flex min-h-[44px] items-center text-xs font-bold text-sky-300 underline-offset-2 hover:underline"
                                 >
                                     {showDirect
                                         ? 'Hide the gateway settings'
@@ -513,18 +560,20 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             <div className="space-y-3 mb-3">
                                 {/* Device preset selector */}
                                 <div>
-                                    <label className="block text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
-                                        Gateway Device
+                                    <label
+                                        htmlFor={deviceSelectId}
+                                        className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5"
+                                    >
+                                        Gateway device
                                     </label>
+                                    {/* .thalassa-select draws the chevron in both palettes; an
+                                        inline data-URI was swapped for an unsized, oversized
+                                        glyph by the daylight rule (UX scorecard run 6). */}
                                     <select
+                                        id={deviceSelectId}
                                         value={device}
                                         onChange={(e) => handleDeviceChange(e.target.value)}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/6 border border-white/10 text-sm text-white font-medium outline-hidden appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
-                                        style={{
-                                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                                            backgroundRepeat: 'no-repeat',
-                                            backgroundPosition: 'right 12px center',
-                                        }}
+                                        className="thalassa-select w-full min-h-[44px] pl-3 pr-9 py-2.5 rounded-xl bg-white/6 border border-white/10 text-sm text-white font-medium outline-hidden appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
                                     >
                                         {NMEA_DEVICE_PROFILES.map((d) => (
                                             <option key={d.id} value={d.id} className="bg-slate-900 text-white">
@@ -568,7 +617,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Connect NMEA"
-                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-500/20 hover:bg-sky-500"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-950/30"
                                 >
                                     Connect
                                 </button>
@@ -577,10 +626,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Retry NMEA connection"
-                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-500/20 hover:bg-sky-500"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-950/30"
                                 >
                                     <div className="flex items-center justify-center gap-2">
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        <div
+                                            aria-hidden="true"
+                                            className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+                                        />
                                         Retry
                                     </div>
                                 </button>
@@ -589,7 +641,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleDisconnect}
                                     aria-label="Disconnect NMEA"
-                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97] bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30"
                                 >
                                     Disconnect
                                 </button>
@@ -599,7 +651,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     variant="secondary"
                                     onClick={handleDisconnect}
                                     aria-label="Cancel connection"
-                                    className="uppercase tracking-widest text-gray-400 hover:text-white"
+                                    className="text-gray-300 hover:text-white"
                                 >
                                     Cancel
                                 </Button>
@@ -635,9 +687,14 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 onNavigateToGlass();
                             }}
                             aria-label="Open Instrument Panel"
-                            className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-linear-to-r from-sky-700 to-sky-800 text-white shadow-lg shadow-sky-500/20 hover:from-sky-600 hover:to-sky-700 border border-sky-400/20 flex items-center justify-center gap-2"
+                            // The same solid sky fill as Connect, so the page has
+                            // one blue button style; bg-sky-600 + text-white keeps
+                            // a white label on #075985 in both palettes (the
+                            // gradient's label went navy by day, 2.8:1).
+                            className="w-full rounded-xl text-sm font-bold transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-950/40 flex items-center justify-center gap-2"
+                            style={{ minHeight: CTA_HEIGHT_PX }}
                         >
-                            <span className="text-lg">🧭</span>
+                            <GaugeIcon className="h-5 w-5 shrink-0" />
                             <span>Instrument Panel</span>
                         </button>
                     </div>

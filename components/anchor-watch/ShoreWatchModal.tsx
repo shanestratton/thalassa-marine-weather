@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { t } from '../../theme';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { DeviceIcon } from '../Icons';
 
 interface ShoreWatchModalProps {
     sessionCode: string;
@@ -41,7 +42,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     {/* Modal Header */}
                     <div className={t.modal.header}>
                         <div className="flex items-center gap-2">
-                            <span className="text-sky-400 text-lg">📱</span>
+                            <DeviceIcon className="h-5 w-5 shrink-0 text-sky-400" />
                             <h2 id="shore-watch-title" className="text-base font-black text-white tracking-tight">
                                 Shore Watch
                             </h2>

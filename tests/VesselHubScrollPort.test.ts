@@ -82,7 +82,8 @@ describe('Vessel page scroll port', () => {
         expect(opening).not.toContain('scrollMarginBottom');
         expect(opening).not.toContain('scrollSnapStop');
 
-        const accountRow = port.indexOf('label="Account & Settings"', settingsHeader);
+        // Named "Settings" since UX scorecard run 6 (was "Account & Settings").
+        const accountRow = port.indexOf('label="Settings"', settingsHeader);
         expect(accountRow).toBeGreaterThan(settingsHeader);
         const settingsContents = port.slice(settingsHeader, accountRow);
         expect(settingsContents).toContain("<CollapsibleContent open={expanded.has('setup')}>");

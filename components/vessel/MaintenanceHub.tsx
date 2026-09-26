@@ -253,15 +253,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, [tasks, taskData.identity, taskDataIsCurrent]);
 
-    // Status counts for the header
+    // Status counts for the header. Grey tasks are counted too, by reason, so
+    // the chips add up to the task list (UX scorecard run 6: '3 due · 36 ok'
+    // under 40 tasks left the hours-only task uncounted).
     const counts = useMemo(
         () =>
             tasksWithStatus.reduce(
                 (acc, t) => {
-                    if (t.status in acc) acc[t.status as 'red' | 'yellow' | 'green']++;
+                    if (t.status !== 'grey') acc[t.status]++;
+                    else if (!t.is_active) acc.paused++;
+                    else if (t.next_due_hours !== null && t.next_due_hours !== undefined) acc.needsHours++;
+                    else acc.unscheduled++;
                     return acc;
                 },
-                { red: 0, yellow: 0, green: 0 },
+                { red: 0, yellow: 0, green: 0, needsHours: 0, paused: 0, unscheduled: 0 },
             ),
         [tasksWithStatus],
     );
@@ -591,6 +596,30 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             >
                                 {counts.green} ok
                             </span>
+                            {counts.needsHours > 0 && (
+                                <span
+                                    className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
+                                    title="Due by engine hours — enter current engine hours"
+                                >
+                                    {counts.needsHours} need{counts.needsHours === 1 ? 's' : ''} hours
+                                </span>
+                            )}
+                            {counts.unscheduled > 0 && (
+                                <span
+                                    className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
+                                    title="No due date or engine hours set"
+                                >
+                                    {counts.unscheduled} unscheduled
+                                </span>
+                            )}
+                            {counts.paused > 0 && (
+                                <span
+                                    className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
+                                    title="Paused"
+                                >
+                                    {counts.paused} paused
+                                </span>
+                            )}
                         </>
                     }
                     action={
@@ -784,15 +813,15 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title="No Maintenance Tasks"
-                            subtitle="Set up service intervals for your engine, rigging, and safety gear. Tap Add Task below to create your first."
+                            title="No maintenance tasks"
+                            subtitle="Set up service intervals for your engine, rigging and safety gear. Tap Add task below to add one."
                         />
                     ) : (
                         <>
                             {showSuggestedNote && (
                                 <p className="text-xs text-gray-400 px-1">
                                     Suggested schedule — due dates count from the day it was added, not from your last
-                                    service. Tap a task to adjust it or log a service.
+                                    service. Tap ⋮ on a task to adjust it or log a service.
                                 </p>
                             )}
                             {groupedTasks.map((group) => {
@@ -838,10 +867,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Add Task"
-                        thumbIcon={
+                        label="Add task"
+                        icon={
                             <svg
-                                className="w-5 h-5 text-white"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"

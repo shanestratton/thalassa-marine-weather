@@ -44,9 +44,10 @@ export function getWeatherRecommendation(windKts: number, gustKts: number, waveM
     return { scope: 5, label: 'Light Air', severity: 'emerald' as const, icon: '☀️' };
 }
 
-/** Format meters to human-readable */
+/** Format meters to human-readable — '35 m', spaced like '1.0 NM' and the
+ *  slider ends (UX scorecard run 6 saw '5m' beside '1 m'). */
 export function formatDistance(meters: number): string {
-    if (meters < 1000) return `${meters.toFixed(0)}m`;
+    if (meters < 1000) return `${meters.toFixed(0)} m`;
     return `${(meters / 1852).toFixed(1)} NM`;
 }
 

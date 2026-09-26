@@ -3,6 +3,7 @@ import { ShoreWatchAlarmService } from '../../services/ShoreWatchAlarmService';
 import { AnchorWatchService } from '../../services/AnchorWatchService';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { AlertTriangleIcon, RadioTowerIcon } from '../Icons';
 
 function ShoreAlarmDialog() {
     const watch = useSyncExternalStore(ShoreWatchAlarmService.subscribe, ShoreWatchAlarmService.getSnapshot);
@@ -28,8 +29,12 @@ function ShoreAlarmDialog() {
             aria-describedby="shore-alarm-description"
             className="flex flex-col items-center justify-center overflow-y-auto bg-slate-950 px-6 py-[max(2rem,env(safe-area-inset-top))] text-center"
         >
-            <div aria-hidden="true" className="mb-6 text-6xl">
-                {watch.cause === 'drag' ? '🚨' : '📡'}
+            <div aria-hidden="true" className="mb-6 text-red-400">
+                {watch.cause === 'drag' ? (
+                    <AlertTriangleIcon className="h-14 w-14" />
+                ) : (
+                    <RadioTowerIcon className="h-14 w-14" />
+                )}
             </div>
             <p className="mb-3 text-sm font-black uppercase tracking-[0.25em] text-amber-300">Shore Watch</p>
             <h1 id="shore-alarm-title" className="text-3xl font-black text-red-400">

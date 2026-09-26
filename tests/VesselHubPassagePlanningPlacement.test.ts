@@ -18,7 +18,7 @@ describe('VesselHub passage-planning placement', () => {
         const diary = source.indexOf('aria-label="Open Diary"');
         const scuttlebutt = source.indexOf('aria-label="Open Scuttlebutt"', diary);
         const skipperDevice = source.indexOf('<SkipperDeviceControl\n');
-        const passagePlanning = source.indexOf('label="Passage Planning"');
+        const passagePlanning = source.indexOf('label="Crew & Float Plan"');
 
         expect(diary).toBeGreaterThan(-1);
         expect(scuttlebutt).toBeGreaterThan(diary);
@@ -26,7 +26,9 @@ describe('VesselHub passage-planning placement', () => {
         expect(passagePlanning).toBeGreaterThan(skipperDevice);
         expect(source).not.toContain('label="Sharing"');
         expect(source).not.toContain('id="sharing"');
-        expect(source.match(/label="Passage Planning"/g)).toHaveLength(1);
+        expect(source.match(/label="Crew & Float Plan"/g)).toHaveLength(1);
+        // Renamed from "Passage Planning" by the app glossary (UX scorecard run 6).
+        expect(source).not.toContain('label="Passage Planning"');
         expect(source).not.toContain('label="Saved Routes"');
     });
 
@@ -37,7 +39,7 @@ describe('VesselHub passage-planning placement', () => {
         // above, indexOf returned -1 and slice(start, -1) quietly ran to the
         // end of the file — the assertions still passed, on the whole
         // component. A test that cannot fail is worse than no test.
-        const passagePlanning = source.indexOf('label="Passage Planning"');
+        const passagePlanning = source.indexOf('label="Crew & Float Plan"');
         const binderRow = source.indexOf('BOAT BINDER — imports / inventory / reference');
         const passageRow = source.slice(passagePlanning, binderRow);
         const binderStart = source.indexOf('if (binderOpen)');
@@ -52,7 +54,7 @@ describe('VesselHub passage-planning placement', () => {
         expect(passageRow).toContain('pendingCrewInvites');
         expect(source).not.toContain('requestSavedRoutesLibraryOpen(scope)');
         expect(source).not.toContain('label="Saved Routes"');
-        expect(binderBlock).not.toContain('label="Passage Planning"');
+        expect(binderBlock).not.toContain('label="Crew & Float Plan"');
         expect(binderBlock).toContain('label="Import GPX"');
     });
 

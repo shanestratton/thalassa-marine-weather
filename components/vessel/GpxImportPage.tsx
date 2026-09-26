@@ -59,14 +59,17 @@ interface GpxPreview {
 
 type ImportState = 'idle' | 'reading' | 'previewing' | 'importing' | 'success' | 'error';
 
-/** The page's two lists, as data: the tiles are list items, not loose divs. */
+/** The page's two lists, as data. Support is spelled out: 'Full Support'
+ *  next to 'Routes & Tracks' never said what 'full' added (waypoints). */
+const FULL_SUPPORT = 'Routes, tracks and waypoints';
+const ROUTES_AND_TRACKS = 'Routes and tracks';
 const COMPATIBLE_APPS = [
-    { name: 'OpenCPN', status: 'Full Support' },
-    { name: 'Navionics', status: 'Routes & Tracks' },
-    { name: 'iSailor', status: 'Routes & Tracks' },
-    { name: 'qtVLM', status: 'Full Support' },
-    { name: 'Expedition', status: 'Full Support' },
-    { name: 'AvNav', status: 'Routes & Tracks' },
+    { name: 'OpenCPN', status: FULL_SUPPORT },
+    { name: 'Navionics', status: ROUTES_AND_TRACKS },
+    { name: 'iSailor', status: ROUTES_AND_TRACKS },
+    { name: 'qtVLM', status: FULL_SUPPORT },
+    { name: 'Expedition', status: FULL_SUPPORT },
+    { name: 'AvNav', status: ROUTES_AND_TRACKS },
 ];
 
 const IMPORTED_ITEMS: { Icon: React.FC<{ className?: string }>; label: string; desc: string }[] = [
@@ -311,7 +314,9 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         // for the fixed CTA (slide-up-enter keeps a transform), which now sits
         // at the bottom of the screen instead of the bottom of the content.
         <div className="relative flex h-full flex-1 flex-col overflow-hidden bg-slate-950 slide-up-enter">
-            <PageHeader title="Import GPX" subtitle="OpenCPN • Navionics • iSailor • qtVLM" onBack={onBack} />
+            {/* No brand names in the subtitle: PageHeader uppercases it (ISAILOR,
+                QTVLM), and the app list below names them properly. */}
+            <PageHeader title="Import GPX" subtitle="Routes and tracks from other apps" onBack={onBack} />
 
             {/* ═══ CONTENT ═══ */}
             {/* The scroller runs to the bottom of the screen, under the tab bar.
@@ -361,11 +366,17 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                         </svg>
                                     </div>
                                     <div className="text-center">
-                                        <p className="text-sm font-bold text-white">Select GPX File</p>
+                                        <p className="text-sm font-bold text-white">Select GPX file</p>
                                         <p className="text-[11px] text-gray-500 mt-1">Supports .gpx and .xml formats</p>
                                     </div>
                                 </div>
                             </button>
+
+                            {/* Where an import ends up — the page never said. */}
+                            <p className="px-1 text-xs text-gray-400 leading-relaxed">
+                                Tracks and waypoints import to the Ship&apos;s Log as a voyage. A file with a route can
+                                also open in the passage planner.
+                            </p>
 
                             {/* Hidden file input */}
                             <input
@@ -384,7 +395,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
                                     <AlertTriangleIcon className="w-5 h-5 mt-0.5 shrink-0 text-red-400" />
                                     <div className="flex-1">
-                                        <p className="text-[13px] font-bold text-red-300">Import Failed</p>
+                                        <p className="text-[13px] font-bold text-red-300">Import failed</p>
                                         <p className="text-[11px] text-red-400/80 mt-1">{error}</p>
                                     </div>
                                     <button
@@ -409,20 +420,20 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 </div>
                             )}
 
-                            {/* Compatibility info — a section heading and a real list.
-                                The six green dots said nothing (every app had one),
-                                so they are gone; name and support level remain. */}
+                            {/* Compatibility info — a section heading and a plain list.
+                                Rows, not tiles: the boxed tiles looked tappable and
+                                did nothing (UX scorecard run 6). */}
                             <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
-                                <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
-                                    Compatible Software
+                                <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-1">
+                                    Compatible software
                                 </h2>
                                 {/* role="list": WebKit drops list semantics from a
                                     ul whose markers are reset, as Tailwind's are. */}
-                                <ul role="list" className="grid grid-cols-2 gap-2">
+                                <ul role="list" className="divide-y divide-white/5">
                                     {COMPATIBLE_APPS.map((app) => (
-                                        <li key={app.name} className="min-w-0 px-3 py-2 rounded-xl bg-white/2">
-                                            <p className="text-[12px] font-bold text-white/80 truncate">{app.name}</p>
-                                            <p className="text-[11px] text-gray-500 truncate">{app.status}</p>
+                                        <li key={app.name} className="flex items-baseline justify-between gap-3 py-2">
+                                            <span className="text-[12px] font-bold text-white/80">{app.name}</span>
+                                            <span className="text-right text-[11px] text-gray-400">{app.status}</span>
                                         </li>
                                     ))}
                                 </ul>
@@ -432,7 +443,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 emoji (VoiceOver read '📍' as 'round pushpin'). */}
                             <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
                                 <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
-                                    What Gets Imported
+                                    What gets imported
                                 </h2>
                                 <ul role="list" className="space-y-3">
                                     {IMPORTED_ITEMS.map(({ Icon, label, desc }) => (
@@ -529,7 +540,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             {preview.stats.bounds && (
                                 <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
                                     <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-2">
-                                        Coverage Area
+                                        Coverage area
                                     </h2>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                                         <div className="flex items-center gap-2">
@@ -628,7 +639,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 </svg>
                             </div>
                             <div className="text-center">
-                                <h2 className="text-xl font-extrabold text-white">Import Complete</h2>
+                                <h2 className="text-xl font-extrabold text-white">Import complete</h2>
                                 <p className="text-[13px] text-emerald-400 font-bold mt-2">
                                     {importResult.savedCount} entries saved
                                 </p>
@@ -637,7 +648,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
                             <div className="flex gap-3 w-full max-w-xs">
                                 <Button variant="secondary" onClick={handleReset} className="flex-1 h-12 text-white">
-                                    Import Another
+                                    Import another
                                 </Button>
                                 <button
                                     onClick={onBack}

@@ -150,7 +150,8 @@ for (const size of [
             }, size.expansionDelay);
         }
         await expand.click();
-        const account = page.getByRole('button', { name: 'Account & Settings', exact: true });
+        // The row was "Account & Settings" until UX scorecard run 6.
+        const account = page.getByRole('button', { name: 'Settings', exact: true });
         // Let the real expansion and subsequent section scroll finish.
         // Racing that scroll with our return gesture would test two competing
         // programmatic scrolls rather than the user's settled page.

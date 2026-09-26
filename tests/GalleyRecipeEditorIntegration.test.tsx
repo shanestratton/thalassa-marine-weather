@@ -77,7 +77,7 @@ const baseRecipe: StoredRecipe = {
 let storedRecipes: StoredRecipe[];
 
 function openRecipeLibrary() {
-    fireEvent.click(screen.getByRole('tab', { name: /Saved Recipes/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Saved recipes/i }));
 }
 
 function advanceToIngredients() {
@@ -137,7 +137,7 @@ describe('Galley recipe editor integration', () => {
         render(<GalleyPage onBack={vi.fn()} />);
         openRecipeLibrary();
 
-        const openEditor = screen.getByRole('button', { name: '+ New Recipe' });
+        const openEditor = screen.getByRole('button', { name: 'New recipe' });
         openEditor.focus();
         fireEvent.click(openEditor);
 

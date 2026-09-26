@@ -15,6 +15,12 @@
  * markers, grouped in the PAIRS they are struck in, filled to the current
  * count. Five bells is two, two, one — and the ring shows exactly that, so the
  * gap between the pairs is the same gap you would hear.
+ *
+ * The bells and the watch are SAID under the dial, in HTML, not printed on
+ * it: on the face the hands swept across them ("One bel", UX scorecard run 6).
+ * By night the face is deep parchment rather than ivory — a 355 px near-white
+ * disc was the brightest thing on a dark bridge. The ivory palette is still
+ * the drawn default, and daylight keeps it.
  */
 import React, { useMemo } from 'react';
 import '../instrumentDaylight.css';
@@ -29,6 +35,9 @@ interface ShipsBellClockProps {
     second: number;
     /** Shown under the pivot — the zone's short name, e.g. AEST. */
     zoneLabel?: string;
+    /** Upper bound on the face's width. The Instrument Panel passes one that
+     *  leaves room for the caption under the dial; defaults to CLOCK_MAX_WIDTH. */
+    faceMaxWidth?: string;
 }
 
 const CX = 150;
@@ -42,7 +51,28 @@ const DIAL = '#f4ecd8';
 const INK = '#20242c';
 const BLUED = '#2a3550';
 
-export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, second, zoneLabel }) => {
+/*
+ * Night palette, applied by CSS when the app is NOT in daylight, so the drawn
+ * attributes stay the ivory face (and a missing stylesheet falls back to it).
+ * Deep parchment: the dial's luminance drops from ~0.6 to ~0.4; hour numerals
+ * stay ≥ 5:1 and the engraved legend, darkened to #3d2d0e, ≥ 5.6:1. Literal
+ * class strings, because Tailwind only generates what it can read.
+ */
+const NIGHT_FACE_CLASSES = [
+    '[:root:not(.display-light)_&_.bell-face]:[fill:url(#bell-dial-night)]',
+    '[:root:not(.display-light)_&_.bell-case]:[fill:url(#bell-bezel-night)]',
+    '[:root:not(.display-light)_&_.bell-legend]:[fill:#3d2d0e]',
+    '[:root:not(.display-light)_&_.bell-mark]:[stroke:#3d2d0e]',
+    '[:root:not(.display-light)_&_.bell-mark-lit]:[fill:#3d2d0e]',
+].join(' ');
+
+export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
+    hour,
+    minute,
+    second,
+    zoneLabel,
+    faceMaxWidth = CLOCK_MAX_WIDTH,
+}) => {
     const bells = bellsAt(hour, minute);
     const watch = watchAt(hour, minute);
 
@@ -104,197 +134,198 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({ hour, minute, se
     // screen; on a short or landscape screen the height wins, so a square that fills
     // the width can never run off the bottom.
     return (
-        // brightness-[0.85] only on the dark palette: the ivory face was the
-        // brightest surface in the app on night watch. Brass captions stay
-        // ≥ 4.5:1 on the dimmed dial; daylight keeps the full-bright face.
-        <div
-            className="nmea-clock relative mx-auto w-full brightness-[0.85] [.display-light_&]:brightness-100"
-            style={{ maxWidth: CLOCK_MAX_WIDTH, aspectRatio: '1' }}
-        >
-            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={spokenLabel}>
-                <defs>
-                    <linearGradient id="bell-bezel" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={BRASS_LIGHT} />
-                        <stop offset="45%" stopColor={BRASS} />
-                        <stop offset="100%" stopColor={BRASS_DARK} />
-                    </linearGradient>
-                    <radialGradient id="bell-dial" cx="50%" cy="38%" r="70%">
-                        <stop offset="0%" stopColor="#fffaf0" />
-                        <stop offset="72%" stopColor={DIAL} />
-                        <stop offset="100%" stopColor="#e2d6bb" />
-                    </radialGradient>
-                    <filter id="bell-hand-shadow" x="-40%" y="-40%" width="180%" height="180%">
-                        <feDropShadow dx="0" dy="1.5" stdDeviation="1.6" floodColor="#000" floodOpacity="0.35" />
-                    </filter>
-                </defs>
+        <div className="flex w-full flex-col items-center">
+            <div
+                className={`nmea-clock relative mx-auto w-full ${NIGHT_FACE_CLASSES}`}
+                style={{ maxWidth: faceMaxWidth, aspectRatio: '1' }}
+            >
+                <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={spokenLabel}>
+                    <defs>
+                        <linearGradient id="bell-bezel" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={BRASS_LIGHT} />
+                            <stop offset="45%" stopColor={BRASS} />
+                            <stop offset="100%" stopColor={BRASS_DARK} />
+                        </linearGradient>
+                        <radialGradient id="bell-dial" cx="50%" cy="38%" r="70%">
+                            <stop offset="0%" stopColor="#fffaf0" />
+                            <stop offset="72%" stopColor={DIAL} />
+                            <stop offset="100%" stopColor="#e2d6bb" />
+                        </radialGradient>
+                        <radialGradient id="bell-dial-night" cx="50%" cy="38%" r="70%">
+                            <stop offset="0%" stopColor="#c9b68c" />
+                            <stop offset="72%" stopColor="#bba77c" />
+                            <stop offset="100%" stopColor="#a8956c" />
+                        </radialGradient>
+                        <linearGradient id="bell-bezel-night" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#b39556" />
+                            <stop offset="45%" stopColor="#8a6c2f" />
+                            <stop offset="100%" stopColor="#5a4417" />
+                        </linearGradient>
+                        <filter id="bell-hand-shadow" x="-40%" y="-40%" width="180%" height="180%">
+                            <feDropShadow dx="0" dy="1.5" stdDeviation="1.6" floodColor="#000" floodOpacity="0.35" />
+                        </filter>
+                    </defs>
 
-                {/* Brass case */}
-                <circle cx={CX} cy={CY} r={RADIUS + 22} fill="url(#bell-bezel)" />
-                <circle
-                    cx={CX}
-                    cy={CY}
-                    r={RADIUS + 12}
-                    fill="none"
-                    stroke={BRASS_DARK}
-                    strokeWidth="1.5"
-                    opacity="0.7"
-                />
-                <circle cx={CX} cy={CY} r={RADIUS + 6} fill="url(#bell-dial)" stroke={BRASS_DARK} strokeWidth="1" />
+                    {/* Brass case */}
+                    <circle className="bell-case" cx={CX} cy={CY} r={RADIUS + 22} fill="url(#bell-bezel)" />
+                    <circle
+                        cx={CX}
+                        cy={CY}
+                        r={RADIUS + 12}
+                        fill="none"
+                        stroke={BRASS_DARK}
+                        strokeWidth="1.5"
+                        opacity="0.7"
+                    />
+                    <circle
+                        className="bell-face"
+                        cx={CX}
+                        cy={CY}
+                        r={RADIUS + 6}
+                        fill="url(#bell-dial)"
+                        stroke={BRASS_DARK}
+                        strokeWidth="1"
+                    />
 
-                {/* Minute track: a tick a minute, longer every five. */}
-                {Array.from({ length: 60 }, (_, i) => {
-                    const five = i % 5 === 0;
-                    const outer = polarToCart(CX, CY, RADIUS - 2, i * 6);
-                    const inner = polarToCart(CX, CY, RADIUS - (five ? 12 : 7), i * 6);
-                    return (
-                        <line
-                            key={`m-${i}`}
-                            x1={outer.x}
-                            y1={outer.y}
-                            x2={inner.x}
-                            y2={inner.y}
-                            stroke={INK}
-                            strokeWidth={five ? 1.8 : 0.7}
-                            strokeOpacity={five ? 0.85 : 0.5}
-                        />
-                    );
-                })}
+                    {/* Minute track: a tick a minute, longer every five. */}
+                    {Array.from({ length: 60 }, (_, i) => {
+                        const five = i % 5 === 0;
+                        const outer = polarToCart(CX, CY, RADIUS - 2, i * 6);
+                        const inner = polarToCart(CX, CY, RADIUS - (five ? 12 : 7), i * 6);
+                        return (
+                            <line
+                                key={`m-${i}`}
+                                x1={outer.x}
+                                y1={outer.y}
+                                x2={inner.x}
+                                y2={inner.y}
+                                stroke={INK}
+                                strokeWidth={five ? 1.8 : 0.7}
+                                strokeOpacity={five ? 0.85 : 0.5}
+                            />
+                        );
+                    })}
 
-                {/* Hours, in the serif a Chelsea dial wears. */}
-                {Array.from({ length: 12 }, (_, i) => {
-                    const n = i === 0 ? 12 : i;
-                    const p = polarToCart(CX, CY, RADIUS - 30, i * 30);
-                    return (
-                        <text
-                            key={`h-${n}`}
-                            aria-hidden="true"
-                            x={p.x}
-                            y={p.y}
-                            textAnchor="middle"
-                            dominantBaseline="central"
-                            fill={INK}
-                            fontSize="20"
-                            fontWeight="700"
-                            fontFamily="Georgia, 'Times New Roman', serif"
-                        >
-                            {n}
-                        </text>
-                    );
-                })}
+                    {/* Hours, in the serif a Chelsea dial wears. */}
+                    {Array.from({ length: 12 }, (_, i) => {
+                        const n = i === 0 ? 12 : i;
+                        const p = polarToCart(CX, CY, RADIUS - 30, i * 30);
+                        return (
+                            <text
+                                key={`h-${n}`}
+                                aria-hidden="true"
+                                x={p.x}
+                                y={p.y}
+                                textAnchor="middle"
+                                dominantBaseline="central"
+                                fill={INK}
+                                fontSize="20"
+                                fontWeight="700"
+                                fontFamily="Georgia, 'Times New Roman', serif"
+                            >
+                                {n}
+                            </text>
+                        );
+                    })}
 
-                {/* fontSize 11, not 9: the face renders ~1.12× at 375 pt wide,
+                    {/* fontSize 11, not 9: the face renders ~1.12× at 375 pt wide,
                     so 9 came out ~10 px — under the 12 px floor. 11 clears it
                     and still sits inside the 10 and the 2. */}
-                <text
-                    aria-hidden="true"
-                    x={CX}
-                    y={CY - 52}
-                    textAnchor="middle"
-                    fill={BRASS_DARK}
-                    fontSize="11"
-                    fontWeight="700"
-                    letterSpacing="2.5"
-                    fontFamily="Georgia, 'Times New Roman', serif"
-                >
-                    SHIP&apos;S BELL
-                </text>
-
-                {/* The zone this face is keeping. Lost in a layout edit and put
-                    back: a clock showing a time without saying WHICH time is
-                    the one thing a clock must never do. */}
-                {zoneLabel && (
                     <text
+                        className="bell-legend"
                         aria-hidden="true"
                         x={CX}
-                        y={CY - 36}
+                        y={CY - 52}
                         textAnchor="middle"
                         fill={BRASS_DARK}
                         fontSize="11"
                         fontWeight="700"
-                        letterSpacing="1.2"
+                        letterSpacing="2.5"
+                        fontFamily="Georgia, 'Times New Roman', serif"
                     >
-                        {zoneLabel}
+                        SHIP&apos;S BELL
                     </text>
-                )}
 
-                {/* What the bells mean, said the way it is said aloud. */}
-                <text
-                    aria-hidden="true"
-                    x={CX}
-                    y={CY + 42}
-                    textAnchor="middle"
-                    fill={INK}
-                    fontSize="13"
-                    fontWeight="700"
-                    fontFamily="Georgia, 'Times New Roman', serif"
-                >
-                    {bellsSpoken(bells)}
-                </text>
-                {/* 11 for the same 12 px floor; the tighter tracking keeps
-                    AFTERNOON WATCH clear of the 8 and the 4. */}
-                <text
-                    aria-hidden="true"
-                    x={CX}
-                    y={CY + 56}
-                    textAnchor="middle"
-                    fill={BRASS_DARK}
-                    fontSize="11"
-                    fontWeight="700"
-                    letterSpacing="1.2"
-                >
-                    {watch.name.toUpperCase()}
-                </text>
+                    {/* The zone this face is keeping. Lost in a layout edit and put
+                    back: a clock showing a time without saying WHICH time is
+                    the one thing a clock must never do. */}
+                    {zoneLabel && (
+                        <text
+                            className="bell-legend"
+                            aria-hidden="true"
+                            x={CX}
+                            y={CY - 36}
+                            textAnchor="middle"
+                            fill={BRASS_DARK}
+                            fontSize="11"
+                            fontWeight="700"
+                            letterSpacing="1.2"
+                        >
+                            {zoneLabel}
+                        </text>
+                    )}
 
-                {/* The bell row, filled to the current count. */}
-                {bellMarks.map((m) => {
-                    const lit = m.index <= bells;
-                    return (
-                        <circle
-                            key={`b-${m.index}`}
-                            cx={m.x}
-                            cy={CY + 72}
-                            r={lit ? 3.4 : 2.4}
-                            fill={lit ? BRASS_DARK : 'none'}
-                            stroke={BRASS_DARK}
-                            strokeWidth="1.1"
-                            opacity={lit ? 1 : 0.35}
+                    {/* The bell row, filled to the current count. */}
+                    {bellMarks.map((m) => {
+                        const lit = m.index <= bells;
+                        return (
+                            <circle
+                                key={`b-${m.index}`}
+                                className={lit ? 'bell-mark bell-mark-lit' : 'bell-mark'}
+                                cx={m.x}
+                                cy={CY + 72}
+                                r={lit ? 3.4 : 2.4}
+                                fill={lit ? BRASS_DARK : 'none'}
+                                stroke={BRASS_DARK}
+                                strokeWidth="1.1"
+                                opacity={lit ? 1 : 0.35}
+                            />
+                        );
+                    })}
+
+                    {/* Hands: blued steel, spade tips. */}
+                    <g filter="url(#bell-hand-shadow)">
+                        <line
+                            x1={polarToCart(CX, CY, 16, hourAngle + 180).x}
+                            y1={polarToCart(CX, CY, 16, hourAngle + 180).y}
+                            x2={polarToCart(CX, CY, RADIUS - 66, hourAngle).x}
+                            y2={polarToCart(CX, CY, RADIUS - 66, hourAngle).y}
+                            stroke={BLUED}
+                            strokeWidth="6"
+                            strokeLinecap="round"
                         />
-                    );
-                })}
-
-                {/* Hands: blued steel, spade tips. */}
-                <g filter="url(#bell-hand-shadow)">
-                    <line
-                        x1={polarToCart(CX, CY, 16, hourAngle + 180).x}
-                        y1={polarToCart(CX, CY, 16, hourAngle + 180).y}
-                        x2={polarToCart(CX, CY, RADIUS - 66, hourAngle).x}
-                        y2={polarToCart(CX, CY, RADIUS - 66, hourAngle).y}
-                        stroke={BLUED}
-                        strokeWidth="6"
-                        strokeLinecap="round"
-                    />
-                    <line
-                        x1={polarToCart(CX, CY, 20, minuteAngle + 180).x}
-                        y1={polarToCart(CX, CY, 20, minuteAngle + 180).y}
-                        x2={polarToCart(CX, CY, RADIUS - 22, minuteAngle).x}
-                        y2={polarToCart(CX, CY, RADIUS - 22, minuteAngle).y}
-                        stroke={BLUED}
-                        strokeWidth="4"
-                        strokeLinecap="round"
-                    />
-                    <line
-                        x1={polarToCart(CX, CY, 26, secondAngle + 180).x}
-                        y1={polarToCart(CX, CY, 26, secondAngle + 180).y}
-                        x2={polarToCart(CX, CY, RADIUS - 14, secondAngle).x}
-                        y2={polarToCart(CX, CY, RADIUS - 14, secondAngle).y}
-                        stroke="#8c2f24"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                    />
-                    <circle cx={CX} cy={CY} r="6" fill={BRASS_DARK} />
-                    <circle cx={CX} cy={CY} r="2.4" fill={DIAL} />
-                </g>
-            </svg>
+                        <line
+                            x1={polarToCart(CX, CY, 20, minuteAngle + 180).x}
+                            y1={polarToCart(CX, CY, 20, minuteAngle + 180).y}
+                            x2={polarToCart(CX, CY, RADIUS - 22, minuteAngle).x}
+                            y2={polarToCart(CX, CY, RADIUS - 22, minuteAngle).y}
+                            stroke={BLUED}
+                            strokeWidth="4"
+                            strokeLinecap="round"
+                        />
+                        <line
+                            x1={polarToCart(CX, CY, 26, secondAngle + 180).x}
+                            y1={polarToCart(CX, CY, 26, secondAngle + 180).y}
+                            x2={polarToCart(CX, CY, RADIUS - 14, secondAngle).x}
+                            y2={polarToCart(CX, CY, RADIUS - 14, secondAngle).y}
+                            stroke="#8c2f24"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                        />
+                        <circle cx={CX} cy={CY} r="6" fill={BRASS_DARK} />
+                        <circle cx={CX} cy={CY} r="2.4" fill={DIAL} />
+                    </g>
+                </svg>
+            </div>
+            {/* What the bells mean, said the way it is said aloud, and the
+                watch — under the dial where no hand crosses them. The img's
+                name already speaks both, so this is not read twice. */}
+            <p aria-hidden="true" className="mt-2 shrink-0 text-center leading-tight">
+                <span className="block font-serif text-lg font-bold text-gray-200">{bellsSpoken(bells)}</span>
+                <span className="mt-0.5 block text-xs font-bold uppercase tracking-[0.15em] text-amber-300">
+                    {watch.name}
+                </span>
+            </p>
         </div>
     );
 };

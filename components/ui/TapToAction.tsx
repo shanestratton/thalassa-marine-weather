@@ -4,18 +4,22 @@
  *
  * Shane 2026-09-26 ("1 = word"): the slide guard stays on Drop Anchor and
  * Start Tracking, where an accidental activation matters; a routine add is a
- * single 44 pt+ tap. Same height, track, thumb disc and theme colours as the
- * slide bar, so the bottom of every Ship's Office page still reads as one
- * family — only the gesture changes.
+ * single 44 pt+ tap. Same height, track and theme colours as the slide bar,
+ * so the bottom of every Ship's Office page still reads as one family.
+ *
+ * No thumb disc (UX scorecard run 6): a tap bar that wore the slide's round
+ * thumb looked exactly like 'Slide to drop anchor' and diluted what the
+ * slide means. The icon sits inline beside the label instead, in the label's
+ * colour — pass it uncoloured (stroke="currentColor", no text-* class).
  */
 import React from 'react';
 import { ACTION_BAR_THEMES as THEMES } from './actionBarThemes';
 
 interface TapToActionProps {
-    /** Button text, e.g. 'Add Item' */
+    /** Button text, sentence case, e.g. 'Add item' */
     label: string;
-    /** Icon shown in the round disc at the left, as on the slide thumb */
-    thumbIcon: React.ReactNode;
+    /** Icon shown inline before the label; inherits the label colour */
+    icon: React.ReactNode;
     /** Called on tap */
     onConfirm: () => void;
     /** Show a spinner and loadingText instead of the button */
@@ -27,7 +31,7 @@ interface TapToActionProps {
 
 export const TapToAction: React.FC<TapToActionProps> = ({
     label,
-    thumbIcon,
+    icon,
     onConfirm,
     loading = false,
     loadingText = 'Working…',
@@ -56,18 +60,16 @@ export const TapToAction: React.FC<TapToActionProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={disabled}
-            className="press relative w-full h-14 rounded-full flex items-center select-none transition-transform active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="press w-full h-14 rounded-full flex items-center justify-center px-6 select-none transition-transform active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: colors.track, border: colors.trackBorder }}
         >
             <span
-                aria-hidden="true"
-                className="thalassa-action-thumb absolute left-1 top-1 bottom-1 aspect-square rounded-full flex items-center justify-center"
-                style={{ background: colors.thumbBg, boxShadow: colors.thumbShadow }}
+                className={`inline-flex items-center justify-center gap-2 text-sm font-bold tracking-wider uppercase ${colors.labelColor}`}
             >
-                {thumbIcon}
-            </span>
-            <span className={`w-full text-center text-sm font-bold tracking-wider uppercase ${colors.labelColor}`}>
-                {label}
+                <span aria-hidden="true" className="flex shrink-0 items-center">
+                    {icon}
+                </span>
+                <span>{label}</span>
             </span>
         </button>
     );

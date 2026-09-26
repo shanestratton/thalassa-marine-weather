@@ -10,6 +10,7 @@ import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { formatDistance, bearingToCardinal } from './anchorUtils';
+import { AlertTriangleIcon, AnchorIcon, RadioTowerIcon } from '../Icons';
 
 interface AnchorAlarmOverlayProps {
     snapshot: AnchorWatchSnapshot;
@@ -79,11 +80,11 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
             <div className="anchor-alarm-scroll relative z-10 flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-5">
                 {/* Alarm icon with glow */}
                 <div
-                    className="text-4xl mb-6 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]"
+                    className="mb-6 text-red-400 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]"
                     style={{ animation: 'pulse 1s ease-in-out infinite' }}
                     aria-hidden="true"
                 >
-                    {gpsLost ? '📡' : '🚨'}
+                    {gpsLost ? <RadioTowerIcon className="h-11 w-11" /> : <AlertTriangleIcon className="h-11 w-11" />}
                 </div>
 
                 {/* Alarm heading */}
@@ -153,8 +154,8 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
                                     background: 'linear-gradient(to top, transparent, #ef4444)',
                                 }}
                             />
-                            <span className="text-sm text-red-400/80 font-bold" aria-hidden="true">
-                                ⚓
+                            <span className="text-red-400/80" aria-hidden="true">
+                                <AnchorIcon className="h-4 w-4" />
                             </span>
                         </div>
                     </>

@@ -192,6 +192,30 @@ export const ChatBubbleIcon: React.FC<{ color: string }> = ({ color }) => (
     </svg>
 );
 
+// Ring binder for the Boat Binder row (replaced the 📒 emoji, UX scorecard
+// run 6): a cover with three rings through the spine and a label on the front.
+export const BinderIcon: React.FC<{ color: string; className?: string }> = ({ color, className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5} aria-hidden="true">
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M7.5 3h10.25c.966 0 1.75.784 1.75 1.75v14.5A1.75 1.75 0 0117.75 21H7.5A1.5 1.5 0 016 19.5v-15A1.5 1.5 0 017.5 3zM4.5 7.5h3M4.5 12h3M4.5 16.5h3M11 7.5h5M11 10.5h3"
+        />
+    </svg>
+);
+
+// Plug for the NMEA Gateway row, so it no longer shares the Radio tile's
+// wifi glyph (UX scorecard run 6).
+export const PlugIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5} aria-hidden="true">
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 2.25V7.5m6-5.25V7.5M12 17.25v4.5M6 7.5h12v4.5a5.25 5.25 0 01-5.25 5.25h-1.5A5.25 5.25 0 016 12V7.5z"
+        />
+    </svg>
+);
+
 export const UserIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
         <path

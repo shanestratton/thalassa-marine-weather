@@ -241,7 +241,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     heading_id: headingId,
                 });
                 if (!currentOperation(scope)) return;
-                toast.success(formType === 'heading' ? 'Section added' : 'Item added');
+                toast.success(formType === 'heading' ? 'Checklist added' : 'Item added');
                 // Keep form open — just clear text so user can add more
                 setFormText('');
             }
@@ -262,7 +262,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             if (entry.type === 'heading') {
                 const children = visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === id);
                 if (children.length > 0) {
-                    toast.error('Remove all items from this section first');
+                    toast.error('Remove all items from this checklist first');
                     return;
                 }
             }
@@ -273,7 +273,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 if (!currentOperation(scope)) return;
                 loadEntries();
                 const isH = entry.type === 'heading';
-                toast.success(isH ? 'Section deleted' : 'Item deleted');
+                toast.success(isH ? 'Checklist deleted' : 'Item deleted');
             } catch (e) {
                 log.error('Failed to delete:', e);
                 if (currentOperation(scope)) toast.error('Failed to delete');
@@ -449,7 +449,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {headings.length} Section{headings.length !== 1 ? 's' : ''} · {totalDetails} Item
+                            {/* One term for one thing (UX scorecard run 6): a heading IS a
+                                checklist — pre-departure, anchoring — and its rows are items. */}
+                            {headings.length} checklist{headings.length !== 1 ? 's' : ''} · {totalDetails} item
                             {totalDetails !== 1 ? 's' : ''}
                         </p>
                     }
@@ -507,8 +509,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search items..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
+                        placeholder="Search checklists and items…"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -537,11 +539,11 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title={searchQuery ? 'No Items Match' : 'No Checklists Yet'}
+                            title={searchQuery ? 'No matches' : 'No checklists yet'}
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Start with pre-departure, anchoring or heavy-weather checks. Tap Add Section or Item below.'
+                                    : 'Start with a pre-departure, anchoring or heavy-weather checklist. Tap Add checklist or item below.'
                             }
                             className="py-16"
                         />
@@ -580,10 +582,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Add Section or Item"
-                        thumbIcon={
+                        label="Add checklist or item"
+                        icon={
                             <svg
-                                className="w-5 h-5 text-white"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -608,7 +610,13 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             setShowForm(false);
                             resetForm();
                         }}
-                        title={editEntry ? 'Edit Item' : 'Add to Checklist'}
+                        title={
+                            editEntry
+                                ? editEntry.type === 'heading'
+                                    ? 'Edit checklist'
+                                    : 'Edit item'
+                                : 'Add to checklists'
+                        }
                     >
                         {/* Type toggle — Heading or Detail */}
                         {!editEntry && (
@@ -618,7 +626,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
-                                        aria-label="Select checklist item type"
+                                        aria-label="Add a checklist"
+                                        aria-pressed={formType === 'heading'}
                                         onClick={() => setFormType('heading')}
                                         className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${
                                             formType === 'heading'
@@ -639,10 +648,11 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                 d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"
                                             />
                                         </svg>
-                                        Section
+                                        Checklist
                                     </button>
                                     <button
-                                        aria-label="Select checklist item type"
+                                        aria-label="Add an item"
+                                        aria-pressed={formType === 'detail'}
                                         onClick={() => {
                                             setFormType('detail');
                                             if (headings.length > 0 && !formHeadingId) setFormHeadingId(headings[0].id);
@@ -672,7 +682,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </div>
                                 {headings.length === 0 && formType === 'heading' && (
                                     <p className="text-[11px] text-amber-400/80 mt-2 text-center">
-                                        Add a section first, then you can add items to it
+                                        Add a checklist first, then you can add items to it
                                     </p>
                                 )}
                             </div>
@@ -682,7 +692,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         {formType === 'detail' && headings.length > 0 && (
                             <div className="mb-3">
                                 <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5">
-                                    Under Section
+                                    Under checklist
                                 </label>
                                 <select
                                     value={formHeadingId}
@@ -701,7 +711,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         {/* Text input */}
                         <div className="mb-4">
                             <FormField
-                                label={formType === 'heading' ? 'Section Name' : 'Check Item'}
+                                label={formType === 'heading' ? 'Checklist name' : 'Check item'}
                                 value={formText}
                                 onChange={setFormText}
                                 placeholder={
@@ -715,7 +725,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
                         {!formText.trim() && (
                             <p className="text-micro text-amber-400/80 text-center mt-2">
-                                {formType === 'heading' ? 'Section name' : 'Item description'} is required
+                                {formType === 'heading' ? 'Checklist name' : 'Item description'} is required
                             </p>
                         )}
                         <button
@@ -728,7 +738,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     : 'bg-linear-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
                             }`}
                         >
-                            {editEntry ? 'Save Changes' : formType === 'heading' ? 'Add Section' : 'Add Item'}
+                            {editEntry ? 'Save changes' : formType === 'heading' ? 'Add checklist' : 'Add item'}
                         </button>
 
                         {/* Delete button — only in edit mode */}
@@ -753,7 +763,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                             disabled={!canDelete}
                                             className="w-full py-3 mt-2 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] bg-red-500/15 border border-red-500/20 text-red-400 hover:bg-red-500/25 disabled:opacity-30"
                                         >
-                                            Delete {isHeading ? 'Section' : 'Item'}
+                                            Delete {isHeading ? 'checklist' : 'item'}
                                         </button>
                                         {isHeading && childCount > 0 && (
                                             <p className="text-micro text-amber-400/80 text-center mt-1.5">

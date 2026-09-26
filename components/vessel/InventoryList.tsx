@@ -509,7 +509,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search by name or location..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -538,9 +538,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title={searchQuery ? 'No Items Match' : 'Nothing in Stores Yet'}
+                            title={searchQuery ? 'No matches' : 'Nothing in stores yet'}
                             subtitle={
-                                searchQuery ? 'Try a different search term.' : 'Tap Add Item below, or scan a barcode.'
+                                // Add item opens the scanner, which also takes an item by hand —
+                                // one path, not two (UX scorecard run 6).
+                                searchQuery
+                                    ? 'Try a different search term.'
+                                    : 'Spares, provisions and consumables, and where each is stowed. Tap Add item below, then scan its barcode or type it in.'
                             }
                             className="py-16"
                         />
@@ -582,10 +586,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <TapToAction
-                        label="Add Item"
-                        thumbIcon={
+                        label="Add item"
+                        icon={
                             <svg
-                                className="w-5 h-5 text-white"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
