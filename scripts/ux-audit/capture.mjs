@@ -78,6 +78,20 @@ const VIEWS = [
 const SETTLE = { dashboard: 5000, map: 5000, voyage: 3000 };
 
 const browser = await webkit.launch();
+// Playwright WebKit stamps geolocation fixes in microseconds, so the app read
+// every fix as decades in the future and fell back to its no-fix states (UX
+// scorecard run 7: the chart opened on the whole continent). A device stamps
+// milliseconds; normalise before the app sees it.
+const GEO_TIMESTAMP_FIX = () => {
+    const g = navigator.geolocation;
+    if (!g) return;
+    const fix = (cb) => (p) =>
+        cb({ coords: p.coords, timestamp: p.timestamp > 1e14 ? Math.floor(p.timestamp / 1000) : p.timestamp });
+    const gcp = g.getCurrentPosition.bind(g);
+    const wp = g.watchPosition.bind(g);
+    g.getCurrentPosition = (ok, err, o) => gcp(fix(ok), err, o);
+    g.watchPosition = (ok, err, o) => wp(fix(ok), err, o);
+};
 const context = await browser.newContext({
     viewport: { width: W, height: H },
     deviceScaleFactor: 2,
@@ -91,6 +105,7 @@ const context = await browser.newContext({
         origins: [{ origin: ORIGIN, localStorage: ls.map(([name, value]) => ({ name, value })) }],
     },
 });
+await context.addInitScript(GEO_TIMESTAMP_FIX);
 const page = await context.newPage();
 const consoleLog = [];
 page.on('console', (m) => {
