@@ -71,7 +71,7 @@ describe('the weather is for the boat', () => {
         expect(status.match(/<GpsSourceRow\b/g)).toHaveLength(1);
         expect(read('components/GpsDiagnosticsCards.tsx')).toContain('{positionSource}');
         expect(app).not.toContain('<GpsSourceGlyph />');
-        expect(app).toContain('value={displayTitle}');
+        expect(app).toContain("value={displayTitle === 'Select Location' ? '' : displayTitle}");
         expect(app).not.toContain('value={query}');
         expect(glyph).toContain("weatherKind === 'held'");
         expect(glyph).toContain('canChoose: true');

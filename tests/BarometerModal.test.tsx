@@ -74,7 +74,7 @@ describe('BarometerModal controls', () => {
     it('the close control is ModalSheet-sized (44px), and closing works', () => {
         const onClose = vi.fn();
         render(<BarometerModal isOpen onClose={onClose} hourly={hourly as never} forecastPressure={1013.4} />);
-        const close = screen.getByRole('button', { name: /close modal/i });
+        const close = screen.getByRole('button', { name: /^close$/i });
         expect(close.className).toContain('w-11 h-11');
         fireEvent.click(close);
         expect(onClose).toHaveBeenCalled();

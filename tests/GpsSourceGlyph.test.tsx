@@ -29,6 +29,7 @@ vi.mock('../components/nmea/useNmeaStore', () => ({ useNmeaConnectionStatus: () 
 
 import { GpsSourceGlyph, GpsSourceRow, resolveGpsSourceState } from '../components/GpsSourceGlyph';
 import { weatherLocationTitle } from '../utils/weatherLocationTitle';
+import { useSettingsStore } from '../stores/settingsStore';
 
 describe('resolveGpsSourceState', () => {
     const at = (weatherKind: any, storeStatus: any = 'disconnected', remoteVia: any = null) =>
@@ -50,6 +51,18 @@ describe('resolveGpsSourceState', () => {
     it('her held last fix is a boat with an amber dot, and can be changed', () => {
         expect(at('held')).toMatchObject({ glyph: 'boat', tone: 'held', canChoose: true });
         expect(at('held').label).toContain('tap to choose');
+    });
+
+    it('a chosen place names the place and says GPS is not in use', () => {
+        const state = resolveGpsSourceState({
+            weatherKind: null,
+            storeStatus: 'disconnected',
+            remoteVia: null,
+            hasWeatherContext: true,
+            chosenPlace: 'Gladstone',
+        });
+        expect(state).toMatchObject({ glyph: 'none', tone: 'none', canChoose: false });
+        expect(state.label).toBe('Position: Gladstone (chosen place) — GPS not in use');
     });
 
     it('the phone is a phone; nothing yet is neither', () => {
@@ -180,7 +193,8 @@ describe('<GpsSourceRow /> — the System Status panel row', () => {
         expect(row.getAttribute('data-glyph')).toBe('boat');
         expect(row.getAttribute('data-tone')).toBe('cloud');
         expect(screen.getByText('Position')).toBeInTheDocument();
-        expect(screen.getByText('the boat’s GPS, through the cloud')).toBeInTheDocument();
+        // Capitalised like the rows beside it ('Not tracking', 'Not deployed').
+        expect(screen.getByText('The boat’s GPS, through the cloud')).toBeInTheDocument();
     });
 
     it('explains retained weather without treating a connected Pi as live phone GPS', () => {
@@ -200,8 +214,29 @@ describe('<GpsSourceRow /> — the System Status panel row', () => {
         expect(row.getAttribute('data-glyph')).toBe('phone');
         expect(row.getAttribute('data-tone')).toBe('none');
         expect(
-            screen.getByText('this phone’s GPS unavailable — showing forecast for the last location · fix 5m ago'),
+            screen.getByText('This phone’s GPS unavailable — showing forecast for the last location · fix 5m ago'),
         ).toBeInTheDocument();
+    });
+});
+
+describe('<GpsSourceRow /> — off GPS-follow', () => {
+    it('names the place on the Glass instead of "none yet"', () => {
+        const prev = useSettingsStore.getState().settings;
+        useSettingsStore.setState({ settings: { ...prev, defaultLocation: 'Gladstone' } });
+        try {
+            world.weather = {
+                positionSource: null,
+                positionChoice: null,
+                weatherData: { locationName: 'Gladstone' },
+            } as unknown as typeof world.weather;
+            world.link = { status: 'disconnected', remote: null };
+            render(<GpsSourceRow compact />);
+            expect(screen.getByText('Weather position')).toBeInTheDocument();
+            expect(screen.getByText('Gladstone (chosen place) — GPS not in use')).toBeInTheDocument();
+            expect(screen.queryByText(/none yet/i)).toBeNull();
+        } finally {
+            useSettingsStore.setState({ settings: prev });
+        }
     });
 });
 
@@ -224,7 +259,7 @@ describe('retained-weather location bar wiring', () => {
         expect(title).toContain('status: positionSource?.status');
         expect(title).toContain('retainedWeather: retainedLocationWeather');
         expect(title).toContain('if (retainedLocationWeather) displayTitle = `Last location · ${displayTitle}`');
-        expect(app).toContain('value={displayTitle}');
+        expect(app).toContain("value={displayTitle === 'Select Location' ? '' : displayTitle}");
     });
 
     it('uses a neutral selected-receiver label during lookup without a premature no-data error', () => {

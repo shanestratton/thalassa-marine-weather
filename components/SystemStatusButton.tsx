@@ -37,6 +37,7 @@ import {
     presentGpsDiagnostics,
     type GpsDiagnosticsPresentation,
 } from './gpsDiagnosticsPresentation';
+import { CORNER_STATUS_DOT_CLASS } from './map/cornerStatusDot';
 
 // ── Types ──
 
@@ -225,7 +226,7 @@ const SystemStatusModal: React.FC<{
                             <InfoIcon className="w-4 h-4 text-sky-400" />
                         </div>
                         <h2 id="system-status-title" className="text-base font-bold text-white tracking-tight">
-                            System Status
+                            System status
                         </h2>
                         {/* No "0 active" pill: with nothing running the rows below
                             already say "Not tracking", "Not deployed" and so on,
@@ -1034,15 +1035,9 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                     <path d="M4.4 4.4a10.7 10.7 0 0 0 0 15.2M19.6 4.4a10.7 10.7 0 0 1 0 15.2" opacity="0.55" />
                 </svg>
 
-                {/* Active count badge — from 1, matching the accessible name */}
+                {/* Something is active: the shared corner dot (UX scorecard run 6). A numeral here read as unread alerts; the count stays in the aria-label. */}
                 {activeCount > 0 && (
-                    <span
-                        aria-hidden="true"
-                        data-testid="system-status-count"
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md ring-2 ring-slate-900/20"
-                    >
-                        {activeCount}
-                    </span>
+                    <span aria-hidden="true" data-testid="system-status-count" className={CORNER_STATUS_DOT_CLASS} />
                 )}
             </button>
 

@@ -16,6 +16,8 @@ import {
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import { useSettings } from '../../context/SettingsContext';
+import { forecastDayHasWeather, heroRowDayName, setSlideInert } from './hero/heroSlideHelpers';
+import type { GlassForecastRange } from './hero/heroSlideHelpers';
 
 export const HeroSection = ({
     current,
@@ -45,6 +47,8 @@ export const HeroSection = ({
     onActiveDataChange,
     isEssentialMode,
     minutelyRain,
+    forecastModelLabel = null,
+    compact = false,
 }: {
     current: WeatherMetrics;
     forecasts: ForecastDay[];
@@ -74,6 +78,11 @@ export const HeroSection = ({
     onActiveDataChange?: (data: WeatherMetrics) => void;
     isEssentialMode?: boolean;
     minutelyRain?: MinutelyRain[];
+    /** The pinned model's pill label ("ICON"); null for Auto. Names the model
+     *  whose range a far day is past. */
+    forecastModelLabel?: string | null;
+    /** Short viewport: the slides drop their day label row. */
+    compact?: boolean;
 }) => {
     const { settings, updateSettings } = useSettings();
     const [activeIndex, setActiveIndex] = useState(0);
@@ -88,7 +97,13 @@ export const HeroSection = ({
 
     // Construct rows: TODAY (live card) + future forecast days
     const dayRows = useMemo(() => {
-        const rows: { data: WeatherMetrics; hourly: HourlyForecast[]; customTime: number | undefined }[] = [];
+        const rows: {
+            data: WeatherMetrics;
+            hourly: HourlyForecast[];
+            customTime: number | undefined;
+            /** The day carries at least one real weather number. */
+            hasWeather: boolean;
+        }[] = [];
 
         // Compute today's ISO date in the location's timezone (handles UTC offset edge cases)
         const tz = timeZone || undefined;
@@ -159,6 +174,7 @@ export const HeroSection = ({
             data: todayMetrics as unknown as WeatherMetrics,
             hourly: todayHourly,
             customTime: undefined, // Live — uses new Date() for "now" line
+            hasWeather: true, // Live conditions — never "past the range"
         });
 
         // ROWS 1+: Future forecast days (skip today, de-dupe, cap at 10 total)
@@ -224,6 +240,9 @@ export const HeroSection = ({
                     data: metrics as unknown as WeatherMetrics,
                     hourly: dayHourly,
                     customTime: undefined,
+                    // From the forecast day itself, not `metrics`: that spreads
+                    // today's live wind underneath, which would pass for a number.
+                    hasWeather: forecastDayHasWeather(f, dayHourly),
                 });
             });
         }
@@ -321,6 +340,21 @@ export const HeroSection = ({
         return () => clearTimeout(t);
     }, [isEssentialMode, resetVertical]);
 
+    // The last day the pinned model reaches, so a day past it can say
+    // "Beyond ICON's range (ends Sat 3 Oct)" instead of drawing dashes that
+    // read as a broken feed (UX scorecard run 6). One stable object for memo.
+    const lastWeatherRow = useMemo(() => {
+        for (let i = dayRows.length - 1; i >= 0; i--) if (dayRows[i].hasWeather) return i;
+        return -1;
+    }, [dayRows]);
+    const forecastRange = useMemo<GlassForecastRange>(
+        () => ({
+            modelLabel: forecastModelLabel,
+            lastDayLabel: lastWeatherRow < 0 ? null : lastWeatherRow === 0 ? 'today' : heroRowDayName(lastWeatherRow),
+        }),
+        [forecastModelLabel, lastWeatherRow],
+    );
+
     // PERF FIX: Pre-compute a stable array of per-slide onTimeSelect handlers.
     // Old approach: `createTimeSelectHandler(rIdx)` returned a NEW closure every render,
     // completely defeating React.memo on HeroSlide. Now each handler is created once
@@ -342,6 +376,9 @@ export const HeroSection = ({
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dayRows.length]);
+
+    // Clamped so a stale index past a shortened forecast never hides every day.
+    const shownIndex = Math.min(activeIndex, Math.max(0, dayRows.length - 1));
 
     return (
         <div
@@ -378,6 +415,11 @@ export const HeroSection = ({
                         // overflow-hidden prevents headers from escaping during vertical scroll
                         <div
                             key={rIdx}
+                            // Days off screen leave the reading order. All eleven were
+                            // exposed at once: ~250 tide buttons under ten identical
+                            // region names (UX scorecard run 6).
+                            ref={(el) => setSlideInert(el, rIdx !== shownIndex, scrollRef.current)}
+                            aria-hidden={rIdx !== shownIndex || undefined}
                             className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden"
                         >
                             <HeroSlide
@@ -412,23 +454,34 @@ export const HeroSection = ({
                                 onActiveDataChange={onActiveDataChange}
                                 isEssentialMode={isEssentialMode}
                                 minutelyRain={minutelyRain}
+                                forecastRange={forecastRange}
+                                compact={compact}
                             />
                         </div>
                     ))
                 )}
             </div>
 
-            {/* Pagination Dots (Vertical) — hidden in essential mode */}
+            {/* Pagination Dots (Vertical) — hidden in essential mode.
+                6 px and at least 3:1, just inside the card's right edge rather
+                than in the screen gutter, where 4 px grey dots at ~2.3:1 read
+                as stray pixels (UX scorecard run 6). 18 px from the edge sits
+                them beside, never on, the tide card's right-aligned header
+                (which ends 24 px in). The box spans the card — below the day
+                label row, above the hour-dot band — and centres the rail. */}
             {!isEssentialMode && dayRows.length > 1 && (
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 z-30 pointer-events-none pr-1">
+                <div
+                    className={`absolute right-[18px] ${compact ? 'top-0' : 'top-5'} bottom-4 z-30 flex flex-col justify-center gap-[3px] pointer-events-none`}
+                    aria-hidden="true"
+                >
                     {dayRows.map((_, i) => (
                         <div
                             key={i}
-                            // Inactive: white/30 by night, slate-400 by day (bg-white/20
-                            // is remapped to near-white in daylight and vanished on the
-                            // pale page). The active dot steps to sky-600 by day so it
-                            // still out-weighs the inactive ones.
-                            className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-sky-400 [.display-light_&]:bg-sky-600' : 'bg-white/30 [.display-light_&]:bg-slate-400'} `}
+                            // Inactive: white/45 by night (~3.8:1 on the card), slate-500
+                            // by day (4.8:1 on the white card; slate-400 was 2.6:1). The
+                            // active dot steps to sky-600 by day so it still out-weighs
+                            // the inactive ones.
+                            className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i === shownIndex ? 'bg-sky-400 [.display-light_&]:bg-sky-600' : 'bg-white/45 [.display-light_&]:bg-slate-500'}`}
                         />
                     ))}
                 </div>

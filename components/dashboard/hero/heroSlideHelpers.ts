@@ -213,6 +213,72 @@ export interface DailySummary {
 }
 
 /**
+ * The pinned forecast model and the last day row it reaches, so a day past it
+ * can say so instead of drawing dashes. `modelLabel` is null for Auto (and the
+ * automatic offshore blend), which have no single model to name.
+ */
+export interface GlassForecastRange {
+    modelLabel: string | null;
+    /** "today" or "Sat 3 Oct"; null when not even today has a number. */
+    lastDayLabel: string | null;
+}
+
+/**
+ * "Today" for row 0, otherwise "Tue 29 Sep". Derived from the row index —
+ * the same rule as HeroSlide's rowDateLabel, and for the same reason: the
+ * carousel is chronological from today, and provider isoDates drift.
+ */
+export function heroRowDayName(index: number, now: Date = new Date()): string {
+    if (index === 0) return 'Today';
+    const d = new Date(now);
+    d.setDate(d.getDate() + index);
+    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+/**
+ * Take an off-screen carousel slide out of the reading order. React 18 has no
+ * `inert` prop, so the DOM property is set directly (as vesselHub/listRows
+ * does). Before a slide holding focus goes inert, focus moves to `fallback`
+ * — the carousel itself — so a keyboard user is not dropped on <body>.
+ */
+export function setSlideInert(el: HTMLElement | null, inert: boolean, fallback?: HTMLElement | null): void {
+    if (!el) return;
+    if (inert && fallback && typeof document !== 'undefined' && el.contains(document.activeElement)) {
+        fallback.focus({ preventScroll: true });
+    }
+    (el as HTMLElement & { inert: boolean }).inert = inert;
+}
+
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * True when a forecast day carries at least one real atmospheric number —
+ * temperature, wind, gust or rain chance — in its daily summary or in any of
+ * its hourly frames.
+ *
+ * Past a model's horizon the provider still emits the day and all 24 of its
+ * hours, every value null, so "has hourly frames" does not mean "has a
+ * forecast". Tue 6 Oct under ICON (whose range ends Sat 3 Oct) rendered a
+ * day card of bare dashes that read as a broken feed (UX scorecard run 6).
+ * Waves come from a separate marine model and tides from a tide service, so
+ * neither says whether the pinned weather model reaches this day.
+ */
+export function forecastDayHasWeather(
+    daily: Pick<DailySummary, 'highTemp' | 'lowTemp' | 'windSpeed' | 'windGust' | 'precipChance'> | null | undefined,
+    hourly: readonly HourlyForecast[] | null | undefined,
+): boolean {
+    if (
+        daily &&
+        [daily.highTemp, daily.lowTemp, daily.windSpeed, daily.windGust, daily.precipChance].some(isFiniteNumber)
+    ) {
+        return true;
+    }
+    return (hourly ?? []).some(
+        (h) => !!h && [h.temperature, h.windSpeed, h.windGust, h.precipChance].some((v) => isFiniteNumber(v)),
+    );
+}
+
+/**
  * The daily forecast shape used by the hero carousel.  Keep this deliberately
  * small: hourly cards only need the daily fields which are safe to inherit
  * across every hour in a Glass day row.

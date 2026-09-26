@@ -262,6 +262,100 @@ describe('HeroSlide', () => {
         expect(screen.queryByTestId('forecast-horizon')).toBeNull();
     });
 
+    it('names the pinned model and its last day on a day past its range', () => {
+        // Past ICON's range the provider still sends the day's 24 hours, every
+        // value null — so "has hourly frames" must not read as "has a forecast".
+        const nullHours = Array.from({ length: 24 }, (_, h) => ({
+            time: `2026-10-06T${String(h).padStart(2, '0')}:00:00+10:00`,
+            temperature: null,
+            windSpeed: null,
+            windGust: null,
+            waveHeight: null,
+            condition: '',
+        })) as any;
+        render(
+            <HeroSlide
+                data={{ isoDate: '2026-10-06', date: '2026-10-06', highTemp: null, lowTemp: null } as any}
+                index={10}
+                units={baseUnits}
+                settings={{} as any}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="wx"
+                isVisible={true}
+                hourly={nullHours}
+                forecastRange={{ modelLabel: 'ICON', lastDayLabel: 'Sat 3 Oct' }}
+            />,
+        );
+        expect(screen.getByTestId('forecast-horizon')).toHaveTextContent(
+            'Beyond ICON’s range (ends Sat 3 Oct) — try another model',
+        );
+    });
+
+    it('frames the day overview, captions high and low, and never reads dashes aloud', () => {
+        render(
+            <HeroSlide
+                data={{ ...baseData, isoDate: '2026-10-06', date: '2026-10-06', highTemp: 27, lowTemp: null }}
+                index={3}
+                units={baseUnits}
+                settings={{} as any}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="wx"
+                isVisible={true}
+                hourly={[]}
+            />,
+        );
+        const card = screen.getByRole('group', { name: /^Forecast for / });
+        expect(card.closest('.rounded-2xl')).not.toBeNull();
+        expect(card).toHaveTextContent('High');
+        expect(card).toHaveTextContent('Low');
+        // The low is missing: its dashes are hidden and "no data" is spoken.
+        const hiddenDashes = Array.from(card.querySelectorAll('[aria-hidden="true"]')).filter(
+            (el) => el.textContent === '--',
+        );
+        expect(hiddenDashes.length).toBeGreaterThan(0);
+        expect(card).toHaveTextContent('no data');
+    });
+
+    it('takes off-screen hours out of the reading order and names the day', () => {
+        const now = Date.now();
+        const hours = [1, 2, 3].map((h) => ({
+            time: new Date(now + h * 60 * 60_000).toISOString(),
+            temperature: 20,
+            windSpeed: 10,
+            windGust: 14,
+            waveHeight: 1,
+            condition: 'Clear',
+        })) as any;
+        const { container } = render(
+            <HeroSlide
+                data={baseData}
+                index={0}
+                units={baseUnits}
+                settings={{} as any}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="wx"
+                isVisible={true}
+                locationType="inshore"
+                tides={[{ time: new Date(now).toISOString(), type: 'High', height: 2 }]}
+                hourly={hours}
+                timeZone="Australia/Brisbane"
+            />,
+        );
+        expect(screen.getByRole('region', { name: /^Today: hourly forecast/ })).toBeInTheDocument();
+        const slides = container.querySelectorAll('.snap-start');
+        expect(slides.length).toBeGreaterThan(1);
+        expect(slides[0]).not.toHaveAttribute('aria-hidden');
+        for (const slide of Array.from(slides).slice(1)) {
+            expect(slide).toHaveAttribute('aria-hidden', 'true');
+            expect((slide as HTMLElement & { inert: boolean }).inert).toBe(true);
+        }
+        // Only the one on-screen tide card is a button VoiceOver can reach.
+        expect(screen.getAllByRole('button', { name: TIDE_TRIGGER })).toHaveLength(1);
+    });
+
     it('does not move focus when the graph opens through a pointer tap', () => {
         renderTideCard();
         const focusedBefore = document.activeElement;

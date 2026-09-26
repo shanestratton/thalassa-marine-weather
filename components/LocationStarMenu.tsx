@@ -4,7 +4,7 @@
  * Replaces the old "tap ★ = toggle favourite" behaviour with a small
  * Locations flyout (Shane, 2026-06-16): tap the star → a portaled
  * popover listing, top to bottom,
- *   ⚓ Home port    — the user's designated home, pinned first;
+ *   ⌂ Home port    — the user's designated home, pinned first;
  *   ✛ Current Location — jump back to live GPS-follow;
  *   📍 saved spots — each tappable, with set-as-home + remove;
  *   ★ Save “…”     — footer that saves the current location.
@@ -30,7 +30,9 @@ import { createPortal } from 'react-dom';
 import { panePopoverStyle, usePanePortalTarget } from '../context/PanePortalContext';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
-import { AnchorIcon, CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
+import { CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
+import { HomeIcon } from './icons/GlassGlyphs';
+import { calculateDistanceKm } from '../utils/math';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
 import {
@@ -64,6 +66,8 @@ const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 8;
+/** A saved place within this of the place on screen IS the place on screen. */
+const SAME_PLACE_KM = 1;
 
 export const LocationStarMenu: React.FC = () => {
     const portalTarget = usePanePortalTarget();
@@ -98,7 +102,31 @@ export const LocationStarMenu: React.FC = () => {
     const vesselName = settings.vessel?.name?.trim() || 'Vessel location';
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
-    const currentSaved = isRealCurrent && saved.some((s) => s.name.toLowerCase() === currentName.toLowerCase());
+    // The saved entry for the place on screen. Matched by position (within
+    // about a kilometre) before name: the Glass titles a pick by the
+    // geocoder's 'Gladstone' while the saved entry reads 'Gladstone, QLD', and
+    // a name-only match offered to save it again right under its own row
+    // (UX scorecard run 6). Name is the fallback for entries saved without
+    // coordinates.
+    const currentLat = weatherData?.coordinates?.lat;
+    const currentLon = weatherData?.coordinates?.lon;
+    const shownSaved = useMemo(() => {
+        if (!isRealCurrent) return undefined;
+        if (typeof currentLat === 'number' && typeof currentLon === 'number') {
+            const near = saved.find(
+                (s) =>
+                    typeof s.lat === 'number' &&
+                    typeof s.lon === 'number' &&
+                    calculateDistanceKm(currentLat, currentLon, s.lat, s.lon) <= SAME_PLACE_KM,
+            );
+            if (near) return near;
+        }
+        return saved.find((s) => s.name.toLowerCase() === currentName.toLowerCase());
+    }, [isRealCurrent, currentLat, currentLon, currentName, saved]);
+    const currentSaved = !!shownSaved;
+    // The tick for a saved row: only while the Glass is on that pick, not
+    // while it follows a GPS that happens to be near it.
+    const isShownRow = (name: string) => !inGpsMode && shownSaved?.name === name;
 
     // Home port is only valid while it still exists in savedLocations.
     const homePort =
@@ -128,11 +156,15 @@ export const LocationStarMenu: React.FC = () => {
     }, [open, portalTarget]);
 
     // Close on outside-click (check both button + popover since
-    // the popover lives in a portal).
+    // the popover lives in a portal). The dim behind the flyout closes it on
+    // its own click, so that tap is swallowed rather than landing on the
+    // grid cell underneath.
+    const backdropRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         if (!open) return;
         const onClick = (e: MouseEvent | TouchEvent) => {
             const t = e.target as Node;
+            if (backdropRef.current?.contains(t)) return;
             if (!buttonRef.current?.contains(t) && !popoverRef.current?.contains(t)) setOpen(false);
         };
         document.addEventListener('mousedown', onClick);
@@ -231,150 +263,173 @@ export const LocationStarMenu: React.FC = () => {
             {open &&
                 portalTarget &&
                 createPortal(
-                    <div
-                        id={menuId}
-                        ref={popoverRef}
-                        style={popoverStyle}
-                        role="menu"
-                        aria-label="Saved locations"
-                        tabIndex={-1}
-                        // Opaque (thalassa-popover-solid): at /95 + blur the Glass's
-                        // forecast text ghosted under the rows (UX scorecard run 5).
-                        className="thalassa-popover-solid rounded-2xl bg-slate-900/95 border border-white/10 shadow-2xl overflow-hidden"
-                    >
-                        <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 border-b border-white/10">
-                            Locations
-                        </div>
+                    <>
+                        {/* A 35 % dim behind the flyout: without it the rows sat
+                        straight on the grid and cut its labels in half (UX
+                        scorecard run 6). Tapping it closes the flyout. */}
+                        <div
+                            ref={backdropRef}
+                            aria-hidden="true"
+                            className="fixed inset-0 z-9998 bg-black/35 animate-in fade-in duration-150"
+                            onClick={() => setOpen(false)}
+                        />
+                        <div
+                            id={menuId}
+                            ref={popoverRef}
+                            style={popoverStyle}
+                            role="menu"
+                            aria-label="Saved locations"
+                            tabIndex={-1}
+                            // Opaque (thalassa-popover-solid): at /95 + blur the Glass's
+                            // forecast text ghosted under the rows (UX scorecard run 5).
+                            className="thalassa-popover-solid rounded-2xl bg-slate-900/95 border border-white/10 shadow-2xl overflow-hidden"
+                        >
+                            <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 border-b border-white/10">
+                                Locations
+                            </div>
 
-                        <div role="none" className="max-h-[55vh] overflow-y-auto py-1">
-                            {/* Home port — pinned first */}
-                            {homePortLoc && (
-                                <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => goTo(homePortLoc)}
-                                    className={`${rowBase} w-full`}
-                                >
-                                    <AnchorIcon className="w-4 h-4 text-amber-400 shrink-0" />
-                                    <span className="flex-1 font-semibold text-amber-100 truncate">{homePort}</span>
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">
-                                        Home
-                                    </span>
-                                </button>
-                            )}
+                            <div role="none" className="max-h-[55vh] overflow-y-auto py-1">
+                                {/* Home port — pinned first */}
+                                {homePortLoc && (
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => goTo(homePortLoc)}
+                                        aria-current={homePort && isShownRow(homePort) ? 'location' : undefined}
+                                        className={`${rowBase} w-full`}
+                                    >
+                                        <HomeIcon className="w-4 h-4 text-amber-400 shrink-0" />
+                                        <span className="flex-1 font-semibold text-amber-100 truncate">{homePort}</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">
+                                            Home
+                                        </span>
+                                        {homePort && isShownRow(homePort) && (
+                                            <CheckIcon className="w-4 h-4 text-amber-400 shrink-0" />
+                                        )}
+                                    </button>
+                                )}
 
-                            {/* The boat — a special saved location named after her
+                                {/* The boat — a special saved location named after her
                                 (2026-09-08). Moves the weather to her position — her
                                 receivers, the Pi, her cloud row, or her last fix — and
                                 keeps it there until Current Location is picked again. */}
-                            {vesselName && (
+                                {vesselName && (
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={goToBoat}
+                                        data-testid="location-star-vessel"
+                                        className={`${rowBase} w-full`}
+                                    >
+                                        <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                                        <span className="flex-1 font-semibold text-emerald-100 truncate">
+                                            {vesselName}
+                                        </span>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">
+                                            Boat
+                                        </span>
+                                        {inGpsMode && followTarget === 'boat' && (
+                                            <CheckIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                                        )}
+                                    </button>
+                                )}
+                                {/* Current Location — back to live GPS-follow of the phone */}
                                 <button
                                     type="button"
                                     role="menuitem"
-                                    onClick={goToBoat}
-                                    data-testid="location-star-vessel"
+                                    onClick={() => goTo('current')}
                                     className={`${rowBase} w-full`}
                                 >
-                                    <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
-                                    <span className="flex-1 font-semibold text-emerald-100 truncate">{vesselName}</span>
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">
-                                        Boat
-                                    </span>
-                                    {inGpsMode && followTarget === 'boat' && (
-                                        <CheckIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                                    <CrosshairIcon className="w-4 h-4 text-sky-400 shrink-0" />
+                                    <span className="flex-1 font-medium text-white truncate">Current Location</span>
+                                    {inGpsMode && followTarget === 'phone' && (
+                                        <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
                                     )}
                                 </button>
-                            )}
-                            {/* Current Location — back to live GPS-follow of the phone */}
-                            <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => goTo('current')}
-                                className={`${rowBase} w-full`}
-                            >
-                                <CrosshairIcon className="w-4 h-4 text-sky-400 shrink-0" />
-                                <span className="flex-1 font-medium text-white truncate">Current Location</span>
-                                {inGpsMode && followTarget === 'phone' && (
-                                    <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
+
+                                {otherSaved.length > 0 && (
+                                    <div role="separator" className="my-1 mx-3 h-px bg-white/10" />
                                 )}
-                            </button>
 
-                            {otherSaved.length > 0 && <div role="separator" className="my-1 mx-3 h-px bg-white/10" />}
+                                {/* Saved spots */}
+                                {otherSaved.map((loc) => (
+                                    <div key={loc.name} role="none" className="flex items-center">
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => goTo(loc)}
+                                            aria-current={isShownRow(loc.name) ? 'location' : undefined}
+                                            className={`${rowBase} flex-1 min-w-0`}
+                                        >
+                                            <MapPinIcon className="w-4 h-4 text-gray-400 shrink-0" />
+                                            <span className="flex-1 text-white truncate">{loc.name}</span>
+                                            {isShownRow(loc.name) && (
+                                                <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
+                                            )}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => setHome(loc.name)}
+                                            aria-label={`Set ${loc.name} as home port`}
+                                            title="Set as home port"
+                                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-amber-400 transition-colors shrink-0"
+                                        >
+                                            <HomeIcon className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => setPendingRemove(loc.name)}
+                                            aria-label={`Remove ${loc.name}`}
+                                            title="Remove"
+                                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors shrink-0"
+                                        >
+                                            <TrashIcon className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
 
-                            {/* Saved spots */}
-                            {otherSaved.map((loc) => (
-                                <div key={loc.name} role="none" className="flex items-center">
-                                    <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() => goTo(loc)}
-                                        className={`${rowBase} flex-1 min-w-0`}
-                                    >
-                                        <MapPinIcon className="w-4 h-4 text-gray-400 shrink-0" />
-                                        <span className="flex-1 text-white truncate">{loc.name}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() => setHome(loc.name)}
-                                        aria-label={`Set ${loc.name} as home port`}
-                                        title="Set as home port"
-                                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-amber-400 transition-colors shrink-0"
-                                    >
-                                        <AnchorIcon className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() => setPendingRemove(loc.name)}
-                                        aria-label={`Remove ${loc.name}`}
-                                        title="Remove"
-                                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors shrink-0"
-                                    >
-                                        <TrashIcon className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            ))}
+                                <ConfirmDialog
+                                    isOpen={pendingRemove !== null}
+                                    title="Remove saved place?"
+                                    message={`${pendingRemove ?? ''} will be removed from your saved places.`}
+                                    confirmLabel="Remove"
+                                    cancelLabel="Keep"
+                                    destructive
+                                    onConfirm={() => {
+                                        if (pendingRemove) removeSaved(pendingRemove);
+                                        setPendingRemove(null);
+                                    }}
+                                    onCancel={() => setPendingRemove(null)}
+                                />
+                                {!homePortLoc && otherSaved.length === 0 && (
+                                    <div className="px-3 py-3 text-xs text-gray-500">
+                                        No saved locations yet — save one below, then set it as your home port.
+                                    </div>
+                                )}
+                            </div>
 
-                            <ConfirmDialog
-                                isOpen={pendingRemove !== null}
-                                title="Remove saved place?"
-                                message={`${pendingRemove ?? ''} will be removed from your saved places.`}
-                                confirmLabel="Remove"
-                                cancelLabel="Keep"
-                                destructive
-                                onConfirm={() => {
-                                    if (pendingRemove) removeSaved(pendingRemove);
-                                    setPendingRemove(null);
-                                }}
-                                onCancel={() => setPendingRemove(null)}
-                            />
-                            {!homePortLoc && otherSaved.length === 0 && (
-                                <div className="px-3 py-3 text-xs text-gray-500">
-                                    No saved locations yet — save one below, then set it as your home port.
+                            {/* Save / saved-state footer for the current location */}
+                            {isRealCurrent && !currentSaved && (
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={saveCurrent}
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 border-t border-white/10 text-amber-300 hover:bg-white/5 transition-colors"
+                                >
+                                    <StarIcon className="w-4 h-4 shrink-0" />
+                                    <span className="font-semibold truncate">Save “{currentName}”</span>
+                                </button>
+                            )}
+                            {isRealCurrent && currentSaved && (
+                                <div className="flex items-center gap-1.5 px-3 py-2 border-t border-white/10 text-[11px] text-gray-400">
+                                    <span className="truncate">{shownSaved?.name ?? currentName} is saved</span>
+                                    <CheckIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                                 </div>
                             )}
                         </div>
-
-                        {/* Save / saved-state footer for the current location */}
-                        {isRealCurrent && !currentSaved && (
-                            <button
-                                type="button"
-                                role="menuitem"
-                                onClick={saveCurrent}
-                                className="w-full flex items-center gap-2 px-3 py-2.5 border-t border-white/10 text-amber-300 hover:bg-white/5 transition-colors"
-                            >
-                                <StarIcon className="w-4 h-4 shrink-0" />
-                                <span className="font-semibold truncate">Save “{currentName}”</span>
-                            </button>
-                        )}
-                        {isRealCurrent && currentSaved && (
-                            <div className="flex items-center gap-1.5 px-3 py-2 border-t border-white/10 text-[11px] text-gray-500">
-                                <CheckIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                <span className="truncate">{currentName} is saved</span>
-                            </div>
-                        )}
-                    </div>,
+                    </>,
                     portalTarget,
                 )}
         </>

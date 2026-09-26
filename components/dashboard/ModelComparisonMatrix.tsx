@@ -139,7 +139,7 @@ const PARAMS: ParamSpec[] = [
     },
     {
         id: 'pressure',
-        short: 'HPA',
+        short: 'BARO',
         unit: 'hPa',
         block: 'atmos',
         variable: 'pressure_msl',

@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Shane 2026-09-08: "the weather should always be the punters location, BUT in
@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
     },
     updateSettings: vi.fn(),
     selectLocation: vi.fn<() => Promise<void>>(async () => undefined),
-    weatherData: { locationName: 'Newport', coordinates: { lat: -27.2, lon: 153.1 } },
+    weatherData: { locationName: 'Newport', coordinates: { lat: -27.2, lon: 153.1 } as { lat: number; lon: number } },
     boatOrHeldFix: vi.fn<() => Promise<unknown>>(async () => null),
     requestCurrentForegroundPosition: vi.fn(async () => ({ latitude: -27.47, longitude: 153.02, timestamp: 1 })),
 }));
@@ -136,5 +136,53 @@ describe('★ menu — the vessel as a special saved location', () => {
         finish();
         await Promise.resolve();
         expect(h.selectLocation).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('★ menu — the place on screen is matched by position', () => {
+    const restore = { ...h.weatherData, defaultLocation: h.settings.defaultLocation, homePort: h.settings.homePort };
+    afterEach(() => {
+        h.weatherData.locationName = restore.locationName;
+        h.weatherData.coordinates = restore.coordinates;
+        h.settings.defaultLocation = restore.defaultLocation;
+        h.settings.homePort = restore.homePort;
+    });
+
+    it('a saved place within a kilometre is the place on screen: no second Save, and its row is ticked', () => {
+        h.settings.defaultLocation = 'Gladstone, QLD';
+        h.settings.savedLocations = ['Gladstone, QLD', 'Mackay'];
+        h.settings.savedLocationCoords = {
+            'Gladstone, QLD': { lat: -23.8427, lon: 151.2555 },
+            Mackay: { lat: -21.1, lon: 149.2 },
+        };
+        h.weatherData.locationName = 'Gladstone';
+        h.weatherData.coordinates = { lat: -23.845, lon: 151.258 };
+        render(<LocationStarMenu />);
+        openMenu();
+        expect(screen.queryByRole('menuitem', { name: /Save “Gladstone”/ })).toBeNull();
+        expect(screen.getByText('Gladstone, QLD is saved')).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: 'Gladstone, QLD' })).toHaveAttribute('aria-current', 'location');
+        expect(screen.getByRole('menuitem', { name: 'Mackay' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('a saved place more than a kilometre away is not the place on screen', () => {
+        h.settings.defaultLocation = 'Gladstone';
+        h.settings.savedLocations = ['Gladstone, QLD'];
+        h.settings.savedLocationCoords = { 'Gladstone, QLD': { lat: -23.8427, lon: 151.2555 } };
+        h.weatherData.locationName = 'Gladstone';
+        h.weatherData.coordinates = { lat: -33.9, lon: 151.2 };
+        render(<LocationStarMenu />);
+        openMenu();
+        expect(screen.getByRole('menuitem', { name: /Save “Gladstone”/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: 'Gladstone, QLD' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('dims the page behind the flyout, and a tap on the dim closes it', () => {
+        render(<LocationStarMenu />);
+        openMenu();
+        const dim = document.querySelector('div.bg-black\\/35');
+        expect(dim).not.toBeNull();
+        fireEvent.click(dim!);
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
 });

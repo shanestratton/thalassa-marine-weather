@@ -10,7 +10,7 @@
  * Follows the MetricPinSheet portal idiom (bottom-anchored, Esc + body
  * scroll lock, backdrop dismiss).
  */
-import React, { useEffect, useId } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
@@ -23,6 +23,7 @@ import {
 } from '../../services/weather/forecastModels';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
+import { PartlyCloudyIcon, XIcon } from '../Icons';
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -52,15 +53,58 @@ interface ModelPickerSheetProps {
     publishedModels?: string[];
 }
 
+/** Words that keep their capital after the dash (proper nouns, acronyms). */
+const KEEPS_CAPITAL = /^(?:[A-Z]{2,}|European|German|Japan|Japanese|British|French|Australian)\b/;
+
 /**
  * One clause per row. Blurbs that already carry their own em-dash clause
  * ('ECMWF AI model — no gust field', 'Japan — western Pacific, …') stuttered
  * behind a second 'Provider — ' prefix; they stand alone, and the provider is
- * still credited in the attribution line at the foot of the sheet.
+ * still credited in the attribution line at the foot of the sheet. A provider
+ * that IS the row's label ('ECMWF' under 'ECMWF') is not repeated, and the
+ * clause after an added dash continues the sentence in lower case, as the
+ * blurbs with their own dash already do (UX scorecard run 6).
  */
-function modelHelper(provider: string, blurb: string): string {
-    return blurb.includes('—') || blurb.startsWith(provider) ? blurb : `${provider} — ${blurb}`;
+function modelHelper(label: string, provider: string, blurb: string): string {
+    if (blurb.includes('—') || blurb.startsWith(provider) || provider === label) return blurb;
+    const clause = KEEPS_CAPITAL.test(blurb) ? blurb : blurb.charAt(0).toLowerCase() + blurb.slice(1);
+    return `${provider} — ${clause}`;
 }
+
+/**
+ * How far ahead each model reaches, in whole days from today, for the row's
+ * '· 7 days'. The Glass pages past a model's last day into cells of dashes,
+ * and nothing said why (UX scorecard run 6).
+ *
+ * The model catalogue carries no horizon, so these were measured on the wx
+ * server on 2026-09-26: hours of non-null 10 m wind from 00 UTC (ICON 181,
+ * ECMWF 351, AIFS 366, UKMO 157, JMA 258), floored so a row never promises a
+ * day the model does not reach. The run lengths behind them are fixed by each
+ * centre's schedule (ICON 180 h, UKMO 168 h, JMA 264 h, IFS and AIFS 360 h).
+ * Blends (Spitfire, Auto) and the StormGlass offshore sources have no single
+ * horizon and show none.
+ */
+const MODEL_RANGE_DAYS: Readonly<Record<string, number>> = {
+    dwd_icon: 7,
+    ecmwf_ifs025: 14,
+    ecmwf_aifs025_single: 15,
+    ukmo_global_deterministic_10km: 6,
+    jma_gsm: 10,
+};
+
+/** The attribution line, with 'Météo-France' kept on one line. */
+const AttributionLine: React.FC<{ text: string }> = ({ text }) => {
+    const name = 'Météo-France';
+    const at = text.indexOf(name);
+    if (at < 0) return <>{text}</>;
+    return (
+        <>
+            {text.slice(0, at)}
+            <span className="whitespace-nowrap">{name}</span>
+            {text.slice(at + name.length)}
+        </>
+    );
+};
 
 export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     visible,
@@ -84,7 +128,8 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                   return filtered.length > 0 ? filtered : SELECTABLE_MODELS;
               })()
             : SELECTABLE_MODELS;
-    const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, { initialFocusRef: closeButtonRef, onEscape: onClose });
 
     // Lock body scroll while open
     useEffect(() => {
@@ -105,6 +150,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
         swatch: string | undefined,
         isActive: boolean,
         onSelect: () => void,
+        rangeDays?: number,
     ): React.ReactNode => {
         return (
             <button
@@ -134,6 +180,12 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         }`}
                     >
                         {label}
+                        {rangeDays !== undefined && (
+                            <span className="normal-case tracking-normal font-semibold text-slate-400">
+                                {' · '}
+                                {rangeDays} days
+                            </span>
+                        )}
                     </p>
                     <p className="text-[12px] leading-snug text-slate-400 line-clamp-2">{helper}</p>
                 </div>
@@ -144,7 +196,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
         );
     };
     const atmosphericRow = (id: WeatherModel, label: string, helper: string, swatch?: string) =>
-        row(id, label, helper, swatch, currentModel === id, () => onPick(id));
+        row(id, label, helper, swatch, currentModel === id, () => onPick(id), MODEL_RANGE_DAYS[id]);
 
     return createPortal(
         <div
@@ -163,11 +215,28 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 className="relative w-full max-w-md bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl max-h-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
+                {/* Header — the one Glass dialog header: icon, sentence-case
+                    title, top-right close (UX scorecard run 6). */}
                 <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
-                    <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
-                        {offshore ? 'Offshore forecast model' : 'Forecast model'}
-                    </h2>
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-7 h-7 shrink-0 rounded-full bg-sky-500/20 flex items-center justify-center">
+                                <PartlyCloudyIcon className="w-4 h-4 text-sky-400" />
+                            </div>
+                            <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
+                                {offshore ? 'Offshore forecast model' : 'Forecast model'}
+                            </h2>
+                        </div>
+                        <button
+                            ref={closeButtonRef}
+                            type="button"
+                            onClick={onClose}
+                            aria-label={offshore ? 'Close offshore forecast model' : 'Close forecast model'}
+                            className="hit-target-44 shrink-0 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                        >
+                            <XIcon className="w-4 h-4" />
+                        </button>
+                    </div>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
                         {offshore
                             ? 'Choose the offshore source used here. Your inshore model stays saved separately. Unavailable fields and fallback sources remain labelled.'
@@ -184,7 +253,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             row(
                                 m.id,
                                 m.label,
-                                modelHelper(m.provider, m.blurb),
+                                modelHelper(m.label, m.provider, m.blurb),
                                 m.hex,
                                 offshore.currentModel === m.id,
                                 () => offshore.onPick(m.id),
@@ -204,7 +273,9 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                                 </>
                             )}
 
-                            {grids.map((m) => atmosphericRow(m.id, m.label, modelHelper(m.provider, m.blurb), m.hex))}
+                            {grids.map((m) =>
+                                atmosphericRow(m.id, m.label, modelHelper(m.label, m.provider, m.blurb), m.hex),
+                            )}
 
                             {/* Divider */}
                             <div className="h-px bg-white/6 my-2" />
@@ -222,21 +293,19 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             onClose();
                         }}
                         aria-label="Refresh weather data now"
-                        className="w-full min-h-11 py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-colors"
+                        className="w-full min-h-11 py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold hover:bg-sky-500/20 transition-colors"
                     >
                         Refresh now
                     </button>
-                    <Button
-                        variant="secondary"
-                        onClick={onClose}
-                        className="w-full uppercase tracking-wider text-slate-300"
-                    >
+                    <Button variant="secondary" onClick={onClose} className="w-full text-slate-300">
                         Close
                     </Button>
                     <p className="text-[9px] text-gray-400 text-center">
-                        {offshore
-                            ? 'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC-BY-4.0).'
-                            : MODEL_ATTRIBUTION_LINE}
+                        {offshore ? (
+                            'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC-BY-4.0).'
+                        ) : (
+                            <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
+                        )}
                     </p>
                 </div>
             </div>

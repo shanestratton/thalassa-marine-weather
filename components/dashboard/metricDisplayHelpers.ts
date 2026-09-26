@@ -10,7 +10,7 @@ import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertSpeed, convertLength, convertDistance } from '../../utils';
 
 export interface PinnedMetricDisplay {
-    /** Short uppercase label (e.g. "WIND", "HPA", "UV") */
+    /** Short uppercase label (e.g. "WIND", "BARO", "UV") */
     label: string;
     /** Primary numeric or string value, already rounded for display */
     value: string | number;
@@ -101,7 +101,7 @@ export function getPinnedMetricDisplay(
             };
         }
         case 'pressure': {
-            return { label: 'HPA', value: round(data.pressure), unit: 'hPa' };
+            return { label: 'BARO', value: round(data.pressure), unit: 'hPa' };
         }
         case 'humidity': {
             return { label: 'HUM', value: round(data.humidity), unit: '%' };

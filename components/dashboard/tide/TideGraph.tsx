@@ -378,8 +378,11 @@ export const TideGraphOriginal = ({
                 </div>
             )}
 
-            {/* CHART AREA */}
-            <div className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-[120px]">
+            {/* CHART AREA — min-h-0, not a fixed floor: the Glass tide card
+                can be shorter than 120 px on a 667 pt phone, and a floor just
+                pushed the axis and the now-dot out under the card's clip
+                (UX scorecard run 6). The other hosts give it 160 px anyway. */}
+            <div className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-0">
                 <TideCanvas
                     dataPoints={dataPoints}
                     currentHour={currentHour}
@@ -388,9 +391,10 @@ export const TideGraphOriginal = ({
                     maxHeight={maxHeight}
                     domainBuffer={domainBuffer}
                 />
-                {/* Station name — bottom left */}
+                {/* Station name — bottom left, lifted clear of the 14 px hour
+                    axis band TideCanvas draws along the bottom edge. */}
                 {(guiDetails?.stationName || stationName) && (
-                    <span className="absolute bottom-1.5 left-2 text-[11px] font-semibold text-white/60 tracking-wide pointer-events-none select-none">
+                    <span className="absolute bottom-4 left-2 text-xs leading-4 font-semibold text-white/60 tracking-wide pointer-events-none select-none">
                         {guiDetails?.stationName || stationName}
                     </span>
                 )}

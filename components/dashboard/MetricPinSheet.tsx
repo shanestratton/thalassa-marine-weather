@@ -11,10 +11,21 @@
  * to drag-and-drop from the grid (long-press activation, framer-motion
  * swap animation) while keeping the same state model and persistence.
  */
-import React, { useEffect, useId } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
-import { WindIcon, WaveIcon, GaugeIcon, DropletIcon, SunIcon, EyeIcon, CompassIcon, ThermometerIcon } from '../Icons';
+import {
+    WindIcon,
+    WaveIcon,
+    GaugeIcon,
+    DropletIcon,
+    SunIcon,
+    EyeIcon,
+    CompassIcon,
+    ThermometerIcon,
+    XIcon,
+} from '../Icons';
+import { GustIcon, PinIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
 import { Button } from '../ui/Button';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -34,12 +45,12 @@ export interface PinnableMetric {
 export const PINNABLE_METRICS: PinnableMetric[] = [
     { id: 'wind', label: 'WIND', helper: 'Sustained wind speed', icon: <WindIcon className="w-4 h-4" /> },
     { id: 'dir', label: 'DIR', helper: 'Wind direction', icon: <CompassIcon className="w-4 h-4" rotation={0} /> },
-    { id: 'gust', label: 'GUST', helper: 'Peak gust speed', icon: <WindIcon className="w-4 h-4" /> },
+    { id: 'gust', label: 'GUST', helper: 'Peak gust speed', icon: <GustIcon className="w-4 h-4" /> },
     { id: 'wave', label: 'WAVE', helper: 'Wave / swell height', icon: <WaveIcon className="w-4 h-4" /> },
-    { id: 'period', label: 'PERIOD', helper: 'Wave / swell period', icon: <WaveIcon className="w-4 h-4" /> },
+    { id: 'period', label: 'PERIOD', helper: 'Wave / swell period', icon: <WavePeriodIcon className="w-4 h-4" /> },
     { id: 'uv', label: 'UV', helper: 'UV Index', icon: <SunIcon className="w-4 h-4" /> },
     { id: 'vis', label: 'VIS', helper: 'Visibility', icon: <EyeIcon className="w-4 h-4" /> },
-    { id: 'pressure', label: 'HPA', helper: 'Barometric pressure', icon: <GaugeIcon className="w-4 h-4" /> },
+    { id: 'pressure', label: 'BARO', helper: 'Barometric pressure', icon: <GaugeIcon className="w-4 h-4" /> },
     { id: 'humidity', label: 'HUM', helper: 'Relative humidity', icon: <DropletIcon className="w-4 h-4" /> },
     { id: 'rain', label: 'RAIN', helper: 'Precipitation', icon: <AnimatedRainIcon className="w-4 h-4" /> },
 ];
@@ -87,7 +98,8 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
     const portalTarget = usePanePortalTarget();
     const titleId = useId();
     const visibleMetrics = filterForLocation(PINNABLE_METRICS, locationType);
-    const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, { initialFocusRef: closeButtonRef, onEscape: onClose });
 
     // Lock body scroll while open
     useEffect(() => {
@@ -118,11 +130,28 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                 className="relative w-full max-w-md bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl max-h-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
+                {/* Header — the one Glass dialog header: icon, sentence-case
+                    title, top-right close (UX scorecard run 6). */}
                 <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
-                    <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
-                        Pin a metric to the top
-                    </h2>
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-7 h-7 shrink-0 rounded-full bg-sky-500/20 flex items-center justify-center">
+                                <PinIcon className="w-4 h-4 text-sky-400" />
+                            </div>
+                            <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
+                                Pin a metric to the top
+                            </h2>
+                        </div>
+                        <button
+                            ref={closeButtonRef}
+                            type="button"
+                            onClick={onClose}
+                            aria-label="Close pin a metric sheet"
+                            className="hit-target-44 shrink-0 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                        >
+                            <XIcon className="w-4 h-4" />
+                        </button>
+                    </div>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
                         The metric you pick becomes the big number at the top. Temperature moves to that metric&apos;s
                         grid cell.
@@ -213,11 +242,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
 
                 {/* Footer */}
                 <div className="px-4 py-3 border-t border-white/6">
-                    <Button
-                        onClick={onClose}
-                        aria-label="Close pin a metric sheet"
-                        className="w-full text-slate-300 uppercase tracking-wider"
-                    >
+                    <Button onClick={onClose} className="w-full text-slate-300">
                         Close
                     </Button>
                 </div>

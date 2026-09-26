@@ -1,6 +1,7 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
+import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 import type { MatrixParam } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast, ForecastDay } from '../../types';
 import { resolveForecastModel } from '../../services/weather/forecastModels';
@@ -123,6 +124,9 @@ interface HeroWidgetsProps {
 }
 
 // --- Trend Arrow Component ---
+// Stroke arrows, not filled triangles: a ▲/▼ beside a label read as a
+// dropdown caret, and the flat bar for 'steady' read as the '--' of a missing
+// value (UX scorecard run 6). Steady is a level arrow, so all three are arrows.
 const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boolean }> = ({ trend, improving }) => {
     if (!trend) return null;
 
@@ -134,19 +138,34 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
 
     return (
         <span className={`inline-flex items-center ml-1 ${color}`}>
-            {isStable ? (
-                <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
-                    <line x1="1" y1="4" x2="7" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-            ) : isUp ? (
-                <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
-                    <path d="M4 1L7 5H1L4 1Z" fill="currentColor" />
-                </svg>
-            ) : (
-                <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
-                    <path d="M4 7L1 3H7L4 7Z" fill="currentColor" />
-                </svg>
-            )}
+            <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+            >
+                {isStable ? (
+                    <>
+                        <path d="M1.5 5h7" />
+                        <path d="M5.5 2l3 3-3 3" />
+                    </>
+                ) : isUp ? (
+                    <>
+                        <path d="M5 8.5v-7" />
+                        <path d="M2 4.5l3-3 3 3" />
+                    </>
+                ) : (
+                    <>
+                        <path d="M5 1.5v7" />
+                        <path d="M2 5.5l3 3 3-3" />
+                    </>
+                )}
+            </svg>
             {/* The colour alone carried improving/worsening; say it too. */}
             <span className="sr-only">
                 {isStable ? 'steady' : improving ? `${trend}, improving` : `${trend}, worsening`}
@@ -193,7 +212,7 @@ const InstrumentCell: React.FC<{
             className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
             onClick={onClick}
             title={tooltip}
-            aria-label={`${label}: ${value}${unit ? ' ' + unit : ''}${tooltip ? `. ${tooltip}` : ''}`}
+            aria-label={`${label}: ${value === '--' ? 'no reading' : `${value}${unit ? ' ' + unit : ''}`}${tooltip ? `. ${tooltip}` : ''}`}
         >
             {/* Header: icon + label + trend — locked to a single 12px line */}
             <div
@@ -234,7 +253,8 @@ const InstrumentCell: React.FC<{
     );
 };
 
-// --- Barometer Cell (HPA — consistent with InstrumentCell) ---
+// --- Barometer Cell (BARO — consistent with InstrumentCell) ---
+// Named BARO, not HPA: hPa is the unit, not the instrument (UX scorecard run 6).
 const BarometerCell: React.FC<{
     pressure: string | number;
     trend?: 'up' | 'down' | 'stable';
@@ -247,7 +267,7 @@ const BarometerCell: React.FC<{
     return (
         <div
             className="flex flex-col items-center justify-between h-full py-2 px-1 relative"
-            aria-label={`HPA: ${pressure}${trendWord}. Barometric pressure — tap for the barometer`}
+            aria-label={`Barometer: ${pressure === '--' ? 'no reading' : `${pressure} hPa`}${trendWord}. Tap for the barometer`}
         >
             {/* Header: icon + label + trend — locked to 12px line */}
             <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
@@ -255,7 +275,7 @@ const BarometerCell: React.FC<{
                     <GaugeIcon className="w-3 h-3 metric-anim-gauge" />
                 </span>
                 <span className="glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">
-                    HPA
+                    BARO
                 </span>
                 <TrendArrow trend={pressure === '--' ? undefined : trend} improving={isRising} />
             </div>
@@ -557,7 +577,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         ) : (
                             <InstrumentCell
                                 label="GUST"
-                                icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
+                                icon={<GustIcon className="w-3 h-3 metric-anim-wind" />}
                                 value={gustVal}
                                 unit={speedUnit}
                                 trend={trends?.windGust}
@@ -609,7 +629,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 // Six letters at tracking-widest overflow a 320 px pane's
                                 // fifth column; the CHANCE treatment fits it.
                                 compactLabel
-                                icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
+                                icon={<WavePeriodIcon className="w-3 h-3 metric-anim-gauge" />}
                                 value={wavePeriod}
                                 unit="s"
                                 dirDeg={swellDirDeg}
@@ -621,7 +641,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Horizontal divider between rows */}
                 <div className="w-full h-px bg-white/12" />
 
-                {/* BOTTOM ROW: UV, Vis, HPA, Hum, Rain */}
+                {/* BOTTOM ROW: UV, Vis, Baro, Hum, Rain */}
                 <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
                     {/* UV — or TEMP if pinned */}
                     <DraggableMetricCell id={heroMetric === 'uv' ? 'temp' : 'uv'}>
