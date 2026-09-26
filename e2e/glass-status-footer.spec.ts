@@ -257,7 +257,11 @@ for (const displayMode of ['light', 'dark'] as const) {
                         });
 
                         await model.click();
-                        const picker = page.getByRole('dialog', { name: 'Choose a forecast model', exact: true });
+                        // The picker is named by its visible heading.
+                        const picker = page.getByRole('dialog', {
+                            name: locationType === 'offshore' ? 'Offshore forecast model' : 'Forecast model',
+                            exact: true,
+                        });
                         await expect(picker).toBeVisible();
                         if (locationType === 'offshore') {
                             for (const unavailable of ['AIFS', 'UKMO', 'JMA', 'Spitfire', 'Auto']) {

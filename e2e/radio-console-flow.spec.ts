@@ -642,7 +642,9 @@ for (const viewport of viewports) {
                     if (viewport.split) {
                         const glass = page.locator('[data-split-pane="glass"]');
                         await glass.getByRole('button', { name: /Choose forecast model/ }).click();
-                        const modelPicker = page.getByRole('dialog', { name: 'Choose a forecast model', exact: true });
+                        const modelPicker = page.getByRole('dialog', {
+                            name: /^(Offshore forecast model|Forecast model)$/,
+                        });
                         await expect(modelPicker).toBeVisible();
                         await expect(transcript).toHaveText(geometry.fullText!);
                         await modelPicker.getByRole('button', { name: 'Close', exact: true }).click();

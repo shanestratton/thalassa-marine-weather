@@ -52,7 +52,8 @@ describe('the no-data state', () => {
 
     it('shows a dash for speed rather than a zero', () => {
         const { container } = render(<SereneWindRose gaugeKey="n3" angle={null} speed={null} />);
-        expect(container.textContent).toContain('—');
+        // '--' — the Instrument Panel's one no-data glyph.
+        expect(container.textContent).toContain('--');
         expect(container.textContent).not.toContain('0.0');
     });
 });

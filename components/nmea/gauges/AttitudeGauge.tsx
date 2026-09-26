@@ -87,7 +87,7 @@ export const AttitudeGauge: React.FC<{ angle: number | null; axis: 'heel' | 'pit
                     fontWeight="900"
                     fontFamily="monospace"
                 >
-                    {dead ? '—' : `${Math.abs(value).toFixed(1)}°`}
+                    {dead ? '--' : `${Math.abs(value).toFixed(1)}°`}
                 </text>
                 <text x="150" y="233" textAnchor="middle" fill={color} fontSize="11" fontWeight="800" letterSpacing="2">
                     {dead ? 'NO DATA' : side}

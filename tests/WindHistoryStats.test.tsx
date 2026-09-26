@@ -32,7 +32,8 @@ describe('wind history cards', () => {
 
     it('does not invent calm wind when no preceding readings exist', () => {
         render(<WindHistoryStats apparentWind={null} history={null} onShowDetails={vi.fn()} />);
-        expect(screen.getAllByText('—')).toHaveLength(3);
+        // '--' — the Instrument Panel's one no-data glyph.
+        expect(screen.getAllByText('--')).toHaveLength(3);
         expect(screen.queryByText('0.0')).not.toBeInTheDocument();
     });
 

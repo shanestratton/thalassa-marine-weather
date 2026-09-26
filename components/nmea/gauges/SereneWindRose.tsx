@@ -62,8 +62,9 @@ const RS = 104; // side arcs
 const RN = 95; // needle
 const RH = 64; // hub
 
+/** '--' is the Instrument Panel's one no-data glyph (never '—' beside it). */
 const fmt = (v: number | null | undefined, d = 1): string =>
-    v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v).toFixed(d);
+    v === null || v === undefined || Number.isNaN(v) ? '--' : Number(v).toFixed(d);
 
 const rad = (a: number): number => ((a - 90) * Math.PI) / 180;
 const pt = (a: number, r: number): [number, number] => [CX + r * Math.cos(rad(a)), CY + r * Math.sin(rad(a))];
@@ -400,7 +401,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                 fontWeight={650}
                 style={{ letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}
             >
-                {speed !== null && speed !== undefined && Number.isFinite(speed) ? fmt(speed, 1) : '—'}
+                {speed !== null && speed !== undefined && Number.isFinite(speed) ? fmt(speed, 1) : '--'}
             </text>
             <text x={CX} y={CY + 31} textAnchor="middle" fill="var(--ink-2)" fontSize={14}>
                 {unit}

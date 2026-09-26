@@ -15,6 +15,11 @@ import { useDroppable } from '@dnd-kit/core';
  * Same size for live + forecast so carousel swipes don't jank.
  */
 const ConditionText: React.FC<{ text: string; live?: boolean }> = ({ text, live }) => {
+    // No condition reported: a muted, regular-weight placeholder, never bold
+    // ivory bars that read as a glitch (same rule as the temperature '--').
+    if (text === '--') {
+        return <span className="text-lg text-white/40 font-mono font-normal leading-none">--</span>;
+    }
     const sizeClass =
         text.length <= 8
             ? live
@@ -101,6 +106,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     const updateSettings = useSettingsStore((s) => s.updateSettings);
     const [pinSheetOpen, setPinSheetOpen] = useState(false);
     const pinnedDisplay = heroMetric !== 'temp' ? getPinnedMetricDisplay(heroMetric, data, units) : null;
+    // convertTemp answers '--' for a missing reading. A placeholder is drawn
+    // lighter, thinner and smaller than a live number: at hero size and weight
+    // '--' read as two heavy white bars, like a rendering glitch.
+    const tempStr = convertTemp(data.airTemperature, units.temp).toString();
+    const tempMissing = tempStr === '--';
+    const pinnedMissing = pinnedDisplay?.value === '--';
+    const highStr = convertTemp(data.highTemp, units.temp).toString();
+    const lowStr = convertTemp(data.lowTemp, units.temp).toString();
     // Tap on the LEFT partition opens the picker. Double-tap resets to
     // temperature. Single-tap tracking is done via a simple timer +
     // click-count ref so we don't block the double-tap with a 250ms delay
@@ -157,8 +170,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     }}
                     aria-label={
                         pinnedDisplay
-                            ? `Pinned metric ${pinnedDisplay.label}. Tap to change, double-tap to reset. Drop a grid metric here to pin it.`
-                            : 'Temperature. Tap to pin a different metric to the top, or drop one from the grid below.'
+                            ? `Pinned metric ${pinnedDisplay.label}${pinnedMissing ? ', no reading' : ''}. Tap to change, double-tap to reset. Drop a grid metric here to pin it.`
+                            : `Temperature ${tempMissing ? 'no reading' : `${tempStr} degrees ${units.temp}`}. Tap to pin a different metric to the top, or drop one from the grid below.`
                     }
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
@@ -177,7 +190,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 </span>
                                 <div className="flex items-baseline gap-1 leading-none">
                                     <span
-                                        className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow-sm`}
+                                        className={
+                                            pinnedMissing
+                                                ? 'text-4xl font-mono font-normal tracking-tighter text-white/40'
+                                                : `${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow-sm`
+                                        }
                                     >
                                         {pinnedDisplay.value}
                                     </span>
@@ -188,11 +205,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </>
                         ) : (
                             (() => {
-                                const tempStr = (
-                                    data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--'
-                                ).toString();
                                 const len = tempStr.length;
-                                const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
+                                const sizeClass =
+                                    tempMissing || len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
+                                // Placeholder: regular weight, muted ink (text-white/40
+                                // has its own caption ink by night and by day).
+                                const inkClass = tempMissing
+                                    ? 'font-normal text-white/40'
+                                    : `font-bold ${getTempColor()}`;
                                 // The ° ring sits high inside its own em box — well
                                 // above cap height — so pinning the column's BOX top
                                 // to the digits' BOX top left the ring floating above
@@ -202,12 +222,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 // cap-height inset, which scales with the temp size —
                                 // a fixed nudge would be right for one size class and
                                 // wrong for the other two. Tune here if it reads low.
-                                const ringDropPx = len > 3 ? 4 : len > 2 ? 5 : 6;
+                                const ringDropPx = tempMissing || len > 3 ? 4 : len > 2 ? 5 : 6;
                                 return (
                                     <div className="flex items-stretch">
                                         <span
-                                            className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
-                                            aria-label={`Temperature ${tempStr} degrees ${units.temp}`}
+                                            className={`${sizeClass} font-mono tracking-tighter ${inkClass} leading-none`}
                                         >
                                             {tempStr}
                                         </span>
@@ -223,13 +242,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                             aria-hidden="true"
                                         >
                                             <span
-                                                className={`text-[22px] font-mono font-bold leading-none ${getTempColor()}`}
+                                                className={`text-[22px] font-mono leading-none ${inkClass}`}
                                                 style={{ transform: `translateY(${ringDropPx}px)` }}
                                             >
                                                 °
                                             </span>
                                             <span
-                                                className={`text-[22px] font-mono font-bold leading-none ${getTempColor()} translate-y-[-7px]`}
+                                                className={`text-[22px] font-mono leading-none ${inkClass} translate-y-[-7px]`}
                                             >
                                                 {units.temp}
                                             </span>
@@ -239,28 +258,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             })()
                         )}
                     </div>
-                    {/* Tiny "edit" affordance in the top-right — only appears
-                        on hover on desktop or remains subtly visible on mobile
-                        so new users have a visual cue that this area is
-                        interactive. */}
-                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-white/6 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity pointer-events-none">
-                        <svg
-                            width="8"
-                            height="8"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="text-white/70"
-                            aria-hidden="true"
-                        >
-                            <circle cx="5" cy="12" r="1" />
-                            <circle cx="12" cy="12" r="1" />
-                            <circle cx="19" cy="12" r="1" />
-                        </svg>
-                    </span>
+                    {/* No corner 'edit' disc: at 16 px and 60 % it was too faint
+                        to register, and a legible 20 px one lands on the °
+                        ring at 375 pt. The coach mark below teaches the tap,
+                        and the partition's name says it. */}
 
                     {/* First-use coach mark — only fires while the user is
                         still on the default temp view AND only on the LIVE
@@ -320,49 +321,58 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     )}
                 </div>
 
-                {/* RIGHT: Hi/Lo + Chevron */}
+                {/* RIGHT: Hi/Lo + Chevron. The hi/lo are their own element, not
+                    part of the button's name; the whole column still toggles
+                    the grid for a thumb, and the chevron is the one control a
+                    screen reader or keyboard meets. */}
                 <div
                     onClick={onToggleExpand}
                     className={`flex-1 flex min-h-11 items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
-                    role={onToggleExpand ? 'button' : undefined}
-                    tabIndex={onToggleExpand ? 0 : undefined}
-                    onKeyDown={(event) => {
-                        if (onToggleExpand && (event.key === 'Enter' || event.key === ' ')) {
-                            event.preventDefault();
-                            onToggleExpand();
-                        }
-                    }}
-                    aria-label={
-                        onToggleExpand
-                            ? isExpanded
-                                ? 'Collapse instrument grid'
-                                : 'Expand instrument grid'
-                            : undefined
-                    }
                 >
                     {/* Hi/Lo temps stacked */}
                     <div className="flex flex-col items-end gap-0.5">
                         <div className="flex items-center gap-0.5">
                             <ArrowUpIcon className="w-2.5 h-2.5 text-amber-400 opacity-70" />
-                            <span className="text-xs font-mono font-bold text-white/80">
-                                {data.highTemp !== undefined ? convertTemp(data.highTemp, units.temp) : '--'}°
+                            <span className="text-xs font-mono font-bold text-white/80 whitespace-nowrap">
+                                <span className="sr-only">High </span>
+                                {highStr}
+                                {highStr !== '--' && '°'}
                             </span>
                         </div>
                         <div className="flex items-center gap-0.5">
                             <ArrowDownIcon className="w-2.5 h-2.5 text-sky-400 opacity-70" />
-                            <span className="text-xs font-mono font-bold text-white/80">
-                                {data.lowTemp !== undefined ? convertTemp(data.lowTemp, units.temp) : '--'}°
+                            <span className="text-xs font-mono font-bold text-white/80 whitespace-nowrap">
+                                <span className="sr-only">Low </span>
+                                {lowStr}
+                                {lowStr !== '--' && '°'}
                             </span>
                         </div>
                     </div>
-                    {/* Ghostly chevron — hidden for inland (no expand available) */}
+                    {/* Ghostly chevron — hidden for inland (no expand available).
+                        44 pt button around the 36 px disc; -mx-1 keeps the disc
+                        where it always sat. */}
                     {onToggleExpand && (
-                        <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center">
-                            <ChevronIcon
-                                className={`w-[18px] h-[18px] text-white/60 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
-                            />
-                        </div>
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                // The column's own onClick would toggle it back.
+                                event.stopPropagation();
+                                onToggleExpand?.();
+                            }}
+                            aria-label={isExpanded ? 'Collapse instrument grid' : 'Expand instrument grid'}
+                            aria-expanded={isExpanded}
+                            className="-mx-1 w-11 h-11 shrink-0 rounded-full flex items-center justify-center"
+                        >
+                            <span
+                                className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center"
+                                aria-hidden="true"
+                            >
+                                <ChevronIcon
+                                    className={`w-[18px] h-[18px] text-white/60 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                                />
+                            </span>
+                        </button>
                     )}
                 </div>
             </div>
