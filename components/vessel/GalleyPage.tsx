@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
+import { ClipboardIcon, FoodIcon } from '../Icons';
 import {
     getMealsByStatus,
     getMealPlans as _getMealPlans,
@@ -244,23 +245,27 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             <div className="border-b border-white/6">
                 <PageHeader
                     title="Galley"
-                    breadcrumbs={['Vessel', 'Galley']}
+                    // Same parent crumb as its binder siblings (Stores, Maintenance…).
+                    breadcrumbs={["Ship's Office", 'Galley']}
                     subtitle={
-                        /* PageHeader's own subtitle weight and size — the 11px/60%
-                           amber was the exact combination PageHeader bumped away from
-                           for glare and spray. */
-                        <p className="text-xs font-bold text-amber-300 uppercase tracking-widest">
-                            {visibleActiveMeals.length} active · {visibleSavedRecipes.length} saved · {reservedCount}{' '}
-                            reserved
+                        /* PageHeader's own grey subtitle, like every other page. Each
+                           count is one unbreakable unit and the separator binds to the
+                           count before it, so a wrap never starts a line with '·'.
+                           'Stores set aside' says what the bare 'reserved' did not:
+                           ship's stores held back for planned meals. */
+                        <p className="ui-caption text-xs text-gray-300 uppercase tracking-widest">
+                            <span className="whitespace-nowrap">{visibleActiveMeals.length} active&nbsp;·</span>{' '}
+                            <span className="whitespace-nowrap">{visibleSavedRecipes.length} saved&nbsp;·</span>{' '}
+                            <span className="whitespace-nowrap">{reservedCount} stores set aside</span>
                         </p>
                     }
                     onBack={onBack}
-                    action={
-                        <div className="px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/15">
-                            <span className="text-[11px] font-bold text-amber-300 tracking-widest uppercase">
-                                Works offline
-                            </span>
-                        </div>
+                    // A note, not a control — it lives under the title so the
+                    // action slot stays free.
+                    status={
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/15 text-xs font-bold text-amber-300 tracking-widest uppercase">
+                            Works offline
+                        </span>
                     }
                 />
             </div>
@@ -282,7 +287,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             : 'text-gray-500 hover:text-gray-300'
                     }`}
                 >
-                    🍳 Active Meals
+                    <span className="inline-flex items-center justify-center gap-1.5">
+                        <FoodIcon className="h-3.5 w-3.5" />
+                        Active Meals
+                    </span>
                 </button>
                 <button
                     type="button"
@@ -299,7 +307,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             : 'text-gray-500 hover:text-gray-300'
                     }`}
                 >
-                    📖 Saved Recipes ({visibleSavedRecipes.length})
+                    <span className="inline-flex items-center justify-center gap-1.5">
+                        <ClipboardIcon className="h-3.5 w-3.5" />
+                        Saved Recipes ({visibleSavedRecipes.length})
+                    </span>
                 </button>
             </div>
 
@@ -314,10 +325,19 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         className="space-y-4 p-4"
                     >
                         {visibleActiveMeals.length === 0 ? (
+                            // Not a dead end: the one control this tab lacked is the
+                            // way to the recipes, and the copy names where meals are
+                            // actually planned (a passage's Departure Brief).
                             <EmptyState
                                 icon="🍽️"
                                 title="No Active Meals"
-                                subtitle="Schedule recipes from the Saved Recipes tab or use a passage meal plan"
+                                subtitle="Plan meals under Voyage Provisioning in a passage's Departure Brief and they appear here, ready to cook."
+                                actionLabel="Open Saved Recipes"
+                                onAction={() => {
+                                    triggerHaptic('light');
+                                    setTab('recipes');
+                                    document.getElementById('galley-recipes-tab')?.focus();
+                                }}
                             />
                         ) : (
                             visibleActiveMeals.map((meal) => (
@@ -490,7 +510,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             <EmptyState
                                 icon="📖"
                                 title="No Saved Recipes"
-                                subtitle="Create your own recipe or save one when you schedule a meal plan"
+                                subtitle="Create your own recipe or save one when you schedule a meal plan."
                             />
                         ) : (
                             visibleSavedRecipes.map((recipe) => (

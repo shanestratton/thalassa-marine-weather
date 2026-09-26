@@ -37,7 +37,14 @@ interface EmptyStateProps {
 
 /** Subtle animated wave SVG */
 const WaveIllustration: React.FC = () => (
-    <svg width="120" height="40" viewBox="0 0 120 40" fill="none" className="mx-auto mb-3 opacity-30">
+    <svg
+        aria-hidden="true"
+        width="120"
+        height="40"
+        viewBox="0 0 120 40"
+        fill="none"
+        className="mx-auto mb-3 opacity-30"
+    >
         <path
             d="M0 20 Q15 8 30 20 Q45 32 60 20 Q75 8 90 20 Q105 32 120 20"
             stroke="url(#wave-gradient)"
@@ -80,15 +87,20 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             className={`flex flex-col items-center justify-center text-center ${compact ? 'py-6 px-4' : 'py-10 px-6'} ${className || ''}`}
             style={{ animation: 'bio-fadein 0.4s ease' }}
         >
-            {icon ? <div className="text-3xl mb-3">{icon}</div> : <WaveIllustration />}
-
-            <h3 className={`font-black text-white tracking-wide ${compact ? 'text-sm' : 'text-base'}`}>{title}</h3>
-
-            {text && (
-                <p className={`text-gray-400 mt-1.5 max-w-xs leading-relaxed ${compact ? 'text-[11px]' : 'text-xs'}`}>
-                    {text}
-                </p>
+            {/* Decoration: an emoji icon read aloud ("fork and knife with plate")
+                only repeats the title. */}
+            {icon ? (
+                <div aria-hidden="true" className="text-3xl mb-3">
+                    {icon}
+                </div>
+            ) : (
+                <WaveIllustration />
             )}
+
+            {/* h2: it sits directly under the page's h1, so h3 skipped a level. */}
+            <h2 className={`font-black text-white tracking-wide ${compact ? 'text-sm' : 'text-base'}`}>{title}</h2>
+
+            {text && <p className="text-gray-400 mt-1.5 max-w-xs leading-relaxed text-xs">{text}</p>}
 
             {actionLabel && onAction && (
                 <button
@@ -110,7 +122,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             {secondaryLabel && onSecondary && (
                 <button
                     onClick={() => onSecondary()}
-                    className="mt-2 px-4 py-1.5 min-h-[44px] text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+                    className="mt-2 px-4 py-1.5 min-h-[44px] text-xs text-gray-500 hover:text-gray-300 transition-colors"
                 >
                     {secondaryLabel}
                 </button>
