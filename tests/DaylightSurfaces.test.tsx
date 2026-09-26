@@ -127,11 +127,13 @@ describe('daylight component surfaces', () => {
 
     it('keeps scope quality and its warning hue tied to the same ratio thresholds', () => {
         const { rerender } = render(<ScopeRadar rodeLength={40} waterDepth={5} rodeType="chain" safetyMargin={5} />);
-        expect(screen.getByRole('img')).toHaveAttribute('aria-label', 'Scope radar: 8.0 to 1 ratio, excellent');
-        expect(screen.getByText('EXCELLENT')).toHaveAttribute('fill', 'var(--day-ui-success, #34d399)');
+        expect(screen.getByRole('img').getAttribute('aria-label')).toMatch(
+            /^Scope radar: 8\.0 to 1 ratio, excellent, /,
+        );
+        expect(screen.getByText('EXCELLENT').style.color).toBe('var(--day-ui-success, #34d399)');
         rerender(<ScopeRadar rodeLength={30} waterDepth={5} rodeType="chain" safetyMargin={5} />);
-        expect(screen.getByText('ADEQUATE')).toHaveAttribute('fill', 'var(--day-ui-amber, #fbbf24)');
+        expect(screen.getByText('ADEQUATE').style.color).toBe('var(--day-ui-amber, #fbbf24)');
         rerender(<ScopeRadar rodeLength={20} waterDepth={5} rodeType="chain" safetyMargin={5} />);
-        expect(screen.getByText('POOR')).toHaveAttribute('fill', 'var(--day-ui-danger, #f87171)');
+        expect(screen.getByText('POOR').style.color).toBe('var(--day-ui-danger, #f87171)');
     });
 });
