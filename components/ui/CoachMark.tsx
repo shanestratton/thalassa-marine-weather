@@ -26,7 +26,7 @@
  */
 import React, { useEffect, useState } from 'react';
 
-type CoachMarkAnchor = 'top-right' | 'top-left' | 'top-center' | 'bottom-right' | 'bottom-left' | 'center';
+type CoachMarkAnchor = 'top-right' | 'top-left' | 'top-center' | 'bottom-right' | 'bottom-left' | 'center' | 'custom';
 
 interface CoachMarkProps {
     /** localStorage key — set to '1' when dismissed so it never fires again. */
@@ -45,6 +45,9 @@ interface CoachMarkProps {
     arrow?: 'up' | 'down' | 'left' | 'right';
     /** Extra class merged onto the outer wrapper (custom positioning). */
     className?: string;
+    /** Extra class for the arrow, e.g. a responsive rotation that follows a
+     *  responsive `flex-row` in `className` when the mark moves beside its target. */
+    arrowClassName?: string;
 }
 
 const ANCHOR_CLASSES: Record<CoachMarkAnchor, string> = {
@@ -56,6 +59,8 @@ const ANCHOR_CLASSES: Record<CoachMarkAnchor, string> = {
     'bottom-right': 'bottom-2 right-2 items-end',
     'bottom-left': 'bottom-2 left-2 items-start',
     center: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 items-center',
+    // The caller positions the mark entirely through `className`.
+    custom: '',
 };
 
 const DEFAULT_ARROW: Record<CoachMarkAnchor, 'up' | 'down' | 'left' | 'right'> = {
@@ -65,6 +70,7 @@ const DEFAULT_ARROW: Record<CoachMarkAnchor, 'up' | 'down' | 'left' | 'right'> =
     'bottom-right': 'down',
     'bottom-left': 'down',
     center: 'down',
+    custom: 'up',
 };
 
 /** Small triangular arrow pointing at the affordance. */
@@ -93,6 +99,7 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
     initialDelayMs = 800,
     arrow,
     className = '',
+    arrowClassName = '',
 }) => {
     // Lazy-initialise from localStorage so SSR or non-DOM environments don't
     // crash. Default to true (already seen) if localStorage is unavailable —
@@ -167,7 +174,9 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
             role="status"
             aria-live="polite"
         >
-            <span className="text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] animate-bounce-subtle">
+            <span
+                className={`text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] animate-bounce-subtle ${arrowClassName}`}
+            >
                 <ArrowGlyph direction={arrowDir} />
             </span>
             {/* Opaque (thalassa-popover-solid takes the /95 to a solid fill,

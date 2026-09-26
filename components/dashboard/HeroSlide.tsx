@@ -33,6 +33,7 @@ import {
     buildSlides,
     forecastDayHasWeather,
     heroRowDayName,
+    horizonCaption,
     setSlideInert,
 } from './hero/heroSlideHelpers';
 import type { GlassForecastRange } from './hero/heroSlideHelpers';
@@ -98,19 +99,14 @@ const ForecastHorizonCard: React.FC<{ dateLabel: string; caption: string; showDa
         data-testid="forecast-horizon"
         role="group"
         aria-label={`Forecast for ${dateLabel}`}
-        className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-start pt-3 gap-2 px-5 text-center"
+        // Centred in its frame: pinned to the top it left ~120 pt of empty
+        // card under one line (UX scorecard run 7).
+        className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-center gap-2 px-5 text-center"
     >
         {showDateHeading ? <span className="text-base font-bold tracking-wide text-white/90">{dateLabel}</span> : null}
         <p className="glass-forecast-caption text-sm font-medium">{caption}</p>
     </div>
 );
-
-/** What a day past the pinned model's range says in place of its dashes. */
-const horizonCaption = (range: GlassForecastRange | undefined): string => {
-    if (!range?.modelLabel) return 'Beyond the forecast horizon — check back tomorrow';
-    const ends = range.lastDayLabel ? ` (ends ${range.lastDayLabel})` : '';
-    return `Beyond ${range.modelLabel}’s range${ends} — try another model`;
-};
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 /** Module-level so the memoised radar card sees one stable onMapTap identity. */
@@ -889,6 +885,9 @@ const HeroSlideComponent = ({
                                                     />
                                                 ) : shouldRenderChart ? (
                                                     <TideGraph
+                                                        // Keeps captions and curve clear of Hero's day
+                                                        // pager rail, drawn over this card's right edge.
+                                                        reserveRightPx={16}
                                                         tides={tides || []}
                                                         unit={units.tideHeight || 'm'}
                                                         timeZone={timeZone}
@@ -917,16 +916,23 @@ const HeroSlideComponent = ({
                                         <div
                                             className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/3 ${isGolden ? 'border-amber-400/12' : isCardDay ? 'border-white/6' : 'border-sky-300/6'}`}
                                         >
-                                            <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
-                                                <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                                                    <WaveIcon className="w-5 h-5 text-amber-400" />
-                                                </div>
+                                            {/* On a short phone the card is ~84 pt: the badge
+                                                goes and the gaps close, or the message spilled
+                                                out of both ends of the card (UX scorecard run 7). */}
+                                            <div
+                                                className={`flex flex-col items-center justify-center h-full ${compact ? 'gap-1' : 'gap-3'} px-6 text-center`}
+                                            >
+                                                {!compact && (
+                                                    <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                                                        <WaveIcon className="w-5 h-5 text-amber-400" />
+                                                    </div>
+                                                )}
                                                 <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-widest">
                                                     Tides temporarily unavailable
                                                 </p>
-                                                <p className="text-[11px] text-white/60 leading-relaxed max-w-[200px]">
-                                                    Tide data source is currently unreachable. Data will restore
-                                                    automatically on next refresh.
+                                                <p className="text-xs text-white/60 leading-snug max-w-[260px]">
+                                                    The tide service isn’t answering. Tides come back on the next
+                                                    refresh.
                                                 </p>
                                             </div>
                                         </div>

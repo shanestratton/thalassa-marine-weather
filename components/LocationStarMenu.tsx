@@ -7,7 +7,7 @@
  *   ⌂ Home port    — the user's designated home, pinned first;
  *   ✛ Current Location — jump back to live GPS-follow;
  *   📍 saved spots — each tappable, with set-as-home + remove;
- *   ★ Save “…”     — footer that saves the current location.
+ *   ★ Save this spot as “…” — footer that saves the current location.
  *
  * Why a separate home-port concept: useAppController effect 1b keeps
  * `settings.defaultLocation` as 'Current Location' so every open follows
@@ -69,6 +69,9 @@ const POPOVER_GAP = 8;
 /** A saved place within this of the place on screen IS the place on screen. */
 const SAME_PLACE_KM = 1;
 
+/** 'Gladstone, QLD' → 'gladstone': the place name before any region. */
+const baseName = (name: string) => name.split(',')[0].trim().toLowerCase();
+
 export const LocationStarMenu: React.FC = () => {
     const portalTarget = usePanePortalTarget();
     const { settings, updateSettings } = useSettings();
@@ -107,7 +110,8 @@ export const LocationStarMenu: React.FC = () => {
     // geocoder's 'Gladstone' while the saved entry reads 'Gladstone, QLD', and
     // a name-only match offered to save it again right under its own row
     // (UX scorecard run 6). Name is the fallback for entries saved without
-    // coordinates.
+    // coordinates; for those the region after a comma is ignored, so a typed
+    // 'Gladstone, QLD' is the Glass's 'Gladstone' (UX scorecard run 7).
     const currentLat = weatherData?.coordinates?.lat;
     const currentLon = weatherData?.coordinates?.lon;
     const shownSaved = useMemo(() => {
@@ -121,7 +125,11 @@ export const LocationStarMenu: React.FC = () => {
             );
             if (near) return near;
         }
-        return saved.find((s) => s.name.toLowerCase() === currentName.toLowerCase());
+        const exact = saved.find((s) => s.name.toLowerCase() === currentName.toLowerCase());
+        if (exact) return exact;
+        return saved.find(
+            (s) => typeof s.lat !== 'number' && typeof s.lon !== 'number' && baseName(s.name) === baseName(currentName),
+        );
     }, [isRealCurrent, currentLat, currentLon, currentName, saved]);
     const currentSaved = !!shownSaved;
     // The tick for a saved row: only while the Glass is on that pick, not
@@ -134,26 +142,40 @@ export const LocationStarMenu: React.FC = () => {
     const homePortLoc = homePort ? saved.find((s) => s.name === homePort) : undefined;
     const otherSaved = saved.filter((s) => s.name !== homePort);
 
-    // Anchor the popover to the button's viewport rect; re-measure on
-    // open + scroll/resize so it follows the header.
+    // Removing a hand-saved place asks first (Shane 2026-09-26: the small state items were my call).
+    const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+    const pendingRemoveRef = useRef<string | null>(null);
+    pendingRemoveRef.current = pendingRemove;
+
+    // Anchor the popover to the button's viewport rect; re-measure on open
+    // and resize. Any scroll outside the flyout closes it instead: a day or
+    // hour swipe re-measured it and left it open over a different day's grid
+    // (UX scorecard run 7). Scrolling its own list, or the remove confirm,
+    // keeps it open.
     useLayoutEffect(() => {
         if (!open || !portalTarget) return;
         const measure = () => {
             const rect = buttonRef.current?.getBoundingClientRect();
             if (rect) setAnchorRect(rect);
         };
+        const onScroll = (event: Event) => {
+            const target = event.target;
+            if (target instanceof Node && popoverRef.current?.contains(target)) return;
+            if (pendingRemoveRef.current !== null) return;
+            setOpen(false);
+        };
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(portalTarget);
         if (buttonRef.current) observer.observe(buttonRef.current);
-        window.addEventListener('scroll', measure, true);
+        window.addEventListener('scroll', onScroll, true);
         window.addEventListener('resize', measure);
         return () => {
             observer.disconnect();
-            window.removeEventListener('scroll', measure, true);
+            window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', measure);
         };
-    }, [open, portalTarget]);
+    }, [open, portalTarget, popoverRef]);
 
     // Close on outside-click (check both button + popover since
     // the popover lives in a portal). The dim behind the flyout closes it on
@@ -175,8 +197,6 @@ export const LocationStarMenu: React.FC = () => {
         };
     }, [open, popoverRef]);
 
-    // Removing a hand-saved place asks first (Shane 2026-09-26: the small state items were my call).
-    const [pendingRemove, setPendingRemove] = useState<string | null>(null);
     const closeAndRestore = () => {
         setOpen(false);
         requestAnimationFrame(() => buttonRef.current?.focus({ preventScroll: true }));
@@ -266,12 +286,15 @@ export const LocationStarMenu: React.FC = () => {
                     <>
                         {/* A 35 % dim behind the flyout: without it the rows sat
                         straight on the grid and cut its labels in half (UX
-                        scorecard run 6). Tapping it closes the flyout. */}
+                        scorecard run 6). Tapping it closes the flyout, and so
+                        does starting to swipe the Glass behind it. */}
                         <div
                             ref={backdropRef}
                             aria-hidden="true"
                             className="fixed inset-0 z-9998 bg-black/35 animate-in fade-in duration-150"
                             onClick={() => setOpen(false)}
+                            onTouchMove={() => setOpen(false)}
+                            onWheel={() => setOpen(false)}
                         />
                         <div
                             id={menuId}
@@ -352,8 +375,16 @@ export const LocationStarMenu: React.FC = () => {
                                 )}
 
                                 {/* Saved spots */}
+                                {/* The row the Glass is showing carries a tick and a
+                                    faint wash (UX scorecard run 7). The home and
+                                    remove icons have one-word captions, since a
+                                    bare house read as decoration. */}
                                 {otherSaved.map((loc) => (
-                                    <div key={loc.name} role="none" className="flex items-center">
+                                    <div
+                                        key={loc.name}
+                                        role="none"
+                                        className={`flex items-center ${isShownRow(loc.name) ? 'bg-sky-500/10' : ''}`}
+                                    >
                                         <button
                                             type="button"
                                             role="menuitem"
@@ -371,11 +402,15 @@ export const LocationStarMenu: React.FC = () => {
                                             type="button"
                                             role="menuitem"
                                             onClick={() => setHome(loc.name)}
-                                            aria-label={`Set ${loc.name} as home port`}
+                                            // The name starts with the visible caption, 'Home'.
+                                            aria-label={`Home: set ${loc.name} as home port`}
                                             title="Set as home port"
-                                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-amber-400 transition-colors shrink-0"
+                                            className="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-amber-400 transition-colors shrink-0"
                                         >
                                             <HomeIcon className="w-4 h-4" />
+                                            <span aria-hidden="true" className="text-[12px] leading-none">
+                                                Home
+                                            </span>
                                         </button>
                                         <button
                                             type="button"
@@ -383,9 +418,12 @@ export const LocationStarMenu: React.FC = () => {
                                             onClick={() => setPendingRemove(loc.name)}
                                             aria-label={`Remove ${loc.name}`}
                                             title="Remove"
-                                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors shrink-0"
+                                            className="min-w-[48px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-red-400 transition-colors shrink-0"
                                         >
                                             <TrashIcon className="w-4 h-4" />
+                                            <span aria-hidden="true" className="text-[12px] leading-none">
+                                                Remove
+                                            </span>
                                         </button>
                                     </div>
                                 ))}
@@ -419,7 +457,12 @@ export const LocationStarMenu: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2.5 border-t border-white/10 text-amber-300 hover:bg-white/5 transition-colors"
                                 >
                                     <StarIcon className="w-4 h-4 shrink-0" />
-                                    <span className="font-semibold truncate">Save “{currentName}”</span>
+                                    {/* 'Save “Gladstone”' under a saved 'Gladstone, QLD'
+                                        read as a duplicate; this says it is the spot
+                                        on screen that gets saved (UX scorecard run 7). */}
+                                    <span className="min-w-0 text-left font-semibold leading-snug wrap-break-word">
+                                        Save this spot as “{currentName}”
+                                    </span>
                                 </button>
                             )}
                             {isRealCurrent && currentSaved && (

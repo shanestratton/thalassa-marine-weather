@@ -20,10 +20,28 @@ interface TideCanvasProps {
     minHeight: number;
     maxHeight: number;
     domainBuffer: number;
+    /** Height of a caption band overlaid on the chart's top edge. The curve's
+     *  crest is kept below it where the chart is tall enough (48 px of plot
+     *  are always kept); 0 keeps the classic 20 px top margin. */
+    topBandPx?: number;
+    /** Clear strip along the right edge, e.g. for a pager rail drawn over it. */
+    rightInsetPx?: number;
 }
 
+/** The least plot height kept when a caption band is reserved. */
+const MIN_PLOT_PX = 48;
+
 export const TideCanvas = React.memo(
-    ({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: TideCanvasProps) => {
+    ({
+        dataPoints,
+        currentHour,
+        currentHeight,
+        minHeight,
+        maxHeight,
+        domainBuffer,
+        topBandPx = 0,
+        rightInsetPx = 0,
+    }: TideCanvasProps) => {
         const canvasRef = useRef<HTMLCanvasElement>(null);
         const containerRef = useRef<HTMLDivElement>(null);
 
@@ -49,13 +67,17 @@ export const TideCanvas = React.memo(
             // effective display class on each draw, including theme switches.
             const daylight = container.closest('.display-light') !== null;
 
-            // Chart area with margins matching old Recharts layout
-            const marginTop = 20;
-            const marginRight = 0;
-            const marginLeft = 0;
             // Keep the plot geometry unchanged; the 14px caption band also
             // fits 12px semibold text (canvas bypasses the CSS size floor).
             const marginBottom = 14;
+            // Chart area with margins matching old Recharts layout — except
+            // that an overlaid caption band pushes the crest down under it,
+            // as far as the card's height allows: at 20 px the curve ran
+            // straight through 'LOW 0.5 m' (UX scorecard run 7).
+            const marginTop =
+                topBandPx > 0 ? Math.max(20, Math.min(topBandPx + 4, h - marginBottom - MIN_PLOT_PX)) : 20;
+            const marginRight = Math.max(0, rightInsetPx);
+            const marginLeft = 0;
             const plotW = w - marginLeft - marginRight;
             const plotH = h - marginTop - marginBottom;
 
@@ -211,7 +233,7 @@ export const TideCanvas = React.memo(
                 ctx.fillStyle = daylight ? '#0f172a' : '#ffffff';
                 ctx.fill();
             }
-        }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
+        }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, topBandPx, rightInsetPx]);
 
         useEffect(() => {
             draw();
@@ -240,7 +262,9 @@ export const TideCanvas = React.memo(
             prev.currentHour === next.currentHour &&
             prev.currentHeight === next.currentHeight &&
             prev.minHeight === next.minHeight &&
-            prev.maxHeight === next.maxHeight
+            prev.maxHeight === next.maxHeight &&
+            prev.topBandPx === next.topBandPx &&
+            prev.rightInsetPx === next.rightInsetPx
         );
     },
 );

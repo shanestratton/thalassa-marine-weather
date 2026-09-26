@@ -82,10 +82,11 @@ async function openGlass(page: Page, baseURL: string, width: number, scenario: F
     }, scenario);
     await page.goto('/');
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Navigate to The Glass', exact: true })).toHaveAttribute(
-        'aria-selected',
-        'true',
-    );
+    await expect(
+        page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'The Glass', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('textbox', { name: 'Current location', exact: true })).toHaveValue('Newport QLD');
     if (scenario.displayMode === 'light') await expect(page.locator('html')).toHaveClass(/display-light/);
     else await expect(page.locator('html')).not.toHaveClass(/display-light/);
@@ -222,18 +223,24 @@ for (const displayMode of ['light', 'dark'] as const) {
                     try {
                         await openGlass(page, baseURL!, width, { locationType, displayMode, model: forecastModel });
                         const strip = page.getByTestId('glass-status-strip');
-                        const label = locationType.toUpperCase();
-                        const location = strip.getByRole('status', { name: /^Location type:/ });
+                        // Sentence case on screen; the accessible name says
+                        // what kind of forecast it is in full, starting with
+                        // the visible word.
+                        const label = locationType === 'offshore' ? 'Offshore' : 'Inshore';
+                        const location = strip.getByRole('status', { name: `${label} forecast`, exact: true });
                         const model = strip.getByRole('button', { name: /Choose forecast model/ });
                         await expect(strip).toBeInViewport();
                         await expect(location).toHaveText(label);
-                        await expect(location).toHaveAccessibleName(`Location type: ${label}`);
+                        await expect(location).toHaveAccessibleName(`${label} forecast`);
                         await expect(model).toHaveText(modelLabel);
                         await expect(strip.getByText(modelLabel, { exact: true })).toHaveCount(1);
-                        await expect(strip).not.toContainText(/OFFSHORE\s*\(/);
+                        await expect(strip).not.toContainText(/offshore\s*\(/i);
                         const layout = await measureFooter(strip);
                         expectOneUnclippedRow(layout);
                         layouts.push(layout);
+                        // No line under the row: the data credit lives in the
+                        // model sheet (UX scorecard run 7).
+                        await expect(page.getByTestId('glass-forecast-credit')).toHaveCount(0);
 
                         // Linux Chromium's platform font renders "just now"
                         // wider than the original 56px reserved age track.

@@ -66,6 +66,8 @@ interface HeroHeaderProps {
     /** Passed through to MetricPinSheet so the picker hides marine-only
      *  metrics on inland users. */
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
+    /** Set while a later day is shown: the date gains a "Today" control. */
+    onReturnToToday?: () => void;
 }
 
 const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
@@ -79,6 +81,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     locationType,
     isExpanded = true,
     onToggleExpand,
+    onReturnToToday,
 }) => {
     // PERF: Memoize helper to get source text color for temperature
     const getTempColor = useCallback((): string => {
@@ -145,7 +148,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     }, [updateSettings]);
 
     return (
-        <div className="relative w-full rounded-2xl overflow-hidden border bg-white/8 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/15">
+        // Not overflow-hidden: the first-run coach mark hangs below this card
+        // rather than sitting on the temperature (UX scorecard run 7).
+        <div className="relative w-full rounded-2xl border bg-white/8 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/15">
             {/* Keyframes moved to index.css */}
 
             <div className="flex flex-row w-full items-center min-h-[70px] in-data-[glass-rhythm]:min-h-[54px]">
@@ -156,8 +161,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     target generous on iOS. */}
                 <div
                     ref={setDroppableRef}
-                    className={`flex-1 px-3 py-2 in-data-[glass-rhythm]:py-1 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
-                        isOver ? 'bg-sky-500/20 ring-2 ring-sky-400/60 ring-inset rounded-lg' : ''
+                    // @container/pin: the coach mark sits beside the digits where the
+                    // partition has room for it (landscape, tablets), below the card
+                    // where it does not (phones held upright).
+                    className={`@container/pin flex-1 px-3 py-2 in-data-[glass-rhythm]:py-1 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
+                        isOver ? 'bg-sky-500/20 ring-2 ring-sky-400/60 ring-inset rounded-l-[15px] rounded-r-lg' : ''
                     }`}
                     onClick={handleHeroLeftTap}
                     role="button"
@@ -230,7 +238,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 // wrong for the other two. Tune here if it reads low.
                                 const ringDropPx = tempMissing || len > 3 ? 4 : len > 2 ? 5 : 6;
                                 return (
-                                    <div className="flex items-stretch">
+                                    <div className="relative flex items-stretch">
                                         <span
                                             className={`${sizeClass} font-mono tracking-tighter ${inkClass} leading-none`}
                                         >
@@ -242,23 +250,53 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                                 stretches the full temp height, justify-between pins
                                                 ring-to-top / letter-to-baseline, items-center keeps
                                                 them collinear. Both mono 22px — no tracking (it
-                                                shifts a single glyph off centre). */}
-                                        <div
-                                            className="flex flex-col items-center justify-between self-stretch"
-                                            aria-hidden="true"
-                                        >
-                                            <span
-                                                className={`text-[22px] in-data-[glass-rhythm]:text-lg font-mono leading-none ${inkClass}`}
-                                                style={{ transform: `translateY(${ringDropPx}px)` }}
+                                                shifts a single glyph off centre). Dropped with no
+                                                reading, as the grid cells and the pinned metric
+                                                drop their units: '--°C' is not a temperature. */}
+                                        {!tempMissing && (
+                                            <div
+                                                className="flex flex-col items-center justify-between self-stretch"
+                                                aria-hidden="true"
                                             >
-                                                °
-                                            </span>
-                                            <span
-                                                className={`text-[22px] in-data-[glass-rhythm]:text-lg font-mono leading-none ${inkClass} translate-y-[-7px]`}
-                                            >
-                                                {units.temp}
-                                            </span>
-                                        </div>
+                                                <span
+                                                    className={`text-[22px] in-data-[glass-rhythm]:text-lg font-mono leading-none ${inkClass}`}
+                                                    style={{ transform: `translateY(${ringDropPx}px)` }}
+                                                >
+                                                    °
+                                                </span>
+                                                <span
+                                                    className={`text-[22px] in-data-[glass-rhythm]:text-lg font-mono leading-none ${inkClass} translate-y-[-7px]`}
+                                                >
+                                                    {units.temp}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {/* First-use coach mark — only fires while the user is
+                                            still on the default temp view AND only on the LIVE
+                                            card (live temp reads are the honest moment to teach
+                                            the feature, not a forecast day). Disappears after
+                                            one viewing, controlled by localStorage.
+
+                                            Never on the number (UX scorecard run 7: it hid the
+                                            foot of '21', and all but the ° at 375 pt and in
+                                            landscape). Upright on a phone it hangs below the
+                                            card, its arrow on the digits — the card no longer
+                                            clips it and Dashboard lifts this layer over the
+                                            grid. Where the partition is wide enough it sits
+                                            beside the digits, pointing back at them. */}
+                                        {isLive && (
+                                            <CoachMark
+                                                seenKey="thalassa_hero_pin_coach_v1"
+                                                visibleWhen={heroMetric === 'temp'}
+                                                anchor="custom"
+                                                arrow="up"
+                                                message="Tap to pin"
+                                                initialDelayMs={1500}
+                                                ttlMs={6000}
+                                                className="top-full mt-0.5 left-0 items-start whitespace-nowrap @min-[9rem]/pin:top-1/2 @min-[9rem]/pin:mt-0 @min-[9rem]/pin:-translate-y-1/2 @min-[9rem]/pin:left-full @min-[9rem]/pin:ml-2 @min-[9rem]/pin:flex-row @min-[9rem]/pin:items-center"
+                                                arrowClassName="@min-[9rem]/pin:-rotate-90"
+                                            />
+                                        )}
                                     </div>
                                 );
                             })()
@@ -266,41 +304,17 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     </div>
                     {/* No corner 'edit' disc: at 16 px and 60 % it was too faint
                         to register, and a legible 20 px one lands on the °
-                        ring at 375 pt. The coach mark below teaches the tap,
-                        and the partition's name says it. */}
-
-                    {/* First-use coach mark — only fires while the user is
-                        still on the default temp view AND only on the LIVE
-                        card (live temp reads are the honest moment to teach
-                        the feature, not a forecast day). Disappears after
-                        one viewing, controlled by localStorage. */}
-                    {isLive && (
-                        <CoachMark
-                            seenKey="thalassa_hero_pin_coach_v1"
-                            visibleWhen={heroMetric === 'temp'}
-                            anchor="bottom-left"
-                            arrow="up"
-                            message="Tap to pin"
-                            initialDelayMs={1500}
-                            ttlMs={6000}
-                            // Under the digits, inside this partition: the card
-                            // clips anything outside it and the header rows above
-                            // and below paint over it, so 'above, pointing down'
-                            // was invisible, and 'beside' covered the condition
-                            // text (2026-09-26). The bubble is opaque and only
-                            // overlaps the foot of the digits for six seconds,
-                            // first run only. `!` because the anchor's own
-                            // bottom-2/left-2 sort after these and would win.
-                            className="left-1! bottom-0.5! whitespace-nowrap"
-                        />
-                    )}
+                        ring at 375 pt. The first-run coach mark teaches the
+                        tap, and the partition's name says it. */}
                 </div>
 
                 {/* CENTER: Status dot + icon + condition */}
                 {/* key ensures React swaps the whole block atomically — no two-step size→text jank */}
                 <div
                     key={`${isLive ? 'live' : dateLabel}-${displayCondition}`}
-                    className="flex-2 flex items-center justify-center min-w-0 py-2 px-1"
+                    // py-0 in the trimmed rhythms: date, condition and hour stack to
+                    // 52 px, and with py-2 they stretched a 56 px slot to 70.
+                    className="flex-2 flex items-center justify-center min-w-0 py-2 in-data-[glass-rhythm]:py-0 px-1"
                 >
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
@@ -313,12 +327,39 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         </div>
                     ) : (
                         <div className="flex flex-col items-center">
-                            <span
-                                className="text-sky-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1"
-                                style={{ paddingLeft: '0.2em' }}
-                            >
-                                {dateLabel}
-                            </span>
+                            <div className="flex items-center gap-1.5 mb-1">
+                                <span
+                                    // Tighter beside the Today pill, so 'WED 30 SEP' and the
+                                    // pill share one line in the 375 pt centre column.
+                                    className={`text-sky-400 font-extrabold text-xs ${onReturnToToday ? 'tracking-[0.12em]' : 'tracking-[0.2em]'} uppercase leading-none whitespace-nowrap`}
+                                    style={{ paddingLeft: onReturnToToday ? '0.12em' : '0.2em' }}
+                                >
+                                    {dateLabel}
+                                </span>
+                                {/* A later day: one tap back to today's live card, not
+                                    one swipe per day (UX scorecard run 7). The span
+                                    gives the 14 px pill a 44 pt target that hangs
+                                    down over the condition text, not up out of the
+                                    card into the warnings row. */}
+                                {onReturnToToday && (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            onReturnToToday();
+                                        }}
+                                        // Starts with the visible word, for voice control.
+                                        aria-label="Today, back to now"
+                                        className="relative shrink-0 rounded-full border border-sky-400/40 bg-sky-500/10 px-1.5 text-xs font-semibold leading-none text-sky-300 glass-tide-caption active:bg-sky-500/25"
+                                    >
+                                        <span
+                                            className="absolute left-1/2 top-[-6px] h-11 w-full min-w-11 -translate-x-1/2"
+                                            aria-hidden="true"
+                                        />
+                                        Today
+                                    </button>
+                                )}
+                            </div>
                             <div className="flex items-center justify-center gap-2 max-w-full">
                                 <ConditionText text={displayCondition} />
                             </div>

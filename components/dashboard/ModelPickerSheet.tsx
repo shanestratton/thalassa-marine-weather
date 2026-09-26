@@ -20,6 +20,8 @@ import {
     MODEL_ATTRIBUTION_LINE,
     SPITFIRE_MODEL,
     OFFSHORE_MODELS,
+    getForecastModelInfo,
+    getOffshoreModelInfo,
 } from '../../services/weather/forecastModels';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
@@ -51,6 +53,53 @@ interface ModelPickerSheetProps {
      * built-in list is offered and fetches fall through to the live proxy.
      */
     publishedModels?: string[];
+}
+
+/**
+ * The picker's row words, in a skipper's terms rather than a meteorologist's
+ * ('no gust field', 'strong on convection', 'classic European physics
+ * model' — UX scorecard run 7). Keyed by model id; a model not listed here
+ * falls back to its catalogue blurb.
+ */
+const PLAIN_BLURBS: Readonly<Record<string, string>> = {
+    dwd_icon: 'German global model — good with thunderstorms and squalls',
+    ecmwf_ifs025: 'The main European model — a trusted all-rounder',
+    ecmwf_aifs025_single: 'ECMWF AI model — no gust forecast',
+    jma_gsm: 'Japan — western Pacific, no gust forecast',
+};
+
+/** Row words for a catalogue entry: the plain version where there is one. */
+function plainBlurb(id: string, blurb: string): string {
+    return PLAIN_BLURBS[id] ?? blurb;
+}
+
+/** Names the credit line uses where 'provider label' would read oddly. */
+const CREDIT_NAMES: Readonly<Record<string, string>> = {
+    dwd_icon: 'DWD ICON',
+    ecmwf_ifs025: 'ECMWF IFS',
+    ecmwf_aifs025_single: 'ECMWF AIFS',
+    ukmo_global_deterministic_10km: 'UK Met Office',
+    jma_gsm: 'JMA GSM',
+};
+
+/**
+ * The one-line data credit for whichever model the Glass is showing, e.g.
+ * 'Forecast: DWD ICON · CC-BY-4.0'. The sheet prints it for the model the
+ * Glass is showing, above the full attribution line (UX scorecard run 7).
+ * Blends and Auto credit every source; offshore sources credit StormGlass.
+ */
+export function forecastCreditLine(model: WeatherModel, offshoreModel?: OffshoreModel): string {
+    if (offshoreModel) {
+        if (offshoreModel === 'sg') return 'Forecast: StormGlass blend';
+        const entry = getOffshoreModelInfo(offshoreModel);
+        const name = entry.provider === entry.label ? entry.label : `${entry.provider} ${entry.label}`;
+        return `Forecast: ${name} via StormGlass`;
+    }
+    const info = getForecastModelInfo(model);
+    if (!info) return MODEL_ATTRIBUTION_LINE;
+    const name =
+        CREDIT_NAMES[info.id] ?? (info.provider === info.label ? info.label : `${info.provider} ${info.label}`);
+    return `Forecast: ${name} · CC-BY-4.0`;
 }
 
 /** Words that keep their capital after the dash (proper nouns, acronyms). */
@@ -274,13 +323,18 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             )}
 
                             {grids.map((m) =>
-                                atmosphericRow(m.id, m.label, modelHelper(m.label, m.provider, m.blurb), m.hex),
+                                atmosphericRow(
+                                    m.id,
+                                    m.label,
+                                    modelHelper(m.label, m.provider, plainBlurb(m.id, m.blurb)),
+                                    m.hex,
+                                ),
                             )}
 
                             {/* Divider */}
                             <div className="h-px bg-white/6 my-2" />
 
-                            {atmosphericRow(AUTO_MODEL, 'Auto', 'Blended sources — no pinned model')}
+                            {atmosphericRow(AUTO_MODEL, 'Auto', 'Blend of sources — no single model chosen')}
                         </>
                     )}
                 </div>
@@ -300,13 +354,26 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                     <Button variant="secondary" onClick={onClose} className="w-full text-slate-300">
                         Close
                     </Button>
-                    <p className="text-[9px] text-gray-400 text-center">
-                        {offshore ? (
-                            'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC-BY-4.0).'
-                        ) : (
-                            <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
-                        )}
-                    </p>
+                    {/* The data credit, at the 12 px floor (it was 9 px): the
+                        model the Glass is showing first, then every source.
+                        It lives here rather than under the Glass badges,
+                        where a wrapped credit took 17 pt from the tide card
+                        (UX scorecard run 7). */}
+                    <div
+                        className="space-y-0.5 text-center text-xs leading-snug text-slate-400"
+                        data-testid="forecast-credit"
+                    >
+                        <p className="font-semibold text-slate-300">
+                            {forecastCreditLine(currentModel, offshore ? offshore.currentModel : undefined)}
+                        </p>
+                        <p>
+                            {offshore ? (
+                                'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC-BY-4.0).'
+                            ) : (
+                                <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
+                            )}
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>,

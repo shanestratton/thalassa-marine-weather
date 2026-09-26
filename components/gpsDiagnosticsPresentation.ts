@@ -32,7 +32,20 @@ export interface GpsDiagnosticsPresentation {
     quality: GpsDiagnosticValue;
     accuracy: GpsDiagnosticValue;
     hdop: GpsDiagnosticValue;
+    /**
+     * Nothing at all is known: no position time and no current or stale
+     * reading. The card then says so once (NO_GPS_FIX_LINE) instead of a
+     * position line and three tiles that each word "nothing" differently.
+     */
+    noFix: boolean;
 }
+
+/**
+ * The one sentence for "no fix at all". System status said it five ways
+ * ('Position time unavailable', 'No position yet — nothing is supplying a fix',
+ * 'Not reported', 'No current fix', 'Not reported'); UX scorecard run 7.
+ */
+export const NO_GPS_FIX_LINE = 'No GPS fix: nothing is supplying a position';
 
 function validTime(timestamp: number | null | undefined, now: number): timestamp is number {
     return typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0 && timestamp <= now + 1000;
@@ -106,8 +119,16 @@ export function presentGpsDiagnostics(source: GpsDiagnosticSource, now = Date.no
         accuracy.text = 'No current fix';
         accuracy.state = 'unknown';
     }
+    const hdop = presentMetric(source.hdop, now, source.maxAgeMs, (value) => {
+        const reading = positiveNumber(value);
+        return reading === null ? null : reading.toFixed(1);
+    });
+    const noFix =
+        !validTime(source.positionAt, now) &&
+        [satellites, quality, accuracy, hdop].every((metric) => metric.state === 'unknown');
     return {
         label: source.label,
+        noFix,
         position: validTime(source.positionAt, now)
             ? `${positionCurrent ? 'Position' : 'Last position'} ${ageText(Math.max(0, now - source.positionAt))}`
             : 'Position time unavailable',
@@ -115,10 +136,7 @@ export function presentGpsDiagnostics(source: GpsDiagnosticSource, now = Date.no
         quality,
         accuracy,
         // HDOP is dimensionless. Never turn it into an unlabeled metre estimate.
-        hdop: presentMetric(source.hdop, now, source.maxAgeMs, (value) => {
-            const hdop = positiveNumber(value);
-            return hdop === null ? null : hdop.toFixed(1);
-        }),
+        hdop,
     };
 }
 

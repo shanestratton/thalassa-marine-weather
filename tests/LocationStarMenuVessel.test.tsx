@@ -159,7 +159,7 @@ describe('★ menu — the place on screen is matched by position', () => {
         h.weatherData.coordinates = { lat: -23.845, lon: 151.258 };
         render(<LocationStarMenu />);
         openMenu();
-        expect(screen.queryByRole('menuitem', { name: /Save “Gladstone”/ })).toBeNull();
+        expect(screen.queryByRole('menuitem', { name: /Save this spot/ })).toBeNull();
         expect(screen.getByText('Gladstone, QLD is saved')).toBeInTheDocument();
         expect(screen.getByRole('menuitem', { name: 'Gladstone, QLD' })).toHaveAttribute('aria-current', 'location');
         expect(screen.getByRole('menuitem', { name: 'Mackay' })).not.toHaveAttribute('aria-current');
@@ -173,8 +173,65 @@ describe('★ menu — the place on screen is matched by position', () => {
         h.weatherData.coordinates = { lat: -33.9, lon: 151.2 };
         render(<LocationStarMenu />);
         openMenu();
-        expect(screen.getByRole('menuitem', { name: /Save “Gladstone”/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Save this spot as “Gladstone”/ })).toBeInTheDocument();
         expect(screen.getByRole('menuitem', { name: 'Gladstone, QLD' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('a place saved by name alone is the place on screen when only its region differs (UX scorecard run 7)', () => {
+        h.settings.defaultLocation = 'Gladstone, QLD';
+        h.settings.savedLocations = ['Gladstone, QLD', 'Gladstone Harbour'];
+        h.settings.savedLocationCoords = {};
+        h.weatherData.locationName = 'Gladstone';
+        h.weatherData.coordinates = { lat: -23.845, lon: 151.258 };
+        render(<LocationStarMenu />);
+        openMenu();
+        expect(screen.queryByRole('menuitem', { name: /Save this spot/ })).toBeNull();
+        expect(screen.getByText('Gladstone, QLD is saved')).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: 'Gladstone, QLD' })).toHaveAttribute('aria-current', 'location');
+        expect(screen.getByRole('menuitem', { name: 'Gladstone Harbour' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('a region-only match never overrides saved coordinates that are elsewhere', () => {
+        h.settings.defaultLocation = 'Newport';
+        h.settings.savedLocations = ['Newport, NSW'];
+        h.settings.savedLocationCoords = { 'Newport, NSW': { lat: -33.66, lon: 151.31 } };
+        h.weatherData.locationName = 'Newport';
+        h.weatherData.coordinates = { lat: -27.2, lon: 153.1 };
+        render(<LocationStarMenu />);
+        openMenu();
+        expect(screen.getByRole('menuitem', { name: /Save this spot as “Newport”/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: 'Newport, NSW' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('closes when the Glass scrolls behind it, but not when its own list scrolls', () => {
+        h.settings.savedLocations = ['Mackay'];
+        h.settings.savedLocationCoords = { Mackay: { lat: -21.1, lon: 149.2 } };
+        const { container } = render(
+            <>
+                <div data-testid="carousel" />
+                <LocationStarMenu />
+            </>,
+        );
+        openMenu();
+        const menu = screen.getByRole('menu');
+        fireEvent.scroll(menu.querySelector('.overflow-y-auto')!);
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+        fireEvent.scroll(container.querySelector('[data-testid="carousel"]')!);
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+
+    it('stays open for the remove confirm, and captions its home and remove icons', () => {
+        h.settings.savedLocations = ['Mackay'];
+        h.settings.savedLocationCoords = { Mackay: { lat: -21.1, lon: 149.2 } };
+        render(<LocationStarMenu />);
+        openMenu();
+        const home = screen.getByRole('menuitem', { name: 'Home: set Mackay as home port' });
+        const remove = screen.getByRole('menuitem', { name: 'Remove Mackay' });
+        expect(home).toHaveTextContent('Home');
+        expect(remove).toHaveTextContent('Remove');
+        fireEvent.click(remove);
+        fireEvent.scroll(window);
+        expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
     it('dims the page behind the flyout, and a tap on the dim closes it', () => {

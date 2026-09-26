@@ -40,13 +40,17 @@ describe('rain modal', () => {
     it('names the feed AND how far ahead it can see', () => {
         // The horizon is the half that actually answers "why does this card
         // say dry when it is raining" — WeatherKit sees an hour, Rainbow four.
-        expect(src).toContain("if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km, 4 hours ahead';");
+        // It is the LIVE reach of the remaining frames, in the headline's own
+        // words, so the dialog never prints 'next 3½ hours' over '4 hours
+        // ahead' (UX scorecard run 7).
+        expect(src).toContain("if (source === 'rainbow') return `Rainbow.ai nowcast · 1 km, next ${horizon}`;");
         expect(src).toContain(
-            "if (source === 'weatherkit') return 'Apple WeatherKit · minute-by-minute, 1 hour ahead';",
+            "if (source === 'weatherkit') return `Apple WeatherKit · minute-by-minute, next ${horizon}`;",
         );
         expect(src).toContain(
             "if (source === 'synthetic') return 'Estimated from the hourly forecast — not a live rain feed';",
         );
+        expect(src).toContain('const horizon = liveWindowLabel(data, now);');
     });
 
     it('says nothing at all rather than guessing when the source is unknown', () => {

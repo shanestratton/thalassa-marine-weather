@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RainForecastCard } from '../components/dashboard/RainForecastCard';
 
 /**
@@ -69,9 +69,112 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
             expect(within(dialog).getByText(tick)).toBeInTheDocument();
         }
         expect(within(dialog).queryByText(/\dH\d/)).toBeNull();
-        expect(within(dialog).getByText('mm/hr peak')).toBeInTheDocument();
+        // A dry window reads 'Dry', not '0.0 mm/hr peak' under 'Clear'.
+        expect(within(dialog).getByText('Dry')).toBeInTheDocument();
+        expect(within(dialog).queryByText('mm/hr peak')).toBeNull();
+        expect(within(dialog).queryByText('0.0')).toBeNull();
         // No droplet "needle" parked at half scale on a 0.0 gauge.
         expect(dialog.querySelector('path[d^="M 60 28"]')).toBeNull();
+    });
+
+    it('the dry detail names one horizon: headline, chart summary and credit agree (UX scorecard run 7)', () => {
+        render(<RainForecastCard data={dryFeed(240, Date.now() - 25 * 60_000)} source="rainbow" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+        expect(within(dialog).getByText('No rain expected next 3\u00bd hours')).toBeInTheDocument();
+        expect(
+            within(dialog).getByRole('img', { name: 'Rain intensity, next 3\u00bd hours: none' }),
+        ).toBeInTheDocument();
+        expect(within(dialog).getByText('Rainbow.ai nowcast · 1 km, next 3\u00bd hours')).toBeInTheDocument();
+        expect(within(dialog).queryByText(/4 hours ahead/)).toBeNull();
+    });
+
+    it('trace drizzle under the rain threshold draws no bars under a dry verdict', () => {
+        const trace = dryFeed(240).map((f, i) => ({ ...f, intensity: i % 3 === 0 ? 0.1 : 0.06 }));
+        render(<RainForecastCard data={trace} source="rainbow" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const chart = within(screen.getByRole('dialog', { name: 'Rain forecast' })).getByRole('img', {
+            name: /: none$/,
+        });
+        expect(chart.querySelectorAll('div.flex-1')).toHaveLength(0);
+    });
+
+    it('a 240-minute wet feed draws at most 60 bars, clipped inside the dialog, scaled to a fixed floor', () => {
+        const wet = dryFeed(240).map((f, i) => ({ ...f, intensity: i >= 30 && i < 60 ? 0.6 : 0 }));
+        render(<RainForecastCard data={wet} source="rainbow" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const chart = within(screen.getByRole('dialog', { name: 'Rain forecast' })).getByRole('img', {
+            name: /Rain intensity, next 4 hours: peak 0\.6 mm\/hr in \d+ min/,
+        });
+        const bars = chart.querySelectorAll<HTMLElement>('div.flex-1');
+        expect(bars.length).toBeLessThanOrEqual(60);
+        expect(bars[0].parentElement).toHaveClass('overflow-hidden');
+        // 0.6 mm/hr against the 2.5 mm/hr floor is a quarter-height bar, not a wall.
+        const tallest = Math.max(
+            ...Array.from(bars, (b) => parseFloat((b.firstElementChild as HTMLElement).style.height)),
+        );
+        expect(tallest).toBeCloseTo(24, 0);
+    });
+
+    it('closes from a full-width bottom Close as well as the corner X', () => {
+        render(<RainForecastCard data={dryFeed(240)} source="rainbow" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+        expect(screen.queryByRole('dialog', { name: 'Rain forecast' })).not.toBeInTheDocument();
+    });
+
+    it('says "Right now" when the Glass is showing another day or hour', () => {
+        const { rerender } = render(<RainForecastCard data={dryFeed(240)} source="rainbow" />);
+        expect(screen.queryByText(/Right now/)).toBeNull();
+        rerender(<RainForecastCard data={dryFeed(240)} source="rainbow" isLive={false} />);
+        expect(screen.getByText(/Right now: No rain expected next 4 hours/)).toBeInTheDocument();
+        // The strip's name is the action; the verdict is its description.
+        expect(screen.getByRole('button', { name: 'Open rain forecast detail' })).toHaveAccessibleDescription(
+            /Right now: No rain expected next 4 hours/,
+        );
+    });
+
+    it('paints a moon, not the sun, when the dry detail opens after sunset', () => {
+        // Gladstone at 09:00 UTC is 19:00 local, after the ~17:50 sunset.
+        const at = Date.UTC(2026, 8, 26, 9, 0);
+        vi.useFakeTimers({ now: at, toFake: ['Date'] });
+        try {
+            render(
+                <RainForecastCard
+                    data={dryFeed(240, at)}
+                    source="rainbow"
+                    coordinates={{ lat: -23.85, lon: 151.26 }}
+                />,
+            );
+            fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+            const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+            expect(dialog.querySelector('#rain-moon-disc')).not.toBeNull();
+            expect(dialog.querySelector('#sun-disc')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('paints the sun when the dry detail opens by day', () => {
+        // 02:00 UTC is 12:00 in Gladstone.
+        const at = Date.UTC(2026, 8, 26, 2, 0);
+        vi.useFakeTimers({ now: at, toFake: ['Date'] });
+        try {
+            render(
+                <RainForecastCard
+                    data={dryFeed(240, at)}
+                    source="rainbow"
+                    coordinates={{ lat: -23.85, lon: 151.26 }}
+                />,
+            );
+            fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+            const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+            expect(dialog.querySelector('#sun-disc')).not.toBeNull();
+            expect(dialog.querySelector('#rain-moon-disc')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('a one-hour feed ticks in quarter hours and ends at 1 h', () => {

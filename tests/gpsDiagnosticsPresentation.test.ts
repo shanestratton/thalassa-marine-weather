@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     boatGpsDiagnosticSource,
     gpsReceiverConnectionDetail,
+    NO_GPS_FIX_LINE,
     presentGpsDiagnostics,
     type GpsDiagnosticSource,
 } from '../components/gpsDiagnosticsPresentation';
@@ -189,5 +190,22 @@ describe('GPS diagnostics presentation', () => {
                 NOW,
             ),
         ).toMatchObject({ quality: { text: 'No current fix' }, accuracy: { text: 'Stale' } });
+    });
+    // UX scorecard run 7: 'no fix' was said five ways; the card says it once.
+    it('marks a source with nothing known as no fix, and only then', () => {
+        const phone = { label: 'Phone location', phone: true, maxAgeMs: 30_000 };
+        expect(presentGpsDiagnostics({ ...phone, positionAt: null, accuracyM: null }, NOW).noFix).toBe(true);
+        expect(
+            presentGpsDiagnostics({ label: 'Boat GPS', maxAgeMs: 13_000, positionAt: null, satellites: null }, NOW)
+                .noFix,
+        ).toBe(true);
+        // An old fix, a stale reading or a live one is something to show.
+        expect(presentGpsDiagnostics({ ...phone, positionAt: NOW - 600_000 }, NOW).noFix).toBe(false);
+        expect(presentGpsDiagnostics({ ...boat, positionAt: null }, NOW).noFix).toBe(false);
+        expect(
+            presentGpsDiagnostics({ ...boat, positionAt: null, satellites: metric(8, 60_000), hdop: null }, NOW).noFix,
+        ).toBe(false);
+        expect(presentGpsDiagnostics(boat, NOW).noFix).toBe(false);
+        expect(NO_GPS_FIX_LINE).toBe('No GPS fix: nothing is supplying a position');
     });
 });

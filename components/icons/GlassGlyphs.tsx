@@ -5,7 +5,8 @@
  * grid, the pin sheet and the Notifications rows (UX scorecard run 6), and
  * the saved-locations flyout borrowed the anchor for 'home port' while
  * System Status uses it for Anchor watch. Same 24-unit, 2-stroke,
- * round-cap drawing as the rest of components/icons.
+ * round-cap drawing as the rest of components/icons. Every glyph is
+ * decorative (aria-hidden): the control it sits in carries the name.
  */
 import React from 'react';
 
@@ -64,5 +65,13 @@ export const PinIcon: React.FC<GlyphProps> = ({ className }) => (
     <Stroke className={className}>
         <path d="M12 17v5" />
         <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </Stroke>
+);
+
+/** Chevron right: 'opens more', for the rain strip on a short phone, where
+ *  its 'Tap for detail' line has no room. */
+export const ChevronRightIcon: React.FC<GlyphProps> = ({ className }) => (
+    <Stroke className={className}>
+        <path d="m9 18 6-6-6-6" />
     </Stroke>
 );
