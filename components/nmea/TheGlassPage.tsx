@@ -1152,15 +1152,20 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 <PageHeader
                     title="Instrument Panel"
                     onBack={handleBack}
-                    action={
+                    // Status lives on PageHeader's row under the title, like
+                    // Anchor Watch and Radio: in the action slot the pill
+                    // squeezed INSTRUMENT PANEL onto two lines at 375-393 pt.
+                    status={
                         hasDiagnosisDetail ? (
-                            // 44 pt tall tap target around the pill; the chevron, not an
-                            // underline, says there is detail behind it.
+                            // A 44 pt tall button around the pill; the negative
+                            // margin keeps the row pill-height so the header does
+                            // not grow. The chevron, not an underline, says there
+                            // is detail behind it.
                             <button
                                 type="button"
                                 onClick={() => setShowDiagnosis(true)}
                                 aria-label={`Instrument status: ${panelStatus}. Show details`}
-                                className="flex min-h-[44px] items-center"
+                                className="-my-[9px] flex min-h-[44px] items-center"
                             >
                                 <span
                                     className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${panelStatusPill}`}

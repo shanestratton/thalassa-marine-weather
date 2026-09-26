@@ -1,8 +1,9 @@
 import React from 'react';
 import type { WindHistorySummary } from '../../utils/windHistory';
 
+/** '--' is the Instrument Panel's one no-data glyph (never '—' beside it). */
 function format(value: number | null | undefined): string {
-    return value !== null && value !== undefined && Number.isFinite(value) ? value.toFixed(1) : '—';
+    return value !== null && value !== undefined && Number.isFinite(value) ? value.toFixed(1) : '--';
 }
 
 /** Same three-card footprint; recording belongs to the feed, never this view. */

@@ -96,7 +96,11 @@ test.describe('Glass wind versus tide card', () => {
 
         await page.goto('/');
         await expect(page.getByRole('tab', { name: 'Navigate to The Glass' })).toHaveAttribute('aria-selected', 'true');
-        const graph = page.getByRole('button', { name: 'Show wind versus tide', exact: true });
+        // Each tide card is named for its own hour and height; the live card
+        // leads with 'Now'.
+        const graph = page.getByRole('button', {
+            name: /^Now(, \d+\.\d (m|ft) (rising|falling|steady))? — show wind versus tide$/,
+        });
         await expect(graph).toHaveCount(1);
         await expect(graph).toBeVisible();
         await page.evaluate(() => document.fonts.ready);

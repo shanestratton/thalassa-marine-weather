@@ -301,11 +301,15 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                 aria-labelledby="rain-forecast-title"
                 className="relative w-full max-w-md rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
+                // Daylight gets the light day surface: the text inside already
+                // inverts to navy by day, and on this navy gradient it went
+                // dark-on-dark. Each var() keeps the night colour as fallback.
                 style={{
                     background:
-                        'linear-gradient(180deg, rgba(6, 78, 115, 0.9) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(8, 51, 96, 0.85) 100%)',
-                    border: '1px solid rgba(34, 211, 238, 0.2)',
-                    boxShadow: '0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5)',
+                        'var(--day-ui-surface, linear-gradient(180deg, rgba(6, 78, 115, 0.9) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(8, 51, 96, 0.85) 100%))',
+                    border: '1px solid var(--day-ui-border, rgba(34, 211, 238, 0.2))',
+                    boxShadow:
+                        'var(--day-ui-shadow, 0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5))',
                 }}
             >
                 {/* Weather-themed background scene.
@@ -458,8 +462,11 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                   - No prominent specular dot — the dark-top/
                                     bright-bottom gradient IS the water tell
                             */}
+                            {/* By day the dark beads sit on the light day surface,
+                                under navy text: drawn fainter so they stay a
+                                mood, not a pattern the numbers must fight. */}
                             <svg
-                                className="absolute inset-0 w-full h-full"
+                                className="absolute inset-0 w-full h-full [.display-light_&]:opacity-25"
                                 viewBox="0 0 200 400"
                                 preserveAspectRatio="xMidYMid slice"
                                 aria-hidden="true"
@@ -613,7 +620,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                 <path
                                     d="M 10 60 A 50 50 0 0 1 110 60"
                                     fill="none"
-                                    stroke="rgba(255,255,255,0.08)"
+                                    style={{ stroke: 'var(--day-ui-grid, rgba(255,255,255,0.08))' }}
                                     strokeWidth="8"
                                     strokeLinecap="round"
                                 />
@@ -651,6 +658,8 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
 
                         {/* Intensity label */}
                         <div className="text-center -mt-2">
+                            {/* text-sky-400 steps to sky-800 by day (legibility.css),
+                                which holds on the light day surface below. */}
                             <div className="text-[11px] font-bold uppercase tracking-widest mb-0.5 text-sky-400">
                                 {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
                             </div>
@@ -692,7 +701,11 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                             ? `No rain in the ${analysis.subline.toLowerCase()}`
                                             : 'No rain in this window'}
                                     </span>
-                                    <div className="w-full h-px bg-white/25" aria-hidden="true" />
+                                    <div
+                                        className="w-full h-px"
+                                        style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
+                                        aria-hidden="true"
+                                    />
                                 </div>
                             )}
                             {data.map((point, i) => {
@@ -780,7 +793,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                         Off the card face and in here, where someone standing
                         in rain the card called dry comes looking for it. */}
                     {feedProvenance && (
-                        <p className="mt-3 text-[10px] text-white/40 text-center leading-relaxed">{feedProvenance}</p>
+                        <p className="mt-3 text-[10px] text-white/60 text-center leading-relaxed">{feedProvenance}</p>
                     )}
                 </div>
             </div>
