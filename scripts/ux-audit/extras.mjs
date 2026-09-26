@@ -203,7 +203,8 @@ if (SECTIONS.includes('A')) {
         await dismiss(p);
     }
     await go(p, 'voyage', 3000);
-    if (await tap(p, 'Page actions')) {
+    // The Plan kebab is named after its page since run 6.
+    if ((await tap(p, 'Route Planner actions', 900)) || (await tap(p, 'Page actions', 900))) {
         await capture(p, 'plan-actions');
         await dismiss(p);
     }
