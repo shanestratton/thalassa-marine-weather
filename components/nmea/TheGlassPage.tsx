@@ -390,6 +390,11 @@ interface HeroArcGaugeProps {
     max: number;
     unit: string;
     label: string;
+    /** What a screen reader calls the dial ("True wind speed"); the drawn
+     *  label is the abbreviation. */
+    spokenName: string;
+    /** The unit said aloud ("knots"). */
+    spokenUnit: string;
     accentColor: string;
     zones: { from: number; to: number; color: string }[];
     majorTick: number;
@@ -414,6 +419,8 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
     max,
     unit,
     label,
+    spokenName,
+    spokenUnit,
     accentColor,
     zones,
     majorTick,
@@ -435,8 +442,16 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
         return items;
     }, [min, max, majorTick]);
 
+    // One sentence for the dial ("True wind speed, no data"); its tick labels
+    // and drawn readout are hidden, or they read out as "0 10 20 30…" noise
+    // (UX scorecard run 7).
     return (
-        <svg viewBox="0 0 200 200" className="nmea-instrument w-full h-full">
+        <svg
+            viewBox="0 0 200 200"
+            className="nmea-instrument w-full h-full"
+            role="img"
+            aria-label={spokenReading(spokenName, value === null ? '--' : value.toFixed(1), spokenUnit)}
+        >
             <defs>
                 <filter id={`hero-glow-${label}`} x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="3" result="blur" />
@@ -490,7 +505,7 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
             )}
 
             {/* Tick marks */}
-            <g opacity={opacity}>
+            <g opacity={opacity} aria-hidden="true">
                 {ticks.map(({ val, isMajor }) => {
                     const frac = (val - min) / range;
                     const angle = HERO_START + frac * HERO_SWEEP;
@@ -561,6 +576,7 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
 
             {/* Digital readout (inside SVG, below center) */}
             <text
+                aria-hidden="true"
                 x={HERO_CX}
                 y={HERO_CY + 38}
                 textAnchor="middle"
@@ -573,6 +589,7 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
                 {value === null ? '--' : value.toFixed(1)}
             </text>
             <text
+                aria-hidden="true"
                 x={HERO_CX}
                 y={HERO_CY + 55}
                 textAnchor="middle"
@@ -640,7 +657,7 @@ const ROSE_CELL_STYLE = WIND_CELL_STYLE;
 const SectionPlateComponent: React.FC<{ title: string; place?: string }> = ({ title, place }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0">
         <div aria-hidden="true" className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
-        <h2 className="whitespace-nowrap text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">
+        <h2 className="whitespace-nowrap text-xs font-black uppercase tracking-[0.35em] text-gray-400">
             {title}
             {place && <span className="font-bold tracking-[0.2em]"> · {place}</span>}
         </h2>
@@ -731,6 +748,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
        screen"). Same 5.5rem clearance the rest of the app uses over that
        bar. */
     const sectionPb = 'pb-[calc(5.5rem+env(safe-area-inset-bottom))]';
+    /* Every page but the last stops 24px above the tab bar, so the next
+       plate's heading ("Wind · 2 of 9") peeks at the bottom edge: "1 of 9" was
+       the only cue that more lay below, and the owner vetoed a chevron (UX
+       scorecard run 7). The last page (Helm) stays full height with
+       sectionPb, or snap could not bring its top to the top. The others end
+       above the bar themselves and need no foot: the peeking plate's own top
+       padding is the gap, so a page keeps within 1px of the height it had. */
+    const sectionHeight = 'h-[calc(100%_-_var(--thalassa-tabbar-height)_-_24px)]';
     const cardPad = pickByDevice(deviceClass, 'p-3', 'p-5');
     const sogAwsValueClass = pickByDevice(deviceClass, 'text-3xl', 'text-5xl');
     const depthValueClass = pickByDevice(deviceClass, 'text-2xl', 'text-4xl');
@@ -1123,6 +1148,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 max={60}
                 unit="kts"
                 label="TWS"
+                spokenName="True wind speed"
+                spokenUnit="knots"
                 accentColor={zoneColorFor(tws.value, TWS_ZONES, '#22c55e')}
                 zones={TWS_ZONES}
                 majorTick={10}
@@ -1177,6 +1204,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
             : null,
     });
     const panelStatus = diagnosis.label;
+    // No gateway ever set up is how a phone-only skipper uses the app, not a
+    // fault: neutral grey, the same 'No gateway' the NMEA Gateway page shows.
+    // Red stays for a configured gateway that has dropped (UX scorecard run 7).
+    const panelAlarm = diagnosis.actionable && diagnosis.state !== 'no-gateway';
     const panelStatusDot =
         diagnosis.state === 'live'
             ? 'bg-emerald-400 animate-pulse'
@@ -1184,11 +1215,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
               ? 'bg-sky-400 animate-pulse'
               : diagnosis.state === 'stale'
                 ? 'bg-amber-400'
-                : diagnosis.actionable
+                : panelAlarm
                   ? 'bg-rose-400'
                   : 'bg-slate-500';
     // The same bordered pill Radio Console and Anchor Watch use for their fix
     // state (UX run 5: this was the one page showing it as underlined text).
+    // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
+    // tint that measured 4.55:1 (UX scorecard run 7).
     const panelStatusPill =
         diagnosis.state === 'live'
             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
@@ -1196,8 +1229,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
               ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
               : diagnosis.state === 'stale'
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                : diagnosis.actionable
-                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                : panelAlarm
+                  ? 'bg-red-500/10 border-red-500/30 text-red-400 [.display-light_&]:bg-red-50! [.display-light_&]:text-red-800!'
                   : 'bg-white/5 border-white/15 text-gray-400';
 
     // Which transducer is quiet while the rest of the boat reports? Naming it
@@ -1333,7 +1366,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             Shane 2026-09-03: "build a beautiful chelsea ships
                             bell clock… the whole works." */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Clock" place={placeOf('Clock')} />
                             {/* Centred in whatever is left after the plate, so
@@ -1367,7 +1400,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             can never disagree about whose watch it is. */}
                         {hasMyWatch && (
                             <section
-                                className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                                className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                             >
                                 <SectionPlate title="Watch" place={placeOf('Watch')} />
                                 <div className="flex-1 min-h-0 overflow-y-auto pb-2">
@@ -1408,7 +1441,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: WIND ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            // Short screens: the three gauges take 16% of the
+                            // height, not 19%, or the rose captions ran off the
+                            // foot at 375×667 (UX scorecard run 7).
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 [@media(max-height:700px)]:[--wind-gauge-share:0.16]`}
                         >
                             {/* The diagnosis and the "not reporting" list used
                                 to sit here as two stacked banners. On a
@@ -1602,7 +1638,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             either: a phone that has been up and down the
                             companionway has invented most of its own trend. */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Barometer" place={placeOf('Barometer')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -1717,7 +1753,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             real place in the Gulf of Guinea, and a confident green
                             reading of it is the worst thing this page could do. */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Position" place={placeOf('Position')} />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-7">
@@ -1766,7 +1802,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: SPEED ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Speed" place={placeOf('Speed')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -1849,7 +1885,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: DEPTH ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Depth" place={placeOf('Depth')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -1930,7 +1966,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             as Depth: the number, what it is doing, the 15-min chart —
                             and an honest card when the bus carries no such sentence. */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Sea temp" place={placeOf('Sea temp')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -2043,7 +2079,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: HEADING ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                            className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
                             <SectionPlate title="Heading" place={placeOf('Heading')} />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">

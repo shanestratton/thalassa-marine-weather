@@ -293,6 +293,18 @@ describe('AnchorWatchPage', () => {
         );
     });
 
+    it("prints the strip ratio with the dial's one decimal, and says arming waits for GPS (UX scorecard run 7)", () => {
+        render(<AnchorWatchPage {...defaultProps} />);
+
+        // 30 m of rode in 5 m: the dial says 6.0:1, so the strip must too —
+        // a rounded 5:1 beside "Poor" at 4.6 contradicted its own word.
+        expect(screen.getByText('Adequate 6.0:1')).toBeInTheDocument();
+        // No fix in the test environment: the bar says so before the slide,
+        // and the name the tests and Voice Control use is unchanged.
+        const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+        expect(arm).toHaveAccessibleDescription(/GPS/);
+    });
+
     it('surfaces the exact actionable setup failure returned by the safety service', async () => {
         render(<AnchorWatchPage {...defaultProps} />);
 

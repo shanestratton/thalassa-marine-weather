@@ -124,7 +124,7 @@ function Fixture() {
                 </div>
             </div>
             <nav
-                aria-label="Main navigation"
+                aria-label="Main"
                 className="fixed inset-x-0 bottom-0 z-10 flex items-start justify-around border-t border-white/10 bg-slate-900 px-3 pt-4 text-xs font-semibold text-slate-300"
                 style={{ height: 98 }}
             >

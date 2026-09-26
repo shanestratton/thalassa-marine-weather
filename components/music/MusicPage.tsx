@@ -19,7 +19,8 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
-import { UnavailableNotice } from '../ui/UnavailableNotice';
+import { NeedsIPhoneAppNotice } from '../ui/UnavailableNotice';
+import { Button } from '../ui/Button';
 import {
     getUserPlaylists,
     playPlaylist,
@@ -856,11 +857,10 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 />
             )}
             <div className="relative flex min-h-0 flex-1 flex-col">
-                <PageHeader
-                    title="Apple Music"
-                    subtitle={offIphoneApp ? 'iPhone app only' : 'Soundtrack for the watch'}
-                    onBack={onBack}
-                />
+                {/* One subtitle in both states: off the iPhone app it said
+                    "iPhone app only" over a card that said so twice more (UX
+                    scorecard run 7). */}
+                <PageHeader title="Apple Music" subtitle="Soundtrack for the watch" onBack={onBack} />
 
                 <div
                     ref={musicScrollRef}
@@ -871,16 +871,25 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                         WebkitMaskImage: fadeMask,
                     }}
                 >
+                    {/* The shared "needs the iPhone app" card (Boat Network wears
+                        it too), naming the speakers the hub row promises, with a
+                        way out instead of a dead end (UX scorecard run 7). */}
                     {offIphoneApp && (
-                        <UnavailableNotice
-                            icon={<MusicIcon className="h-5 w-5" />}
-                            title="Apple Music lives in the iPhone app"
+                        <NeedsIPhoneAppNotice
+                            title="Apple Music needs the Thalassa iPhone app"
+                            actions={
+                                // "Done", not a second "Go back" beside the chevron;
+                                // Back returns to whichever page opened Music.
+                                <Button variant="secondary" onClick={onBack}>
+                                    Done
+                                </Button>
+                            }
                         >
                             <p>
-                                Open Thalassa on your iPhone to play your library and playlists hands-free while you
-                                sail.
+                                There it plays your library and playlists hands-free while you sail, on the phone or an
+                                AirPlay or Bluetooth speaker aboard.
                             </p>
-                        </UnavailableNotice>
+                        </NeedsIPhoneAppNotice>
                     )}
 
                     {authGranted === false && !offIphoneApp && (

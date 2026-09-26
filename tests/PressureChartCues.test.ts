@@ -79,3 +79,27 @@ describe('pressure chart cues', () => {
         expect(result.contours.features.some((feature) => feature.properties?.isDetail)).toBe(true);
     });
 });
+
+describe('pressure chart wind barbs', () => {
+    it('draws no barb where the wind reading is missing, rather than a calm or a northerly', () => {
+        // UX scorecard run 7: a failed cell used to arrive as 0 kt from 000°.
+        const grid = synopticFixture();
+        const speeds = grid.allHourlyWindSpeed.map((hour) => hour.map((row) => row.map(() => 20)));
+        const dirs = grid.allHourlyWindDir.map((hour) => hour.map((row) => row.map(() => 90)));
+        speeds[0][0][0] = Number.NaN; // no speed at the first barb site
+        dirs[0][0][5] = Number.NaN; // no direction at the second
+        const result = generateIsobarsFromGrid(
+            { ...grid, allHourlyWindSpeed: speeds, allHourlyWindDir: dirs },
+            0,
+            true,
+        );
+        const sites = result.barbs.features.map((feature) => (feature.geometry as GeoJSON.Point).coordinates.join(','));
+        expect(sites).not.toContain(`${grid.lons[0]},${grid.lats[0]}`);
+        expect(sites).not.toContain(`${grid.lons[5]},${grid.lats[0]}`);
+        expect(sites).toContain(`${grid.lons[10]},${grid.lats[0]}`);
+        for (const feature of result.barbs.features) {
+            expect(feature.properties?.direction).toBe(90);
+            expect(feature.properties?.speed).toBe(20);
+        }
+    });
+});

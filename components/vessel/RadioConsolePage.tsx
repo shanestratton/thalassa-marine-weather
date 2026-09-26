@@ -16,6 +16,7 @@ import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
+import { Button } from '../ui/Button';
 import {
     formatSpokenPosition,
     spellDigits,
@@ -401,9 +402,11 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
     // stable. Only an explicit Update position recaptures the written script.
     const utcTime = useUtcClock();
 
+    // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
+    // tint that measured 4.55:1 (UX scorecard run 7).
     const gpsStatusClass =
         !position && radio.error
-            ? 'bg-red-500/10 border-red-500/30 text-red-400'
+            ? 'bg-red-500/10 border-red-500/30 text-red-400 [.display-light_&]:bg-red-50! [.display-light_&]:text-red-800!'
             : radio.isLive
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
               : 'bg-amber-500/10 border-amber-500/30 text-amber-400';
@@ -505,14 +508,18 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             </div>
             {/* Both rows always show: an unset call sign or MMSI used to drop
                 its row silently, so the card looked complete (UX scorecard
-                run 6). */}
+                run 6). "not set" is amber, not metadata grey, so a Mayday
+                script missing its MMSI is visible before DISTRESS is chosen
+                (UX scorecard run 7). */}
             <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
                 <span>
                     Call sign{' '}
                     {callSign ? (
                         <strong className="text-sky-300">{callSign}</strong>
                     ) : (
-                        <span className="text-slate-400">· not set</span>
+                        <span className="font-semibold text-amber-300 [.display-light_&]:text-amber-800!">
+                            · not set
+                        </span>
                     )}
                 </span>
                 <span>
@@ -520,7 +527,9 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     {mmsi ? (
                         <strong className="font-mono text-sky-300">{mmsi}</strong>
                     ) : (
-                        <span className="text-slate-400">· not set</span>
+                        <span className="font-semibold text-amber-300 [.display-light_&]:text-amber-800!">
+                            · not set
+                        </span>
                     )}
                 </span>
                 {(!callSign || !mmsi) && onNavigate && (
@@ -662,13 +671,10 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             </div>
 
             <footer className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2">
-                <button
-                    type="button"
-                    onClick={() => setDialogStep('instructions')}
-                    className="min-h-12 w-full rounded-2xl bg-sky-600 px-4 py-3 text-base font-bold text-white shadow-lg shadow-sky-950/30"
-                >
+                {/* The house bottom call to action (theme.ts button.cta). */}
+                <Button variant="cta" onClick={() => setDialogStep('instructions')}>
                     Prepare voice call <span aria-hidden="true">→</span>
-                </button>
+                </Button>
                 <p className="mt-2 text-center text-xs text-slate-400">Read from here. Transmit on your radio.</p>
             </footer>
 
@@ -766,8 +772,8 @@ const ChannelStrip: React.FC<{ mode: DscMode }> = ({ mode }) => {
         <div className="mb-2 space-y-0.5" role="note" aria-label="Which channel to use">
             {rows.map(([band, text]) => (
                 <div key={band} className="flex items-baseline gap-2">
-                    <span className={`w-7 shrink-0 text-[10px] font-extrabold tracking-[0.2em] ${tone}`}>{band}</span>
-                    <span className="text-[11px] font-semibold leading-snug text-slate-200">{text}</span>
+                    <span className={`w-8 shrink-0 text-xs font-extrabold tracking-[0.2em] ${tone}`}>{band}</span>
+                    <span className="text-xs font-semibold leading-snug text-slate-200">{text}</span>
                 </div>
             ))}
         </div>
@@ -808,8 +814,8 @@ const DscSelector: React.FC<{
             <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-xs font-bold tracking-wider uppercase text-slate-400">Call type</div>
                 {mobActive && (
-                    <div className="px-2 py-0.5 rounded-full bg-red-500/15 border border-red-400/30 text-red-300 text-[9px] font-extrabold tracking-widest uppercase animate-pulse">
-                        MOB Active
+                    <div className="px-2 py-0.5 rounded-full bg-red-500/15 border border-red-400/30 text-red-300 text-xs font-extrabold tracking-widest uppercase animate-pulse">
+                        MOB active
                     </div>
                 )}
             </div>
