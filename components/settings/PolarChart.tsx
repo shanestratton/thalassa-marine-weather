@@ -12,6 +12,8 @@ interface PolarChartProps {
     overlayData?: PolarData | null; // Smart Polars overlay (green dashed)
     width?: number;
     height?: number;
+    /** Placeholder shown in the empty chart — the host names its own route to data entry. */
+    emptyLabel?: string;
 }
 
 // Color palette for wind speed curves (cool→warm gradient)
@@ -45,7 +47,13 @@ interface CurveData {
     color: string;
 }
 
-export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width = 400, height = 440 }) => {
+export const PolarChart: React.FC<PolarChartProps> = ({
+    data,
+    overlayData,
+    width = 400,
+    height = 440,
+    emptyLabel = 'No polar data yet',
+}) => {
     const cx = width / 2;
     const cy = width / 2 + 10;
     const radius = width / 2 - 40;
@@ -141,8 +149,15 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
     const hasData = data.matrix.some((row) => row.some((v) => v > 0));
     const hasOverlay = overlayData?.matrix.some((row) => row.some((v) => v > 0)) ?? false;
 
+    const isEmpty = !hasData && !hasOverlay;
+
     // Use data.angles for grid lines (both datasets share same standard angles)
     const gridAngles = data.angles;
+
+    const chartLabel = isEmpty
+        ? 'Polar diagram — no data yet'
+        : `Polar diagram — boat speed curves for ${data.windSpeeds.join(', ')} knots true wind` +
+          (hasOverlay ? ', with Smart Polars overlay' : '');
 
     return (
         <div className="relative w-full h-full">
@@ -152,99 +167,113 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="xMidYMid meet"
                 className="mx-auto"
+                role="img"
+                aria-label={chartLabel}
             >
-                {/* Concentric speed rings */}
-                {Array.from({ length: ringCount }, (_, i) => {
-                    const r = speedToRadius((i + 1) * ringStep);
-                    return (
-                        <g key={`ring-${i}`}>
-                            <circle
-                                cx={cx}
-                                cy={cy}
-                                r={r}
-                                fill="none"
-                                stroke="var(--day-ui-grid, rgba(255,255,255,0.08))"
-                                strokeWidth="1"
-                            />
-                            <text
-                                x={cx + 4}
-                                y={cy - r - 2}
-                                fill="var(--day-ui-muted, #cbd5e1)"
-                                fontSize="12"
-                                fontFamily="monospace"
-                                fontWeight="bold"
-                            >
-                                {(i + 1) * ringStep}kts
-                            </text>
-                        </g>
-                    );
-                })}
+                {/* Grid and tick labels are drawing, not content — the svg's
+                    aria-label carries the meaning. With no data the speed
+                    scale and the dashed axes are hidden: an empty ring printed
+                    "2kts" and the axes ran straight through the placeholder. */}
+                <g aria-hidden="true">
+                    {/* Concentric speed rings */}
+                    {Array.from({ length: ringCount }, (_, i) => {
+                        const r = speedToRadius((i + 1) * ringStep);
+                        return (
+                            <g key={`ring-${i}`}>
+                                <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={r}
+                                    fill="none"
+                                    stroke="var(--day-ui-grid, rgba(255,255,255,0.08))"
+                                    strokeWidth="1"
+                                />
+                                {!isEmpty && (
+                                    <text
+                                        x={cx + 4}
+                                        y={cy - r - 2}
+                                        fill="var(--day-ui-muted, #cbd5e1)"
+                                        fontSize="12"
+                                        fontFamily="monospace"
+                                        fontWeight="bold"
+                                    >
+                                        {(i + 1) * ringStep}kts
+                                    </text>
+                                )}
+                            </g>
+                        );
+                    })}
 
-                {/* Angular grid lines */}
-                {gridAngles.map((angle) => {
-                    const [x, y] = polarToXY(angle, radius + 15);
-                    const [mx, my] = polarToXY(-angle, radius + 15);
-                    const [lx, ly] = polarToXY(angle, scaledRadius);
-                    const [mlx, mly] = polarToXY(-angle, scaledRadius);
-                    return (
-                        <g key={`grid-${angle}`}>
-                            <line
-                                x1={cx}
-                                y1={cy}
-                                x2={lx}
-                                y2={ly}
-                                stroke="var(--day-ui-grid, rgba(255,255,255,0.05))"
-                                strokeWidth="1"
-                                strokeDasharray="4 4"
-                            />
-                            <line
-                                x1={cx}
-                                y1={cy}
-                                x2={mlx}
-                                y2={mly}
-                                stroke="var(--day-ui-grid, rgba(255,255,255,0.05))"
-                                strokeWidth="1"
-                                strokeDasharray="4 4"
-                            />
-                            <text
-                                x={x}
-                                y={y}
-                                fill="var(--day-ui-muted, #cbd5e1)"
-                                fontSize="12"
-                                fontWeight="bold"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                            >
-                                {angle}°
-                            </text>
-                            <text
-                                x={mx}
-                                y={my}
-                                fill="var(--day-ui-muted, #cbd5e1)"
-                                fontSize="12"
-                                fontWeight="bold"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                            >
-                                {angle}°
-                            </text>
-                        </g>
-                    );
-                })}
+                    {/* Angular grid lines */}
+                    {gridAngles.map((angle) => {
+                        const [x, y] = polarToXY(angle, radius + 15);
+                        const [mx, my] = polarToXY(-angle, radius + 15);
+                        const [lx, ly] = polarToXY(angle, scaledRadius);
+                        const [mlx, mly] = polarToXY(-angle, scaledRadius);
+                        return (
+                            <g key={`grid-${angle}`}>
+                                {!isEmpty && (
+                                    <>
+                                        <line
+                                            x1={cx}
+                                            y1={cy}
+                                            x2={lx}
+                                            y2={ly}
+                                            stroke="var(--day-ui-grid, rgba(255,255,255,0.05))"
+                                            strokeWidth="1"
+                                            strokeDasharray="4 4"
+                                        />
+                                        <line
+                                            x1={cx}
+                                            y1={cy}
+                                            x2={mlx}
+                                            y2={mly}
+                                            stroke="var(--day-ui-grid, rgba(255,255,255,0.05))"
+                                            strokeWidth="1"
+                                            strokeDasharray="4 4"
+                                        />
+                                    </>
+                                )}
+                                <text
+                                    x={x}
+                                    y={y}
+                                    fill="var(--day-ui-muted, #cbd5e1)"
+                                    fontSize="12"
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                >
+                                    {angle}°
+                                </text>
+                                <text
+                                    x={mx}
+                                    y={my}
+                                    fill="var(--day-ui-muted, #cbd5e1)"
+                                    fontSize="12"
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                >
+                                    {angle}°
+                                </text>
+                            </g>
+                        );
+                    })}
 
-                <circle cx={cx} cy={cy} r="3" fill="var(--day-ui-muted, rgba(255,255,255,0.3))" />
+                    {!isEmpty && <circle cx={cx} cy={cy} r="3" fill="var(--day-ui-muted, rgba(255,255,255,0.3))" />}
 
-                <text
-                    x={cx}
-                    y={12}
-                    fill="var(--day-ui-muted, #cbd5e1)"
-                    fontSize="12"
-                    fontWeight="bold"
-                    textAnchor="middle"
-                    letterSpacing="2"
-                >
-                    ▼ WIND
-                </text>
+                    <text
+                        x={cx}
+                        y={12}
+                        fill="var(--day-ui-muted, #cbd5e1)"
+                        fontSize="12"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                        letterSpacing="2"
+                    >
+                        ▼ WIND
+                    </text>
+                </g>
 
                 {/* Factory curves (solid) */}
                 {hasData &&
@@ -311,21 +340,17 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                             />
                         </g>
                     ))}
-
-                {/* Empty state */}
-                {!hasData && !hasOverlay && (
-                    <text
-                        x={cx}
-                        y={cy}
-                        fill="var(--day-ui-muted, rgba(255,255,255,0.2))"
-                        fontSize="12"
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                    >
-                        Enter polar data to see chart
-                    </text>
-                )}
             </svg>
+
+            {/* Empty state — HTML on a backing pill rather than svg text, so it
+                stays at a legible size when the chart scales down on a phone. */}
+            {isEmpty && (
+                <div className="absolute inset-0 flex items-center justify-center px-6 pointer-events-none">
+                    <p className="px-3 py-1.5 rounded-full bg-slate-900/80 border border-white/10 text-xs font-bold text-gray-300 text-center">
+                        {emptyLabel}
+                    </p>
+                </div>
+            )}
 
             {/* Legend */}
             {(hasData || hasOverlay) && (

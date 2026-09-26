@@ -79,8 +79,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }));
     const taskDataIsCurrent = isAuthIdentityScopeCurrent(taskData.identity);
     const tasks = useMemo(() => (taskDataIsCurrent ? taskData.tasks : []), [taskData.tasks, taskDataIsCurrent]);
-    const [engineHours, setEngineHours] = useState<number>(0);
-    const [engineHoursInput, setEngineHoursInput] = useState<string>('0');
+    // null until the skipper has entered a figure — a bold "0" read as a
+    // real reading and hour-based tasks counted from it.
+    const [engineHours, setEngineHours] = useState<number | null>(null);
+    const [engineHoursInput, setEngineHoursInput] = useState<string>('');
     const [isEditingHours, setIsEditingHours] = useState(false);
     const [engineHoursEditIdentity, setEngineHoursEditIdentity] = useState<AuthIdentityScope | null>(null);
     const [loading, setLoading] = useState(true);
@@ -200,14 +202,26 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setEngineHoursInput(parsed.toLocaleString());
             localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', identity), String(parsed));
         } else {
-            setEngineHoursInput(engineHours.toLocaleString());
+            setEngineHoursInput(engineHours === null ? '' : engineHours.toLocaleString());
         }
         setIsEditingHours(false);
         setEngineHoursEditIdentity(null);
     }, [engineHoursInput, engineHours, engineHoursEditIdentity]);
 
     const tasksWithStatus = useMemo(() => {
-        const withStatus = tasks.map((t) => calculateStatus(t, engineHours));
+        const withStatus = tasks.map((t) => {
+            if (engineHours !== null || t.next_due_hours === null || t.next_due_hours === undefined) {
+                return calculateStatus(t, engineHours ?? 0);
+            }
+            // Engine hours not entered yet: judge the task on its date alone
+            // rather than counting hours from an invented zero.
+            const byDate = calculateStatus({ ...t, next_due_hours: null }, 0);
+            return {
+                ...byDate,
+                next_due_hours: t.next_due_hours,
+                statusLabel: byDate.status === 'grey' && t.is_active ? 'Enter engine hours' : byDate.statusLabel,
+            };
+        });
         // Sort: category order first, then alphabetical within each category
         return withStatus.sort((a, b) => {
             const catA = CATEGORY_ORDER.indexOf(a.category);
@@ -226,6 +240,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
         return groups;
     }, [tasksWithStatus]);
+
+    // The 40 suggested tasks are seeded with due dates counted from the day
+    // they were added. Until the skipper logs a service, say so, rather than
+    // letting "Due in 1 day" read like confirmed work.
+    const showSuggestedNote = useMemo(() => {
+        if (!taskDataIsCurrent || tasks.length === 0 || tasks.some((t) => t.last_completed)) return false;
+        try {
+            return !!localStorage.getItem(authScopedStorageKey('thalassa_maintenance_seeded', taskData.identity));
+        } catch {
+            return false;
+        }
+    }, [tasks, taskData.identity, taskDataIsCurrent]);
 
     // Status counts for the header
     const counts = useMemo(
@@ -343,7 +369,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const handleExport = useCallback(
         async (type: 'checklist' | 'history', identity: AuthIdentityScope = getAuthIdentityScope()) => {
             if (!isAuthIdentityScopeCurrent(identity)) return;
-            const engineHoursSnapshot = engineHours;
+            const engineHoursSnapshot = engineHours ?? 0;
             const vesselNameSnapshot = vesselName;
             setExporting(true);
             try {
@@ -375,8 +401,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             subscribeAuthIdentityScope((next) => {
                 setTaskData({ identity: next, tasks: [] });
                 setHistoryData({ identity: next, items: [] });
-                setEngineHours(0);
-                setEngineHoursInput('0');
+                setEngineHours(null);
+                setEngineHoursInput('');
                 setIsEditingHours(false);
                 setEngineHoursEditIdentity(null);
                 setLoading(true);
@@ -647,7 +673,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* ═══ ENGINE HOURS CARD ═══ */}
                 <div className="shrink-0 px-4 pb-3">
                     <button
-                        aria-label="Edit engine hours"
+                        aria-label={
+                            engineHours === null
+                                ? 'Engine hours not set — enter engine hours'
+                                : `Edit engine hours, currently ${engineHours.toLocaleString()}`
+                        }
                         onClick={() => {
                             const identity = getAuthIdentityScope();
                             if (!isAuthIdentityScopeCurrent(identity)) return;
@@ -692,9 +722,15 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                 if (e.key === 'Enter') saveEngineHours();
                                             }}
                                             onClick={(e) => e.stopPropagation()}
+                                            placeholder="—"
                                             className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
                                             autoFocus
                                         />
+                                    ) : engineHours === null ? (
+                                        <>
+                                            <p className="text-3xl font-black text-gray-400 tracking-wider">—</p>
+                                            <p className="text-xs font-bold text-sky-400">Tap to enter hours</p>
+                                        </>
                                     ) : (
                                         <p className="text-3xl font-black text-white tracking-wider">
                                             {engineHours.toLocaleString()}
@@ -751,37 +787,47 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             subtitle="Set up service intervals for your engine, rigging, and safety gear. Tap Add Task below to create your first."
                         />
                     ) : (
-                        groupedTasks.map((group) => {
-                            const catConfig = CATEGORIES.find((c) => c.id === group.category);
-                            return (
-                                <div key={group.category}>
-                                    <div className="flex items-center gap-2 mb-2 mt-1">
-                                        <span className="text-sm">{catConfig?.icon}</span>
-                                        <span className="text-label font-black text-gray-400 uppercase tracking-widest">
-                                            {catConfig?.label}
-                                        </span>
-                                        <span className="text-micro text-gray-400 font-bold">
-                                            ({group.tasks.length})
-                                        </span>
+                        <>
+                            {showSuggestedNote && (
+                                <p className="text-xs text-gray-400 px-1">
+                                    Suggested schedule — due dates count from the day it was added, not from your last
+                                    service. Tap a task to adjust it or log a service.
+                                </p>
+                            )}
+                            {groupedTasks.map((group) => {
+                                const catConfig = CATEGORIES.find((c) => c.id === group.category);
+                                return (
+                                    <div key={group.category}>
+                                        <div className="flex items-center gap-2 mb-2 mt-1">
+                                            <span className="text-sm" aria-hidden="true">
+                                                {catConfig?.icon}
+                                            </span>
+                                            <span className="text-label font-black text-gray-400 uppercase tracking-widest">
+                                                {catConfig?.label}
+                                            </span>
+                                            <span className="text-micro text-gray-400 font-bold">
+                                                ({group.tasks.length})
+                                            </span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {group.tasks.map((task) => (
+                                                <SwipeableTaskCard
+                                                    key={task.id}
+                                                    task={task}
+                                                    onTap={() => {
+                                                        const identity = taskData.identity;
+                                                        if (!isAuthIdentityScopeCurrent(identity)) return;
+                                                        triggerHaptic('light');
+                                                        setSheetTask({ identity, task });
+                                                    }}
+                                                    onDelete={() => handleDeleteTask(task.id, taskData.identity)}
+                                                />
+                                            ))}
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        {group.tasks.map((task) => (
-                                            <SwipeableTaskCard
-                                                key={task.id}
-                                                task={task}
-                                                onTap={() => {
-                                                    const identity = taskData.identity;
-                                                    if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                    triggerHaptic('light');
-                                                    setSheetTask({ identity, task });
-                                                }}
-                                                onDelete={() => handleDeleteTask(task.id, taskData.identity)}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })
+                                );
+                            })}
+                        </>
                     )}
                 </div>
 
@@ -810,7 +856,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             setAddFormIdentity(identity);
                             setShowAddForm(true);
                         }}
-                        theme="sky"
+                        theme="emerald"
                     />
                 </div>
 
@@ -818,7 +864,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {sheetTask && (
                     <ServiceLogSheet
                         task={sheetTask.task}
-                        engineHours={engineHours}
+                        engineHours={engineHours ?? 0}
                         notes={sheetNotes}
                         onNotesChange={setSheetNotes}
                         saving={sheetSaving}
@@ -838,7 +884,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         setCategory={setFormCategory}
                         setTaskType={setTaskType}
                         setTrigger={setTrigger}
-                        engineHours={engineHours}
+                        engineHours={engineHours ?? 0}
                         onSubmit={handleAddTask}
                         onClose={() => {
                             setShowAddForm(false);
@@ -856,7 +902,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         setCategory={setFormCategory}
                         setTaskType={setTaskType}
                         setTrigger={setTrigger}
-                        engineHours={engineHours}
+                        engineHours={engineHours ?? 0}
                         onSubmit={handleEditTask}
                         onClose={() => {
                             setShowEditForm(false);

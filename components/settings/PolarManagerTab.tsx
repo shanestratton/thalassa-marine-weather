@@ -221,7 +221,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
             <div className="mt-4 shrink-0 bg-white/2 border border-white/6 rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex flex-col items-start gap-1">
-                        <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</span>
+                        <h2 className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</h2>
                         {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
                         {!boatModel && (
                             <span className="text-xs text-gray-400">
@@ -256,7 +256,11 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                     </button>
                 </div>
                 <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
-                    <PolarChart data={polarData} overlayData={smartPolarData} />
+                    <PolarChart
+                        data={polarData}
+                        overlayData={smartPolarData}
+                        emptyLabel="No polar yet — tap ⋮ to enter figures"
+                    />
                 </div>
 
                 {/* Save status */}
@@ -440,11 +444,11 @@ const SmartPolarsCard: React.FC<{
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                     <div className={`w-1 h-4 rounded-full ${isDisconnected ? 'bg-gray-600' : 'bg-emerald-500'}`} />
-                    <span
+                    <h2
                         className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-400' : 'text-emerald-400'}`}
                     >
                         Smart Polars
-                    </span>
+                    </h2>
                     {!hasRpmData && smartEnabled && (
                         <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold inline-flex items-center gap-1">
                             <AlertTriangleIcon className="w-3 h-3" />
