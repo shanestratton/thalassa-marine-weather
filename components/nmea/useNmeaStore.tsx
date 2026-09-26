@@ -78,7 +78,7 @@ export const NmeaStatusDot: React.FC<{ className?: string }> = ({ className = ''
     return (
         <div className={`flex items-center gap-1.5 ${className}`} title={c.label}>
             <div className={`w-2 h-2 rounded-full ${c.color}`} />
-            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{c.label}</span>
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{c.label}</span>
         </div>
     );
 };

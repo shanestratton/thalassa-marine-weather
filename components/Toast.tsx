@@ -191,6 +191,9 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> 
                 style={{
                     fontSize: 16,
                     flexShrink: 0,
+                    // White in both palettes: the toast is a saturated slab, and by day the
+                    // inherited page ink made the tick 3.5:1 on emerald and ✕ 2.7:1 on red.
+                    color: '#ffffff',
                     animation: item.type === 'loading' ? 'spin 1s linear infinite' : undefined,
                     filter: 'brightness(1.3)',
                 }}
