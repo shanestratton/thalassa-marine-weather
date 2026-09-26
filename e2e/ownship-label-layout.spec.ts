@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('ownship status clears the AIS name row at every zoom, without geographic drift', async ({ page }) => {
+test('ownship status sits beside the fix, clear of the AIS name row, without geographic drift', async ({ page }) => {
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
         return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
@@ -29,8 +29,10 @@ test('ownship status clears the AIS name row at every zoom, without geographic d
             const nameRect = name.getBoundingClientRect();
             return {
                 label,
-                gap: badgeRect.top - nameRect.bottom,
-                belowFix: badgeRect.top - (rootRect.top + rootRect.height / 2),
+                // The AIS name hangs below the fix; the badge must end above it.
+                gap: nameRect.top - badgeRect.bottom,
+                centreOffset: badgeRect.top + badgeRect.height / 2 - (rootRect.top + rootRect.height / 2),
+                rightOfFix: badgeRect.left - (rootRect.left + rootRect.width / 2),
                 rootWidth: rootRect.width,
                 rootHeight: rootRect.height,
             };
@@ -39,9 +41,12 @@ test('ownship status clears the AIS name row at every zoom, without geographic d
         marker.style.transform = transform;
         return samples;
     });
+    // Beside the dot, centred on it (UX scorecard run 6): parked below the
+    // fix it read as the caption of the basemap place label under the boat.
     for (const sample of layout) {
-        expect(sample.gap, sample.label).toBeGreaterThanOrEqual(8);
-        expect(sample.belowFix, sample.label).toBeCloseTo(40, 1);
+        expect(sample.gap, sample.label).toBeGreaterThanOrEqual(4);
+        expect(Math.abs(sample.centreOffset), sample.label).toBeLessThan(1);
+        expect(sample.rightOfFix, sample.label).toBeCloseTo(18, 1);
         expect(sample.rootWidth).toBe(48);
         expect(sample.rootHeight).toBe(48);
     }

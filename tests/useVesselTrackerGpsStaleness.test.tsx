@@ -159,7 +159,8 @@ const T0 = new Date('2026-08-03T00:00:00Z').getTime();
 
 const AMBER = 'rgb(245, 158, 11)';
 const RED = 'rgb(239, 68, 68)';
-const LIVE_RING = 'rgba(56, 189, 248, 0.2)';
+// The live glow's edge (a 4 px glow since UX scorecard run 6, not a 64 px pulse).
+const LIVE_RING = 'rgba(56, 189, 248, 0.35)';
 const GREY_RING = 'rgba(148, 163, 184, 0.3)';
 
 function makeMap() {
@@ -371,16 +372,22 @@ afterEach(() => {
 });
 
 describe('useVesselTracker GPS-staleness clock', () => {
-    it('keeps stopped and underway badges below the AIS name without moving or rotating the GPS root', () => {
+    it('keeps stopped and underway badges beside the fix, in theme colours, without moving or rotating the GPS root', () => {
         const t = mountTracker();
         t.emit({ speed: 0 });
         const root = t.marker().element;
         root.style.transform = 'translate(310px, 240px) rotateZ(-30deg)';
         const coordinates = t.marker().setLngLat.mock.lastCall;
         const checkLayout = () => {
-            expect(t.status().style.top).toBe('calc(100% + 30px)');
+            // Beside the dot and centred on it (UX scorecard run 6): a badge
+            // parked below the fix read as a basemap place label's caption.
+            expect(t.status().style.top).toBe('50%');
+            expect(t.status().style.left).toBe('calc(50% + 18px)');
             expect(t.status().style.bottom).toBe('');
-            expect(t.status().style.transform).toBe('translateX(-50%)');
+            expect(t.status().style.transform).toBe('translateY(-50%)');
+            // Colours are theme classes, so daylight can remap them.
+            expect(t.status().style.color).toBe('');
+            expect(t.status().style.background).toBe('');
             expect(root.style.width).toBe('48px');
             expect(root.style.height).toBe('48px');
             expect(root.style.position).toBe('');
@@ -388,6 +395,7 @@ describe('useVesselTracker GPS-staleness clock', () => {
             expect(t.marker().setLngLat.mock.lastCall).toEqual(coordinates);
         };
         expect(t.status().textContent).toBe('Stopped');
+        expect(t.status().classList.contains('text-sky-400')).toBe(true);
         checkLayout();
         t.emit({ speed: 3, heading: 75 });
         expect(t.status().textContent).toBe('5.8 kts');
@@ -398,6 +406,8 @@ describe('useVesselTracker GPS-staleness clock', () => {
             mocks.anchorCallbacks.forEach((callback) => callback());
         });
         expect(t.status().textContent).toBe('Anchored');
+        expect(t.status().classList.contains('text-emerald-400')).toBe(true);
+        expect(t.status().classList.contains('text-sky-400')).toBe(false);
         checkLayout();
     });
 

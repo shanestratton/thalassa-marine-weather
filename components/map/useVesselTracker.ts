@@ -77,6 +77,20 @@ const SWING_STATES: ReadonlySet<string> = new Set(['setting', 'watching', 'pause
 const MAX_SWING_POINTS = 600;
 type TrackerPosition = Omit<CachedPosition, 'speed'> & { speed: number | null };
 
+// ── Marker furniture ──
+/** Dot (~16 px with its white edge) plus a 4 px glow each side. */
+const GLOW_DIAMETER_PX = 24;
+const GLOW_BORDER_LIVE = 'rgba(56, 189, 248, 0.35)';
+const GLOW_FILL_LIVE = 'rgba(56, 189, 248, 0.22)';
+/** Badge's left edge from the fix: glow radius (12) + 6 px air. */
+const BADGE_OFFSET_PX = 18;
+/** Theme text classes: .display-light darkens each for a light chip. */
+const STATUS_TONE_CLASS = {
+    live: 'text-sky-400',
+    anchored: 'text-emerald-400',
+    alarm: 'text-red-500',
+} as const;
+
 /**
  * Build the vessel marker DOM element.
  * Directional arrow + accuracy ring + SOG badge.
@@ -93,15 +107,19 @@ export function createVesselElement(): HTMLDivElement {
         pointer-events: none;
     `;
 
-    // Accuracy ring (outer pulse)
+    // Glow: a still 4 px halo just past the dot. It was a 64 px pulsing ring,
+    // which copies the platform's accuracy circle without being sized from
+    // the fix (UX scorecard run 6). The class name stays for the stale-tier
+    // greying below.
     const ring = document.createElement('div');
     ring.className = 'vessel-accuracy-ring';
     ring.style.cssText = `
-        position: absolute; inset: -8px;
+        position: absolute; left: 50%; top: 50%;
+        width: ${GLOW_DIAMETER_PX}px; height: ${GLOW_DIAMETER_PX}px;
+        margin: -${GLOW_DIAMETER_PX / 2}px 0 0 -${GLOW_DIAMETER_PX / 2}px;
         border-radius: 50%;
-        border: 2px solid rgba(56, 189, 248, 0.2);
-        background: rgba(56, 189, 248, 0.06);
-        animation: vesselPulse 3s ease-in-out infinite;
+        border: 2px solid ${GLOW_BORDER_LIVE};
+        background: ${GLOW_FILL_LIVE};
     `;
     el.appendChild(ring);
 
@@ -127,25 +145,22 @@ export function createVesselElement(): HTMLDivElement {
     `;
     el.appendChild(arrow);
 
-    // Reserve the AIS name row below the fix: at its largest size the name
-    // spans ~17–32 CSS px below the centre (12px text, 1.4em offset). Start
-    // this badge at +54px, independent of text height, heading or map zoom:
-    // +40 still half-covered the basemap's place label under the dot, which
-    // Mapbox's collision cannot see (only "Bris…e" showed). The pill is
-    // opaque so whatever it does overlap reads as covered, not garbled
-    // (UX scorecard run 5). Only the badge moves; Mapbox must retain the
-    // root's exact GPS anchor.
+    // Status badge BESIDE the dot, vertically centred on the fix. Parked
+    // 54 px below it, nothing tied the two together and it read as the
+    // caption of whatever basemap place label sat under the boat ("Stopped"
+    // under "Brisbane"; "Stopped ne" in landscape), and it had to dodge the
+    // AIS name row there too. Here it starts 6 px past the glow, clear of the
+    // bow arrow at any heading (UX scorecard run 6). Colours come from theme
+    // classes so daylight remaps them like every other chart chip. Only the
+    // badge moves; Mapbox must retain the root's exact GPS anchor.
     const badge = document.createElement('div');
-    badge.className = 'vessel-sog-badge';
+    badge.className = `vessel-sog-badge rounded-lg border border-sky-400/30 bg-slate-900/94 ${STATUS_TONE_CLASS.live}`;
     badge.style.cssText = `
-        position: absolute; top: calc(100% + 30px); left: 50%;
-        transform: translateX(-50%);
-        background: rgb(15, 23, 42);
-        border: 1px solid rgba(56, 189, 248, 0.3);
-        border-radius: 8px;
+        position: absolute; top: 50%; left: calc(50% + ${BADGE_OFFSET_PX}px);
+        transform: translateY(-50%);
         padding: 2px 8px;
         font-size: 12px; font-weight: 800;
-        color: #38bdf8;
+        line-height: 1.25;
         white-space: nowrap;
         letter-spacing: 0.05em;
         z-index: 3;
@@ -196,8 +211,8 @@ function applyGpsAgeTier(el: HTMLDivElement, ageMs: number): void {
 
     if (tier === 'locked') {
         arrow.style.filter = '';
-        ring.style.borderColor = 'rgba(56, 189, 248, 0.2)';
-        ring.style.background = 'rgba(56, 189, 248, 0.06)';
+        ring.style.borderColor = GLOW_BORDER_LIVE;
+        ring.style.background = GLOW_FILL_LIVE;
         chip.style.display = 'none';
         return;
     }
@@ -421,7 +436,9 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             ShoreWatchAlarmService.getSnapshot(),
         );
         badge.textContent = label;
-        badge.style.color = label === 'Anchor alarm' ? '#ef4444' : label === 'Anchored' ? '#34d399' : '#38bdf8';
+        const tone = label === 'Anchor alarm' ? 'alarm' : label === 'Anchored' ? 'anchored' : 'live';
+        badge.classList.remove(...Object.values(STATUS_TONE_CLASS));
+        badge.classList.add(STATUS_TONE_CLASS[tone]);
     }, []);
 
     const updateMarker = useCallback(

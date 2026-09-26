@@ -48,12 +48,16 @@ export const ZoomLevelFab: React.FC<ZoomLevelFabProps> = React.memo(({ mapRef, m
     if (zoomLevel === null) return null;
     // "Zoom" in words, stacked over the number so the pill keeps its 48 px
     // footprint beside the offline chip: a lone "Z" only decoded for a
-    // developer (UX scorecard run 5).
+    // developer (UX scorecard run 5). Borderless and unshadowed: it is a
+    // readout, and with the buttons' outline it looked tappable (run 6).
     return (
         <div
-            className="absolute z-700 h-12 min-w-12 rounded-full border border-white/10 bg-slate-900/85 px-2.5 shadow-lg backdrop-blur-md pointer-events-none flex flex-col items-center justify-center gap-0.5 select-none"
+            className="absolute z-700 h-12 min-w-12 rounded-full bg-slate-900/85 px-2.5 backdrop-blur-md pointer-events-none flex flex-col items-center justify-center gap-0.5 select-none"
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)', left: 'max(16px, env(safe-area-inset-left))' }}
-            aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}
+            // role="img" so the name is not dropped (a bare div's aria-label
+            // is ignored), and it leads with the visible word (run 6).
+            role="img"
+            aria-label={`Zoom ${zoomLevel.toFixed(1)}`}
             title="Map zoom level"
         >
             <span className="text-[12px] font-bold leading-none text-sky-400 uppercase tracking-wider">Zoom</span>
