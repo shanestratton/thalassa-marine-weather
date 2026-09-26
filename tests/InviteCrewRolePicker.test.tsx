@@ -201,6 +201,9 @@ vi.mock('../components/Icons', () => {
         AnchorIcon: Icon,
         AlertTriangleIcon: Icon,
         SosIcon: Icon,
+        // The sign-in wall's unlock list (UX scorecard run 7).
+        CheckCircleIcon: Icon,
+        LifeBuoyIcon: Icon,
     };
 });
 

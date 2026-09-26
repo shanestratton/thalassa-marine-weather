@@ -94,16 +94,25 @@ export const DeepAnalysisSection: React.FC<DeepAnalysisSectionProps> = React.mem
             <div className="bg-black/20 rounded-xl p-8 border border-white/5 text-center flex flex-col items-center justify-center min-h-[160px]">
                 <DiamondIcon className="w-8 h-8 text-sky-500/40 mb-3" />
                 <p className="text-sm text-gray-400 mb-4 max-w-md">{voyagePlan.overview}</p>
+                {/* Named by its visible words, so "Analysing…" is heard too. */}
                 <button
-                    aria-label="Deep Analysis"
+                    type="button"
+                    aria-busy={analyzingDeep}
                     onClick={handleDeepAnalysis}
                     disabled={analyzingDeep}
-                    className="text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2"
+                    className="min-h-[44px] text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2"
                 >
                     {analyzingDeep ? (
-                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        // A spinner says something is happening; the word says what.
+                        <>
+                            <span
+                                aria-hidden="true"
+                                className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"
+                            />
+                            <span>Analysing…</span>
+                        </>
                     ) : (
-                        'Run Deep Analysis'
+                        'Run deep analysis'
                     )}
                 </button>
             </div>

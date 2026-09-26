@@ -22,6 +22,7 @@ import {
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
 import { TapToAction } from './ui/TapToAction';
+import { Button } from './ui/Button';
 import { toast } from './Toast';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
@@ -273,6 +274,14 @@ export const RoutePlanner: React.FC<{
         initialFocusRef: routePickerCloseRef,
         onEscape: closeRoutePicker,
     });
+    // The empty Saved routes library's way on: the page's own CTA, reached
+    // from inside the dialog rather than by closing it and hunting for the
+    // pinned bar (UX scorecard run 7, N-saved-routes-dead-end).
+    const startPlottingFromPicker = useCallback(() => {
+        closeRoutePicker();
+        if (isPro) setRoutingModeOpen(true);
+        else onTriggerUpgrade();
+    }, [closeRoutePicker, isPro, onTriggerUpgrade]);
     // What the two front-door cards can honestly say before they are tapped
     // (UX scorecard run 6: "Open one" showed with nothing saved). Saved routes
     // on this device are a free local read; the full library (account sync +
@@ -609,6 +618,17 @@ export const RoutePlanner: React.FC<{
                 : // Nothing on this device; the account and older Log plans
                   // are only checked when the library opens.
                   'None saved on this device yet';
+    // One-line forms for short landscape, where the two cards sit side by
+    // side: the long lines wrapped to orphan words ("route", "yet") that fell
+    // into the CTA's fade (UX scorecard run 7). Same facts, fewer words.
+    const savedRoutesShort =
+        confirmedSavedCount === 0
+            ? 'None saved yet'
+            : confirmedSavedCount !== null
+              ? `${confirmedSavedCount} saved`
+              : localSavedCount > 0
+                ? `${localSavedCount} saved`
+                : 'None on this device yet';
     const pastVoyagesSub =
         confirmedVoyageCount === null
             ? 'Turn a logged voyage into a route'
@@ -617,6 +637,12 @@ export const RoutePlanner: React.FC<{
               : confirmedVoyageCount >= PAST_VOYAGE_PICKER_MAX
                 ? `Your last ${confirmedVoyageCount} voyages to reuse`
                 : `${confirmedVoyageCount} ${confirmedVoyageCount === 1 ? 'voyage' : 'voyages'} to reuse`;
+    const pastVoyagesShort =
+        confirmedVoyageCount === null
+            ? 'Reuse a logged voyage'
+            : confirmedVoyageCount === 0
+              ? 'None logged yet'
+              : `${confirmedVoyageCount} to reuse`;
     const frontDoorCards = (
         <div role="group" aria-labelledby={`${frontDoorId}-eyebrow`} className="space-y-2">
             {/* Visually dropped in short landscape so both card titles clear
@@ -635,6 +661,7 @@ export const RoutePlanner: React.FC<{
                             icon: <SailBoatIcon className="h-6 w-6" />,
                             title: 'From a past voyage',
                             sub: pastVoyagesSub,
+                            short: pastVoyagesShort,
                             accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
                         },
                         {
@@ -642,6 +669,7 @@ export const RoutePlanner: React.FC<{
                             icon: <RouteIcon className="h-6 w-6" />,
                             title: 'Saved routes',
                             sub: savedRoutesSub,
+                            short: savedRoutesShort,
                             accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
                         },
                     ] as const
@@ -654,18 +682,27 @@ export const RoutePlanner: React.FC<{
                         aria-label={b.title}
                         aria-describedby={`${frontDoorId}-${b.kind}-sub`}
                         onClick={() => void openRoutePicker(b.kind)}
-                        className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
+                        className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] [@media(orientation:landscape)_and_(max-height:500px)]:py-2 ${b.accent}`}
                     >
                         <span aria-hidden="true" className="shrink-0">
                             {b.icon}
                         </span>
                         <span className="min-w-0">
                             <span className="block text-sm font-black uppercase tracking-wide">{b.title}</span>
+                            {/* The full line stays the description in every
+                                orientation; short landscape shows its one-line
+                                form instead. */}
                             <span
                                 id={`${frontDoorId}-${b.kind}-sub`}
-                                className="block text-xs font-medium leading-snug text-gray-400"
+                                className="block text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
                             >
                                 {b.sub}
+                            </span>
+                            <span
+                                aria-hidden="true"
+                                className="hidden text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:block"
+                            >
+                                {b.short}
                             </span>
                         </span>
                         <span aria-hidden="true" className="ml-auto text-gray-500">
@@ -691,7 +728,7 @@ export const RoutePlanner: React.FC<{
                     title="Route Planner"
                     // Same header pattern as Ship's Log on the sibling tab: a
                     // tracked caption under the title (UX scorecard run 6).
-                    subtitle="Passage & day-sail planner"
+                    subtitle="Passages & day sails"
                     onBack={onBack}
                     action={
                         <button
@@ -1300,7 +1337,7 @@ export const RoutePlanner: React.FC<{
                                 )}
                                 {/* The page's caption style — it was the only
                                     monospace text on the page (UX audit run 5). */}
-                                <span className="text-xs font-medium text-slate-400">Active Vessel: {vessel.name}</span>
+                                <span className="text-xs font-medium text-slate-400">Active vessel: {vessel.name}</span>
                                 {usingDefaultVessel && (
                                     <button
                                         type="button"
@@ -1446,13 +1483,30 @@ export const RoutePlanner: React.FC<{
                                 {routePicker.loading ? (
                                     <div className="py-6 text-center text-xs text-gray-400">Loading…</div>
                                 ) : routePicker.items.length === 0 ? (
-                                    <div className="py-6 text-center text-xs text-gray-400">
-                                        {routePicker.kind === 'voyage'
-                                            ? 'No sea voyages in the log yet.'
-                                            : routePicker.checkingCompatibility
-                                              ? 'Checking older Log plans…'
-                                              : 'No saved routes yet — plot one and Save it.'}
-                                    </div>
+                                    routePicker.kind === 'saved' &&
+                                    !routePicker.checkingCompatibility &&
+                                    !LEGACY_PLANNER_FORM ? (
+                                        <div className="px-3 pb-3 pt-4 text-center">
+                                            <p className="text-xs text-gray-400">
+                                                No saved routes yet — plot one and save it.
+                                            </p>
+                                            <Button
+                                                variant="primary"
+                                                onClick={startPlottingFromPicker}
+                                                className="mx-auto mt-3 w-fit px-6"
+                                            >
+                                                {isPro ? 'Start plotting' : 'Unlock route planning'}
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="py-6 text-center text-xs text-gray-400">
+                                            {routePicker.kind === 'voyage'
+                                                ? 'No sea voyages in the log yet.'
+                                                : routePicker.checkingCompatibility
+                                                  ? 'Checking older Log plans…'
+                                                  : 'No saved routes yet — plot one and save it.'}
+                                        </div>
+                                    )
                                 ) : (
                                     <>
                                         {demoteOrphanLegs(orderSavedRouteRows(routePicker.items)).map((it) => {

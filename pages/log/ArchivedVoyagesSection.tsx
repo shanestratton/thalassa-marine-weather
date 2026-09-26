@@ -5,6 +5,7 @@ import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming'
 import { groupPassageLogs } from './PassageLogList';
 import { useEndpointNames } from './useEndpointNames';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { ARCHIVE_DIDNT_LOAD, LOG_CARD_SHELL, LOG_CARD_TITLE } from './logPageHelpers';
 
 type RestorePassage = (passageId: string, voyageIds: string[]) => Promise<void>;
 
@@ -17,6 +18,9 @@ interface ArchivedVoyagesSectionProps {
     loading?: boolean;
     error?: string | null;
     onRetry?: () => void;
+    /** False while the page shows the one shared "history didn't load" line
+     *  and its Retry, so the collapsed card does not add a second Retry. */
+    collapsedRetry?: boolean;
     /** Spacing for where the page places the card (default: below the list). */
     className?: string;
 }
@@ -76,9 +80,11 @@ export function ArchivedVoyagesSection({
     loading = false,
     error = null,
     onRetry,
+    collapsedRetry = true,
     className = 'mt-5',
 }: ArchivedVoyagesSectionProps) {
     const contentId = useId();
+    const titleId = useId();
     const statusLineId = useId();
     const offline = !useOnlineStatus();
     const [restoringIds, setRestoringIds] = useState<readonly string[]>([]);
@@ -122,13 +128,18 @@ export function ArchivedVoyagesSection({
     }
 
     return (
-        <section className={`${className} overflow-hidden rounded-[1.5rem] border border-slate-500/25 bg-slate-900/35`}>
+        // Voyage stats' recipe (radius, material, title ink, an icon on both,
+        // Show/Hide), and named by its title with the status as the
+        // description, as that card is (UX scorecard run 7).
+        <section className={`${className} ${LOG_CARD_SHELL}`}>
             <button
                 type="button"
                 aria-expanded={showArchived}
                 aria-controls={contentId}
+                aria-labelledby={titleId}
+                aria-describedby={statusLineId}
                 onClick={() => setShowArchived(!showArchived)}
-                className="flex min-h-[76px] w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/3"
+                className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/3 focus-visible:outline-2 focus-visible:outline-sky-400"
             >
                 <span className="flex min-w-0 items-center gap-3">
                     <svg
@@ -141,25 +152,25 @@ export function ArchivedVoyagesSection({
                         <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            strokeWidth={1.7}
+                            strokeWidth={2}
                             d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
                         />
                     </svg>
                     <span className="min-w-0">
-                        <span className="block text-xs font-black uppercase tracking-widest text-sky-300">
+                        <span id={titleId} className={LOG_CARD_TITLE}>
                             Archived voyages
                         </span>
                         <span id={statusLineId} className="mt-1 block text-xs text-slate-400">
                             {loading && count === 0
                                 ? 'Loading archive…'
                                 : error && count === 0
-                                  ? 'Archive unavailable'
+                                  ? ARCHIVE_DIDNT_LOAD
                                   : `${count} ${count === 1 ? 'voyage' : 'voyages'}${passageCount ? ` · ${passageCount} ${passageCount === 1 ? 'passage' : 'passages'}` : ''}`}
                         </span>
                     </span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-sky-200">
-                    {showArchived ? 'Hide' : error && count === 0 ? 'Details' : 'Show'}
+                <span aria-hidden="true" className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-sky-200">
+                    {showArchived ? 'Hide' : 'Show'}
                     <svg
                         aria-hidden="true"
                         className={`h-4 w-4 transition-transform ${showArchived ? 'rotate-180' : ''}`}
@@ -172,7 +183,7 @@ export function ArchivedVoyagesSection({
                 </span>
             </button>
 
-            {loadFailed && !showArchived && onRetry && (
+            {loadFailed && !showArchived && onRetry && collapsedRetry && (
                 <div className="-mt-1 flex items-center justify-between gap-3 px-4 pb-3">
                     <span className="text-xs text-slate-400">{offline ? 'You’re offline.' : ''}</span>
                     <button

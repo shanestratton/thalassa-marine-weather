@@ -52,6 +52,21 @@ export const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope
  *  "Lifetime unavailable · this phone only" could not be read at a glance). */
 export const LIFETIME_PHONE_ONLY = 'Totals from this phone only — full history didn’t load';
 
+/** The archive's collapsed status after a failed read, in the same words as
+ *  the totals ("didn't load"), not a second phrasing (UX scorecard run 7). */
+export const ARCHIVE_DIDNT_LOAD = 'Archive didn’t load';
+
+/** The one page-level line when BOTH history reads failed: one cause, one
+ *  Retry, instead of two failure cards with a Retry each (UX scorecard run 7). */
+export const HISTORY_PHONE_ONLY = 'Your full voyage history didn’t load — showing this phone only.';
+
+/** One card recipe for the Log's sibling disclosure cards (Voyage stats,
+ *  Archived voyages): Plan's Departure material, radius and title ink, so the
+ *  two no longer differ in corner, surface, title colour and icon. */
+export const LOG_CARD_SHELL =
+    'overflow-hidden rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 shadow-[0_0_20px_rgba(14,165,233,0.08)]';
+export const LOG_CARD_TITLE = 'block text-xs font-black uppercase tracking-widest text-sky-300';
+
 /**
  * The full notice for a lifetime read that failed and never succeeded. It
  * names a cause only when the app already knows it (the probe-verified

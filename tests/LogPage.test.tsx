@@ -678,6 +678,39 @@ describe('LogPage', () => {
         expect(screen.getByRole('button', { name: /Archived voyages/i })).toHaveTextContent('1 voyage');
     });
 
+    it('says a failed history read once, with one Retry that re-runs both loads (UX scorecard run 7)', () => {
+        const reload = vi.fn().mockResolvedValue(undefined);
+        Object.assign(logPageStateOverrides.hook, {
+            lifetimeError: 'Couldn’t refresh lifetime totals.',
+            lifetimeLoaded: false,
+            archiveError: 'Couldn’t refresh the archive. Your saved voyages have not been changed.',
+            archivedVoyages: [],
+            reloadArchivedVoyages: reload,
+        });
+        render(<LogPage />);
+        expect(screen.getByText(/Your full voyage history didn’t load — showing this phone only\./)).toBeVisible();
+        // Both cards keep their short status lines, collapsed, without a Retry each.
+        expect(screen.getByRole('button', { name: 'Voyage stats' })).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.getByRole('button', { name: 'Archived voyages' })).toHaveAccessibleDescription(
+            'Archive didn’t load',
+        );
+        const retries = screen.getAllByRole('button', { name: 'Retry' });
+        expect(retries).toHaveLength(1);
+        fireEvent.click(retries[0]);
+        expect(reload).toHaveBeenCalledOnce();
+    });
+
+    it('keeps each card’s own Retry when only one history read failed', () => {
+        Object.assign(logPageStateOverrides.hook, {
+            archiveError: 'Couldn’t refresh the archive. Your saved voyages have not been changed.',
+            archivedVoyages: [],
+        });
+        render(<LogPage />);
+        expect(screen.queryByText(/showing this phone only/)).not.toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Retry' })).toHaveAccessibleDescription('Archive didn’t load');
+    });
+
     it('accepts onBack callback without crashing', () => {
         const onBack = vi.fn();
         expect(() => {

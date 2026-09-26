@@ -19,5 +19,8 @@ describe('Ship’s Log watermark', () => {
         expect(empty).not.toContain('Compass rose petals');
         // A sentence-case heading, not a Title Case paragraph (UX scorecard run 6).
         expect(empty).toContain('<h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>');
+        // The words sit above the mark, so they stay above the fold under the
+        // Log's status cards (UX scorecard run 7).
+        expect(empty.indexOf('Begin your log')).toBeLessThan(empty.indexOf('data-testid="log-watermark"'));
     });
 });

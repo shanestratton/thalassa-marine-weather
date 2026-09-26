@@ -89,40 +89,53 @@ export const DepartControl: React.FC = () => {
     // the "leaving now" state stays null until the punter actually picks.
     const todayStr = localDateStr();
     const leavingNow = departureMs === null;
+    const titleId = React.useId();
     return (
-        <div className="rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]">
-            <div className="mb-2 flex items-baseline justify-between">
-                <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-sky-300">
+        // A named group, so VoiceOver hears "Departure" before the date, time
+        // and Now controls rather than a flat run of text (UX scorecard run 7).
+        <div
+            role="group"
+            aria-labelledby={titleId}
+            className="rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]"
+        >
+            <div className="mb-2 flex items-center justify-between [@media(orientation:landscape)_and_(max-height:500px)]:mb-1.5">
+                <span
+                    id={titleId}
+                    className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-sky-300"
+                >
                     <ClockIcon className="h-3.5 w-3.5 shrink-0" />
                     Departure
                 </span>
                 {leavingNow && (
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-emerald-300">
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-black uppercase tracking-wide text-emerald-300">
                         leaving now
                     </span>
                 )}
             </div>
-            {/* Short landscape (852x393): Now rides on the date/time line so both
-                front-door card titles clear the pinned CTA (~52 pt saved). */}
-            <div className="[@media(orientation:landscape)_and_(max-height:500px)]:flex [@media(orientation:landscape)_and_(max-height:500px)]:gap-2">
-                <div className="flex gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:flex-1">
-                    <input
-                        type="date"
-                        value={dateStr || todayStr}
-                        min={todayStr} // the past is greyed out — can't plan to leave yesterday
-                        onChange={(e) => {
-                            triggerHaptic('light');
-                            if (!e.target.value) {
-                                setDeparture(null);
-                                return;
-                            }
-                            const time = timeStr || msToLocal(Date.now()).slice(11, 16);
-                            const t = new Date(`${e.target.value}T${time}`).getTime();
-                            if (Number.isFinite(t)) setDeparture(t);
-                        }}
-                        aria-label="Departure date"
-                        className="h-11 min-w-0 flex-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
-                    />
+            {/* One row in every orientation: date, time, then a compact Now.
+                It used to be a full-width emerald bar under the row in
+                portrait, a third green element repeating the LEAVING NOW chip
+                and the Start plotting CTA (UX scorecard run 7). Below ~340 pt
+                the time and Now wrap under the date as a pair. */}
+            <div className="flex flex-wrap items-center gap-2">
+                <input
+                    type="date"
+                    value={dateStr || todayStr}
+                    min={todayStr} // the past is greyed out — can't plan to leave yesterday
+                    onChange={(e) => {
+                        triggerHaptic('light');
+                        if (!e.target.value) {
+                            setDeparture(null);
+                            return;
+                        }
+                        const time = timeStr || msToLocal(Date.now()).slice(11, 16);
+                        const t = new Date(`${e.target.value}T${time}`).getTime();
+                        if (Number.isFinite(t)) setDeparture(t);
+                    }}
+                    aria-label="Departure date"
+                    className="h-11 min-w-[6.5rem] flex-1 basis-0 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
+                />
+                <div className="flex shrink-0 items-center gap-2">
                     {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
                     clipped in the card) — wheels on iOS, dropdowns on desktop. */}
                     <TimePicker24
@@ -137,14 +150,11 @@ export const DepartControl: React.FC = () => {
                         }}
                         selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
                     />
-                </div>
-                <div className="mt-2 flex gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:mt-0 [@media(orientation:landscape)_and_(max-height:500px)]:w-28 [@media(orientation:landscape)_and_(max-height:500px)]:shrink-0">
                     {/* Now stays ENABLED even when already leaving now (Shane
                     2026-09-09, cee90a53: it replaced OK, so it must still
                     dismiss an open native picker; the e2e spec pins this).
-                    What changes is that it says so: pressed + the pill's
-                    emerald while departure is now, so a live grey button no
-                    longer contradicts the LEAVING NOW pill (UX audit run 5). */}
+                    Pressed, it is a quiet neutral outline: the LEAVING NOW
+                    chip already says so in emerald (UX scorecard run 7). */}
                     <button
                         type="button"
                         aria-pressed={leavingNow}
@@ -153,10 +163,10 @@ export const DepartControl: React.FC = () => {
                             (document.activeElement as HTMLElement | null)?.blur?.();
                             setDeparture(null);
                         }}
-                        className={`min-h-[44px] flex-1 rounded-xl text-[11px] font-black uppercase tracking-widest active:scale-95 ${
+                        className={`h-11 min-w-[3.5rem] shrink-0 rounded-xl px-3 text-xs font-black uppercase tracking-widest active:scale-95 ${
                             leavingNow
-                                ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                                : 'border border-transparent bg-white/10 text-gray-300'
+                                ? 'border border-white/20 bg-transparent text-slate-300'
+                                : 'border border-white/10 bg-white/10 text-slate-200'
                         }`}
                     >
                         Now

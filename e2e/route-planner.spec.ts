@@ -5,7 +5,10 @@ test.use({ storageState: ONBOARDED_STORAGE });
 
 test('planner parks the comfort card without hiding departure or route controls', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('tab', { name: 'Navigate to Plan', exact: true }).click();
+    await page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Plan', exact: true })
+        .click();
     await expect(page.getByRole('heading', { name: 'Route Planner', exact: true })).toBeVisible();
 
     const planner = page.locator('.route-planner-page');
@@ -23,7 +26,10 @@ test('planner parks the comfort card without hiding departure or route controls'
 
 test('departure has one persistent Now action and no OK button', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('tab', { name: 'Navigate to Plan', exact: true }).click();
+    await page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('button', { name: 'Plan', exact: true })
+        .click();
     const planner = page.locator('.route-planner-page');
     const date = planner.getByLabel('Departure date', { exact: true });
     const now = planner.getByRole('button', { name: 'Now', exact: true });
@@ -89,7 +95,10 @@ test.describe('routing choice entry', () => {
         });
         await page.routeWebSocket('**/*', (socket) => socket.close());
         await page.goto('/');
-        await page.getByRole('tab', { name: 'Navigate to Plan', exact: true }).click();
+        await page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Plan', exact: true })
+            .click();
         // A tap, not a slide: it only opens the reversible routing choice.
         const startPlotting = page.getByRole('button', { name: 'Start plotting', exact: true });
         await expect(startPlotting).toBeVisible();

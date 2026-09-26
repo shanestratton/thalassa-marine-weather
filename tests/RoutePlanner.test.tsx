@@ -2,7 +2,7 @@
  * RoutePlanner — smoke tests (764 LOC component)
  */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SavedTrace } from '../services/routeTracer';
 import type { ComfortParams } from '../types';
@@ -254,6 +254,19 @@ describe('RoutePlanner', () => {
         fireEvent.click(voyages);
         expect(await screen.findByRole('heading', { name: 'Past voyages' })).toBeInTheDocument();
         await waitFor(() => expect(voyages).toHaveAccessibleDescription('1 voyage to reuse'));
+    });
+
+    it('gives the empty Saved routes library a way on instead of a dead end (UX scorecard run 7)', async () => {
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Saved routes' }));
+        const dialog = await screen.findByRole('dialog', { name: 'Saved routes' });
+        expect(await within(dialog).findByText('No saved routes yet — plot one and save it.')).toBeVisible();
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Start plotting' }));
+        expect(screen.queryByRole('dialog', { name: 'Saved routes' })).not.toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Routing mode choice' })).toBeInTheDocument();
+        expect(plannerMocks.setPage).not.toHaveBeenCalled();
+        expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
     });
 
     it('counts saved routes already on this device before the library opens', () => {
