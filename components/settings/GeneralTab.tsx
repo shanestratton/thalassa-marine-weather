@@ -76,6 +76,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 Bells page (Shane 2026-09-09). */}
             <ShipClockSection />
 
+            {/* Australian spelling, as the rest of the app ('Centre', 'Centreboard')
+                — the options said 'Meters' and 'Liters' (UX scorecard run 7). */}
             <Section title="Units">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
                     {/* Speed */}
@@ -102,9 +104,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             onChange={(e) => updateUnit('distance', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
-                            <option value="nm">Nautical Miles</option>
+                            <option value="nm">Nautical miles</option>
                             <option value="mi">Miles</option>
-                            <option value="km">Kilometers</option>
+                            <option value="km">Kilometres</option>
                         </select>
                     </div>
                     {/* Seas (Wave Height) */}
@@ -118,7 +120,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             onChange={(e) => updateUnit('waveHeight', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
-                            <option value="m">Meters</option>
+                            <option value="m">Metres</option>
                             <option value="ft">Feet</option>
                         </select>
                     </div>
@@ -141,7 +143,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
                             <option value="ft">Feet</option>
-                            <option value="m">Meters</option>
+                            <option value="m">Metres</option>
                         </select>
                     </div>
                     {/* Temperature */}
@@ -166,9 +168,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             onChange={(e) => updateUnit('visibility', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
-                            <option value="nm">Nautical Miles</option>
+                            <option value="nm">Nautical miles</option>
                             <option value="mi">Miles</option>
-                            <option value="km">Kilometers</option>
+                            <option value="km">Kilometres</option>
                         </select>
                     </div>
                     {/* Volume */}
@@ -180,8 +182,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             onChange={(e) => updateUnit('volume', e.target.value)}
                             className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
                         >
-                            <option value="gal">Gallons</option>
-                            <option value="l">Liters</option>
+                            {/* US gallons: what 'gal' converts as (3.785 L), not the imperial 4.546. */}
+                            <option value="gal">US gallons</option>
+                            <option value="l">Litres</option>
                         </select>
                     </div>
                 </div>
@@ -200,7 +203,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 <Section title="Offshore Weather Model">
                     <div className="p-4">
                         <p className="text-xs text-gray-400 mb-4 leading-relaxed">
-                            NWP model used by Stormglass when your vessel is beyond 20 nm offshore.
+                            Forecast model used when you&apos;re more than 20 nm offshore.
                         </p>
                         <div className="space-y-2">
                             {(

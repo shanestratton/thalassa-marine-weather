@@ -9,8 +9,8 @@
  * without coords still render and re-geocode at planner time.
  */
 import React, { useState } from 'react';
-import { Section, RowChevron, type SettingsTabProps } from './SettingsPrimitives';
-import { MapPinIcon, TrashIcon } from '../Icons';
+import { Section, type SettingsTabProps } from './SettingsPrimitives';
+import { MapPinIcon, PartlyCloudyIcon, TrashIcon } from '../Icons';
 import { buildRemoveLocationPatch } from '../../utils/savedLocations';
 import { UndoToast } from '../ui/UndoToast';
 
@@ -59,9 +59,12 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                         </div>
                     )}
                     {/* Flat rows in the section card (no card-in-card), each a real
-                        button with a chevron like every other settings row that
-                        opens something. "Show weather for", not "Navigate to":
-                        in a marine app that reads as plotting a route. */}
+                        button. "Show weather for", not "Navigate to": in a marine
+                        app that reads as plotting a route. It ends in a weather
+                        glyph and 'Show', not a chevron, because the tap leaves
+                        Settings for The Glass rather than opening a detail page;
+                        and a divider plus a gap keep it clear of Remove at the
+                        thumb edge (UX scorecard run 7). */}
                     {(settings.savedLocations || []).map((loc, i) => {
                         const coords = settings.savedLocationCoords?.[loc];
                         const isDefault = !!defaultPort && loc.trim().toLowerCase() === defaultPort;
@@ -74,33 +77,49 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                                     type="button"
                                     onClick={() => onLocationSelect(loc)}
                                     aria-label={`Show weather for ${loc}${isDefault ? ', default port' : ''}`}
-                                    className="flex flex-1 min-w-0 min-h-11 items-center gap-3 py-3 pl-4 pr-2 text-left"
+                                    className="flex flex-1 min-w-0 min-h-11 items-center gap-3 py-3 pl-4 pr-4 text-left"
                                 >
                                     <span className="p-2 rounded-full bg-sky-500/20 text-sky-400 shrink-0">
                                         <MapPinIcon className="w-5 h-5" />
                                     </span>
+                                    {/* The name gets the whole line; the Default port chip
+                                        sits under it, so the name is never cut short by it. */}
                                     <span className="block min-w-0 flex-1">
-                                        <span className="flex min-w-0 items-center gap-2">
-                                            <span className="font-bold text-white text-sm truncate">{loc}</span>
-                                            {isDefault && (
-                                                <span className="shrink-0 rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-xs font-bold text-sky-200">
-                                                    Default port
-                                                </span>
-                                            )}
+                                        <span className="block font-bold text-white text-sm wrap-break-word">
+                                            {loc}
                                         </span>
-                                        {coords && (
-                                            <span className="block text-xs font-mono text-sky-300/70 mt-0.5">
-                                                {coords.lat.toFixed(4)}°{coords.lat >= 0 ? 'N' : 'S'} ·{' '}
-                                                {coords.lon.toFixed(4)}°{coords.lon >= 0 ? 'E' : 'W'}
+                                        {(isDefault || coords) && (
+                                            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                {isDefault && (
+                                                    <span className="shrink-0 rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-xs font-bold text-sky-200">
+                                                        Default port
+                                                    </span>
+                                                )}
+                                                {coords && (
+                                                    <span className="text-xs font-mono text-sky-300/70">
+                                                        {coords.lat.toFixed(4)}°{coords.lat >= 0 ? 'N' : 'S'} ·{' '}
+                                                        {coords.lon.toFixed(4)}°{coords.lon >= 0 ? 'E' : 'W'}
+                                                    </span>
+                                                )}
                                             </span>
                                         )}
                                     </span>
-                                    <RowChevron />
+                                    <span
+                                        aria-hidden="true"
+                                        className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-sky-300"
+                                    >
+                                        <PartlyCloudyIcon className="h-4 w-4" />
+                                        Show
+                                    </span>
                                 </button>
+                                <span
+                                    aria-hidden="true"
+                                    className="w-px self-stretch my-3 shrink-0 bg-white/10 [.display-light_&]:bg-slate-300"
+                                />
                                 <button
                                     type="button"
                                     onClick={() => removeLocation(loc)}
-                                    className="hit-target-44 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 mr-2"
+                                    className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 mx-3"
                                     aria-label={`Remove ${loc}`}
                                 >
                                     <TrashIcon className="w-5 h-5" />

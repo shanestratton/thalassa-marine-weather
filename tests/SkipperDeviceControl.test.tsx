@@ -18,6 +18,7 @@ vi.mock('../components/SignInScreen', () => ({
 import { SkipperDeviceControl } from '../components/VesselHub';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { getDeviceId, type SkipperClaim } from '../services/skipperDevice';
+import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 
 function recentOtherClaim(overrides: Partial<SkipperClaim> = {}): SkipperClaim {
     return {
@@ -41,7 +42,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             <SkipperDeviceControl claim={claim} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
         );
 
-        const takeover = screen.getByRole('button', { name: 'Make this the primary device' });
+        const takeover = screen.getByRole('button', { name: 'Make this phone primary' });
         fireEvent.click(takeover);
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
@@ -73,7 +74,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Make this the primary device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Make this phone primary' }));
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
         act(() => setAuthIdentityScope('different-user'));
@@ -93,7 +94,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Make this the primary device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Make this phone primary' }));
         rerender(
             <SkipperDeviceControl
                 claim={recentOtherClaim({ deviceId: 'new-holder', claimedAt: new Date(Date.now() + 1).toISOString() })}
@@ -113,13 +114,19 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             <SkipperDeviceControl claim={null} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
         );
 
-        expect(screen.getByText('No device claimed yet — any signed-in device can publish.')).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                'No phone is primary yet — any signed-in phone can post the boat’s position to your public page.',
+            ),
+        ).toBeInTheDocument();
         // A sighted skipper reads the state too, not just a screen reader — and
         // no "Primary device" label stands in for a claim that does not exist.
-        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent('No primary device yet');
+        // Plain phone words, not "No primary device yet" (UX scorecard run 7).
+        // No boat GPS here, so the row has room for the rule in full.
+        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^Any signed-in phone can post$/);
         expect(screen.queryByText(/Claim one to make it the single source/i)).not.toBeInTheDocument();
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
-        expect(screen.getByRole('button', { name: 'Make this the primary device' })).toHaveClass(
+        expect(screen.getByRole('button', { name: 'Make this phone primary' })).toHaveClass(
             'h-11',
             'whitespace-nowrap',
         );
@@ -134,21 +141,39 @@ describe('SkipperDeviceControl takeover confirmation', () => {
 
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
         expect(screen.getByTestId('skipper-device-status')).toHaveTextContent('Primary: this phone');
-        expect(screen.getByRole('button', { name: 'Release — stop being the primary device' })).toHaveClass(
+        expect(screen.getByRole('button', { name: 'Release — stop being primary' })).toHaveClass(
             'h-11',
             'whitespace-nowrap',
         );
     });
 
+    it('keeps the sign-in condition when the Boat GPS pill shortens the status', () => {
+        // Beside the Boat GPS pill the row has no room for "Any signed-in phone
+        // can post", and "Any phone can post" would drop the sign-in a post
+        // needs, so the short form names the state instead.
+        const feed = vi.spyOn(NmeaGpsProvider, 'getFeedStatus').mockReturnValue('live');
+        try {
+            render(<SkipperDeviceControl claim={null} authenticatedUserId="skipper-user" updateSettings={vi.fn()} />);
+            expect(screen.getByTestId('skipper-device-gps-source')).toHaveTextContent('Boat GPS');
+            expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^No primary phone yet$/);
+            expect(screen.getByTestId('skipper-device-status')).toHaveAttribute(
+                'title',
+                'No phone is primary yet — any signed-in phone can post the boat’s position to your public page.',
+            );
+        } finally {
+            feed.mockRestore();
+        }
+    });
+
     it('asks for a sign-in instead of offering a claim while signed out', () => {
-        // Signed out, a claim publishes nothing, so offering "Make this the
-        // primary device" promised an action that could not happen (UX
-        // scorecard run 6). The button says what is needed and opens sign-in.
+        // Signed out, a claim publishes nothing, so offering "Make this phone
+        // primary" promised an action that could not happen (UX scorecard
+        // run 6). The button says what is needed and opens sign-in.
         const updateSettings = vi.fn();
         render(<SkipperDeviceControl claim={null} authenticatedUserId={null} updateSettings={updateSettings} />);
 
-        expect(screen.queryByRole('button', { name: 'Make this the primary device' })).not.toBeInTheDocument();
-        const signIn = screen.getByRole('button', { name: 'Sign in to make this the primary device' });
+        expect(screen.queryByRole('button', { name: 'Make this phone primary' })).not.toBeInTheDocument();
+        const signIn = screen.getByRole('button', { name: 'Sign in to make this phone primary' });
         expect(signIn).toHaveClass('h-11', 'whitespace-nowrap');
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
 

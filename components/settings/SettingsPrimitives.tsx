@@ -30,7 +30,10 @@ export const Section = React.memo(
                     {danger ? (
                         <div className="w-1 h-4 rounded-full bg-red-500" aria-hidden="true"></div>
                     ) : (
-                        <div className="w-1.5 h-1.5 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"></div>
+                        <div
+                            className="w-1.5 h-1.5 shrink-0 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"
+                            aria-hidden="true"
+                        ></div>
                     )}
                     {title}
                 </h2>
@@ -46,6 +49,29 @@ export const Section = React.memo(
     },
 );
 Section.displayName = 'Section';
+
+// ── SubSection ───────────────────────────────────────────────────
+/** A titled block inside a Section card, split from its neighbours by the
+ *  card's row divider. The h3 sits under the Section's h2, so a long form
+ *  (Vessel Profile) keeps one heading style, one card width and a heading
+ *  per block for VoiceOver's rotor instead of a coloured bar per block. */
+export const SubSection: React.FC<{
+    title?: string;
+    /** A short note set right of the title ("Auto unless you set it"). */
+    aside?: React.ReactNode;
+    children: React.ReactNode;
+    className?: string;
+}> = ({ title, aside, children, className = '' }) => (
+    <div className={`p-4 border-b border-white/5 last:border-0 ${className}`}>
+        {title && (
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <h3 className="text-sm font-bold text-white">{title}</h3>
+                {aside && <span className="text-xs text-gray-400">{aside}</span>}
+            </div>
+        )}
+        {children}
+    </div>
+);
 
 // ── RowChevron ───────────────────────────────────────────────────
 /** "Opens a page" — the same chevron the Vessel hub rows use, so the two

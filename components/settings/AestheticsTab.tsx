@@ -135,12 +135,12 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
                                         <opt.Icon className="w-5 h-5" />
                                     </span>
                                     <span
-                                        className={`text-[11px] font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}
+                                        className={`text-xs font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}
                                     >
                                         {opt.label}
                                     </span>
                                     <span
-                                        className={`text-[11px] leading-tight ${isActive ? 'text-white/70' : 'text-gray-400'}`}
+                                        className={`text-xs leading-tight ${isActive ? 'text-white/70' : 'text-gray-400'}`}
                                     >
                                         {opt.desc}
                                     </span>
@@ -229,7 +229,7 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
                                         {opt.label}
                                     </span>
                                     <span
-                                        className={`text-[11px] ${isActive ? 'text-white/70' : opt.recommended ? 'text-emerald-400/70' : 'text-gray-400'}`}
+                                        className={`text-xs ${isActive ? 'text-white/70' : opt.recommended ? 'text-emerald-400/70' : 'text-gray-400'}`}
                                     >
                                         {opt.desc}
                                     </span>

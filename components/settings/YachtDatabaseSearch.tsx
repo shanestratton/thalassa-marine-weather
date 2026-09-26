@@ -18,12 +18,17 @@ interface YachtDatabaseSearchProps {
     onSelect: (entry: PolarDatabaseEntry) => void;
     /** Compact mode for onboarding (fewer results shown) */
     compact?: boolean;
+    /** Inside a host card that already titles it (Vessel Profile's "Boat
+     *  design" sub-section): no card of its own and no bar heading, so the
+     *  form keeps one heading style (UX scorecard run 7). */
+    embedded?: boolean;
 }
 
 export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
     selectedModel,
     onSelect,
     compact: _compact,
+    embedded = false,
 }) => {
     const [search, setSearch] = useState('');
     const [localSelected, setLocalSelected] = useState(selectedModel || '');
@@ -42,18 +47,24 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
         {} as Record<string, PolarDatabaseEntry[]>,
     );
 
+    const selectedChip = localSelected ? (
+        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg inline-flex items-center gap-1 min-w-0">
+            <CheckIcon className="w-3 h-3 shrink-0" />
+            <span className="truncate">{localSelected}</span>
+        </span>
+    ) : null;
+
     return (
-        <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-4">
-                <div className="w-1 h-4 rounded-full bg-sky-500" />
-                <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Yacht</span>
-                {localSelected && (
-                    <span className="ml-auto text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
-                        <CheckIcon className="w-3 h-3" />
-                        <span>{localSelected}</span>
-                    </span>
-                )}
-            </div>
+        <div className={embedded ? '' : 'bg-white/3 border border-white/6 rounded-2xl p-4'}>
+            {embedded ? (
+                selectedChip && <div className="mb-3 flex">{selectedChip}</div>
+            ) : (
+                <div className="flex items-center gap-2 mb-4">
+                    <div className="w-1 h-4 rounded-full bg-sky-500" aria-hidden="true" />
+                    <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select your yacht</span>
+                    {selectedChip && <span className="ml-auto flex min-w-0">{selectedChip}</span>}
+                </div>
+            )}
 
             <div className="relative">
                 <input
@@ -62,11 +73,11 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by model or manufacturer…"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-500 outline-hidden focus:border-sky-500 transition-colors"
+                    className="w-full min-h-11 bg-white/5 border border-white/10 rounded-xl pl-3 pr-9 py-2.5 text-white text-sm font-medium placeholder-gray-500 outline-hidden focus:border-sky-500 transition-colors"
                 />
                 <svg
                     aria-hidden="true"
-                    className="absolute right-3 top-3.5 w-4 h-4 text-gray-400"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -85,7 +96,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                 <div className="mt-3 space-y-3 max-h-72 overflow-y-auto custom-scrollbar">
                     {Object.entries(grouped).map(([mfr, entries]) => (
                         <div key={mfr}>
-                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 px-1">
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5 px-1">
                                 {mfr}
                             </p>
                             <div className="space-y-1">
@@ -115,13 +126,13 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                                             </span>
                                             <div>
                                                 <p className="text-sm font-bold">{entry.model}</p>
-                                                <p className="text-[11px] text-gray-400">
+                                                <p className="text-xs text-gray-400">
                                                     {entry.loa}ft • {entry.category}
                                                 </p>
                                             </div>
                                         </div>
                                         {localSelected === entry.model && (
-                                            <span className="text-[11px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-lg">
+                                            <span className="text-xs font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-lg">
                                                 Active
                                             </span>
                                         )}
@@ -134,14 +145,14 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                         <p className="text-center text-sm text-gray-400 py-4">No boats match "{search}"</p>
                     )}
                     {results.length > 5 && (
-                        <p className="text-center text-[11px] text-gray-400 py-1">
+                        <p className="text-center text-xs text-gray-400 py-1">
                             Showing 5 of {results.length} results — refine your search
                         </p>
                     )}
                 </div>
             )}
 
-            <p className="text-[11px] text-gray-400 mt-3 text-center">
+            <p className="text-xs text-gray-400 mt-3 text-center">
                 {POLAR_DATABASE.length} boats available • Data from ORC/sail designer estimates
             </p>
         </div>

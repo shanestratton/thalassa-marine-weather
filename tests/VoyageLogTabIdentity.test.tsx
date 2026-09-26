@@ -138,6 +138,20 @@ vi.mock('@capacitor/browser', () => ({
     Browser: { open: mocks.browserOpen },
 }));
 
+// The real sign-in chooser is covered by AccountSignInChoices; here it only has
+// to open over the page and report its close.
+vi.mock('../components/SignInScreen', () => ({
+    SignInScreen: ({ isOpen, prompt, onClose }: { isOpen?: boolean; prompt?: string; onClose?: () => void }) =>
+        isOpen ? (
+            <div role="dialog" aria-label="Sign in to Thalassa">
+                {prompt}
+                <button type="button" onClick={onClose}>
+                    Close sign-in
+                </button>
+            </div>
+        ) : null,
+}));
+
 import { VoyageLogTab } from '../components/settings/VoyageLogTab';
 
 const settings = { liveTrackShare: false } as UserSettings;
@@ -552,19 +566,37 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         expect(screen.queryByRole('switch', { name: 'Share my instruments' })).not.toBeInTheDocument();
     });
 
-    it('signed out, points at Account & Cloud instead of offering a Set up that can only fail', async () => {
+    it('signed out, opens sign-in over this page instead of offering a Set up that can only fail', async () => {
         // UX scorecard run 6: Set up was offered with no hint an account is needed.
+        // Run 7: sign-in opens in place rather than detouring to Account & Cloud.
         setAuthIdentityScope(null);
         mocks.authUserId = '';
         mocks.getConfig.mockResolvedValue(null);
-        const onOpenAccount = vi.fn();
-        render(<VoyageLogTab settings={settings} onSave={vi.fn()} onOpenAccount={onOpenAccount} />);
+        const onSignInOpened = vi.fn();
+        const onSignInClosed = vi.fn();
+        render(
+            <VoyageLogTab
+                settings={settings}
+                onSave={vi.fn()}
+                onSignInOpened={onSignInOpened}
+                onSignInClosed={onSignInClosed}
+            />,
+        );
 
-        const signIn = await screen.findByRole('button', { name: /Sign in to set up your Voyage Log/ });
+        // The one sign-in control (ui/SignInButton); the row title beside it
+        // says what the sign-in is for.
+        await screen.findByText('Sign in to set up your Voyage Log');
+        const signIn = screen.getByRole('button', { name: 'Sign in' });
         expect(screen.queryByRole('button', { name: 'Set up your voyage log' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Sign in to Thalassa' })).not.toBeInTheDocument();
         fireEvent.click(signIn);
-        expect(onOpenAccount).toHaveBeenCalledTimes(1);
+        expect(await screen.findByRole('dialog', { name: 'Sign in to Thalassa' })).toBeInTheDocument();
+        expect(onSignInOpened).toHaveBeenCalledTimes(1);
         expect(mocks.ensureConfigured).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close sign-in' }));
+        expect(screen.queryByRole('dialog', { name: 'Sign in to Thalassa' })).not.toBeInTheDocument();
+        expect(onSignInClosed).toHaveBeenCalledTimes(1);
     });
 
     it('words a setup failure plainly and keeps the server reason under details', async () => {
