@@ -63,10 +63,11 @@ async function openWithoutReceivers(page: Page, baseURL: string) {
     });
     await page.goto('/');
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Navigate to The Glass', exact: true })).toHaveAttribute(
-        'aria-selected',
-        'true',
-    );
+    await expect(
+        page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'The Glass', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('button', { name: 'Saved locations', exact: true })).toBeVisible();
 }
 

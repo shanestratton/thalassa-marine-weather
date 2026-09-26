@@ -94,12 +94,12 @@ describe('tutorial overlay accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        expect(screen.getByRole('dialog', { name: 'Your Weather' })).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Your weather' })).toBeInTheDocument();
         expect(screen.queryByRole('dialog', { name: 'Essential Mode' })).not.toBeInTheDocument();
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Next: Your Charts' }), { key: 'Escape' });
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Next: Your charts' }), { key: 'Escape' });
 
-        expect(screen.queryByRole('dialog', { name: 'Your Weather' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Your weather' })).not.toBeInTheDocument();
         expect(screen.getByRole('dialog', { name: 'Essential Mode' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Next tip: Future Hours' })).toHaveFocus();
 
@@ -115,8 +115,8 @@ describe('tutorial overlay accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        const dialog = screen.getByRole('dialog', { name: 'Your Weather' });
-        const next = screen.getByRole('button', { name: 'Next: Your Charts' });
+        const dialog = screen.getByRole('dialog', { name: 'Your weather' });
+        const next = screen.getByRole('button', { name: 'Next: Your charts' });
 
         expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(dialog).toHaveAccessibleDescription(/Step 1 of 4.*Real-time marine forecasts/);
@@ -135,15 +135,16 @@ describe('tutorial overlay accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next: Your Charts' }));
-        expect(screen.getByRole('dialog', { name: 'Your Charts' })).toHaveAccessibleDescription(/Step 2 of 4/);
+        fireEvent.click(screen.getByRole('button', { name: 'Next: Your charts' }));
+        expect(screen.getByRole('dialog', { name: 'Your charts' })).toHaveAccessibleDescription(/Step 2 of 4/);
 
         fireEvent.click(screen.getByRole('button', { name: 'Next: The Scuttlebutt' }));
         expect(screen.getByRole('dialog', { name: 'The Scuttlebutt' })).toHaveAccessibleDescription(/Step 3 of 4/);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next: Your Vessel' }));
-        const finish = screen.getByRole('button', { name: 'Finish onboarding' });
-        expect(screen.getByRole('dialog', { name: 'Your Vessel' })).toHaveAccessibleDescription(/Step 4 of 4/);
+        fireEvent.click(screen.getByRole('button', { name: 'Next: Your vessel' }));
+        // Named by its visible words (label in name), not a hidden 'Finish onboarding'.
+        const finish = screen.getByRole('button', { name: 'Get started' });
+        expect(screen.getByRole('dialog', { name: 'Your vessel' })).toHaveAccessibleDescription(/Step 4 of 4/);
         expect(finish).toHaveFocus();
 
         fireEvent.click(finish);
@@ -154,19 +155,19 @@ describe('tutorial overlay accessibility', () => {
     it('synchronously hides an open tutorial when the active account changes', () => {
         render(<OnboardingOverlayHarness />);
         fireEvent.click(screen.getByRole('button', { name: 'Show onboarding' }));
-        expect(screen.getByRole('dialog', { name: 'Your Weather' })).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Your weather' })).toBeInTheDocument();
 
         act(() => {
             setAuthIdentityScope('tutorial-user-b');
         });
 
-        expect(screen.queryByRole('dialog', { name: 'Your Weather' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Your weather' })).not.toBeInTheDocument();
     });
 
     it('keeps completion flags independent between accounts', () => {
         render(<OnboardingOverlayHarness />);
         fireEvent.click(screen.getByRole('button', { name: 'Show onboarding' }));
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Next: Your Charts' }), { key: 'Escape' });
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Next: Your charts' }), { key: 'Escape' });
 
         const accountAKey = authScopedStorageKey('thalassa_onboarding_complete');
         expect(localStorage.getItem(accountAKey)).toBe('true');
@@ -177,6 +178,6 @@ describe('tutorial overlay accessibility', () => {
         expect(localStorage.getItem(authScopedStorageKey('thalassa_onboarding_complete'))).toBeNull();
 
         fireEvent.click(screen.getByRole('button', { name: 'Show onboarding' }));
-        expect(screen.getByRole('dialog', { name: 'Your Weather' })).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Your weather' })).toBeInTheDocument();
     });
 });

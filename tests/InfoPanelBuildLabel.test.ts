@@ -14,10 +14,11 @@ const panel = readFileSync('components/SystemStatusButton.tsx', 'utf8');
 const links = readFileSync('services/externalLinks.ts', 'utf8');
 
 describe('the version line', () => {
-    it('is the last thing in the panel', () => {
-        const tail = panel.slice(panel.indexOf('Thalassa {buildLabel'));
+    it('is the last thing in the scrolling panel', () => {
+        // Only the fixed bottom Close (UX scorecard run 7) comes after it.
+        const tail = panel.slice(panel.indexOf('{buildLabel ??'));
         expect(tail.slice(0, 400)).toContain('</div>');
-        expect(panel).toContain("Thalassa {buildLabel ?? '…'}");
+        expect(panel).toContain("{buildLabel ?? 'Version …'}");
     });
 
     it('reports version, build and platform, not just a marketing version', () => {

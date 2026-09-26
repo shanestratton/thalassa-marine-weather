@@ -36,6 +36,33 @@
  * that use it pull from one source of truth. Mirror file at
  * `assets/brand/palette.txt` documents the same values for design
  * tools (Figma, Inkscape, the SVG cleanup pipeline).
+ *
+ * ─────────────────────────────────────────────────────────────────
+ * House rules (UX scorecard run 7)
+ * ─────────────────────────────────────────────────────────────────
+ * Casing. CAPS only for one- or two-word eyebrows and metric labels
+ * (WIND, WATER DEPTH, a breadcrumb, a page title set by CSS). Everything
+ * else is sentence case in the source: buttons, rows, chips, card titles,
+ * dialog titles and whole sentences. Caps plus colour are kept for the
+ * states that must shout (due, overdue, alarm), so they stay louder than
+ * the ok rows around them. Counts read one way: "12 items · 3 low".
+ *
+ * Actions. One primary per screen: `button.primary`, rendered by
+ * <Button variant="primary">. A second action on the same screen is
+ * `secondary`. The full-width bar at the foot of a page is `button.cta`
+ * (<Button variant="cta">); TapToAction and SlideToAction paint the same
+ * `button.ctaShape` in their theme colours. Sign-in everywhere is
+ * <SignInButton>. Empty and unavailable pages use <EmptyState> and
+ * <UnavailableNotice>, which share one recipe.
+ *
+ * Shape. Three radii for new code: `radii.card` (cards, buttons, inputs),
+ * `radii.modal` (dialogs, popovers, floating chrome) and `radii.pill`
+ * (chips, dots, the bottom CTA). `radii.control` stays for the dense
+ * segmented controls that already use it.
+ *
+ * Neutrals. slate is the neutral ramp. gray survives only in legacy
+ * classes that index.css remaps for daylight; new code does not add
+ * gray-* classes or inline hex.
  */
 
 import type { Environment } from './services/EnvironmentService';
@@ -105,7 +132,17 @@ export interface ThemeTokens {
     spacing: typeof spacing;
     radii: typeof radii;
     card: { base: string; glass: string; inset: string; insetRelaxed: string };
-    button: { primary: string; secondary: string; danger: string; ghost: string; toggleOff: string };
+    button: {
+        primary: string;
+        secondary: string;
+        danger: string;
+        ghost: string;
+        toggleOff: string;
+        /** Geometry of the full-width bar at the foot of a page, no colour. */
+        ctaShape: string;
+        /** The bottom call to action: ctaShape in the primary's fill. */
+        cta: string;
+    };
     modal: { backdrop: string; panel: string; header: string; body: string; close: string };
     header: { bar: string; glass: string };
     input: { base: string; code: string; slider: string };
@@ -357,6 +394,9 @@ export const touchTarget = {
     icon: 'w-11 h-11 min-w-[44px] min-h-[44px]',
 } as const;
 
+/** Full-width bottom bar geometry: 56 pt tall, pill, sentence-case label. */
+const CTA_SHAPE = `w-full h-14 min-h-[56px] ${radii.pill} flex items-center justify-center gap-2 px-6 text-base font-bold select-none transition-transform active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed`;
+
 // ── Theme Builder ───────────────────────────────────────────────
 
 function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
@@ -388,12 +428,17 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
          *
          * They also carry horizontal padding. `secondary` and `danger` had
          * `py-2` and no `px-*` at all, so text rendered flush against the
-         * border. Nothing caught it because nothing consumed them. */
+         * border. Nothing caught it because nothing consumed them.
+         *
+         * The primary is SKY in both environments (UX scorecard run 7). It was
+         * amber offshore and emerald onshore, so the one control that used it
+         * (sign-in) was the only amber action in an app where amber means
+         * caution, beside the sky fills most pages already use for their main
+         * action. The gradient stops come from index.css
+         * (.ui-primary-action--sky): sky-700 to sky-800, white at 5.9:1 or
+         * better, and the same in daylight. */
         button: {
-            primary:
-                env === 'offshore'
-                    ? 'px-5 py-3.5 bg-linear-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 ui-primary-action ui-primary-action--amber'
-                    : 'px-5 py-3.5 bg-linear-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 ui-primary-action ui-primary-action--emerald',
+            primary: `px-5 py-3 bg-linear-to-r from-sky-700 to-sky-800 ${radii.card} text-white text-base font-bold transition-all active:scale-[0.98] shadow-lg shadow-sky-950/40 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 ui-primary-action ui-primary-action--sky`,
             /* The house secondary button, measured rather than invented:
              * bg-white/5 + border-white/10 + rounded-xl is the single most
              * common combination across the app's ~1,100 buttons. The token
@@ -404,6 +449,12 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
             danger: `px-4 py-2 bg-red-500/8 backdrop-blur-sm border border-red-500/20 ${radii.card} text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/12 flex items-center justify-center gap-2`,
             ghost: `px-3 py-1.5 bg-white/5 hover:bg-white/10 ${radii.control} text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2`,
             toggleOff: `flex-1 py-1.5 ${radii.control} text-sm font-bold ${colors.bg.insetDeep} ${colors.border.subtle} ${colors.text.muted}`,
+            /* The bottom call to action: the full-width bar above the tab bar
+             * (Add task, Start plotting, Slide to drop anchor). The shape is
+             * shared; TapToAction and SlideToAction paint it in their theme
+             * colours, and <Button variant="cta"> takes the primary fill. */
+            ctaShape: CTA_SHAPE,
+            cta: `${CTA_SHAPE} bg-linear-to-r from-sky-700 to-sky-800 text-white shadow-lg shadow-sky-950/40 ui-primary-action ui-primary-action--sky`,
         },
 
         modal: {

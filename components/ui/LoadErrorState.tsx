@@ -42,7 +42,7 @@ export const LoadErrorState: React.FC<LoadErrorStateProps> = ({ what, onRetry, d
         title={`Couldn't load ${what}`}
         description={
             description ??
-            `This is a loading problem, not an empty list — your records are still there. Check your connection and try again.`
+            `This is a loading problem, not an empty list. Your records are still there. Check your connection and try again.`
         }
         actionLabel="Try again"
         onAction={onRetry}

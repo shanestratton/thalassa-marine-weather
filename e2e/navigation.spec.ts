@@ -3,15 +3,19 @@ import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 const openOnboardedApp = async (page: Page) => {
     await page.goto('/');
-    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible({ timeout: 15_000 });
 };
 
 test.describe('Tab Navigation', () => {
     test.use({ storageState: ONBOARDED_STORAGE });
 
-    test('app renders navigation tabs', async ({ page }) => {
+    test('app renders the five page buttons, the current one marked', async ({ page }) => {
         await openOnboardedApp(page);
-        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeVisible();
+        const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+        for (const label of ['The Glass', 'Obs', 'Plan', 'Log', 'Vessel']) {
+            await expect(nav.getByRole('button', { name: label, exact: true })).toBeVisible();
+        }
+        await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
     });
 
     test('tab buttons are keyboard accessible', async ({ page }) => {
@@ -30,15 +34,19 @@ test.describe('Tab Navigation', () => {
         test.setTimeout(60_000);
         await openOnboardedApp(page);
 
-        const glassTab = page.getByRole('tab', { name: 'Navigate to The Glass' });
-        const chartsTab = page.getByRole('tab', { name: 'Navigate to Charts and observations' });
+        const glassTab = page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'The Glass', exact: true });
+        const chartsTab = page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Obs', exact: true });
 
         await chartsTab.click();
-        await expect(chartsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(chartsTab).toHaveAttribute('aria-current', 'page');
         await expect(page.getByRole('region', { name: 'Map' })).toBeVisible({ timeout: 30_000 });
 
         await glassTab.click();
-        await expect(glassTab).toHaveAttribute('aria-selected', 'true');
+        await expect(glassTab).toHaveAttribute('aria-current', 'page');
         await expect(page.getByRole('textbox', { name: 'Current location' })).toBeVisible({ timeout: 20_000 });
     });
 
