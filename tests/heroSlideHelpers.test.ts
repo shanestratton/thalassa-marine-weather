@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
     buildSlides,
     reconcileDayCondition,
+    computeCardDisplayValues,
     computeDisplayValues,
     computeTrends,
     resolveHeroRowTemperatureRange,
@@ -287,5 +288,23 @@ describe('reconcileDayCondition — the day overview must not contradict its own
     it('passes provider word through when there are no hours to consult', () => {
         expect(reconcileDayCondition('Light Drizzle', [])).toBe('Light Drizzle');
         expect(reconcileDayCondition(undefined, sunnyDay)).toBeUndefined();
+    });
+});
+
+describe('rain chance never shows an invented value (UX scorecard run 7)', () => {
+    const metricUnits = { speed: 'kts', length: 'm', temp: 'C', distance: 'nm', visibility: 'nm' } as never;
+    it('shows -- for a forecast hour with no chance, not 0 % or the millimetres', () => {
+        const noChance = { ...baseData, precipChance: undefined, precipitation: 5 } as SourcedWeatherMetrics;
+        expect(computeCardDisplayValues(noChance, metricUnits, 3, true).precip).toBe('--');
+        expect(computeDisplayValues(noChance, metricUnits, 2).precip).toBe('--');
+    });
+    it('keeps a real chance, rounded', () => {
+        const chance = { ...baseData, precipChance: 42.4 } as SourcedWeatherMetrics;
+        expect(computeCardDisplayValues(chance, metricUnits, 3, true).precip).toBe(42);
+        expect(computeDisplayValues(chance, metricUnits, 2).precip).toBe(42);
+    });
+    it('shows -- for a day total the model did not supply', () => {
+        const noAmount = { ...baseData, precipitation: null } as unknown as SourcedWeatherMetrics;
+        expect(computeDisplayValues(noAmount, metricUnits, 0).precip).toBe('--');
     });
 });
