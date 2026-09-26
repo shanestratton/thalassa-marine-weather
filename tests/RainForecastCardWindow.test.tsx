@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { RainForecastCard } from '../components/dashboard/RainForecastCard';
 
@@ -55,15 +55,32 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         expect(screen.queryByText('No precipitation expected next 4 hours')).not.toBeInTheDocument();
     });
 
-    it('the dry detail says so on its chart and heads the dialog like its siblings', () => {
+    it('the dry detail says so once and heads the dialog like its siblings', () => {
         render(<RainForecastCard data={dryFeed(240)} source="rainbow" />);
         fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
-        const dialog = screen.getByRole('dialog', { name: 'Rain Forecast' });
-        expect(screen.getByRole('heading', { level: 2, name: 'Rain Forecast' })).toBeInTheDocument();
-        // The empty chart is a stated verdict with a baseline, not a void.
-        expect(screen.getByText('No rain in the next 4 hours')).toBeInTheDocument();
+        const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+        expect(screen.getByRole('heading', { level: 2, name: 'Rain forecast' })).toBeInTheDocument();
+        // One no-rain line (the headline); the empty chart collapses to a
+        // baseline rather than printing the verdict a second time.
+        expect(within(dialog).getAllByText('No rain expected next 4 hours')).toHaveLength(1);
+        expect(screen.queryByText('No rain in the next 4 hours')).not.toBeInTheDocument();
+        // Whole-hour axis ticks in lower case, never '1H59'.
+        for (const tick of ['Now', '1 h', '2 h', '3 h', '4 h']) {
+            expect(within(dialog).getByText(tick)).toBeInTheDocument();
+        }
+        expect(within(dialog).queryByText(/\dH\d/)).toBeNull();
+        expect(within(dialog).getByText('mm/hr peak')).toBeInTheDocument();
         // No droplet "needle" parked at half scale on a 0.0 gauge.
         expect(dialog.querySelector('path[d^="M 60 28"]')).toBeNull();
+    });
+
+    it('a one-hour feed ticks in quarter hours and ends at 1 h', () => {
+        render(<RainForecastCard data={dryFeed(60)} source="weatherkit" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+        for (const tick of ['Now', '15 min', '30 min', '45 min', '1 h']) {
+            expect(within(dialog).getByText(tick)).toBeInTheDocument();
+        }
     });
 
     it('a fully-elapsed feed is out of date, not a forecast', () => {

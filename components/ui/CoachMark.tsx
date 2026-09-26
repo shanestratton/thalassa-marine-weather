@@ -170,8 +170,11 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
             <span className="text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] animate-bounce-subtle">
                 <ArrowGlyph direction={arrowDir} />
             </span>
+            {/* Opaque (thalassa-popover-solid takes the /95 to a solid fill,
+                white by day): at /95 the word it sat on read through the
+                bubble (UX scorecard run 6). */}
             <div
-                className="px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center"
+                className="thalassa-popover-solid px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center"
                 style={{
                     boxShadow: '0 0 20px -4px rgba(56,189,248,0.4), 0 4px 12px rgba(0,0,0,0.4)',
                 }}

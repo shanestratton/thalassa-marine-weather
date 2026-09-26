@@ -27,7 +27,15 @@ import { isGoldenHour } from '../../utils/goldenHour';
 import { EssentialMapSlide } from './hero/EssentialMapSlide';
 import { EssentialAnchorView } from './hero/EssentialAnchorView';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../../services/AnchorWatchService';
-import { computeSunPhase, computeCardDisplayValues, buildSlides } from './hero/heroSlideHelpers';
+import {
+    computeSunPhase,
+    computeCardDisplayValues,
+    buildSlides,
+    forecastDayHasWeather,
+    heroRowDayName,
+    setSlideInert,
+} from './hero/heroSlideHelpers';
+import type { GlassForecastRange } from './hero/heroSlideHelpers';
 import { DailySummaryCard } from './hero/DailySummaryCard';
 import { WindVsTideView } from './tide/WindVsTideView';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -76,19 +84,33 @@ const byTime = <T extends { time: string; height: number }>(points: T[] | undefi
         .sort((a, b) => a.t - b.t);
 
 /**
- * A forecast day past every provider's reach: no hourly frames and not one
- * daily number. It used to render the overview's grid of bare dashes — the
- * same picture as a broken feed — so it says what it is instead.
+ * A forecast day past the pinned model's reach: not one weather number in
+ * the day or its hours, and no wave or tide to show instead. It used to
+ * render the overview's grid of bare dashes — the same picture as a broken
+ * feed — so it says what it is instead.
  */
-const ForecastHorizonCard: React.FC<{ dateLabel: string }> = ({ dateLabel }) => (
+const ForecastHorizonCard: React.FC<{ dateLabel: string; caption: string; showDateHeading: boolean }> = ({
+    dateLabel,
+    caption,
+    showDateHeading,
+}) => (
     <div
         data-testid="forecast-horizon"
+        role="group"
+        aria-label={`Forecast for ${dateLabel}`}
         className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-start pt-3 gap-2 px-5 text-center"
     >
-        <span className="text-base font-bold tracking-wide text-white/90">{dateLabel}</span>
-        <p className="glass-forecast-caption text-sm font-medium">Beyond the forecast horizon — check back tomorrow</p>
+        {showDateHeading ? <span className="text-base font-bold tracking-wide text-white/90">{dateLabel}</span> : null}
+        <p className="glass-forecast-caption text-sm font-medium">{caption}</p>
     </div>
 );
+
+/** What a day past the pinned model's range says in place of its dashes. */
+const horizonCaption = (range: GlassForecastRange | undefined): string => {
+    if (!range?.modelLabel) return 'Beyond the forecast horizon — check back tomorrow';
+    const ends = range.lastDayLabel ? ` (ends ${range.lastDayLabel})` : '';
+    return `Beyond ${range.modelLabel}’s range${ends} — try another model`;
+};
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 /** Module-level so the memoised radar card sees one stable onMapTap identity. */
@@ -120,6 +142,8 @@ const HeroSlideComponent = ({
     isVisible = false,
     tideHourly,
     isEssentialMode = false,
+    forecastRange,
+    compact = false,
 }: {
     data: SourcedWeatherMetrics;
     index: number;
@@ -154,6 +178,10 @@ const HeroSlideComponent = ({
     tideHourly?: TidePoint[];
     isEssentialMode?: boolean;
     minutelyRain?: MinutelyRain[];
+    /** The pinned model and the last day it reaches — captions days past it. */
+    forecastRange?: GlassForecastRange;
+    /** Short viewport: no room for the day label row above the hours. */
+    compact?: boolean;
 }) => {
     const { weatherData } = useWeather();
     const forecast = weatherData?.forecast ?? EMPTY_FORECAST;
@@ -353,6 +381,8 @@ const HeroSlideComponent = ({
         d.setDate(d.getDate() + index);
         return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     }, [index]);
+    // The same day as spoken and captioned: "Today" rather than "TODAY".
+    const dayName = useMemo(() => heroRowDayName(index), [index]);
 
     // Auto-scroll to slide 0 when entering essential mode (map only renders on slide 0)
     useEffect(() => {
@@ -460,7 +490,8 @@ const HeroSlideComponent = ({
     }, [timeZone]);
     const tideCardLabel = (isLive: boolean, tMs: number | undefined): string => {
         const at = tMs ?? Date.now();
-        const when = isLive || tMs === undefined ? 'Now' : tideHourFmt.format(new Date(at));
+        // The day is part of the name: every day row has an 08:00 card.
+        const when = isLive || tMs === undefined ? 'Now' : `${dayName} ${tideHourFmt.format(new Date(at))}`;
         const tide = tideAtTime(tideExtremes, tideSeriesPts, at);
         const unit = units.tideHeight || 'm';
         const height = tide ? convertMetersTo(tide.heightM, unit) : null;
@@ -556,8 +587,29 @@ const HeroSlideComponent = ({
         );
     }
 
+    // Day label above the hours: nothing else said that today's live card IS
+    // today, or that a vertical swipe changes the day (UX scorecard run 6).
+    // The day overview is an average over the day, so it carries no time.
+    const showDayLabel = !isEssentialMode && !compact;
+    // Clamped: hours drop off today's row as the clock runs, and a stale
+    // index past the end must not take every slide out of the reading order.
+    const shownHIdx = Math.min(activeHIdx, slides.length - 1);
+    const labelSlide = slides[shownHIdx];
+    const labelTimeMs =
+        labelSlide?.type === 'current' ? Date.now() : labelSlide?.type === 'hourly' ? labelSlide.time : undefined;
+    const dayLabelText = labelTimeMs ? `${dayName} · ${tideHourFmt.format(new Date(labelTimeMs))}` : dayName;
+
     return (
         <div className="relative w-full h-full overflow-hidden">
+            {showDayLabel && (
+                // Hidden from VoiceOver: the carousel's name carries the day and
+                // every tide card its own hour. The carousel starts below it.
+                <div className="absolute top-0 inset-x-0 h-5 flex items-center pl-1 pr-8" aria-hidden="true">
+                    <span className="glass-tide-caption text-xs leading-4 font-bold uppercase tracking-widest text-sky-300/80 whitespace-nowrap">
+                        {dayLabelText}
+                    </span>
+                </div>
+            )}
             {/* ========== HEADERS MOVED TO DASHBOARD LEVEL ========== */}
             {/* Header and widgets now rendered at Dashboard level for true fixed positioning */}
 
@@ -569,7 +621,7 @@ const HeroSlideComponent = ({
                 it never interferes with the user's own swipe. */}
             {showSwipeHint && (
                 <div
-                    className="absolute inset-y-0 right-0 z-50 w-16 flex items-center justify-end pr-3 pointer-events-none"
+                    className={`absolute ${showDayLabel ? 'top-5' : 'top-0'} bottom-0 right-0 z-50 w-16 flex items-center justify-end pr-3 pointer-events-none`}
                     style={{
                         background:
                             'linear-gradient(to right, transparent 0%, rgba(56, 189, 248, 0.08) 60%, rgba(56, 189, 248, 0.18) 100%)',
@@ -592,7 +644,9 @@ const HeroSlideComponent = ({
             )}
 
             {/* ========== SCROLLABLE HORIZONTAL CAROUSEL ========== */}
-            <div className="absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar">
+            <div
+                className={`absolute inset-x-0 ${showDayLabel ? 'top-5' : 'top-0'} bottom-0 overflow-y-auto overflow-x-hidden no-scrollbar`}
+            >
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHorizontalScroll}
@@ -600,7 +654,7 @@ const HeroSlideComponent = ({
                     tabIndex={0}
                     role="region"
                     aria-roledescription="carousel"
-                    aria-label="Hourly forecast carousel — use left and right arrow keys to navigate between hours"
+                    aria-label={`${dayName}: hourly forecast — left and right arrow keys move between hours`}
                     className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-x-auto snap-x snap-mandatory'} no-scrollbar flex flex-row focus:outline-hidden`}
                     style={{ willChange: 'scroll-position' }}
                 >
@@ -622,32 +676,42 @@ const HeroSlideComponent = ({
                         // below, which is the essential slot proper.
                         if (slide.type === 'daily' && slide.daily && !showMapInstead) {
                             const d = slide.daily;
-                            const beyondHorizon =
-                                index > 0 &&
-                                hourlyToRender.length === 0 &&
-                                !d.condition &&
-                                !d.tideSummary &&
-                                [d.highTemp, d.lowTemp, d.windSpeed, d.windGust, d.waveHeight, d.precipChance].every(
-                                    (v) => v === null || v === undefined,
-                                );
+                            // Past the pinned model's range the provider still sends the
+                            // day and its hours, every value null — so "no hourly frames"
+                            // missed it and the card was a grid of dashes (run 6).
+                            const beyondRange = index > 0 && !d.condition && !forecastDayHasWeather(d, hourlyToRender);
+                            const hasWave = !isLandlocked && d.waveHeight !== null && d.waveHeight !== undefined;
+                            const caption = horizonCaption(forecastRange);
                             return (
                                 <div
                                     key={slideIdx}
+                                    ref={(el) => setSlideInert(el, slideIdx !== shownHIdx, horizontalScrollRef.current)}
+                                    aria-hidden={slideIdx !== shownHIdx || undefined}
                                     // overflow-hidden + min-h-0: the daily card must NOT make the
                                     // parent's overflow-y-auto scrollable, or it captures the
                                     // up/down day-swipe and the snap "bounces" (regression fix).
                                     className="w-full h-full min-h-0 overflow-hidden snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                                 >
-                                    {beyondHorizon ? (
-                                        <ForecastHorizonCard dateLabel={rowDateLabel} />
-                                    ) : (
-                                        <DailySummaryCard
-                                            daily={slide.daily}
-                                            units={units}
-                                            isLandlocked={isLandlocked}
-                                            dateLabel={rowDateLabel}
-                                        />
-                                    )}
+                                    {/* Framed like every other Glass slide: it used to float
+                                        unframed on black (UX scorecard run 6). */}
+                                    <div className="relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border border-white/8 bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)]">
+                                        {beyondRange && !hasWave && !d.tideSummary ? (
+                                            <ForecastHorizonCard
+                                                dateLabel={rowDateLabel}
+                                                caption={caption}
+                                                showDateHeading={!showDayLabel}
+                                            />
+                                        ) : (
+                                            <DailySummaryCard
+                                                daily={slide.daily}
+                                                units={units}
+                                                isLandlocked={isLandlocked}
+                                                dateLabel={rowDateLabel}
+                                                showDateHeading={!showDayLabel}
+                                                note={beyondRange ? caption : undefined}
+                                            />
+                                        )}
+                                    </div>
                                 </div>
                             );
                         }
@@ -701,6 +765,11 @@ const HeroSlideComponent = ({
                         return (
                             <div
                                 key={slideIdx}
+                                // Off-screen hours leave the reading order: ~250 tide
+                                // buttons and 200 copies of the tides notice used to be
+                                // exposed at once (UX scorecard run 6).
+                                ref={(el) => setSlideInert(el, slideIdx !== shownHIdx, horizontalScrollRef.current)}
+                                aria-hidden={slideIdx !== shownHIdx || undefined}
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
                                 {showMapInstead && showAnchorView ? (
@@ -850,10 +919,10 @@ const HeroSlideComponent = ({
                                         >
                                             <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                                                    <span className="text-lg">🌊</span>
+                                                    <WaveIcon className="w-5 h-5 text-amber-400" />
                                                 </div>
                                                 <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-widest">
-                                                    Tides Temporarily Unavailable
+                                                    Tides temporarily unavailable
                                                 </p>
                                                 <p className="text-[11px] text-white/60 leading-relaxed max-w-[200px]">
                                                     Tide data source is currently unreachable. Data will restore
@@ -941,7 +1010,7 @@ const HeroSlideComponent = ({
                                                     },
                                                     {
                                                         id: 'pressure',
-                                                        label: 'HPA',
+                                                        label: 'BARO',
                                                         icon: <GaugeIcon className="w-3 h-3" />,
                                                         headingColor: 'text-emerald-400',
                                                         labelColor: 'text-emerald-300',

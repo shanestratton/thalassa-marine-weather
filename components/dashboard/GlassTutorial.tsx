@@ -382,7 +382,7 @@ function OffshoreModelsVisual() {
         <div className="relative w-56 h-28 rounded-xl bg-white/6 border border-white/10 shadow-xl overflow-hidden">
             {/* Param tabs at top */}
             <div className="absolute inset-x-0 top-2 flex items-center justify-center gap-1">
-                {['WIND', 'GUST', 'WAVE', 'HPA'].map((p, i) => (
+                {['WIND', 'GUST', 'WAVE', 'BARO'].map((p, i) => (
                     <span
                         key={p}
                         className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded ${

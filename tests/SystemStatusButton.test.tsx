@@ -519,13 +519,13 @@ describe('SystemStatusButton', () => {
         expect(followRouteState.stopFollowing).toHaveBeenCalledOnce();
     });
 
-    it('shows the count badge from one active system, matching the spoken count', () => {
+    it('shows the corner dot from one active system; the count is in the spoken name', () => {
         followRouteState.isFollowing = true;
         followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
 
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
         expect(screen.getByRole('button', { name: /^Systems and GPS source: 1 active/ })).toBeInTheDocument();
-        expect(screen.getByTestId('system-status-count')).toHaveTextContent(/^1$/);
+        expect(screen.getByTestId('system-status-count')).toBeEmptyDOMElement();
     });
 
     it('gives every row action its own accessible name', () => {
@@ -556,10 +556,10 @@ describe('SystemStatusButton', () => {
         fireEvent.click(opener);
 
         const close = screen.getByRole('button', { name: 'Close system status' });
-        expect(screen.getByRole('dialog', { name: 'System Status' })).toContainElement(close);
+        expect(screen.getByRole('dialog', { name: 'System status' })).toContainElement(close);
         expect(close).toHaveFocus();
         fireEvent.keyDown(close, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: 'System Status' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'System status' })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
     });
 

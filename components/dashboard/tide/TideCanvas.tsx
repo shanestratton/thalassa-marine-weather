@@ -85,9 +85,11 @@ export const TideCanvas = React.memo(
                     ctx.fillStyle = daylight ? '#334155' : '#cbd5e1';
                     ctx.font = '600 12px system-ui, sans-serif';
                     // A centered midnight label would lose its first digit
-                    // beyond the left canvas edge.
+                    // beyond the left canvas edge, and a left-aligned one at
+                    // x=0 still lost half a digit to the card's rounded corner
+                    // (UX scorecard run 6) — so it is inset 8 px.
                     ctx.textAlign = hour === 0 ? 'left' : 'center';
-                    ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
+                    ctx.fillText(hour.toString().padStart(2, '0'), hour === 0 ? gx + 8 : gx, h - 1);
                 }
                 ctx.restore();
             }

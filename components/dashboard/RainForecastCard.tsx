@@ -98,14 +98,18 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
             <button
                 aria-label="Open rain forecast detail"
                 onClick={openModal}
-                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${
+                // By day the card takes the metric grid's white card surface and
+                // border: the translucent slate was about 1.1:1 against the
+                // daylight page (UX scorecard run 6). Important, because the
+                // daylight remap of bg-slate-800/40 is unlayered and would win.
+                // On short portrait (Dashboard root data-glass-rhythm="short")
+                // the strip is one 36 pt line so the tide card keeps its room:
+                // headline, badge and any Estimated tag in a single centred row.
+                className={`w-full min-h-[76px] rounded-xl overflow-hidden relative text-left transition-all duration-500 in-data-[glass-rhythm=short]:min-h-9 in-data-[glass-rhythm=short]:flex in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center [.display-light_&]:bg-white! ${className} ${
                     isActive
-                        ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10'
-                        : 'bg-slate-800/40 border border-blue-400/10'
+                        ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10 [.display-light_&]:border-sky-600/50!'
+                        : 'bg-slate-800/40 border border-blue-400/10 [.display-light_&]:border-slate-900/20!'
                 }`}
-                style={{
-                    minHeight: '76px',
-                }}
             >
                 {/* Rain glow animation when active */}
                 {isActive && (
@@ -115,7 +119,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     </div>
                 )}
 
-                <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between">
+                <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between in-data-[glass-rhythm=short]:flex-row in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:py-0">
                     {/* Header Row */}
                     <div className="flex items-center justify-center">
                         <div className="flex items-center gap-1.5">
@@ -150,9 +154,10 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                         )}
                     </div>
 
-                    {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain */}
+                    {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain.
+                        Dropped on short portrait: the one-line strip has no room. */}
                     {analysis.frames.length > 0 && analysis.hasRain && (
-                        <div className="flex items-end gap-px w-full mt-1 h-[22px]">
+                        <div className="flex items-end gap-px w-full mt-1 h-[22px] in-data-[glass-rhythm=short]:hidden">
                             {analysis.frames.map((point, i) => {
                                 const normalizedHeight =
                                     analysis.maxIntensity > 0
@@ -180,9 +185,10 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                         </div>
                     )}
 
-                    {/* Tap hint */}
+                    {/* Tap hint — dropped on short portrait, where the whole
+                        strip is already the button named 'Open rain forecast detail'. */}
                     {analysis.frames.length > 0 && (
-                        <div className="flex items-center justify-center mt-0.5">
+                        <div className="flex items-center justify-center mt-0.5 in-data-[glass-rhythm=short]:hidden">
                             <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
                                 Tap for detail
                             </span>
@@ -191,9 +197,10 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                 </div>
 
                 {/* Honesty tag — bottom-right, and only when the numbers are
-                    estimated rather than measured. */}
+                    estimated rather than measured. On short portrait it joins
+                    the one-line row instead, so it can't sit on the headline. */}
                 {sourceLabel && (
-                    <span className="absolute bottom-1 right-2 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none">
+                    <span className="absolute bottom-1 right-2 in-data-[glass-rhythm=short]:static in-data-[glass-rhythm=short]:shrink-0 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none">
                         {sourceLabel}
                     </span>
                 )}
@@ -256,12 +263,16 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
     // away, which is exactly what the user noticed.
     //
     // Fix: read the first and last minutelyRain timestamps, compute the
-    // offsets from "now" (in minutes), and generate 5 evenly-spaced
-    // labels across that true range. Formats sub-60min as "Xm" and
-    // 60min+ as "Xh Ym" so 4-hour spans read naturally.
+    // offsets from "now" (in minutes), and place ticks at their true
+    // position across that range. The ticks sit on round times — whole
+    // hours on a long feed ('1 h' … '4 h'), half or quarter hours on a
+    // short one — never at even fractions of the span, which printed
+    // '1H59 / 2H59 / 3H58' (UX scorecard run 6). A tick within a few
+    // minutes past the feed's last frame is drawn at the end, so a feed
+    // reaching 3 h 58 ends at '4 h'.
     const timeLabels = React.useMemo(() => {
         if (!data || data.length === 0) {
-            return [{ pct: 0, label: 'NOW' }];
+            return [{ pct: 0, label: 'Now' }];
         }
         const now = Date.now();
         const firstMin = Math.max(0, Math.round((new Date(data[0].time).getTime() - now) / 60_000));
@@ -270,22 +281,18 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
             Math.round((new Date(data[data.length - 1].time).getTime() - now) / 60_000),
         );
         const span = lastMin - firstMin;
+        const step = span >= 150 ? 60 : span > 75 ? 30 : 15;
+        const endSlack = 5;
+        const formatMin = (m: number): string => (m % 60 === 0 ? `${m / 60} h` : `${m} min`);
 
-        const formatMin = (m: number): string => {
-            if (m <= 0) return 'NOW';
-            if (m < 60) return `${m}M`;
-            const h = Math.floor(m / 60);
-            const rest = m - h * 60;
-            return rest === 0 ? `${h}H` : `${h}H${rest}`;
-        };
-
-        // Five evenly-spaced labels: 0%, 25%, 50%, 75%, 100% of the span.
-        // Using pct (not raw minute) so downstream renderers can drop them
-        // on the chart at the correct visual position regardless of span.
-        return [0, 0.25, 0.5, 0.75, 1].map((p) => ({
-            pct: p,
-            label: formatMin(Math.round(firstMin + span * p)),
-        }));
+        const labels = [{ pct: 0, label: firstMin <= 2 ? 'Now' : formatMin(firstMin) }];
+        for (let m = Math.ceil((firstMin + 1) / step) * step; m <= lastMin + endSlack; m += step) {
+            const pct = Math.min(1, (m - firstMin) / span);
+            // Too close to the first label to be read beside it.
+            if (pct < 0.12) continue;
+            labels.push({ pct, label: formatMin(m) });
+        }
+        return labels;
     }, [data]);
 
     return (
@@ -306,7 +313,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                 // dark-on-dark. Each var() keeps the night colour as fallback.
                 style={{
                     background:
-                        'var(--day-ui-surface, linear-gradient(180deg, rgba(6, 78, 115, 0.9) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(8, 51, 96, 0.85) 100%))',
+                        'var(--day-ui-surface, linear-gradient(180deg, rgb(6, 78, 115) 0%, rgb(15, 23, 42) 40%, rgb(8, 51, 96) 100%))',
                     border: '1px solid var(--day-ui-border, rgba(34, 211, 238, 0.2))',
                     boxShadow:
                         'var(--day-ui-shadow, 0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5))',
@@ -584,31 +591,39 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
 
                 <div className="relative z-10 p-5">
                     {/* Header */}
+                    {/* The one Glass dialog header: icon, sentence-case title,
+                        top-right close (UX scorecard run 6). */}
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-sky-400">
-                                <path
-                                    d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                                    fill="currentColor"
-                                    fillOpacity="0.4"
-                                    stroke="currentColor"
-                                    strokeWidth="1.5"
-                                />
-                            </svg>
-                            <h2
-                                id="rain-forecast-title"
-                                className="text-sm font-bold text-white uppercase tracking-wider"
-                            >
-                                Rain Forecast
+                            <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
+                                <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    className="text-sky-400"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                        fill="currentColor"
+                                        fillOpacity="0.4"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                    />
+                                </svg>
+                            </div>
+                            <h2 id="rain-forecast-title" className="text-base font-bold text-white tracking-tight">
+                                Rain forecast
                             </h2>
                         </div>
                         <button
                             ref={closeButtonRef}
                             onClick={onClose}
-                            className="hit-target-44 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                            className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
                             aria-label="Close rain forecast detail"
                         >
-                            <XIcon className="w-4 h-4 text-white/70" />
+                            <XIcon className="w-4 h-4" />
                         </button>
                     </div>
 
@@ -666,7 +681,8 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             <div className="text-2xl font-black text-white tabular-nums">
                                 {analysis.hasRain ? analysis.maxIntensity.toFixed(1) : '0.0'}
                             </div>
-                            <div className="text-[11px] text-white/60 uppercase tracking-wider">mm/hr peak</div>
+                            {/* Units stay lower case: 'MM/HR' is not how the unit is written. */}
+                            <div className="text-[11px] text-white/60 tracking-wider">mm/hr peak</div>
                         </div>
                     </div>
 
@@ -690,23 +706,20 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             </div>
                         )}
 
-                        <div className="relative flex items-end gap-[2px] w-full h-[120px]">
-                            {/* Dry window: a faint baseline and the words, so the
-                                empty chart reads as "checked, nothing coming"
-                                rather than a void that failed to draw. */}
+                        {/* Dry window: the chart collapses to a 32 pt baseline over
+                            the time axis. The headline above already says there
+                            is no rain; a full-height empty chart with the verdict
+                            printed in it again said it a third time (UX
+                            scorecard run 6). */}
+                        <div
+                            className={`relative flex items-end gap-[2px] w-full ${analysis.hasRain ? 'h-[120px]' : 'h-8'}`}
+                        >
                             {!analysis.hasRain && (
-                                <div className="absolute inset-x-0 bottom-0 flex flex-col items-center justify-end gap-2 pointer-events-none">
-                                    <span className="text-[12px] font-semibold text-white/70">
-                                        {analysis.subline.startsWith('Next ')
-                                            ? `No rain in the ${analysis.subline.toLowerCase()}`
-                                            : 'No rain in this window'}
-                                    </span>
-                                    <div
-                                        className="w-full h-px"
-                                        style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
-                                        aria-hidden="true"
-                                    />
-                                </div>
+                                <div
+                                    className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
+                                    style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
+                                    aria-hidden="true"
+                                />
                             )}
                             {data.map((point, i) => {
                                 const normalizedHeight =
@@ -746,7 +759,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                             {timeLabels.map(({ pct, label }, i) => (
                                 <span
                                     key={`${i}-${label}`}
-                                    className="absolute text-[11px] text-white/60 font-bold uppercase tracking-wider"
+                                    className="absolute text-[11px] text-white/60 font-bold tracking-wide whitespace-nowrap"
                                     style={{
                                         left: `${pct * 100}%`,
                                         // Shift the first label flush-left, the
@@ -756,7 +769,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', o
                                         transform:
                                             pct === 0
                                                 ? 'translateX(0)'
-                                                : pct === 1
+                                                : pct > 0.95
                                                   ? 'translateX(-100%)'
                                                   : 'translateX(-50%)',
                                     }}

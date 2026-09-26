@@ -53,6 +53,13 @@ import { useUIStore } from '../stores/uiStore';
 import { canAccess } from '../services/SubscriptionService';
 import { canRefreshRainForecast } from '../utils/offlineAuthority';
 import {
+    getForecastModelInfo,
+    getOffshoreModelInfo,
+    isSpitfire,
+    resolveForecastModel,
+    resolveOffshoreModel,
+} from '../services/weather/forecastModels';
+import {
     DndContext,
     PointerSensor,
     TouchSensor,
@@ -170,6 +177,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // the widget grid). Portrait keeps the fixed stack exactly as shipped.
     const landscapeFlow = Boolean(props.isMobileLandscape);
     const glassLayerPos = landscapeFlow ? 'absolute' : 'fixed';
+    // A 667 pt phone held upright. (A landscape phone is under 700 tall too,
+    // but its column scrolls, so it keeps the roomier hero.)
+    const shortPortrait = glassTopLayout.isShortViewport && !landscapeFlow;
     const landscapeHeroHeightPx = GLASS_LANDSCAPE_HERO_CONTAINER_HEIGHT_PX;
 
     // Derived UI Props
@@ -270,6 +280,21 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     precipRef.current = current?.precipitation ?? 0;
     const subscriptionTier = useSettingsStore((s) => s.settings.subscriptionTier);
     const isSkipper = canAccess(subscriptionTier, 'weatherFull');
+
+    // The model pill's own label, so a day past that model's range can name
+    // it (UX scorecard run 6). Null for Auto and the automatic offshore blend:
+    // no single model to name. Mirrors StatusBadges' pill resolution.
+    const pinnedForecastModel = useSettingsStore((s) => s.settings.forecastModel);
+    const pinnedOffshoreModel = useSettingsStore((s) => s.settings.offshoreModel);
+    const forecastModelLabel = useMemo(() => {
+        if (isOffshore) {
+            const model = resolveOffshoreModel(pinnedOffshoreModel);
+            return model === 'sg' ? null : getOffshoreModelInfo(model).label;
+        }
+        const model = resolveForecastModel(pinnedForecastModel);
+        if (isSpitfire(model)) return 'SPITFIRE';
+        return getForecastModelInfo(model)?.label ?? null;
+    }, [isOffshore, pinnedForecastModel, pinnedOffshoreModel]);
 
     // ── DnD: Phase 2 of the metric-pin feature ───────────────────────
     // Long-press activation means taps on cells still pass through to the
@@ -960,6 +985,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                 <div
                     className={`${landscapeFlow ? 'min-h-dvh' : 'h-dvh overflow-hidden'} w-full flex flex-col relative bg-black`}
+                    // Which glassLayout rhythm is in force, for cards that must size
+                    // themselves to its trimmed slots (warnings row 32, conditions
+                    // header 56) via Tailwind's in-data-[glass-rhythm=…] variants.
+                    data-glass-rhythm={shortPortrait ? 'short' : landscapeFlow ? 'landscape' : undefined}
                 >
                     {' '}
                     {/* Flex Root */}
@@ -1179,13 +1208,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     Its top is calculated from the rendered card heights so it
                                     preserves the same 8px gap in either dashboard mode. */}
                                 <div
-                                    className={`${glassLayerPos} left-0 right-0 z-120 bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0 ${
+                                    className={`${glassLayerPos} left-0 right-0 z-120 bg-black transition-[top] duration-300 flex flex-col pt-0 ${
                                         // Clipping is fine when there is room. On a short
                                         // viewport the hero would otherwise be a sliver with
                                         // no scroll escape, so let it scroll instead.
                                         glassTopLayout.isShortViewport ? 'overflow-y-auto' : 'overflow-hidden'
                                     }`}
                                     style={{
+                                        // Rain card to carousel on the same gap as the rest of
+                                        // the stack (6 on a 667 pt phone, where every point of
+                                        // tide card counts), not a fixed 8.
+                                        gap: `${glassTopLayout.cardGapPx}px`,
                                         top: isExpanded
                                             ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
                                             : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
@@ -1228,6 +1261,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         isEssentialMode={!isExpanded}
                                         vessel={userSettings.vessel}
                                         minutelyRain={minutelyRain}
+                                        forecastModelLabel={forecastModelLabel}
+                                        compact={shortPortrait}
                                     />
                                 </div>
 

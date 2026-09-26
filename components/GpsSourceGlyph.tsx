@@ -14,6 +14,7 @@
 import React from 'react';
 import { useWeatherOptional } from '../context/WeatherContext';
 import { useNmeaConnectionStatus } from './nmea/useNmeaStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { formatFixAge, type WeatherFixKind, type WeatherFollowTarget } from '../services/weatherPosition';
 
 export type GpsGlyph = 'boat' | 'phone' | 'none';
@@ -38,6 +39,8 @@ export function resolveGpsSourceState(input: {
     retainedWeather?: boolean;
     timestamp?: number;
     hasWeatherContext?: boolean;
+    /** The place the Glass is showing when the skipper picked one (not GPS-follow). */
+    chosenPlace?: string | null;
 }): GpsSourceState {
     const { weatherKind, storeStatus, remoteVia, target, status, timestamp } = input;
     if (status === 'resolving') {
@@ -89,7 +92,25 @@ export function resolveGpsSourceState(input: {
             canChoose: true,
         };
     }
+    // A picked place is where the weather is for, and no receiver is being
+    // read for it. 'none yet' beside a Glass showing Gladstone read as if the
+    // forecast had no position at all (UX scorecard run 6).
+    if (input.chosenPlace) {
+        return {
+            glyph: 'none',
+            tone: 'none',
+            label: `Position: ${input.chosenPlace} (chosen place) — GPS not in use`,
+            canChoose: false,
+        };
+    }
     return { glyph: 'none', tone: 'none', label: 'Position: none yet', canChoose: false };
+}
+
+/** The panel row's sentence starts with a capital, like the rows below it
+ *  ('Not tracking', 'Not deployed'); the accessible name keeps its prefix. */
+function rowDetail(label: string): string {
+    const detail = label.replace(/^Position:\s*/, '');
+    return detail.charAt(0).toUpperCase() + detail.slice(1);
 }
 
 const TONE_CLASS: Record<GpsTone, string> = {
@@ -142,6 +163,14 @@ const GlyphArt: React.FC<{ glyph: GpsGlyph; tone: GpsTone }> = ({ glyph, tone })
 function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => void } | null | undefined } {
     const weather = useWeatherOptional();
     const link = useNmeaConnectionStatus();
+    const defaultLocation = useSettingsStore((s) => s.settings?.defaultLocation);
+    // Off GPS-follow the context publishes no receiver at all; the place on
+    // the Glass is then the skipper's pick.
+    const shownName = weather?.weatherData?.locationName?.trim();
+    const chosenPlace =
+        weather && !weather.positionSource && defaultLocation && defaultLocation !== 'Current Location' && shownName
+            ? shownName
+            : null;
     const state = resolveGpsSourceState({
         weatherKind: weather?.positionSource?.kind ?? null,
         storeStatus: link.status,
@@ -151,6 +180,7 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
         retainedWeather: weather?.positionSource?.retainedWeather,
         timestamp: weather?.positionSource?.timestamp,
         hasWeatherContext: weather != null,
+        chosenPlace,
     });
     return { state, choice: weather?.positionChoice };
 }
@@ -163,7 +193,7 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
  */
 export const GpsSourceRow: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
     const { state } = useGpsSourceState();
-    const detail = state.label.replace(/^Position:\s*/, '');
+    const detail = rowDetail(state.label);
     return (
         <div
             data-testid="gps-source-row"

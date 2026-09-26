@@ -11,7 +11,13 @@
 export const GLASS_TOP_CARD_GAP_PX = 8;
 export const GLASS_BRAND_ROW_HEIGHT_PX = 64;
 export const GLASS_LOCATION_CARD_HEIGHT_PX = 48;
-export const GLASS_LANDSCAPE_LOCATION_CARD_HEIGHT_PX = 32;
+/**
+ * Landscape keeps the portrait location card. index.css gives every text
+ * input a 48 px min-height from 768 px wide, which an 852 x 393 phone is,
+ * so a 32 px slot was fiction: the field painted 47 px, overlapped the
+ * warnings row by 9 and its icon sat off-centre (UX scorecard run 6).
+ */
+export const GLASS_LANDSCAPE_LOCATION_CARD_HEIGHT_PX = GLASS_LOCATION_CARD_HEIGHT_PX;
 
 // These are the rendered outer heights, including each card's border.
 export const GLASS_COMPACT_HEADER_ROW_HEIGHT_PX = 40;
@@ -41,7 +47,8 @@ export const GLASS_SHORT_VIEWPORT_PX = 700;
 const SHORT = {
     gap: 6,
     brandRow: 52,
-    locationCard: 40,
+    // 44, not 40: the location field is a tap target and must meet the floor.
+    locationCard: 44,
     compactHeaderRow: 32,
     heroHeader: 56,
 };
@@ -54,6 +61,11 @@ const SHORT = {
  * harder than SHORT; the 163 px grid is untouched; the gap stays 8 so every
  * boundary is still on the Glass rhythm. Dashboard.tsx switches its layers
  * from `fixed` to `absolute` in landscape so the whole column scrolls.
+ *
+ * The trimmed slots are a contract the cards must honour: Dashboard.tsx marks
+ * its root `data-glass-rhythm="landscape"` (or "short" for SHORT), so the
+ * warnings row and conditions header can size themselves to 32 / 56. The
+ * location card is the exception — see GLASS_LANDSCAPE_LOCATION_CARD_HEIGHT_PX.
  */
 const LANDSCAPE = {
     gap: GLASS_TOP_CARD_GAP_PX,

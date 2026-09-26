@@ -33,13 +33,15 @@ describe('dashboard picker sheets', () => {
                 />
             </>,
         );
-        const first = screen.getByRole('button', { name: 'Reset to temperature' });
-        const close = screen.getByRole('button', { name: 'Close pin a metric sheet' });
-        expect(first).toHaveFocus();
+        // The Glass dialog header: focus starts on its top-right close, like
+        // the rain and System status dialogs; the bottom Close stays in reach.
+        const headerClose = screen.getByRole('button', { name: 'Close pin a metric sheet' });
+        const bottomClose = screen.getByRole('button', { name: 'Close' });
+        expect(headerClose).toHaveFocus();
 
-        fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
-        expect(close).toHaveFocus();
-        fireEvent.keyDown(close, { key: 'Escape' });
+        fireEvent.keyDown(headerClose, { key: 'Tab', shiftKey: true });
+        expect(bottomClose).toHaveFocus();
+        fireEvent.keyDown(bottomClose, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
 
         rerender(
@@ -71,6 +73,8 @@ describe('dashboard picker sheets', () => {
         // Same word as the grid cell it pins.
         expect(screen.getByText('PERIOD')).toBeInTheDocument();
         expect(screen.queryByText('PER.')).toBeNull();
+        expect(screen.getByText('BARO')).toBeInTheDocument();
+        expect(screen.queryByText('HPA')).toBeNull();
     });
 
     it('names the model sheet by its heading and gives every row one clause', () => {
@@ -86,11 +90,21 @@ describe('dashboard picker sheets', () => {
         const dialog = screen.getByRole('dialog', { name: 'Forecast model' });
         expect(screen.getByText('ECMWF AI model — no gust field')).toBeInTheDocument();
         expect(screen.getByText('Japan — western Pacific, no gust field')).toBeInTheDocument();
+        // No 'ECMWF — ECMWF…' under the ECMWF row, and the clause after an
+        // added dash continues in lower case like the rest.
+        expect(screen.getByText('The classic European physics model')).toBeInTheDocument();
+        expect(screen.getByText('UK Met Office — finest grid of the set (10 km)')).toBeInTheDocument();
         const helpers = dialog.querySelectorAll('button p + p');
         expect(helpers.length).toBeGreaterThan(3);
         for (const helper of helpers) {
             expect(helper.textContent!.split('—').length).toBeLessThanOrEqual(2);
+            expect(helper.textContent).not.toMatch(/— [A-Z][a-z]/);
         }
+        // Each grid model says how far ahead it reaches; blends do not.
+        expect(screen.getByRole('button', { name: 'Use the ICON forecast model' })).toHaveTextContent('ICON · 7 days');
+        expect(screen.getByRole('button', { name: 'Use the Auto forecast model' })).not.toHaveTextContent(/days/);
+        // The credit keeps Météo-France on one line.
+        expect(dialog.querySelector('span.whitespace-nowrap')?.textContent).toBe('Météo-France');
     });
 
     it('gives ModelPickerSheet an explicit close action and contains keyboard focus', () => {
@@ -104,11 +118,11 @@ describe('dashboard picker sheets', () => {
                 onRefresh={vi.fn()}
             />,
         );
-        const firstModel = screen.getAllByRole('button', { name: /forecast model$/ })[0];
+        const headerClose = screen.getByRole('button', { name: 'Close forecast model' });
         const close = screen.getByRole('button', { name: 'Close' });
-        expect(firstModel).toHaveFocus();
+        expect(headerClose).toHaveFocus();
 
-        fireEvent.keyDown(firstModel, { key: 'Tab', shiftKey: true });
+        fireEvent.keyDown(headerClose, { key: 'Tab', shiftKey: true });
         expect(close).toHaveFocus();
         fireEvent.click(close);
         expect(onClose).toHaveBeenCalledOnce();

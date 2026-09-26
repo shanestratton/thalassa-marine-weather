@@ -72,7 +72,7 @@ export const CompactHeaderRow = ({
                     hasWarnings
                         ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
                         : 'bg-emerald-500/10 border-emerald-500/20'
-                } transition-all active:scale-[0.97] border rounded-xl px-3 h-11 -my-0.5 flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
+                } transition-all active:scale-[0.97] border rounded-xl px-3 h-11 -my-0.5 in-data-[glass-rhythm]:h-8 in-data-[glass-rhythm]:my-0 hit-target-44 flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
             >
                 {hasWarnings ? (
                     <>
@@ -94,7 +94,7 @@ export const CompactHeaderRow = ({
 
             {/* CELESTIAL CARD - Sunrise, Sunset, Moon, Golden Hour */}
             <div
-                className={`${sunrise && sunset && isGoldenHour(sunrise, sunset) ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] flex items-center gap-3 shrink-0 transition-colors duration-500`}
+                className={`${sunrise && sunset && isGoldenHour(sunrise, sunset) ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] in-data-[glass-rhythm]:h-8 flex items-center gap-3 shrink-0 transition-colors duration-500`}
                 role="status"
                 aria-label="Celestial data"
             >

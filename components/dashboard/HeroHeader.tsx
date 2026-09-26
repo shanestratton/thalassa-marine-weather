@@ -148,7 +148,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
         <div className="relative w-full rounded-2xl overflow-hidden border bg-white/8 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/15">
             {/* Keyframes moved to index.css */}
 
-            <div className="flex flex-row w-full items-center min-h-[70px]">
+            <div className="flex flex-row w-full items-center min-h-[70px] in-data-[glass-rhythm]:min-h-[54px]">
                 {/* LEFT: Pinned metric (temperature by default).
                     Tap → open MetricPinSheet to pick a different metric.
                     Double-tap → reset to temperature.
@@ -156,7 +156,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     target generous on iOS. */}
                 <div
                     ref={setDroppableRef}
-                    className={`flex-1 px-3 py-2 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
+                    className={`flex-1 px-3 py-2 in-data-[glass-rhythm]:py-1 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
                         isOver ? 'bg-sky-500/20 ring-2 ring-sky-400/60 ring-inset rounded-lg' : ''
                     }`}
                     onClick={handleHeroLeftTap}
@@ -192,8 +192,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     <span
                                         className={
                                             pinnedMissing
-                                                ? 'text-4xl font-mono font-normal tracking-tighter text-white/40'
-                                                : `${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow-sm`
+                                                ? 'text-4xl in-data-[glass-rhythm]:text-3xl font-mono font-normal tracking-tighter text-white/40'
+                                                : `${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl in-data-[glass-rhythm]:text-3xl' : 'text-[44px] in-data-[glass-rhythm]:text-[36px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow-sm`
                                         }
                                     >
                                         {pinnedDisplay.value}
@@ -206,8 +206,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         ) : (
                             (() => {
                                 const len = tempStr.length;
+                                // Trimmed rhythms (SHORT, LANDSCAPE) mark the Dashboard
+                                // with data-glass-rhythm and give this row 56 px, not 72.
                                 const sizeClass =
-                                    tempMissing || len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
+                                    tempMissing || len > 3
+                                        ? 'text-4xl in-data-[glass-rhythm]:text-3xl'
+                                        : len > 2
+                                          ? 'text-[44px] in-data-[glass-rhythm]:text-[36px]'
+                                          : 'text-[54px] in-data-[glass-rhythm]:text-[40px]';
                                 // Placeholder: regular weight, muted ink (text-white/40
                                 // has its own caption ink by night and by day).
                                 const inkClass = tempMissing
@@ -242,13 +248,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                             aria-hidden="true"
                                         >
                                             <span
-                                                className={`text-[22px] font-mono leading-none ${inkClass}`}
+                                                className={`text-[22px] in-data-[glass-rhythm]:text-lg font-mono leading-none ${inkClass}`}
                                                 style={{ transform: `translateY(${ringDropPx}px)` }}
                                             >
                                                 °
                                             </span>
                                             <span
-                                                className={`text-[22px] font-mono leading-none ${inkClass} translate-y-[-7px]`}
+                                                className={`text-[22px] in-data-[glass-rhythm]:text-lg font-mono leading-none ${inkClass} translate-y-[-7px]`}
                                             >
                                                 {units.temp}
                                             </span>
@@ -272,16 +278,20 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         <CoachMark
                             seenKey="thalassa_hero_pin_coach_v1"
                             visibleWhen={heroMetric === 'temp'}
-                            anchor="top-right"
-                            arrow="left"
+                            anchor="bottom-left"
+                            arrow="up"
                             message="Tap to pin"
                             initialDelayMs={1500}
                             ttlMs={6000}
-                            // Beside the digits, inside the card: the card clips
-                            // anything outside it and the header rows above and
-                            // below paint over it, so 'above, pointing down' was
-                            // invisible (2026-09-26). Six seconds, first run only.
-                            className="translate-x-[calc(100%+8px)] translate-y-1 whitespace-nowrap"
+                            // Under the digits, inside this partition: the card
+                            // clips anything outside it and the header rows above
+                            // and below paint over it, so 'above, pointing down'
+                            // was invisible, and 'beside' covered the condition
+                            // text (2026-09-26). The bubble is opaque and only
+                            // overlaps the foot of the digits for six seconds,
+                            // first run only. `!` because the anchor's own
+                            // bottom-2/left-2 sort after these and would win.
+                            className="left-1! bottom-0.5! whitespace-nowrap"
                         />
                     )}
                 </div>

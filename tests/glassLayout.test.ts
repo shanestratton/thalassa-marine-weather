@@ -12,7 +12,9 @@ import {
 describe('Glass top-card layout', () => {
     it.each([
         ['portrait', false, 48, 120, 128, 176, 256, 346, 427],
-        ['landscape', true, 32, 80, 88, 128, 192, 282, 363],
+        // Landscape keeps the 48 px location card: index.css forces text
+        // inputs to 48 px from 768 px wide, so a 32 px slot only overlapped.
+        ['landscape', true, 48, 96, 104, 144, 208, 298, 379],
     ])(
         'keeps every card boundary on the same 8px rhythm in %s',
         (
@@ -102,6 +104,11 @@ describe('short viewports (iPhone SE / 8 at 667pt)', () => {
         expect(short.heroContainerExpandedTopPx - short.primaryCardTopPx).toBe(
             GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX + short.cardGapPx,
         );
+    });
+
+    it('keeps the location field at the 44px tap-target floor', () => {
+        expect(getGlassTopLayout(false, 667).locationCardHeightPx).toBe(44);
+        expect(getGlassTopLayout(true).locationCardHeightPx).toBeGreaterThanOrEqual(44);
     });
 
     it('gives the hero real space back on a 667pt screen', () => {
