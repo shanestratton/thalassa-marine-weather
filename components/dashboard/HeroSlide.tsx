@@ -17,14 +17,7 @@ import {
     ForecastDay,
 } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
-import {
-    convertTemp,
-    convertSpeed,
-    convertLength,
-    convertDistance,
-    degreesToCardinal,
-    cardinalToDegrees,
-} from '../../utils';
+import { cardinalToDegrees, convertMetersTo } from '../../utils';
 
 import { MetricGridPanel } from './hero/MetricGridPanel';
 import { useWeather } from '../../context/WeatherContext';
@@ -42,6 +35,60 @@ import { useSettingsStore } from '../../stores/settingsStore';
 // Stable fallback: `weatherData?.forecast || []` minted a fresh array on every
 // render when forecast was absent, defeating the `slides` useMemo below.
 const EMPTY_FORECAST: ForecastDay[] = [];
+
+type TideDirection = 'rising' | 'falling' | 'steady';
+
+/**
+ * Tide height (metres) and direction at `tMs`, for the tide card's accessible
+ * name. Between extremes it is the same cosine curve TideGraph draws; the
+ * hourly sea-level series is the fallback. Null when neither brackets `tMs` —
+ * the name then carries the hour alone rather than an invented height.
+ */
+function tideAtTime(
+    extremes: { t: number; h: number }[],
+    series: { t: number; h: number }[],
+    tMs: number,
+): { heightM: number; direction: TideDirection } | null {
+    const dir = (from: number, to: number): TideDirection =>
+        Math.abs(to - from) < 0.005 ? 'steady' : to > from ? 'rising' : 'falling';
+    for (let i = 1; i < extremes.length; i++) {
+        const a = extremes[i - 1];
+        const b = extremes[i];
+        if (tMs >= a.t && tMs <= b.t && b.t > a.t) {
+            const phase = (Math.PI * (tMs - a.t)) / (b.t - a.t);
+            return { heightM: (a.h + b.h) / 2 + ((a.h - b.h) / 2) * Math.cos(phase), direction: dir(a.h, b.h) };
+        }
+    }
+    for (let i = 1; i < series.length; i++) {
+        const a = series[i - 1];
+        const b = series[i];
+        if (tMs >= a.t && tMs <= b.t && b.t > a.t) {
+            return { heightM: a.h + ((b.h - a.h) * (tMs - a.t)) / (b.t - a.t), direction: dir(a.h, b.h) };
+        }
+    }
+    return null;
+}
+
+const byTime = <T extends { time: string; height: number }>(points: T[] | undefined) =>
+    (points ?? [])
+        .map((p) => ({ t: new Date(p.time).getTime(), h: p.height }))
+        .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.h))
+        .sort((a, b) => a.t - b.t);
+
+/**
+ * A forecast day past every provider's reach: no hourly frames and not one
+ * daily number. It used to render the overview's grid of bare dashes — the
+ * same picture as a broken feed — so it says what it is instead.
+ */
+const ForecastHorizonCard: React.FC<{ dateLabel: string }> = ({ dateLabel }) => (
+    <div
+        data-testid="forecast-horizon"
+        className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-start pt-3 gap-2 px-5 text-center"
+    >
+        <span className="text-base font-bold tracking-wide text-white/90">{dateLabel}</span>
+        <p className="glass-forecast-caption text-sm font-medium">Beyond the forecast horizon — check back tomorrow</p>
+    </div>
+);
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 /** Module-level so the memoised radar card sees one stable onMapTap identity. */
@@ -394,48 +441,31 @@ const HeroSlideComponent = ({
     const activeSunPhase = computeSunPhase(activeCardData, activeCardTime);
     const _activeIsCardDay = !activeIsLive && index > 0 ? true : activeSunPhase.isDay;
 
-    // Calculate display values for static widgets based on activeCardData
-    // These values will update if dynamicHeaderMetrics is enabled
-    const hasActiveWind = activeCardData?.windSpeed !== null && activeCardData?.windSpeed !== undefined;
-    const rawActiveGust = activeCardData?.windGust || (activeCardData?.windSpeed || 0) * 1.3;
-    const hasActiveWave = activeCardData?.waveHeight !== null && activeCardData?.waveHeight !== undefined;
+    // (The static-header display values that used to be computed here were
+    // dead code, and carried an invented gust — sustained × 1.3 — that must
+    // not be revived. The header renders at Dashboard level from real data.)
 
-    const _staticDisplayValues = {
-        airTemp:
-            activeCardData?.airTemperature !== null
-                ? convertTemp(activeCardData?.airTemperature || 0, units.temp)
-                : '--',
-        windSpeed: hasActiveWind ? Math.round(convertSpeed(activeCardData.windSpeed!, units.speed)!) : '--',
-        waveHeight: isLandlocked
-            ? '0'
-            : hasActiveWave
-              ? String(convertLength(activeCardData.waveHeight, units.length))
-              : '--',
-        vis: activeCardData?.visibility ? convertDistance(activeCardData.visibility, units.visibility || 'nm') : '--',
-        gusts: hasActiveWind ? Math.round(convertSpeed(rawActiveGust!, units.speed)!) : '--',
-        pressure: activeCardData?.pressure ? Math.round(activeCardData.pressure) : '--',
-        uv:
-            activeCardData?.uvIndex !== undefined && activeCardData?.uvIndex !== null
-                ? Math.round(activeCardData.uvIndex)
-                : '--',
-        humidity:
-            activeCardData?.humidity !== undefined && activeCardData?.humidity !== null
-                ? Math.round(activeCardData.humidity)
-                : '--',
-        waterTemperature:
-            activeCardData?.waterTemperature !== undefined && activeCardData?.waterTemperature !== null
-                ? convertTemp(activeCardData.waterTemperature, units.temp)
-                : '--',
-        currentSpeed:
-            activeCardData?.currentSpeed !== undefined && activeCardData?.currentSpeed !== null
-                ? Number(activeCardData.currentSpeed).toFixed(1)
-                : '--',
-        currentDirection: (() => {
-            const val = activeCardData?.currentDirection;
-            if (typeof val === 'number') return degreesToCardinal(val);
-            if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
-            return '--';
-        })(),
+    // Tide cards: every hourly slide is its own button, so each name carries
+    // its hour and height ("08:00, 3.8 m rising — show wind versus tide")
+    // instead of ~240 identical "Show wind versus tide" buttons.
+    const tideExtremes = useMemo(() => byTime(tides), [tides]);
+    const tideSeriesPts = useMemo(() => byTime(tideHourly), [tideHourly]);
+    const tideHourFmt = useMemo(() => {
+        const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
+        try {
+            return new Intl.DateTimeFormat('en-GB', { ...opts, timeZone });
+        } catch {
+            return new Intl.DateTimeFormat('en-GB', opts);
+        }
+    }, [timeZone]);
+    const tideCardLabel = (isLive: boolean, tMs: number | undefined): string => {
+        const at = tMs ?? Date.now();
+        const when = isLive || tMs === undefined ? 'Now' : tideHourFmt.format(new Date(at));
+        const tide = tideAtTime(tideExtremes, tideSeriesPts, at);
+        const unit = units.tideHeight || 'm';
+        const height = tide ? convertMetersTo(tide.heightM, unit) : null;
+        const where = tide && height !== null ? `, ${height.toFixed(1)} ${unit} ${tide.direction}` : '';
+        return `${when}${where} — show wind versus tide`;
     };
 
     // Get source colors for static header metrics
@@ -591,6 +621,15 @@ const HeroSlideComponent = ({
                         // through hands the slide to the showMapInstead branch
                         // below, which is the essential slot proper.
                         if (slide.type === 'daily' && slide.daily && !showMapInstead) {
+                            const d = slide.daily;
+                            const beyondHorizon =
+                                index > 0 &&
+                                hourlyToRender.length === 0 &&
+                                !d.condition &&
+                                !d.tideSummary &&
+                                [d.highTemp, d.lowTemp, d.windSpeed, d.windGust, d.waveHeight, d.precipChance].every(
+                                    (v) => v === null || v === undefined,
+                                );
                             return (
                                 <div
                                     key={slideIdx}
@@ -599,12 +638,16 @@ const HeroSlideComponent = ({
                                     // up/down day-swipe and the snap "bounces" (regression fix).
                                     className="w-full h-full min-h-0 overflow-hidden snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                                 >
-                                    <DailySummaryCard
-                                        daily={slide.daily}
-                                        units={units}
-                                        isLandlocked={isLandlocked}
-                                        dateLabel={rowDateLabel}
-                                    />
+                                    {beyondHorizon ? (
+                                        <ForecastHorizonCard dateLabel={rowDateLabel} />
+                                    ) : (
+                                        <DailySummaryCard
+                                            daily={slide.daily}
+                                            units={units}
+                                            isLandlocked={isLandlocked}
+                                            dateLabel={rowDateLabel}
+                                        />
+                                    )}
                                 </div>
                             );
                         }
@@ -729,7 +772,9 @@ const HeroSlideComponent = ({
                                             }
                                             role={showWindVsTide ? undefined : 'button'}
                                             tabIndex={showWindVsTide ? undefined : 0}
-                                            aria-label={showWindVsTide ? undefined : 'Show wind versus tide'}
+                                            aria-label={
+                                                showWindVsTide ? undefined : tideCardLabel(cardIsLive, cardTime)
+                                            }
                                             onKeyDown={(e) => {
                                                 if (showWindVsTide) return;
                                                 if (e.key === 'Enter' || e.key === ' ') {

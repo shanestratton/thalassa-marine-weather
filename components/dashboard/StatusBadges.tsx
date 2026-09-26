@@ -12,6 +12,7 @@ import {
     isSpitfire,
     resolveOffshoreModel,
     getOffshoreModelInfo,
+    OFFSHORE_MODELS,
 } from '../../services/weather/forecastModels';
 import { listPublishedModels } from '../../services/weather/wxPublished';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
@@ -56,6 +57,26 @@ interface StatusBadgesProps {
     coordinates?: { lat: number; lon: number };
 }
 
+/**
+ * The display name of whatever served the Glass, from the pipeline's model
+ * tag ('om:dwd_icon+wk', 'wx:ecmwf_ifs025', 'spitfire+sg',
+ * 'stormglass_ecmwf+fallback:…'). The tag is an internal id and was being
+ * read aloud verbatim ("showing om:dwd_icon+wk"). Null when the tag names no
+ * single model (Auto blends, 'Loading...'), so the name simply omits it
+ * rather than guessing. A tag that is already a plain name passes through.
+ */
+function servedModelDisplayName(tag: string | null): string | null {
+    if (!tag) return null;
+    if (/\bspitfire\b/i.test(tag)) return 'Spitfire';
+    const grid = /(?:^|\+)(?:om|wx):([a-z0-9_]+)/.exec(tag) ?? /^(?:openmeteo|wx)_([a-z0-9_]+)/.exec(tag);
+    if (grid) return getForecastModelInfo(grid[1] as WeatherModel)?.label ?? null;
+    const sg = /^stormglass_([a-z]+)/.exec(tag);
+    if (sg) return OFFSHORE_MODELS.find((m) => m.id === sg[1])?.label ?? null;
+    // Anything else with id punctuation is an internal blend tag, not a name.
+    if (/[:_+]|\.\.\.$/.test(tag) || tag === tag.toLowerCase()) return null;
+    return tag;
+}
+
 // NOTE: the Data Sources modal was removed on 2026-04-23 (per-metric
 // provenance was frequently wrong), and the legacy source-config tables +
 // formatCacheAge helper that lingered afterwards were deleted 2026-07-20
@@ -88,13 +109,16 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // down to next-update as if nothing happened.
         const hasError = !!error && !isSyncing;
 
-        // BADGES Logic — each variant carries a label, tailwind color
-        // classes (bg + text + border), an SVG glyph, and the breathing
-        // glow class name that matches its colour.
+        // BADGES Logic — each variant carries a label, a text colour and an
+        // SVG glyph.
         const offshore = isOffshoreProp ?? locationType === 'offshore';
         let statusBadgeLabel: string;
+        // Text colour only. The pill used to wear the model button's chrome
+        // (tinted fill, border, breathing glow) while not being tappable, so
+        // it read as a second button. Status gets no chrome; only actions do.
+        // Daylight ink is pinned to the -800 step: the shared -200 → -700
+        // remaps land at ~4.1–4.5:1 on the slate-200 day page.
         let statusBadgeColor: string;
-        let statusBadgeGlow: string;
         let statusBadgeIcon: React.ReactNode;
 
         // Shared tiny-icon style — matches the 12px label height
@@ -105,9 +129,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             // it here made offshore wrap and grow taller than the other modes.
             statusBadgeLabel = 'OFFSHORE';
             // Gradient gives the pill depth vs a flat wash
-            statusBadgeColor =
-                'bg-linear-to-r from-sky-500/25 via-sky-500/20 to-sky-500/25 text-sky-200 border-sky-400/40';
-            statusBadgeGlow = 'status-badge-glow-sky';
+            statusBadgeColor = 'text-sky-200 [.display-light_&]:text-sky-800!';
             // Compass rose — offshore = open water navigation
             statusBadgeIcon = (
                 <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -118,9 +140,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             );
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
             statusBadgeLabel = 'INLAND';
-            statusBadgeColor =
-                'bg-linear-to-r from-amber-500/25 via-amber-500/20 to-amber-500/25 text-amber-200 border-amber-400/40';
-            statusBadgeGlow = 'status-badge-glow-amber';
+            statusBadgeColor = 'text-amber-200 [.display-light_&]:text-amber-800!';
             // Little mountain silhouette
             statusBadgeIcon = (
                 <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -129,9 +149,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             );
         } else if (locationType === 'inshore') {
             statusBadgeLabel = 'INSHORE';
-            statusBadgeColor =
-                'bg-linear-to-r from-teal-500/25 via-teal-500/20 to-teal-500/25 text-teal-200 border-teal-400/40';
-            statusBadgeGlow = 'status-badge-glow-teal';
+            statusBadgeColor = 'text-teal-200 [.display-light_&]:text-teal-800!';
             // Anchor — tight-to-shore waters
             statusBadgeIcon = (
                 <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -143,9 +161,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             );
         } else {
             statusBadgeLabel = 'COASTAL';
-            statusBadgeColor =
-                'bg-linear-to-r from-emerald-500/25 via-emerald-500/20 to-emerald-500/25 text-emerald-200 border-emerald-400/40';
-            statusBadgeGlow = 'status-badge-glow-emerald';
+            statusBadgeColor = 'text-emerald-200 [.display-light_&]:text-emerald-800!';
             // Stylized wave
             statusBadgeIcon = (
                 <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -201,7 +217,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // pill's face stays the pinned selection (it is a picker, and must
         // show what tapping it will change), but the accessible name and
         // tooltip no longer claim a model the server may not have used.
-        const servedModel = typeof modelUsed === 'string' && modelUsed.trim() ? modelUsed.trim() : null;
+        const servedModel = servedModelDisplayName(
+            typeof modelUsed === 'string' && modelUsed.trim() ? modelUsed.trim() : null,
+        );
 
         // SPITFIRE only exists where the wx box computes it, so both the pill
         // and the picker follow the boat's position.
@@ -249,13 +267,14 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                     >
                         {/* Location-type Badge — informational only (no longer
                             tappable; the Data Sources modal was removed because
-                            per-metric attribution wasn't reliable). Keeps the
-                            breathing glow and type-specific glyph so the pill
-                            still reads at a glance. */}
+                            per-metric attribution wasn't reliable). Flat on
+                            purpose: glyph + coloured word, no border, fill or
+                            glow, so it cannot be mistaken for the model button
+                            on the right. */}
                         <div
                             role="status"
                             aria-label={`Location type: ${statusBadgeLabel}`}
-                            className={`h-8 w-full max-w-32 min-w-0 justify-self-start px-1.5 rounded-lg border text-micro leading-4 whitespace-nowrap font-bold uppercase tracking-wider ${statusBadgeColor} ${statusBadgeGlow} text-center flex items-center justify-center gap-1`}
+                            className={`h-8 w-full max-w-32 min-w-0 justify-self-start px-1.5 text-micro leading-4 whitespace-nowrap font-bold uppercase tracking-wider ${statusBadgeColor} text-left flex items-center justify-start gap-1`}
                         >
                             {/* Reserve the text first in narrow phone/split panes;
                                 decorative glyphs never squeeze labels or age. */}

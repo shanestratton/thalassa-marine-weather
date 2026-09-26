@@ -184,7 +184,10 @@ const InstrumentCell: React.FC<{
     dirDeg?: number | null; // Optional directional arrow
     onClick?: () => void;
     tooltip?: string; // Long-press / hover explanation
-}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick, tooltip }) => {
+    /** Wide six-letter labels (CHANCE) ran flush into the cell border at
+     *  393 px; tighten tracking and the icon gap for those alone. */
+    compactLabel?: boolean;
+}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick, tooltip, compactLabel }) => {
     return (
         <div
             className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
@@ -193,14 +196,16 @@ const InstrumentCell: React.FC<{
             aria-label={`${label}: ${value}${unit ? ' ' + unit : ''}${tooltip ? `. ${tooltip}` : ''}`}
         >
             {/* Header: icon + label + trend — locked to a single 12px line */}
-            <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
+            <div
+                className={`glass-metric-heading-row flex items-center ${compactLabel ? 'gap-0.5' : 'gap-1'} opacity-90 h-3`}
+            >
                 <span
                     className={`w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}
                 >
                     {icon}
                 </span>
                 <span
-                    className={`glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase leading-none ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}
+                    className={`glass-metric-heading text-[11px] font-sans font-bold ${compactLabel ? 'tracking-wide' : 'tracking-widest'} uppercase leading-none ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}
                 >
                     {label}
                 </span>
@@ -236,9 +241,14 @@ const BarometerCell: React.FC<{
 }> = ({ pressure, trend }) => {
     // Semantic coloring: rising pressure = improving (green), falling = worsening (red)
     const isRising = trend === 'up';
+    const trendWord =
+        pressure === '--' || !trend ? '' : trend === 'up' ? ', rising' : trend === 'down' ? ', falling' : ', steady';
 
     return (
-        <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
+        <div
+            className="flex flex-col items-center justify-between h-full py-2 px-1 relative"
+            aria-label={`HPA: ${pressure}${trendWord}. Barometric pressure — tap for the barometer`}
+        >
             {/* Header: icon + label + trend — locked to 12px line */}
             <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
                 <span className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400">
@@ -699,6 +709,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         ) : (
                             <InstrumentCell
                                 label={isLive ? 'RAIN' : 'CHANCE'}
+                                compactLabel={!isLive}
                                 icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                                 value={rainValue}
                                 unit={rainUnit}

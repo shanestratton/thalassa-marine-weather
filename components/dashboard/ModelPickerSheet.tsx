@@ -10,7 +10,7 @@
  * Follows the MetricPinSheet portal idiom (bottom-anchored, Esc + body
  * scroll lock, backdrop dismiss).
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
@@ -52,6 +52,16 @@ interface ModelPickerSheetProps {
     publishedModels?: string[];
 }
 
+/**
+ * One clause per row. Blurbs that already carry their own em-dash clause
+ * ('ECMWF AI model — no gust field', 'Japan — western Pacific, …') stuttered
+ * behind a second 'Provider — ' prefix; they stand alone, and the provider is
+ * still credited in the attribution line at the foot of the sheet.
+ */
+function modelHelper(provider: string, blurb: string): string {
+    return blurb.includes('—') || blurb.startsWith(provider) ? blurb : `${provider} — ${blurb}`;
+}
+
 export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     visible,
     currentModel,
@@ -64,6 +74,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     publishedModels,
 }) => {
     const portalTarget = usePanePortalTarget();
+    const titleId = useId();
     // Intersect, but never present an EMPTY picker: a publisher outage must
     // degrade to the built-in list, not to a sheet with nothing to choose.
     const grids =
@@ -141,7 +152,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             onClick={onClose}
             role="dialog"
             aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
-            aria-label="Choose a forecast model"
+            aria-labelledby={titleId}
             ref={dialogRef}
         >
             {/* Backdrop */}
@@ -154,7 +165,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             >
                 {/* Header */}
                 <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
-                    <h2 className="text-base font-bold text-white tracking-tight">
+                    <h2 id={titleId} className="text-base font-bold text-white tracking-tight">
                         {offshore ? 'Offshore forecast model' : 'Forecast model'}
                     </h2>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
@@ -173,7 +184,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             row(
                                 m.id,
                                 m.label,
-                                `${m.provider} — ${m.blurb}`,
+                                modelHelper(m.provider, m.blurb),
                                 m.hex,
                                 offshore.currentModel === m.id,
                                 () => offshore.onPick(m.id),
@@ -193,7 +204,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                                 </>
                             )}
 
-                            {grids.map((m) => atmosphericRow(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
+                            {grids.map((m) => atmosphericRow(m.id, m.label, modelHelper(m.provider, m.blurb), m.hex))}
 
                             {/* Divider */}
                             <div className="h-px bg-white/6 my-2" />

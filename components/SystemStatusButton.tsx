@@ -951,7 +951,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // reporting nothing was clutter), but since 2026-09-08 it is where the
     // punter finds which GPS the app is reading, and that is never nothing
     // (Shane: "once punters know where to look, they will find it"). The count
-    // badge still appears only above one, so at zero it is the circle-i alone.
+    // badge appears from ONE: it used to wait for two, so one active system
+    // looked identical to none while the name announced "1 active".
     void alwaysShow;
 
     // Has urgent status (anchor alarm, route changed)?
@@ -1014,9 +1015,13 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                     <path d="M4.4 4.4a10.7 10.7 0 0 0 0 15.2M19.6 4.4a10.7 10.7 0 0 1 0 15.2" opacity="0.55" />
                 </svg>
 
-                {/* Active count badge */}
-                {activeCount > 1 && (
-                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md ring-2 ring-slate-900/20">
+                {/* Active count badge — from 1, matching the accessible name */}
+                {activeCount > 0 && (
+                    <span
+                        aria-hidden="true"
+                        data-testid="system-status-count"
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md ring-2 ring-slate-900/20"
+                    >
                         {activeCount}
                     </span>
                 )}

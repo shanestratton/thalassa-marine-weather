@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { RainForecastCard } from '../components/dashboard/RainForecastCard';
 
@@ -53,6 +53,17 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         );
         expect(screen.getByText(/No rain expected next (58|59|60) min/)).toBeInTheDocument();
         expect(screen.queryByText('No precipitation expected next 4 hours')).not.toBeInTheDocument();
+    });
+
+    it('the dry detail says so on its chart and heads the dialog like its siblings', () => {
+        render(<RainForecastCard data={dryFeed(240)} source="rainbow" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const dialog = screen.getByRole('dialog', { name: 'Rain Forecast' });
+        expect(screen.getByRole('heading', { level: 2, name: 'Rain Forecast' })).toBeInTheDocument();
+        // The empty chart is a stated verdict with a baseline, not a void.
+        expect(screen.getByText('No rain in the next 4 hours')).toBeInTheDocument();
+        // No droplet "needle" parked at half scale on a 0.0 gauge.
+        expect(dialog.querySelector('path[d^="M 60 28"]')).toBeNull();
     });
 
     it('a fully-elapsed feed is out of date, not a forecast', () => {

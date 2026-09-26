@@ -131,6 +131,25 @@ describe('the Glass status strip stays one row and names no receiver', () => {
     });
 
     it.each([
+        ['om:dwd_icon+wk', 'Choose forecast model — showing ICON'],
+        ['wx:ecmwf_ifs025', 'Choose forecast model — showing ECMWF'],
+        ['spitfire+sg', 'Choose forecast model — showing Spitfire'],
+        ['stormglass_gfs+fallback:ecmwf', 'Choose forecast model — showing GFS'],
+        ['wk+sg', 'Choose forecast model'],
+        ['Loading...', 'Choose forecast model'],
+    ])('reads the served model %s aloud by its display name, never the internal tag', (modelUsed, name) => {
+        renderStrip(null, { modelUsed });
+        expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    });
+
+    it('draws the location badge as status, without the model button chrome', () => {
+        renderStrip(null, { locationType: 'coastal' });
+        const badge = screen.getByRole('status', { name: 'Location type: COASTAL' });
+        expect(badge.className).not.toMatch(/\bborder\b|\bbg-|status-badge-glow/);
+        expect(screen.getByRole('button', { name: 'Choose forecast model' }).className).toMatch(/\bborder\b/);
+    });
+
+    it.each([
         ['dwd_icon', 'ICON'],
         ['ecmwf_ifs025', 'ECMWF'],
         ['ecmwf_aifs025_single', 'AIFS'],
