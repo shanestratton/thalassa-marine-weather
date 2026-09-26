@@ -17,11 +17,14 @@ export const GLASS = {
         border: '1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08))',
         borderRadius: '16px',
     } as React.CSSProperties,
+    // The same surface as `card`, so a grouped list and a single card read as
+    // one treatment (UX scorecard run 7, C-vessel-seven-accents: "a different
+    // card treatment per card"). It adds only the clip for its dividers.
     listContainer: {
-        background: 'var(--vessel-list-bg, rgba(20, 25, 35, 0.5))',
+        background: 'var(--vessel-card-bg, rgba(20, 25, 35, 0.6))',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid var(--vessel-list-border, rgba(255, 255, 255, 0.06))',
+        border: '1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08))',
         borderRadius: '16px',
         overflow: 'hidden' as const,
     } as React.CSSProperties,
@@ -30,19 +33,22 @@ export const GLASS = {
 // Passage Planning is the doorway to the whole voyage workflow — readiness
 // cards, crew, watches, float plan, Cast Off — and as a plain office row it
 // disappeared into the list (Shane 2026-08-26: "make the passage planning
-// card more recognisable... maybe a bit of a hue around it"). Violet is the
-// planning identity everywhere else (the readiness group headers), so the
-// bezel matches the destination. Same treatment shape as the emerald safety
-// group below — a calm hue, not an alarm.
+// card more recognisable... maybe a bit of a hue around it"). The hue is the
+// hub's one accent, sky, not the violet it first wore: beside the safety
+// deck's red, amber and green, a decorative purple glow made colour stop
+// meaning anything (UX scorecard run 7, C-vessel-seven-accents). Same
+// treatment shape as the emerald safety group — a calm hue, not an alarm.
+// The tint sits on the hub's card surface, so daylight gets a pale sky card
+// beside the white ones instead of a grey, see-through one.
 export const PASSAGE_PLANNING_GROUP = {
     background:
-        'var(--vessel-passage-group-bg, linear-gradient(135deg, rgba(139, 92, 246, 0.16) 0%, rgba(76, 29, 149, 0.08) 48%, rgba(20, 25, 35, 0.08) 100%))',
+        'var(--vessel-passage-group-bg, linear-gradient(135deg, rgba(14, 165, 233, 0.16) 0%, rgba(14, 165, 233, 0.05) 100%) var(--vessel-card-bg, rgba(20, 25, 35, 0.6)))',
     backdropFilter: 'blur(16px)',
     WebkitBackdropFilter: 'blur(16px)',
-    border: '1px solid var(--vessel-passage-group-border, rgba(167, 139, 250, 0.32))',
+    border: '1px solid var(--vessel-passage-group-border, rgba(125, 211, 252, 0.3))',
     borderRadius: '16px',
     overflow: 'hidden' as const,
-    boxShadow: '0 0 0 1px rgba(139, 92, 246, 0.07), 0 10px 26px rgba(109, 40, 217, 0.14)',
+    boxShadow: '0 0 0 1px rgba(14, 165, 233, 0.06), 0 10px 26px rgba(3, 105, 161, 0.14)',
 } as React.CSSProperties;
 
 // ── Bathymetric contour background SVG ──

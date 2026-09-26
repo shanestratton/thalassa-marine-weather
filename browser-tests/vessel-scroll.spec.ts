@@ -71,7 +71,10 @@ for (const size of [
             }
         }, size.mode ?? 'dark');
         await page.goto('/');
-        await page.getByRole('tab', { name: 'Navigate to Vessel', exact: true }).click();
+        await page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Vessel', exact: true })
+            .click();
         const diary = page.getByRole('button', { name: 'Open Diary', exact: true });
         const chat = page.getByRole('button', { name: 'Open Scuttlebutt', exact: true });
         await expect(diary).toBeVisible({ timeout: 25_000 });
@@ -79,7 +82,7 @@ for (const size of [
         const deck = page.getByRole('region', { name: 'Vessel status and safety controls' });
         await expect(port).toHaveCount(1);
         await expect(
-            page.getByRole('button', { name: 'Settings & Connect', exact: true, expanded: false }),
+            page.getByRole('button', { name: 'Connections & music', exact: true, expanded: false }),
         ).toBeVisible();
         // Both snap targets have staggered entrance transforms. Measure only
         // after every direct child's entrance has settled, not just the first.
@@ -115,7 +118,7 @@ for (const size of [
 
         // A proximity target must not trap the user at the top when a lower
         // section is expanded; its actual controls must remain reachable.
-        const expand = page.getByRole('button', { name: 'Settings & Connect', exact: true, expanded: false });
+        const expand = page.getByRole('button', { name: 'Connections & music', exact: true, expanded: false });
         if (size.expansionDelay) {
             // A late CSS transition start models a busy rendering frame. The
             // section must reveal its final controls, not scroll to the height
@@ -150,13 +153,14 @@ for (const size of [
             }, size.expansionDelay);
         }
         await expand.click();
-        // The row was "Account & Settings" until UX scorecard run 6.
-        const account = page.getByRole('button', { name: 'Settings', exact: true });
+        // The group's last row. Settings, which used to close this group, is an
+        // always-visible row since UX scorecard run 7; Music joined the group.
+        const lastRow = page.getByRole('button', { name: 'Music', exact: true });
         // Let the real expansion and subsequent section scroll finish.
         // Racing that scroll with our return gesture would test two competing
         // programmatic scrolls rather than the user's settled page.
         await page
-            .getByRole('button', { name: 'Settings & Connect', exact: true, expanded: true })
+            .getByRole('button', { name: 'Connections & music', exact: true, expanded: true })
             .evaluate(async (button) => {
                 const group = button.closest('h2')!.parentElement!;
                 void group.getBoundingClientRect();
@@ -165,12 +169,12 @@ for (const size of [
         if (size.expansionDelay) {
             await testInfo.attach('vessel-expansion-timeline', {
                 body: await page
-                    .getByRole('button', { name: 'Settings & Connect', exact: true, expanded: true })
+                    .getByRole('button', { name: 'Connections & music', exact: true, expanded: true })
                     .evaluate((button) => button.closest('h2')!.parentElement!.dataset.scrollTrace ?? '[]'),
                 contentType: 'application/json',
             });
         }
-        await expect.poll(() => contained(account, port)).toBe(true);
+        await expect.poll(() => contained(lastRow, port)).toBe(true);
         await waitForSettledScroll(port);
         await expect.poll(async () => (await geometry(port)).max).toBeGreaterThan(before.max);
         await port.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }));
@@ -178,13 +182,13 @@ for (const size of [
         const bottomPort = await port.boundingBox();
         await expect
             .poll(async () => {
-                const rect = await account.boundingBox();
+                const rect = await lastRow.boundingBox();
                 return rect!.y + rect!.height;
             })
             .toBeLessThanOrEqual(bottomPort!.y + bottomPort!.height + 1);
-        const accountRect = await account.boundingBox();
-        expect(accountRect!.y).toBeGreaterThanOrEqual(bottomPort!.y - 1);
-        expect(accountRect!.y + accountRect!.height).toBeLessThanOrEqual(bottomPort!.y + bottomPort!.height + 1);
+        const lastRowRect = await lastRow.boundingBox();
+        expect(lastRowRect!.y).toBeGreaterThanOrEqual(bottomPort!.y - 1);
+        expect(lastRowRect!.y + lastRowRect!.height).toBeLessThanOrEqual(bottomPort!.y + bottomPort!.height + 1);
         expect(await deck.boundingBox()).toEqual(initialDeck);
 
         await port.evaluate((el) => el.scrollTo({ top: 24, behavior: 'instant' }));
@@ -201,7 +205,10 @@ test.describe('native wheel input', () => {
     test('Vessel returns home after a wheel gesture without moving the safety deck', async ({ page }) => {
         await page.setViewportSize({ width: 768, height: 650 });
         await page.goto('/');
-        await page.getByRole('tab', { name: 'Navigate to Vessel', exact: true }).click();
+        await page
+            .getByRole('navigation', { name: 'Main', exact: true })
+            .getByRole('button', { name: 'Vessel', exact: true })
+            .click();
         const diary = page.getByRole('button', { name: 'Open Diary', exact: true });
         const port = page.locator('.vessel-hub-surface > .overflow-y-auto').filter({ has: diary });
         const deck = page.getByRole('region', { name: 'Vessel status and safety controls' });
