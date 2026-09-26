@@ -12,6 +12,7 @@
  */
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { ClockIcon } from '../Icons';
 import { TimePicker24, localDateStr } from './TimePicker24';
 import {
     authScopedStorageKey,
@@ -87,11 +88,15 @@ export const DepartControl: React.FC = () => {
     // Default the pickers to RIGHT NOW (Shane 2026-07-17) — display-only:
     // the "leaving now" state stays null until the punter actually picks.
     const todayStr = localDateStr();
+    const leavingNow = departureMs === null;
     return (
         <div className="rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]">
             <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-[11px] font-black uppercase tracking-widest text-sky-300">🕐 Departure</span>
-                {departureMs === null && (
+                <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-sky-300">
+                    <ClockIcon className="h-3.5 w-3.5 shrink-0" />
+                    Departure
+                </span>
+                {leavingNow && (
                     <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-emerald-300">
                         leaving now
                     </span>
@@ -131,14 +136,25 @@ export const DepartControl: React.FC = () => {
                 />
             </div>
             <div className="mt-2 flex gap-2">
+                {/* Now stays ENABLED even when already leaving now (Shane
+                    2026-09-09, cee90a53: it replaced OK, so it must still
+                    dismiss an open native picker; the e2e spec pins this).
+                    What changes is that it says so: pressed + the pill's
+                    emerald while departure is now, so a live grey button no
+                    longer contradicts the LEAVING NOW pill (UX audit run 5). */}
                 <button
                     type="button"
+                    aria-pressed={leavingNow}
                     onClick={() => {
                         triggerHaptic('light');
                         (document.activeElement as HTMLElement | null)?.blur?.();
                         setDeparture(null);
                     }}
-                    className="min-h-[44px] flex-1 rounded-xl bg-white/10 text-[11px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
+                    className={`min-h-[44px] flex-1 rounded-xl text-[11px] font-black uppercase tracking-widest active:scale-95 ${
+                        leavingNow
+                            ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                            : 'border border-transparent bg-white/10 text-gray-300'
+                    }`}
                 >
                     Now
                 </button>
