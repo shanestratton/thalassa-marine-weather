@@ -30,14 +30,33 @@ interface PageHeaderProps {
     status?: React.ReactNode;
     /** Optional breadcrumb trail: ['Settings', 'Notifications'] */
     breadcrumbs?: string[];
+    /**
+     * Where Back goes, for the chevron's name ("Back to Vessel"). Defaults to
+     * the parent crumb when there is one, else "Go back".
+     */
+    backLabel?: string;
 }
 
 /** Characters in the title's longest word — the one that must fit on a line. */
 const longestWordLength = (title: string) =>
     title.split(/\s+/).reduce((longest, word) => Math.max(longest, word.length), 1);
 
-export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack, action, status, breadcrumbs }) => {
+export const PageHeader: React.FC<PageHeaderProps> = ({
+    title,
+    subtitle,
+    onBack,
+    action,
+    status,
+    breadcrumbs,
+    backLabel,
+}) => {
     const lastCrumb = breadcrumbs ? breadcrumbs.length - 1 : -1;
+    // The chevron is named by its destination, and the parent crumb that goes
+    // to the same place is hidden from assistive tech: pages carried two back
+    // controls, 'Back to Ship's Office' and an unnamed 'Go back' (UX scorecard
+    // run 7). The crumb stays a touch target for sighted users.
+    const parentCrumb = breadcrumbs && lastCrumb > 0 ? breadcrumbs[lastCrumb - 1] : undefined;
+    const chevronLabel = backLabel ?? (parentCrumb ? `Back to ${parentCrumb}` : undefined);
     // Use one title: when the trail ends on the page's own name (DIARY over
     // DIARY on every Ship's Office page), the visible copy is dropped and the
     // crumb stays for screen readers only (UX scorecard run 6).
@@ -50,13 +69,21 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
     // rendered as 'MAINTENAN' at 393 pt. Browsers without container units
     // drop the declaration and keep the stylesheet's 20 px.
     const titleFontSize = `clamp(14px, calc(100cqi / ${(longestWordLength(title) * 0.8).toFixed(1)}), 20px)`;
+    // A trail that is only 'parent (= Back) › this page (= the h1)' tells a
+    // screen reader nothing the chevron and the heading have not; hide it whole.
+    const trailIsRedundant =
+        !!breadcrumbs && breadcrumbs.every((crumb, i) => isTitleCrumb(crumb, i) || (i === lastCrumb - 1 && !!onBack));
 
     return (
         // data-page-header: toasts anchor below it (components/Toast.tsx).
         <div data-page-header className="shrink-0 px-4 pt-4 pb-3">
             {/* Breadcrumb trail */}
             {breadcrumbs && breadcrumbs.length > 0 && (
-                <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 mb-2">
+                <nav
+                    aria-label="Breadcrumb"
+                    aria-hidden={trailIsRedundant || undefined}
+                    className="flex items-center gap-1.5 mb-2"
+                >
                     {breadcrumbs.map((crumb, i) => (
                         <React.Fragment key={i}>
                             {i > 0 && !isTitleCrumb(crumb, i) && (
@@ -85,7 +112,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                                 <button
                                     type="button"
                                     onClick={onBack}
-                                    aria-label={`Back to ${crumb}`}
+                                    aria-hidden="true"
+                                    tabIndex={-1}
                                     className="relative text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors before:absolute before:inset-x-0 before:-top-4 before:-bottom-3 before:content-['']"
                                 >
                                     {crumb}
@@ -105,10 +133,15 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                 </nav>
             )}
 
-            <div className="flex items-center gap-3">
-                {onBack && <BackButton onClick={onBack} />}
+            {/* items-start: Back and the action line up with the title row, not
+                with the middle of the whole block. With status pills under the
+                title they sat ~12 pt lower than on sibling pages (UX scorecard
+                run 7). The column's 44 px floor keeps a one-line title centred
+                on the 44 px controls. */}
+            <div className="flex items-start gap-3">
+                {onBack && <BackButton onClick={onBack} label={chevronLabel} />}
 
-                <div className="flex-1 min-w-0 [container-type:inline-size]">
+                <div className="flex min-h-11 min-w-0 flex-1 flex-col justify-center [container-type:inline-size]">
                     <h1
                         className="ui-page-title line-clamp-2 text-xl font-extrabold leading-tight text-white uppercase tracking-wider [overflow-wrap:normal] [word-break:normal] [hyphens:manual]"
                         style={{ fontSize: titleFontSize }}

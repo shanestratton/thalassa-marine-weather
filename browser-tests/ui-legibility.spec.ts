@@ -305,9 +305,8 @@ for (const width of [320, 390, 669]) {
                 await expect(filledAction).toHaveCSS('color', 'rgb(255, 255, 255)');
                 await expectReadable(filledAction, `${state} filled action`);
                 await expect(primaryAction).toBeEnabled();
-                await expect(primaryAction).toHaveClass(
-                    new RegExp(`ui-primary-action--${environment === 'offshore' ? 'amber' : 'emerald'}`),
-                );
+                // One primary in both environments (UX scorecard run 7).
+                await expect(primaryAction).toHaveClass(/ui-primary-action--sky/);
                 await expectActionGradientReadable(primaryAction, `${state} primary action`);
                 if (await page.evaluate(() => window.matchMedia('(hover: hover)').matches)) {
                     const neutralInk = await dangerHover.evaluate((element) => getComputedStyle(element).color);
@@ -351,7 +350,7 @@ for (const width of [320, 390, 669]) {
                 await expectTypography(page);
                 await expectReadable(sheetLabels, `${state} modal sheet`);
                 await expectUnclipped(sheetLabels);
-                await sheet.getByRole('button', { name: 'Close modal' }).click();
+                await sheet.getByRole('button', { name: 'Close', exact: true }).click();
                 await expect(sheet).toHaveCount(0);
 
                 await page.getByRole('button', { name: 'Open confirmation', exact: true }).click();

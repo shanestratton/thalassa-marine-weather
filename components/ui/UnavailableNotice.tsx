@@ -58,7 +58,7 @@ export const UnavailableNotice: React.FC<UnavailableNoticeProps> = ({
                 {icon && (
                     <div
                         aria-hidden="true"
-                        className={`mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full ${t.chip}`}
+                        className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${t.chip}`}
                     >
                         {icon}
                     </div>
@@ -83,6 +83,34 @@ export const UnavailableNotice: React.FC<UnavailableNoticeProps> = ({
         </div>
     );
 };
+
+/** Stroke smartphone, the one glyph for "needs the iPhone app". */
+const IPhoneGlyph: React.FC = () => (
+    <svg
+        aria-hidden="true"
+        className="h-5 w-5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <rect x="5" y="2" width="14" height="20" rx="2" />
+        <path d="M12 18h.01" />
+    </svg>
+);
+
+/**
+ * One look for "this needs the iPhone app" (UX scorecard run 7). The same
+ * condition was a blue note card on Music and an amber padlock card on Boat
+ * Network; it is not a warning, so it is sky with a phone glyph everywhere.
+ * Callers keep their own words; lead the title with the feature, e.g.
+ * "Apple Music needs the Thalassa iPhone app".
+ */
+export const NeedsIPhoneAppNotice: React.FC<Omit<UnavailableNoticeProps, 'tone' | 'icon'>> = (props) => (
+    <UnavailableNotice tone="sky" icon={<IPhoneGlyph />} {...props} />
+);
 
 /** A whole routed page that is closed here: the house header plus the notice. */
 export const UnavailablePage: React.FC<

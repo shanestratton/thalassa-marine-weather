@@ -871,8 +871,6 @@ input[type='date']::-webkit-calendar-picker-indicator {
     --vessel-surface-bg: #e2e8f0;
     --vessel-card-bg: rgba(255, 255, 255, 0.82);
     --vessel-card-border: rgba(15, 23, 42, 0.12);
-    --vessel-list-bg: rgba(248, 250, 252, 0.9);
-    --vessel-list-border: rgba(15, 23, 42, 0.1);
     --vessel-safety-group-bg: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(255, 255, 255, 0.76));
     --vessel-safety-group-border: rgba(5, 150, 105, 0.34);
     --vessel-safety-card-bg: linear-gradient(145deg, rgba(209, 250, 229, 0.95), rgba(255, 255, 255, 0.92));
@@ -4478,10 +4476,10 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
        the status row occupies 8-56px — so MOB moves sideways instead. top:0
        is relative to the menu, i.e. 64px absolute, giving y 64..116: clear of
        the status row above and of the right rail's own buttons at 128px.
-       right 72px keeps 24px between MOB and the layers FAB (UX scorecard run 6). */
+       right 80px keeps 32px between MOB and the layers FAB (UX scorecard run 7). */
     .radial-helm-mob {
         top: 0 !important;
-        right: 72px !important;
+        right: 80px !important;
     }
 
     /* MOB's landscape anchor is the menu's own top, so match it literally. */
@@ -4811,7 +4809,8 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-purple-300\/40 {
     color: rgb(126 34 206 / 0.9);
 }
-.display-light .text-purple-300\/70 {
+.display-light .text-purple-300\/70,
+.display-light .text-purple-300\/80 {
     color: rgb(126 34 206 / 0.9);
 }
 .display-light .text-red-100 {
@@ -5458,4 +5457,102 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 .display-light .border-l-gray-500.border-l-gray-500 {
     border-left-color: #6b7280;
+}
+
+/* ══ UX scorecard run 7 — app chrome ════════════════════════════════════════ */
+
+/* The one primary action (theme.ts button.primary / button.cta): sky-700 to
+   sky-800, white at 5.9:1 or better at both stops, one step deeper on hover.
+   styles/action-legibility.css reads these for every .ui-primary-action. */
+:root .ui-primary-action--sky {
+    --ui-primary-action-from: #0369a1;
+    --ui-primary-action-to: #075985;
+}
+@media (hover: hover) {
+    :root .ui-primary-action--sky:not(:disabled, [aria-disabled='true']):hover {
+        --ui-primary-action-from: #075985;
+        --ui-primary-action-to: #0c4a6e;
+    }
+}
+
+/* The healthy Systems button is slate glass (SystemStatusButton). Daylight
+   remaps bg-slate-900/90 to the header's own pale slate, which left only an
+   outline; give it the white card surface the other daylight controls use.
+   Scoped to its own class: GpsSourceGlyph also puts data-tone on a button. */
+.display-light .system-status-fab[data-tone='blue'] {
+    background-color: #ffffff;
+}
+
+/* Placeholders: slate-500 on the dark fields measured 3.8:1 and the daylight
+   grey 4.4:1. slate-400 by night (about 6.9:1 on the field, still clearly
+   quieter than the white value) and slate-600 by day. */
+:root:not(.display-light) :is(input, textarea)::placeholder {
+    color: #90a1b9;
+    opacity: 1;
+}
+:root.display-light :is(input, textarea)::placeholder {
+    color: #475569;
+    opacity: 1;
+}
+
+/* A classic 6 px scrollbar took layout width, so cards in a scroller ended
+   6 pt short of their fixed siblings. Reserve the gutter on both edges so the
+   inset is symmetric. Overlay scrollbars (iOS) reserve nothing. */
+.custom-scrollbar.overflow-y-auto {
+    scrollbar-gutter: stable both-edges;
+}
+
+/* Headings and dialog shells that take focus on open (tabindex -1) are not
+   controls: the keyboard ring on them made the disclaimer's title and text
+   box look like a selected input on load. Real controls keep their ring. */
+:is(h1, h2, h3, [role='dialog'], [role='alertdialog'])[tabindex='-1']:focus-visible {
+    outline: none;
+}
+/* The dark-surface variant (.bg-slate-950 *:focus-visible) adds a 4 px glow
+   as well, which the disclaimer's title still wore. Headings only: a dialog
+   shell's box-shadow is its own drop shadow. */
+:is(h1, h2, h3)[tabindex='-1']:focus-visible {
+    box-shadow: none;
+}
+
+/* Anchor Watch setup, short portrait phones (667 pt): only WATER DEPTH sat
+   above the arming bar, so a skipper could arm on the default rode without
+   ever seeing RODE DEPLOYED. A smaller dial (its letters scale up as it
+   shrinks, never under 12 px: ScopeRadar), one-sentence guidance and tighter
+   control gaps bring the rode slider above the bar. */
+@media (orientation: portrait) and (max-height: 700px) {
+    .anchor-setup-radar {
+        flex: 0 0 140px !important;
+        min-height: 140px !important;
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
+    }
+    .anchor-setup-controls > :not(:last-child) {
+        margin-block-end: 8px !important;
+    }
+    .anchor-setup-controls > .space-y-2\.5 > :not(:last-child) {
+        margin-block-end: 6px !important;
+    }
+}
+
+/* …and landscape phones: Depth and Rode side by side in the ~610 pt controls
+   column (the depth range and the whole rode slider sat under the arming bar),
+   and a dial small enough that its one-line quality caption (ScopeRadar keeps
+   it to one line, 'swing 35 m' in landscape) ends above the floating nav
+   toggle instead of under it. */
+@media (orientation: landscape) and (max-height: 500px) {
+    .anchor-setup-controls > .space-y-2\.5 {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        column-gap: 16px;
+    }
+    .anchor-setup-controls > .space-y-2\.5 > :not(:last-child) {
+        margin-block-end: 0 !important;
+    }
+    .anchor-setup-controls > :not(:last-child) {
+        margin-block-end: 8px !important;
+    }
+    .anchor-setup-radar svg {
+        max-height: 136px;
+    }
 }

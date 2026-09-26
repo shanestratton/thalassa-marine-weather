@@ -4,13 +4,20 @@
  * Replaces ad-hoc "emoji + grey text" patterns with a cohesive,
  * on-brand empty state that teaches the user what to do next.
  *
+ * One recipe with UnavailableNotice (UX scorecard run 7: the empty and
+ * unavailable pages were drawn three ways): the icon sits in the same round
+ * chip, the heading has the same weight and size, the copy the same measure,
+ * and the action is the house secondary Button, centred. The difference left
+ * is deliberate: an unavailable page sits in a tinted card because it states
+ * a condition; an empty list does not.
+ *
  * Features:
- *   - Maritime-themed SVG wave illustration
- *   - Title + description + optional CTA button
- *   - Consistent with glassmorphic design system
+ *   - Maritime-themed SVG wave illustration when there is no icon
+ *   - Title + description + optional centred action
  *   - Animates in with fade + slide
  */
 import React from 'react';
+import { Button } from './Button';
 
 interface EmptyStateProps {
     /** Emoji or icon to display (optional — defaults to wave illustration) */
@@ -88,9 +95,13 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             style={{ animation: 'bio-fadein 0.4s ease' }}
         >
             {/* Decoration: an emoji icon read aloud ("fork and knife with plate")
-                only repeats the title. */}
+                only repeats the title. The chip is UnavailableNotice's, and it
+                sets any stroke icon to 24 px whatever size the caller drew. */}
             {icon ? (
-                <div aria-hidden="true" className="text-3xl mb-3">
+                <div
+                    aria-hidden="true"
+                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-sky-400/15 text-2xl leading-none text-sky-300 [&_svg]:h-6 [&_svg]:w-6"
+                >
                     {icon}
                 </div>
             ) : (
@@ -98,31 +109,33 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             )}
 
             {/* h2: it sits directly under the page's h1, so h3 skipped a level. */}
-            <h2 className={`font-black text-white tracking-wide ${compact ? 'text-sm' : 'text-base'}`}>{title}</h2>
+            <h2 className={`font-bold text-white text-balance ${compact ? 'text-base' : 'text-lg'}`}>{title}</h2>
 
-            {text && <p className="text-gray-400 mt-1.5 max-w-xs leading-relaxed text-xs">{text}</p>}
+            {text && <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-400 text-pretty">{text}</p>}
 
             {actionLabel && onAction && (
-                <button
+                <Button
+                    variant="secondary"
                     /* Called with NO arguments, on purpose. Passing the handler
                        straight to onClick handed the MouseEvent to whatever the
-                       caller wired in — and the Ship's Office loaders take an
+                       caller wired in, and the Ship's Office loaders take an
                        identity scope as their first (defaulted) parameter, so
                        the event landed in that slot, the identity guard bailed,
                        and "Try again" did nothing at all (MaintenanceHub,
                        InventoryList; found by the 2026-09-02 audit). Fixed here
                        once rather than at every call site. */
                     onClick={() => onAction()}
-                    className="mt-4 min-h-[44px] px-5 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-bold tracking-wider hover:bg-sky-500/25 transition-all active:scale-95"
+                    className="mt-5 text-white"
                 >
                     {actionLabel}
-                </button>
+                </Button>
             )}
 
             {secondaryLabel && onSecondary && (
                 <button
+                    type="button"
                     onClick={() => onSecondary()}
-                    className="mt-2 px-4 py-1.5 min-h-[44px] text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                    className="mt-2 min-h-11 px-4 text-sm text-slate-400 transition-colors hover:text-slate-200"
                 >
                     {secondaryLabel}
                 </button>

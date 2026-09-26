@@ -41,6 +41,7 @@ import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
 import { SafeImage } from './components/ui/SafeImage';
+import { Button } from './components/ui/Button';
 import { GLASS_TOP_CARD_GAP_PX, getGlassTopLayout } from './components/dashboard/glassLayout';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 import { useViewportHeight } from './hooks/useViewportHeight';
@@ -99,14 +100,14 @@ const GlobalNowPlayingBar = lazyRetry(
     () => import('./components/music/GlobalNowPlayingBar').then((m) => ({ default: m.GlobalNowPlayingBar })),
     'GlobalNowPlayingBar',
 );
+// The same slate-glass square the healthy Systems button draws, so nothing
+// jumps when the chunk arrives.
 const SystemStatusFallback: React.FC = () => (
     <div
-        className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-slate-900/40 text-sm font-bold text-white/45"
+        className="h-12 w-12 rounded-2xl border border-white/10 bg-slate-900/90"
         role="status"
         aria-label="Loading system status"
-    >
-        <span aria-hidden="true">i</span>
-    </div>
+    />
 );
 
 const App: React.FC = () => {
@@ -211,7 +212,7 @@ const App: React.FC = () => {
         const nowHeld = holdsClaim(skipperClaim);
         if (hasBeenDisplaced(skipperClaim, readRememberedHeld()) && !nowHeld) {
             toast.info(
-                `This device is no longer the skipper — ${skipperClaim?.deviceName ?? 'another device'} took over. ` +
+                `This device is no longer the skipper: ${skipperClaim?.deviceName ?? 'another device'} took over. ` +
                     `It has stopped publishing to your public page.`,
             );
         }
@@ -697,7 +698,10 @@ const App: React.FC = () => {
                 // Apple Weather / Windy / Predict Wind / Yr.no
                 // all do — empty-state-with-intent beats fake
                 // data every time.
-                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6">
+                // The Glass's own black (the header above is bg-black), not the
+                // navy page colour, which met the header in a hard seam (UX
+                // scorecard run 7). Daylight remaps bg-black to the pale page.
+                <div className="flex-1 w-full h-full bg-black flex items-center justify-center px-6">
                     <div className="max-w-sm w-full">
                         <div className="text-center mb-8">
                             <div className="mb-3 flex justify-center text-sky-400" aria-hidden="true">
@@ -705,16 +709,13 @@ const App: React.FC = () => {
                             </div>
                             <h2 className="text-xl font-bold text-white mb-2">Welcome aboard</h2>
                             <p className="text-sm text-slate-400 leading-relaxed">
-                                Set your location to see live marine conditions — wind, tide, swell, weather.
+                                Set your location to see live marine conditions: wind, tide, swell and weather.
                             </p>
                         </div>
                         <div className="space-y-3">
-                            <button
-                                type="button"
-                                onClick={handleLocateLite}
-                                className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
-                            >
+                            <Button variant="primary" onClick={handleLocateLite} className="w-full h-12">
                                 <svg
+                                    aria-hidden="true"
                                     className="w-4 h-4"
                                     viewBox="0 0 24 24"
                                     fill="none"
@@ -727,28 +728,31 @@ const App: React.FC = () => {
                                     <path d="M12 1v6m0 6v6M1 12h6m6 0h6" />
                                 </svg>
                                 {isOffline ? 'Use GPS offline' : 'Use my location'}
-                            </button>
-                            <button
-                                type="button"
+                            </Button>
+                            <Button
+                                variant="secondary"
                                 onClick={() => {
                                     mapFromWxRef.current = true;
                                     setMapPickerActive(true);
                                     setPage('map');
                                 }}
-                                className="w-full h-12 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-white font-semibold text-sm transition-colors border border-white/10 flex items-center justify-center gap-2"
+                                // text-base! : the secondary token's text-sm is emitted
+                                // later in the CSS, so a plain text-base loses and the
+                                // pair would read 16 px over 14 px.
+                                className="w-full h-12 text-base! text-white"
                             >
-                                <MapIcon className="w-4 h-4 text-emerald-400" />
+                                <MapIcon className="w-4 h-4 text-sky-300" />
                                 Choose a port on the map
-                            </button>
+                            </Button>
                         </div>
-                        <p className="text-[11px] text-center text-slate-500 mt-4 leading-relaxed">
-                            GPS works offline. Forecasts and place names update when connected, and coordinates are sent
-                            to the provider needed for that request.
+                        <p className="text-xs text-center text-slate-400 mt-4 leading-relaxed">
+                            GPS works offline. When you&apos;re connected, forecasts and place names update, and your
+                            position is sent to the service that answers each request.
                         </p>
                     </div>
                 </div>
             ) : !weatherData && !loading ? (
-                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center">
+                <div className="flex-1 w-full h-full bg-black flex items-center justify-center px-6 text-center">
                     <div className="max-w-sm space-y-4" role="status">
                         <p className="text-sm text-slate-400">
                             {isOffline
@@ -756,25 +760,22 @@ const App: React.FC = () => {
                                 : 'Weather data is not available for this location yet.'}
                         </p>
                         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                            <button
-                                type="button"
-                                onClick={() => refreshData()}
-                                disabled={isOffline}
-                                className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-white disabled:bg-slate-700 disabled:text-slate-400"
-                            >
+                            <Button variant="primary" onClick={() => refreshData()} disabled={isOffline}>
                                 {isOffline ? 'Waiting for network' : 'Retry forecast'}
-                            </button>
-                            <button
-                                type="button"
+                            </Button>
+                            <Button
+                                variant="secondary"
                                 onClick={() => {
                                     mapFromWxRef.current = true;
                                     setMapPickerActive(true);
                                     setPage('map');
                                 }}
-                                className="rounded-xl border border-white/10 bg-slate-800 px-5 py-2.5 text-sm font-bold text-white"
+                                // text-base! as in the welcome pair above, so it
+                                // reads the same size as Retry forecast.
+                                className="text-base! text-white"
                             >
                                 Choose another location
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -813,7 +814,7 @@ const App: React.FC = () => {
             : currentView === 'map'
               ? tracerActive
                   ? 'Plan'
-                  : 'OBS'
+                  : 'Obs'
               : currentView === 'voyage'
                 ? 'Plan'
                 : currentView === 'details'
@@ -821,6 +822,22 @@ const App: React.FC = () => {
                   : isVesselView || currentView === 'chat'
                     ? 'Vessel'
                     : 'Menu';
+    // Tab bar: the selected tab's icon at full strength, the rest at 60 %.
+    // Every icon was the same cyan in every state, so only a label tint and a
+    // 4 px dot marked the selected tab, and the selected Glass bottle read
+    // fainter than its neighbours (UX scorecard run 7).
+    const glassTabActive = currentView === 'dashboard' || currentView === 'warnings' || splitActive;
+    const obsTabActive = currentView === 'map' && !tracerActive;
+    const planTabActive = currentView === 'voyage' || (currentView === 'map' && tracerActive);
+    const logTabActive = currentView === 'details';
+    const vesselTabActive = isVesselView || ['chat', 'settings', 'voice', 'music'].includes(currentView);
+    const tabIconStyle = (active: boolean): React.CSSProperties => ({
+        WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+        maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+        opacity: active ? 1 : 0.6,
+        transition: 'opacity 0.2s ease',
+    });
+
     // The landscape navigation toggle. Its own <nav> keeps a navigation
     // landmark while the bar is folded away. `docked` puts it in the Glass's
     // header row beside the status button: bottom-left it sat over the
@@ -831,11 +848,14 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => setLandscapeNavOpen((v) => !v)}
                 // Closed, the name leads with the page word the pill shows
-                // ('OBS, show navigation'), so Voice Control can tap what it
-                // sees (UX scorecard run 6).
+                // ('Obs, show navigation', drawn in capitals), so Voice Control
+                // can tap what it sees (UX scorecard run 6).
                 aria-label={landscapeNavOpen ? 'Hide navigation' : `${landscapeNavPageLabel}, show navigation`}
                 aria-expanded={landscapeNavOpen}
-                className={`press flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${docked ? '' : 'fixed bottom-2 z-901'} ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
+                // The chart buttons' own glass (MapActionFabs, the layers FAB):
+                // rounded-2xl, white/8 edge, slate-900/90, white glyph. Not a
+                // sky-outlined one-off beside them (UX scorecard run 7).
+                className={`press flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-2xl border border-white/8 bg-slate-900/90 text-white shadow-2xl backdrop-blur-xl ${docked ? '' : 'fixed bottom-2 z-901'} ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
                 style={
                     docked
                         ? undefined
@@ -1040,14 +1060,19 @@ const App: React.FC = () => {
                                     alt=""
                                     width={64}
                                     height={64}
-                                    className={`thalassa-header-logo ${isMobileLandscape ? 'w-10 h-10' : isDashboard && glassTopLayout.isShortViewport ? 'w-12 h-12' : 'w-[64px] h-[64px]'} rounded-lg`}
+                                    // Under 390 pt the 64 px mark takes the room the
+                                    // wordmark needs; 48 px, as on the short Glass.
+                                    className={`thalassa-header-logo ${isMobileLandscape ? 'w-10 h-10' : isDashboard && glassTopLayout.isShortViewport ? 'w-12 h-12' : 'w-[64px] h-[64px] max-[389px]:w-12 max-[389px]:h-12'} rounded-lg`}
                                 />
                                 <div className="min-w-0">
-                                    <div className="flex min-w-0 items-center gap-1">
+                                    {/* The wordmark never truncates ('THALAS…' at 375 pt, UX
+                                        scorecard run 7): it keeps its width and, where the row
+                                        is still too narrow, the badge wraps under it. */}
+                                    <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
                                         {/* A wordmark, not a heading: as an h2 it sat above every
                                             page's own h1 and inverted the outline on all 27 screens
                                             (UX scorecard 2026-09-25). */}
-                                        <p className="min-w-0 flex-1 truncate text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                                        <p className="shrink-0 whitespace-nowrap text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
                                             Thalassa
                                         </p>
                                         {PUBLIC_BETA_ACCESS.enabled ? (
@@ -1472,7 +1497,11 @@ const App: React.FC = () => {
                             id={chartVisible && !splitChartActive ? 'main-content' : undefined}
                             // Kept alive off-screen, this is a second <main> in the DOM;
                             // `hidden` is how HTML allows one, so skip links and the
-                            // landmark rotor only ever find the page on screen.
+                            // landmark rotor only ever find the page on screen. It must
+                            // stay a <main> while hidden: swapping the tag for a <div>
+                            // remounts MapHub on every visit (chartKeepAlive.test.ts),
+                            // and the passage CSS (main:has) and closest('main') need it.
+                            // A landmark count should skip main[hidden].
                             hidden={!chartVisible && !splitChartActive}
                             aria-hidden={!chartVisible && !splitChartActive ? true : undefined}
                             className={
@@ -1691,25 +1720,22 @@ const App: React.FC = () => {
                             background: 'var(--thalassa-tabbar-bg, rgb(10, 15, 20))',
                             borderColor: 'var(--thalassa-tabbar-border, rgba(56, 189, 248, 0.12))',
                         }}
+                        // The one "Main" landmark: page buttons named by their visible
+                        // labels, the current one marked aria-current="page". Not an
+                        // ARIA tablist, which promised arrow-key tabs and panels it
+                        // never had (UX scorecard run 7).
                         aria-label="Main"
                     >
-                        <div
-                            className="flex justify-around items-center h-16 mx-auto px-4 relative"
-                            role="tablist"
-                            aria-label="Main navigation"
-                        >
+                        <div className="flex justify-around items-center h-16 mx-auto px-4 relative">
                             <NavButton
                                 icon={
                                     <StormGlassNavIcon
                                         className="w-full h-full object-contain"
-                                        style={{
-                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                        }}
+                                        style={tabIconStyle(glassTabActive)}
                                     />
                                 }
                                 label="The Glass"
-                                active={currentView === 'dashboard' || currentView === 'warnings' || splitActive}
+                                active={glassTabActive}
                                 onClick={handleGlassTab}
                                 onLongPress={wideEnoughForSplit ? toggleSplitView : undefined}
                             />
@@ -1717,25 +1743,21 @@ const App: React.FC = () => {
                                 icon={
                                     <div
                                         className="w-full h-full flex items-center justify-center text-cyan-300"
-                                        style={{
-                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                        }}
+                                        style={tabIconStyle(obsTabActive)}
                                     >
                                         <MapIcon className="w-7 h-7" />
                                     </div>
                                 }
-                                label="OBS"
-                                // Leads with the visible word so Voice Control's "Tap OBS"
-                                // resolves, and uses the same gloss as the chart's h1
-                                // (UX scorecard run 6). e2e finds it by 'Navigate to Charts'.
-                                ariaLabel="OBS, navigate to charts and observations"
+                                // Shown in capitals like every tab label; the name is the
+                                // word itself, so Voice Control's "Tap OBS" resolves. The
+                                // chart's h1 carries the "charts and observations" gloss.
+                                label="Obs"
                                 // Plotting lives on the map surface but BELONGS to
                                 // Plan: "Slide to Start Plotting" does setPage('map'),
                                 // which lit OBS and made the tab bar contradict the
                                 // journey the skipper is on (Shane 2026-07-18). While
                                 // the tracer is up the highlight stays on Plan.
-                                active={currentView === 'map' && !tracerActive}
+                                active={obsTabActive}
                                 onClick={() => {
                                     mapFromWxRef.current = false;
                                     // Already ON the map while plotting, so setPage
@@ -1762,11 +1784,7 @@ const App: React.FC = () => {
                                 icon={
                                     <div
                                         className="w-full h-full flex items-center justify-center"
-                                        style={{
-                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            color: '#67E8F9',
-                                        }}
+                                        style={{ ...tabIconStyle(planTabActive), color: '#67E8F9' }}
                                     >
                                         <RouteIcon className="w-7 h-7" />
                                     </div>
@@ -1776,7 +1794,7 @@ const App: React.FC = () => {
                                 // front door (voyage) AND the plotting surface the
                                 // slide hands you to (map + tracer). Mirror of the
                                 // OBS gate above; the two can't both be lit.
-                                active={currentView === 'voyage' || (currentView === 'map' && tracerActive)}
+                                active={planTabActive}
                                 onClick={() => setPage('voyage')}
                             />
                             {/* Log — promoted from a Vessel sub-page (was
@@ -1791,33 +1809,26 @@ const App: React.FC = () => {
                                 icon={
                                     <div
                                         className="w-full h-full flex items-center justify-center"
-                                        style={{
-                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            color: '#67E8F9',
-                                        }}
+                                        style={{ ...tabIconStyle(logTabActive), color: '#67E8F9' }}
                                     >
                                         <ClipboardIcon className="w-7 h-7" />
                                     </div>
                                 }
                                 label="Log"
-                                active={currentView === 'details'}
+                                active={logTabActive}
                                 onClick={() => setPage('details')}
                             />
                             <NavButton
                                 icon={
                                     <div
                                         className="w-full h-full flex items-center justify-center text-cyan-300"
-                                        style={{
-                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
-                                        }}
+                                        style={tabIconStyle(vesselTabActive)}
                                     >
                                         <SailBoatIcon className="w-7 h-7" />
                                     </div>
                                 }
                                 label="Vessel"
-                                active={isVesselView || ['chat', 'settings', 'voice', 'music'].includes(currentView)}
+                                active={vesselTabActive}
                                 onClick={() => setPage('vessel')}
                                 // chatUnread badge moves to Vessel — chat
                                 // now lives under Vessel → Wardroom →

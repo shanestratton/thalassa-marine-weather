@@ -10,8 +10,9 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DisclaimerOverlay } from '../modules/DisclaimerOverlay';
+import { DISCLAIMER_VERSION } from '../modules/LegalGuard';
 
-const ACCEPT = 'Accept navigation disclaimer and continue';
+const ACCEPT = 'I understand, continue';
 
 describe('DisclaimerOverlay', () => {
     beforeEach(() => vi.clearAllMocks());
@@ -23,7 +24,7 @@ describe('DisclaimerOverlay', () => {
         // portrait, which TARGETED_DEVICE_FAMILY "1,2" supports — no scroll
         // event ever fired, so the app could not be entered at all.
         render(<DisclaimerOverlay onAccepted={vi.fn()} />);
-        expect(screen.getByRole('button', { name: ACCEPT })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: ACCEPT })).toBeEnabled();
     });
 
     it('withholds Accept until genuinely overflowing text is read to the end', () => {
@@ -39,17 +40,25 @@ describe('DisclaimerOverlay', () => {
         Object.defineProperty(proto, 'clientHeight', { configurable: true, get: () => 400 });
 
         try {
-            const { container } = render(<DisclaimerOverlay onAccepted={vi.fn()} />);
+            const onAccepted = vi.fn();
+            const { container } = render(<DisclaimerOverlay onAccepted={onAccepted} />);
             const box = container.querySelector('[role="document"]') as HTMLElement;
 
-            // Long text, parked at the top: the gate must hold.
-            expect(screen.queryByRole('button', { name: ACCEPT })).not.toBeInTheDocument();
-            expect(screen.getByText(/Scroll to read the full disclaimer/)).toBeInTheDocument();
+            // Long text, parked at the top: the gate must hold. The control is
+            // on screen from the start (UX scorecard run 7), but disabled, and
+            // says why.
+            const accept = screen.getByRole('button', { name: ACCEPT });
+            expect(accept).toBeDisabled();
+            expect(accept).toHaveAccessibleDescription('Scroll to the end to continue.');
+            fireEvent.click(accept);
+            expect(onAccepted).not.toHaveBeenCalled();
 
             // Scrolled to the end: now it opens.
             Object.defineProperty(box, 'scrollTop', { configurable: true, value: 1600 });
             fireEvent.scroll(box);
-            expect(screen.getByRole('button', { name: ACCEPT })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: ACCEPT })).toBeEnabled();
+            fireEvent.click(screen.getByRole('button', { name: ACCEPT }));
+            expect(onAccepted).toHaveBeenCalledOnce();
         } finally {
             // jsdom defines these on Element.prototype, so HTMLElement had no
             // OWN descriptor to put back — restoring only when one existed
@@ -79,10 +88,28 @@ describe('DisclaimerOverlay', () => {
         expect(dialog).toHaveAttribute('aria-labelledby', 'navigation-disclaimer-title');
     });
 
-    it('shows the disclaimer body and its version', () => {
+    it('shows the disclaimer body and keeps its version as data, not copy', () => {
         const { container } = render(<DisclaimerOverlay onAccepted={vi.fn()} />);
-        expect(container.textContent).toMatch(/Disclaimer v/);
+        // 'Disclaimer v1.0' read as a developer string (UX scorecard run 7).
+        expect(container.textContent).not.toMatch(/Disclaimer v/);
+        expect(screen.getByRole('dialog')).toHaveAttribute('data-disclaimer-version', DISCLAIMER_VERSION);
         const box = container.querySelector('[role="document"]') as HTMLElement;
         expect(box.textContent!.length).toBeGreaterThan(200);
+    });
+
+    it('opens on its title rather than ringing the text box, and takes the skip link out while up', () => {
+        document.body.insertAdjacentHTML('afterbegin', '<a href="#main-content" id="skip">Skip to main content</a>');
+        const skip = document.getElementById('skip')!;
+        try {
+            const { unmount } = render(<DisclaimerOverlay onAccepted={vi.fn()} />);
+            expect(screen.getByRole('heading', { name: 'Important notice' })).toHaveFocus();
+            expect(skip).toHaveAttribute('inert');
+            expect(skip).toHaveAttribute('aria-hidden', 'true');
+            unmount();
+            expect(skip).not.toHaveAttribute('inert');
+            expect(skip).not.toHaveAttribute('aria-hidden');
+        } finally {
+            skip.remove();
+        }
     });
 });

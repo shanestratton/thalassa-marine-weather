@@ -65,9 +65,11 @@ describe('source-pinned fixes', () => {
         const src = read('components/ui/OnboardingOverlay.tsx');
         for (const stale of ["tab: 'Charts'", "tab: 'Scuttlebutt'", "tab: 'Nav Station'", 'NOAA GFS'])
             expect(src).not.toContain(stale);
-        const app = read('App.tsx');
+        // Both the slide badge and the tab bar draw their labels in capitals,
+        // so the slide's 'OBS' names the bar's label="Obs": case is not the contract.
+        const app = read('App.tsx').toLowerCase();
         for (const tab of src.match(/tab: '([^']+)'/g)!.map((m) => m.slice(6, -1)))
-            expect(app).toContain(`label="${tab}"`);
+            expect(app).toContain(`label="${tab.toLowerCase()}"`);
     });
     it('the four undo slots commit the pending delete before being replaced', () => {
         expect(read('components/vessel/MaintenanceHub.tsx')).toMatch(/setDeletedTask\(\(pending\) =>/);

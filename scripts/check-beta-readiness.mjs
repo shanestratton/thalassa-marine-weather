@@ -1697,7 +1697,7 @@ check(
     includesAll(read('e2e/smoke.spec.ts'), [
         "const DISCLAIMER_STORAGE_KEY = 'thalassa_disclaimer_v1.0'",
         "page.addInitScript((key) => localStorage.setItem(key, 'accepted')",
-        "getByRole('tablist', { name: 'Main navigation' })",
+        "getByRole('navigation', { name: 'Main', exact: true })",
         'new URL(request.url()).origin !== PREVIEW_ORIGIN',
         "'x-vercel-protection-bypass': VERCEL_AUTOMATION_BYPASS_SECRET",
     ]) && !read('e2e/smoke.spec.ts').includes("e.includes('Failed to fetch')"),

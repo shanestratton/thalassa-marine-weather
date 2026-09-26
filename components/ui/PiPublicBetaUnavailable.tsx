@@ -1,7 +1,6 @@
 import React from 'react';
-import { LockIcon } from '../Icons';
 import { Button } from './Button';
-import { UnavailableNotice } from './UnavailableNotice';
+import { NeedsIPhoneAppNotice } from './UnavailableNotice';
 
 /**
  * Honest replacement for every Pi setup/control surface, on builds that cannot
@@ -17,12 +16,12 @@ import { UnavailableNotice } from './UnavailableNotice';
  *
  * Skipper words, not build words: "unavailable in this build" and "Pi
  * integration" read as developer-speak (UX scorecard run 6), so the heading
- * says what to use instead.
+ * says what to use instead. It wears the shared "needs the iPhone app" look
+ * (sky, phone glyph), not an amber padlock: nothing is wrong, it is simply
+ * the wrong device (UX scorecard run 7).
  */
 export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }> = ({ onOpenEncLibrary }) => (
-    <UnavailableNotice
-        tone="amber"
-        icon={<LockIcon className="h-5 w-5" />}
+    <NeedsIPhoneAppNotice
         title="Boat network needs the Thalassa iPhone app"
         note={<>Open Thalassa on your iPhone, on the boat&rsquo;s Wi-Fi, to pair with the Pi.</>}
         actions={
@@ -37,5 +36,5 @@ export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }
             Only the iPhone app can check that it is talking to your own boat&rsquo;s Pi. Weather, charts and the diary
             still work here.
         </p>
-    </UnavailableNotice>
+    </NeedsIPhoneAppNotice>
 );

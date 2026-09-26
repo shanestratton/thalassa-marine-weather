@@ -40,7 +40,7 @@ interface OnboardingSlide {
 const slides: OnboardingSlide[] = [
     {
         Icon: WaveIcon,
-        title: 'Your Weather',
+        title: 'Your weather',
         subtitle: 'Real-time marine forecasts at your fingertips',
         features: [
             { Icon: PartlyCloudyIcon, text: 'Multi-model forecasts offshore' },
@@ -52,7 +52,7 @@ const slides: OnboardingSlide[] = [
     },
     {
         Icon: MapIcon,
-        title: 'Your Charts',
+        title: 'Your charts',
         subtitle: 'Wind, waves, and weather right on the map',
         features: [
             { Icon: WindIcon, text: 'Real-time wind particle overlay' },
@@ -60,8 +60,9 @@ const slides: OnboardingSlide[] = [
             { Icon: SailBoatIcon, text: 'Track your vessel live with GPS' },
         ],
         accent: 'from-emerald-500/20 to-teal-500/10',
-        // Was 'Charts' — that tab is 'Plan' now (App.tsx NavButtons). Audit 2026-09-02.
-        tab: 'Plan',
+        // The chart lives on the OBS tab (App.tsx NavButtons); Plan is the
+        // route planner. UX scorecard run 7.
+        tab: 'OBS',
     },
     {
         Icon: ChatIcon,
@@ -70,7 +71,7 @@ const slides: OnboardingSlide[] = [
         features: [
             { text: 'Channels and DMs with sailors worldwide' },
             { text: 'Drop pins to share anchorages, POIs, and tracks' },
-            { text: 'Crew Chat — private group for your invited crew' },
+            { text: 'Crew chat, a private group for your invited crew' },
         ],
         accent: 'from-indigo-500/20 to-violet-500/10',
         // Scuttlebutt lives under Vessel → Wardroom now (stores/uiStore.ts).
@@ -78,7 +79,7 @@ const slides: OnboardingSlide[] = [
     },
     {
         Icon: SailBoatIcon,
-        title: 'Your Vessel',
+        title: 'Your vessel',
         subtitle: 'Everything about your boat in one place',
         features: [
             { text: 'Logbook, diary, and voyage tracking' },
@@ -190,8 +191,8 @@ export const OnboardingOverlay: React.FC = () => {
                             <slide.Icon className="w-20 h-20" />
                         </span>
                         {/* Tab badge */}
-                        <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-[11px] font-bold text-white/60 uppercase tracking-widest">
-                            {slide.tab} Tab
+                        <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-xs font-bold text-white/60 uppercase tracking-widest">
+                            {slide.tab} tab
                         </div>
                     </div>
 
@@ -244,11 +245,13 @@ export const OnboardingOverlay: React.FC = () => {
                                 )}
                                 <button
                                     ref={primaryActionRef}
-                                    aria-label={isLast ? 'Finish onboarding' : `Next: ${slides[current + 1].title}`}
+                                    // The name starts with the visible words, so voice control
+                                    // ("tap Get started") finds it.
+                                    aria-label={isLast ? undefined : `Next: ${slides[current + 1].title}`}
                                     onClick={next}
                                     className="min-h-11 px-5 py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/30 transition-all active:scale-95"
                                 >
-                                    {isLast ? 'Get Started' : 'Next'}
+                                    {isLast ? 'Get started' : 'Next'}
                                 </button>
                             </div>
                         </div>

@@ -102,7 +102,7 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
                     {plural ? `${count} empty tracks tidied away` : 'Empty track tidied away'}
                 </h3>
                 <p id={descriptionId} className="text-sm text-slate-300/90 leading-relaxed mb-6">
-                    {plural ? 'They went nowhere' : 'It went nowhere'} —{' '}
+                    {plural ? 'They went nowhere:' : 'It went nowhere:'}{' '}
                     <span className="font-bold text-white">0.0 NM</span> logged, so {plural ? "they're" : "it's"}{' '}
                     cleared from your logbook to keep it shipshape.
                 </p>
@@ -110,7 +110,7 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
                 <button
                     ref={closeRef}
                     onClick={onClose}
-                    className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white text-sm font-black uppercase tracking-widest shadow-lg shadow-emerald-500/25 active:scale-[0.97] transition-transform"
+                    className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white text-base font-bold shadow-lg shadow-emerald-500/25 active:scale-[0.97] transition-transform"
                 >
                     Got it{secondsLeft > 0 ? ` · ${secondsLeft}` : ''}
                 </button>

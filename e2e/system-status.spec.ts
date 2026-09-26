@@ -9,16 +9,17 @@ test.describe('System status', () => {
         page.on('pageerror', (error) => errors.push(error.message));
         await page.goto('/');
         await expect(page.getByRole('heading', { name: 'Welcome aboard' })).toBeVisible();
-        await page.getByRole('button', { name: /^System status:/ }).click();
+        await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
 
-        const dialog = page.getByRole('dialog', { name: 'System Status' });
+        const dialog = page.getByRole('dialog', { name: 'System status' });
         await expect(dialog).toBeVisible();
-        await expect(dialog.getByText('NMEA Backbone', { exact: true })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'View NMEA Backbone' })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Fix NMEA Backbone' })).toHaveCount(0);
+        // Named after the page it opens (UX scorecard run 7).
+        await expect(dialog.getByText('NMEA Gateway', { exact: true })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'View NMEA Gateway' })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Fix NMEA Gateway' })).toHaveCount(0);
         await expect(dialog.getByText('GPS sentences / sec')).toHaveCount(0);
 
-        await dialog.getByRole('button', { name: 'Close system status' }).click();
+        await dialog.getByRole('button', { name: 'Close', exact: true }).click();
         await expect(dialog).toHaveCount(0);
         expect(errors).toEqual([]);
     });

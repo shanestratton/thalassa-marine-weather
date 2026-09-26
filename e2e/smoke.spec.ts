@@ -83,7 +83,7 @@ test.describe('Preview Deploy Smoke Tests', () => {
             (e) => !e.includes('readonly property') && !e.includes('ResizeObserver loop'),
         );
         expect(fatalErrors).toHaveLength(0);
-        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeAttached({ timeout: 20_000 });
+        await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeAttached({ timeout: 20_000 });
         await expect(page.getByRole('heading', { name: /important navigation disclaimer/i })).toHaveCount(0);
     });
 
@@ -95,7 +95,7 @@ test.describe('Preview Deploy Smoke Tests', () => {
         await expect(root).toBeVisible();
         const childCount = await root.evaluate((el) => el.children.length);
         expect(childCount).toBeGreaterThan(0);
-        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeAttached({ timeout: 20_000 });
+        await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeAttached({ timeout: 20_000 });
     });
 
     test('preview has no blocking CSP violations', async ({ page }) => {

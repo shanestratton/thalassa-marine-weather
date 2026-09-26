@@ -126,7 +126,11 @@ const COLORS: Record<ToastType, { bg: string; border: string; glow: string }> = 
     },
 };
 
-const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> = ({ item, onClose }) => {
+const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void; docked?: boolean }> = ({
+    item,
+    onClose,
+    docked = false,
+}) => {
     const [visible, setVisible] = useState(false);
     const [exiting, setExiting] = useState(false);
     const closingRef = useRef(false);
@@ -173,7 +177,9 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> 
             role={item.type === 'error' ? 'alert' : 'status'}
             aria-live={item.type === 'error' ? 'assertive' : 'polite'}
             style={{
-                transform: visible && !exiting ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.95)',
+                // Docked above a bottom bar, the toast rises from it instead of dropping in.
+                transform:
+                    visible && !exiting ? 'translateY(0) scale(1)' : `translateY(${docked ? 12 : -12}px) scale(0.95)`,
                 opacity: visible && !exiting ? 1 : 0,
                 transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                 background: colors.bg,
@@ -237,8 +243,7 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> 
                         fontFamily: FONT.ui,
                         fontSize: SIZE.body,
                         fontWeight: 700,
-                        letterSpacing: '0.05em',
-                        textTransform: 'uppercase',
+                        // Sentence case like every other button (UX scorecard run 7).
                         cursor: 'pointer',
                         flexShrink: 0,
                         transition: 'background 0.15s ease',
@@ -284,15 +289,46 @@ export function measureToastAnchor(): number {
     return Math.round(Math.min(bottom, ceiling));
 }
 
+/**
+ * The top edge of a bottom action bar the stack should sit on, or null.
+ *
+ * A page whose only action is a full-width bar at its foot (TapToAction, which
+ * carries data-toast-dock) gets its toasts docked just above that bar: a top
+ * toast covered the first card for 3–4 s — '40 suggested tasks added' sat on
+ * the Engine hours card the '1 needs hours' chip asks you to tap (UX scorecard
+ * run 7). Null while a dialog is open or when no such bar is on screen, so
+ * every other page keeps the top placement.
+ */
+export function measureToastDock(): number | null {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return null;
+    const onScreen = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.top < window.innerHeight && r.bottom > 0;
+    };
+    const dialogs = document.querySelectorAll('[aria-modal="true"], [role="dialog"], [role="alertdialog"]');
+    if (Array.from(dialogs).some(onScreen)) return null;
+    let top: number | null = null;
+    document.querySelectorAll('[data-toast-dock]').forEach((el) => {
+        if (!onScreen(el)) return;
+        const r = el.getBoundingClientRect();
+        // Only a bar in the lower half of the screen is a bottom bar.
+        if (r.top > window.innerHeight * 0.5) top = top === null ? r.top : Math.min(top, r.top);
+    });
+    return top === null ? null : Math.round(top);
+}
+
 // ── Portal — Mount once in App.tsx ─────────────────────────────────
 export const ToastPortal: React.FC = () => {
     const [toasts, setToasts] = useState<ToastItem[]>([]);
     const [anchorTop, setAnchorTop] = useState(0);
+    const [dockTop, setDockTop] = useState<number | null>(null);
 
     // Re-measured whenever the stack changes, before paint, so a toast never
     // flashes over the header first.
     useLayoutEffect(() => {
-        if (toasts.length > 0) setAnchorTop(measureToastAnchor());
+        if (toasts.length === 0) return;
+        setAnchorTop(measureToastAnchor());
+        setDockTop(measureToastDock());
     }, [toasts]);
 
     useEffect(() => {
@@ -321,11 +357,16 @@ export const ToastPortal: React.FC = () => {
 
     if (toasts.length === 0) return null;
 
+    const docked = dockTop !== null && typeof window !== 'undefined';
+
     return (
         <div
+            data-toast-stack={docked ? 'docked' : 'top'}
             style={{
                 position: 'fixed',
-                top: `max(60px, calc(env(safe-area-inset-top) + 8px), ${anchorTop + 8}px)`,
+                ...(docked
+                    ? { bottom: `${window.innerHeight - (dockTop as number) + 8}px` }
+                    : { top: `max(60px, calc(env(safe-area-inset-top) + 8px), ${anchorTop + 8}px)` }),
                 left: '50%',
                 transform: 'translateX(-50%)',
                 zIndex: 9999,
@@ -337,7 +378,7 @@ export const ToastPortal: React.FC = () => {
             }}
         >
             {toasts.map((t) => (
-                <SingleToast key={t.id} item={t} onClose={removeToast} />
+                <SingleToast key={t.id} item={t} onClose={removeToast} docked={docked} />
             ))}
         </div>
     );

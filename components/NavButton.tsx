@@ -11,11 +11,11 @@ import { triggerHaptic } from '../utils/system';
 interface NavButtonProps {
     /** Icon element to display */
     icon: React.ReactNode;
-    /** Button label text */
+    /** Button label text. Also the accessible name, so Voice Control's "Tap Log" finds it. */
     label: string;
-    /** Longer accessible name when the compact visual label is an acronym. */
+    /** Only when the name must differ from the visible label; it should still start with it. */
     ariaLabel?: string;
-    /** Whether this tab is currently active */
+    /** Whether this tab is the current page (announced as aria-current="page") */
     active: boolean;
     /** Click handler */
     onClick: () => void;
@@ -100,11 +100,16 @@ export const NavButton: React.FC<NavButtonProps> = ({
             onPointerCancel={cancelHold}
             onPointerMove={maybeCancelOnMove}
             onTouchStart={() => {}} // Forces immediate touch response
-            aria-label={ariaLabel ?? `Navigate to ${label}`}
+            type="button"
+            // Page links in a <nav aria-label="Main">, not an ARIA tablist: the
+            // name is the visible label (no "Navigate to …"), and the current
+            // page is aria-current. The unread badge stays out of the name.
+            aria-label={ariaLabel ?? label}
             aria-current={active ? 'page' : undefined}
-            role="tab"
-            aria-selected={active}
-            className="relative z-50 cursor-pointer flex flex-col items-center justify-center gap-1 min-w-[44px] min-h-[44px] h-full transition-all duration-200 active:scale-95 touch-manipulation"
+            // The bottom padding keeps the label at least 8 pt off the bar's
+            // edge where there is no home-indicator inset; with one, the nav's
+            // own inset padding already does it and this falls to 0.
+            className="relative z-50 cursor-pointer flex flex-col items-center justify-center gap-1 min-w-[44px] min-h-[44px] h-full pb-[max(0px,calc(8px_-_env(safe-area-inset-bottom)))] transition-all duration-200 active:scale-95 touch-manipulation"
             style={{
                 pointerEvents: 'auto',
                 touchAction: 'manipulation',
@@ -153,41 +158,43 @@ export const NavButton: React.FC<NavButtonProps> = ({
                     </span>
                 )}
             </div>
-            <span
-                style={{
-                    // 12, not 11: the app's legibility floor (--text-micro) —
-                    // this was the one label under it on every single page.
-                    fontSize: 12,
-                    fontWeight: 900,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    // FIXED light-on-dark. The bar itself keeps the night
-                    // palette in daylight mode (App.tsx), so the day-mode text
-                    // tokens made the ACTIVE label near-black on near-black
-                    // (1.08:1, measured 2026-09-25) and dimmed the rest to
-                    // 2.5:1. Whatever the display mode, the label sits on
-                    // rgba(10,15,20) and is coloured for that.
-                    color: active ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.72)',
-                    marginTop: 4,
-                    lineHeight: 1,
-                    transition: 'color 0.2s ease',
-                    whiteSpace: 'nowrap',
-                }}
-            >
-                {label}
+            <span className="relative flex flex-col items-center">
+                <span
+                    style={{
+                        // 12, not 11: the app's legibility floor (--text-micro) —
+                        // this was the one label under it on every single page.
+                        fontSize: 12,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        // FIXED light-on-dark. The bar itself keeps the night
+                        // palette in daylight mode (App.tsx), so the day-mode text
+                        // tokens made the ACTIVE label near-black on near-black
+                        // (1.08:1, measured 2026-09-25) and dimmed the rest to
+                        // 2.5:1. Whatever the display mode, the label sits on
+                        // rgba(10,15,20) and is coloured for that.
+                        color: active ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.72)',
+                        lineHeight: 1,
+                        transition: 'color 0.2s ease',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {label}
+                </span>
+                {active && (
+                    // White indicator dot, 3 px under the label box. Pinned to
+                    // the button's bottom edge it sat on the label's baseline
+                    // under LOG and ran into VESSEL at 375 pt (UX scorecard run 7).
+                    // The box-shadow halo was removed in v3 (matched the icon's
+                    // glow removal above); solid 0.85 alpha is plenty on the
+                    // dark bar, which it sits on in every display mode.
+                    <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-1/2 top-full mt-[3px] h-1 w-1 -translate-x-1/2 rounded-full"
+                        style={{ backgroundColor: 'rgba(255, 255, 255, 0.85)' }}
+                    />
+                )}
             </span>
-            {active && (
-                // White indicator dot under the label. The box-shadow halo
-                // was removed in v3 (matched the icon's glow removal above)
-                // — the dot itself at solid 0.85 alpha is already plenty
-                // visible against the dark nav bar without needing a glow.
-                <div
-                    className="absolute bottom-0.5 w-1 h-1 rounded-full pointer-events-none"
-                    // Same reason as the label: the dot lives on the dark bar in every mode.
-                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.85)' }}
-                    aria-hidden="true"
-                />
-            )}
         </button>
     );
 };
