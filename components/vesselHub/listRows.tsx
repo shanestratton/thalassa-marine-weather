@@ -4,6 +4,7 @@
  */
 import React, { useCallback, useId } from 'react';
 import { ChevronRight } from './icons';
+import { SectionLabel } from './SectionHeader';
 import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /** Animated collapsible content wrapper.
@@ -15,8 +16,13 @@ import { daylightUiColor } from '../../utils/daylightUiColor';
  *  from assistive tech, and `visibility: hidden` once the close animation has
  *  finished; opening shows it at once so the grow animation is visible. The
  *  outer element stays the one that animates — SectionHeader waits on its
- *  transition before scrolling the section into view. */
-export const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }> = ({ open, children }) => {
+ *  transition before scrolling the section into view — and carries the `id`
+ *  its header's aria-controls names. */
+export const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode; id?: string }> = ({
+    open,
+    children,
+    id,
+}) => {
     // React 18 has no `inert` prop; set the DOM property directly (same
     // pattern as Dashboard's collapsed layers).
     const setInert = useCallback(
@@ -27,6 +33,7 @@ export const CollapsibleContent: React.FC<{ open: boolean; children: React.React
     );
     return (
         <div
+            id={id}
             style={{
                 display: 'grid',
                 gridTemplateRows: open ? '1fr' : '0fr',
@@ -55,17 +62,14 @@ export const ListDivider: React.FC = () => (
 );
 
 /**
- * BinderSubLabel — small uppercase label used inside the Boat
- * Binder collapsible to divide its 9 rows into three logical
- * subgroups (Passage / Inventory & Stores / Reference). Sits
- * between two listContainer cards. Smaller and quieter than a
- * SectionHeader — it's a sub-heading, not a toggle. Slate tone so
- * it doesn't compete with the cyan section header above it.
+ * BinderSubLabel — the label on the Boat Binder screen that divides its rows
+ * into subgroups (Inventory & Stores / Reference). Sits between two
+ * listContainer cards. It wears the hub's one section-label style (the
+ * Settings pages' dot and caps) rather than a grey variant of its own (UX
+ * scorecard run 7, C-section-heading-styles).
  */
 export const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="px-1 pt-3 pb-1.5">
-        <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{children}</h2>
-    </div>
+    <SectionLabel className="px-1 pt-3 pb-1.5">{children}</SectionLabel>
 );
 
 /** Vessel hub list row.

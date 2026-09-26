@@ -8,12 +8,9 @@
  *   Diary + Scuttlebutt: the two read-most screens, so they lead
  *   Skipper device:      publishing authority · which GPS speaks for the boat
  *   Crew & Float Plan:   voyage prep (was "Passage Planning"), below Skipper device
- *   Boat Binder:         GPX import + inventory + reference
- *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
- *   Reference:           Checklists · Polars · Documents
- *   Music:               Music (Apple Music) — "music on watch", non-essential
- *   Connect:             NMEA Gateway · Boat Network
- *   Account:             Settings + tier
+ *   Boat Binder + Settings: one card — the Binder screen (stores, equipment,
+ *                        repairs, documents, reference, GPX import) and Settings
+ *   Connections & music: collapsed — NMEA Gateway · Boat Network · Music
  *
  * Recipe Library has moved to the Galley; keeping it in two places
  * confused users and the Galley is the natural home for it.
@@ -53,6 +50,7 @@ import {
 } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
+import { SignInButton } from './ui/SignInButton';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -76,7 +74,6 @@ import {
     ChartIcon,
     ChatBubbleIcon,
     ChecklistIcon,
-    ChevronRight,
     ClipboardIcon,
     CrewIcon,
     DocShieldIcon,
@@ -94,17 +91,29 @@ import {
 // brings the borrowed glyphs down to the hub's line weight.
 const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 
+// The hub's one accent (UX scorecard run 7, C-vessel-seven-accents): card
+// icons, section labels and the Crew & Float Plan bezel share sky, the
+// Settings pages' heading colour, and red / amber / green are left to say
+// state. It replaced a green Diary, a blue Scuttlebutt, a teal device card, a
+// violet Crew card, a cyan Binder and a pink Music label on one screen.
+const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
+const HUB_ACCENT_CHIP = 'rgba(125, 211, 252, 0.12)';
+
 // Scroll-port edge fades (UX scorecard run 6, Y-vessel-hub-fades): the bottom
 // always fades so a cut-off row reads as "more below", and the top fades once
 // the content has moved, so a sliver of a card under the pinned deck fades out
-// instead of showing as a hard line. Same 14px as .thalassa-scroll-fade; kept
-// as utilities because that class masks the bottom edge only. The top fade is
-// off at scrollTop 0 (pt-2 is narrower than the fade and would dim the first
-// row), and at the end of the scroll the bottom fade lands in pb-4.
+// instead of showing as a hard line. The bottom is the same 14px as
+// .thalassa-scroll-fade; kept as utilities because that class masks the bottom
+// edge only. The top fade is off at scrollTop 0 (pt-2 is narrower than the fade
+// and would dim the first row), and at the end of the scroll the bottom fade
+// lands in pb-4.
+// The top fade runs 8px clear then 28px of ramp (UX scorecard run 7,
+// Y-hub-empty-tray-under-deck): at 14px the bottom edge of a card parked under
+// the deck, 2-11px into the port, stayed visible as an empty rounded tray.
 const HUB_PORT_FADE_BOTTOM =
     '[-webkit-mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)]';
 const HUB_PORT_FADE_BOTH =
-    '[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_14px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent,#000_14px,#000_calc(100%_-_14px),transparent)]';
+    '[-webkit-mask-image:linear-gradient(to_bottom,transparent_8px,#000_36px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_8px,#000_36px,#000_calc(100%_-_14px),transparent)]';
 import { BinderSubLabel, CollapsibleContent, ListDivider, OfficeRow } from './vesselHub/listRows';
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SectionHeader } from './vesselHub/SectionHeader';
@@ -167,26 +176,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // Vessel page said nothing was guarding the anchor.
     const [anchorWatchedRemotely, setAnchorWatchedRemotely] = useState(false);
     const [anchorRadius, setAnchorRadius] = useState(0);
-    // The daily operational tiles and the Diary/Scuttlebutt pair are now
-    // permanently visible. Only the low-priority Settings & Connect area
-    // remains collapsible; it starts closed.
+    // The daily operational tiles, the Diary/Scuttlebutt pair and the Boat
+    // Binder + Settings card are permanently visible. Only the low-priority
+    // Connections & music group remains collapsible; it starts closed.
     // The broader IA groups are:
     //   - Watch Status (always-visible daily ops grid)
     //   - Diary + Scuttlebutt (always-visible navigation tiles)
-    //   - Boat Binder  (collapsed: imports / inventory / reference rows)
-    //   - Atmosphere   (collapsed: Music — Scuttlebutt moved out to
-    //                   Sharing 2026-05-17, section renamed from
-    //                   "Wardroom" to "Atmosphere" the same day. The
-    //                   bucket exists for "music on watch" — non-
+    //   - Boat Binder + Settings (always-visible rows; the Binder opens
+    //                   its own screen)
+    //   - Connections & music (collapsed, id 'setup': NMEA + Boat
+    //                   Network + Music. Music — "music on watch", non-
     //                   essential, intentionally low-key, but reachable
-    //                   in 2 taps. Section ID stays 'wardroom' so any
-    //                   persisted expanded-state from localStorage
-    //                   continues to match — only the label changed.)
-    //   - Settings & Connect (collapsed: NMEA + Boat Network + Account)
-    // Section IDs renamed: 'passage' + 'inventory' + 'reference' →
-    // 'binder', 'connect' + 'account' → 'setup'. Any old persisted
-    // expanded-state from localStorage referencing the old IDs is
-    // harmless; the Set just won't match any current section.
+    //                   in 2 taps — had a one-row accordion of its own,
+    //                   the 'atmosphere' section, until UX scorecard
+    //                   run 7; Settings was this group's third row.)
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
     const [binderOpen, setBinderOpen] = useState(() => {
@@ -619,10 +622,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         kept its shelf, routes kept their home. */}
 
                     {/* — Inventory & Stores subgroup — */}
+                    {/* Icons in the hub's one accent, like the hub's own rows;
+                        red stays for overdue and expiring (UX scorecard run 7). */}
                     <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
                     <div style={GLASS.listContainer}>
                         <OfficeRow
-                            icon={<BoxIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                            icon={<BoxIcon color={HUB_ACCENT} />}
                             label="Ship's Stores"
                             status="Provisions & spares"
                             statusColor="var(--day-ui-muted, #94a3b8)"
@@ -639,7 +644,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             it belongs beside Ship's Stores and Equipment
                             rather than filed with the polars. */}
                         <OfficeRow
-                            icon={<ChecklistIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                            icon={<ChecklistIcon color={HUB_ACCENT} />}
                             label="Checklists"
                             status="Safety & passage"
                             statusColor="var(--day-ui-muted, #94a3b8)"
@@ -650,7 +655,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         />
                         <ListDivider />
                         <OfficeRow
-                            icon={<ClipboardIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                            icon={<ClipboardIcon color={HUB_ACCENT} />}
                             label="Equipment"
                             status={
                                 expiringEquipCount > 0
@@ -666,8 +671,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         />
                         <ListDivider />
                         <OfficeRow
-                            icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
-                            label="Repairs & Maintenance"
+                            icon={
+                                <WrenchIcon color={overdueCount > 0 ? 'var(--day-ui-danger, #ef4444)' : HUB_ACCENT} />
+                            }
+                            label="Maintenance"
                             status={overdueCount > 0 ? `${overdueCount} overdue` : 'Tasks & expiry'}
                             statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
                             onClick={() => {
@@ -679,7 +686,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         />
                         <ListDivider />
                         <OfficeRow
-                            icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
+                            icon={
+                                <DocShieldIcon
+                                    color={expiringDocsCount > 0 ? 'var(--day-ui-danger, #ef4444)' : HUB_ACCENT}
+                                />
+                            }
                             label="Documents"
                             status={expiringDocsCount > 0 ? `${expiringDocsCount} expiring` : 'Legal papers'}
                             statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
@@ -714,7 +725,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             by viewRegistry via gatedFeature: 'galley', so free
                             users get an upgrade prompt, not a broken page. */}
                         <OfficeRow
-                            icon={<GalleyIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                            icon={<GalleyIcon color={HUB_ACCENT} />}
                             label="Galley"
                             status="Meal planning"
                             statusColor="var(--day-ui-muted, #94a3b8)"
@@ -729,10 +740,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             the passage decision is made. */}
                         <ListDivider />
                         <OfficeRow
-                            icon={<BookIcon color="var(--day-ui-accent, #38bdf8)" />}
+                            icon={<BookIcon color={HUB_ACCENT} />}
                             label="Skipper's Reference"
                             status="GRIB · synoptic · squalls"
-                            statusColor="var(--day-ui-accent, #38bdf8)"
+                            statusColor="var(--day-ui-muted, #94a3b8)"
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('skipperReference');
@@ -740,7 +751,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         />
                         <ListDivider />
                         <OfficeRow
-                            icon={<ChartIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                            icon={<ChartIcon color={HUB_ACCENT} />}
                             label="Polars"
                             status={isObserver ? 'Vessel required' : 'Tuning'}
                             statusColor={isObserver ? '#6b7280' : '#94a3b8'}
@@ -758,7 +769,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             the chart, not in the reference drawer. */}
                         <ListDivider />
                         <OfficeRow
-                            icon={<GpxIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                            icon={<GpxIcon color={HUB_ACCENT} />}
                             label="Import GPX"
                             status="From OpenCPN or Navionics"
                             statusColor="var(--day-ui-muted, #94a3b8)"
@@ -868,12 +879,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     instead of through CollapsibleContent, and the 'quick' entry
                     in the expanded set is vestigial. Reclaiming that row is what
                     makes pinning the grid affordable. */}
-                    <div className="relative mt-3">
+                    {/* No top margin (UX scorecard run 7, Y-vessel-375-settings-
+                        below-fold): with the hero card hidden, the deck's pt-4
+                        plus an mt-3 left 28pt under the app header, 12pt more
+                        than any other tab, and cost the 375x667 fold the row
+                        that tells a skipper the list goes on. The hero, when
+                        shown, brings its own mb-4. */}
+                    <div className="relative">
                         {/* Heading outline (UX referee A-heading-outline): the
-                            tiles are h3s, so they need an h2 above them. The
-                            visible "Watch Status" heading was removed at Shane's
-                            ask to save the row, so this one is for screen
-                            readers only and costs no height. */}
+                            deck needs an h2. The visible "Watch Status" heading
+                            was removed at Shane's ask to save the row, so this
+                            one is for screen readers only and costs no height.
+                            The tile names are spans, not h3s: a heading inside a
+                            button is flattened into the button's name and never
+                            reaches the heading rotor (UX scorecard run 7). */}
                         <h2 className="sr-only">Safety controls</h2>
                         {/* FOUR ACROSS, one line (Shane 2026-07-19: "on the vessel
                             page that we put the four boxes on one line"). These
@@ -953,7 +972,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     <MobIcon color="var(--day-ui-danger, #ef4444)" />
                                 </div>
-                                <h3 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h3>
+                                <span className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    MOB
+                                </span>
                                 <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
                                     Overboard
                                 </p>
@@ -974,7 +995,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     <SignalIcon color="var(--day-ui-accent, #67E8F9)" />
                                 </div>
-                                <h3 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h3>
+                                <span className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    Radio
+                                </span>
                                 <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
                                     Position
                                 </p>
@@ -1002,9 +1025,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     >
                                         <ShieldIcon color="var(--day-ui-amber, #f59e0b)" />
                                     </div>
-                                    <h3 className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    <span className="text-[11px] font-black leading-none tracking-wide text-white">
                                         Guardian
-                                    </h3>
+                                    </span>
                                     <p
                                         className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
                                         style={{ color: daylightUiColor(guardianArmed ? '#10b981' : '#f59e0b') }}
@@ -1065,7 +1088,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         <AnchorIcon className="h-4 w-4" />
                                     </span>
                                 </div>
-                                <h3 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h3>
+                                <span className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    Anchor
+                                </span>
                                 <p
                                     className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
                                     style={{ color: daylightUiColor(anchorWordColor) }}
@@ -1144,9 +1169,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     before the menu headers below them. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
                 <div className="relative mb-3" style={{ scrollSnapAlign: 'start' }}>
-                    {/* Screen-reader section heading for the two h3 tiles, so
-                        they do not read as part of the safety controls above. */}
+                    {/* Screen-reader section heading for the two tiles, so they
+                        do not read as part of the safety controls above. */}
                     <h2 className="sr-only">Journal and community</h2>
+                    {/* Title only (UX scorecard run 7, W-vessel-settings-copy):
+                        the "Journal" and "Community" subtitles restated the
+                        titles, and each wore its own hue (green, blue). The
+                        tiles now take the hub's one accent and a single line,
+                        the same 58pt as the rows below, and the names are
+                        spans: a heading inside a button is flattened into the
+                        button's name (UX scorecard run 7). */}
                     <div className="grid grid-cols-2 gap-3">
                         {/* Diary — personal journal (left tile) */}
                         <button
@@ -1156,24 +1188,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('diary');
                             }}
                             style={GLASS.card}
-                            className="p-4 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
+                            className="flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(94, 234, 212, 0.12)' }}>
-                                    <PenIcon color="var(--day-ui-success, #5EEAD4)" />
-                                </div>
-                                <div>
-                                    <h3 className="text-[13px] font-black text-white tracking-wide">Diary</h3>
-                                    {/* Sentence case, one line: uppercase with wide tracking
-                                        folded "VOYAGE / JOURNAL" in a half-width tile. */}
-                                    <p
-                                        className="mt-0.5 text-xs font-semibold leading-snug"
-                                        style={{ color: 'var(--day-ui-success, #5EEAD4)' }}
-                                    >
-                                        Journal
-                                    </p>
-                                </div>
-                            </div>
+                            <span
+                                aria-hidden="true"
+                                className="flex shrink-0 rounded-lg p-2.5"
+                                style={{ background: HUB_ACCENT_CHIP }}
+                            >
+                                <PenIcon color={HUB_ACCENT} />
+                            </span>
+                            <span className="min-w-0 text-[13px] font-black tracking-wide text-white">Diary</span>
                         </button>
 
                         {/* Scuttlebutt — community channels + DMs
@@ -1182,9 +1206,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 more than a "lounge" feature — pairs
                                 naturally with Diary as the inward (Diary)
                                 + outward (Scuttlebutt) halves of the
-                                share-your-voyage story. Wardroom keeps
-                                Music; could be renamed if it slims down
-                                further. */}
+                                share-your-voyage story. */}
                         <button
                             aria-label="Open Scuttlebutt"
                             onClick={() => {
@@ -1192,22 +1214,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('chat');
                             }}
                             style={GLASS.card}
-                            className="p-4 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
+                            className="flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(125, 211, 252, 0.12)' }}>
-                                    <ChatBubbleIcon color="var(--day-ui-accent, #7dd3fc)" />
-                                </div>
-                                <div>
-                                    <h3 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h3>
-                                    <p
-                                        className="mt-0.5 text-xs font-semibold leading-snug"
-                                        style={{ color: 'var(--day-ui-accent, #7dd3fc)' }}
-                                    >
-                                        Community
-                                    </p>
-                                </div>
-                            </div>
+                            <span
+                                aria-hidden="true"
+                                className="flex shrink-0 rounded-lg p-2.5"
+                                style={{ background: HUB_ACCENT_CHIP }}
+                            >
+                                <ChatBubbleIcon color={HUB_ACCENT} />
+                            </span>
+                            <span className="min-w-0 text-[13px] font-black tracking-wide text-white">Scuttlebutt</span>
                         </button>
                     </div>
                 </div>
@@ -1243,17 +1259,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     {/* Named "Crew & Float Plan" from the app glossary (UX
                         scorecard run 6, W-glossary): "Passage Planning / Plan
                         your voyage" collided with the Plan tab's route planner. */}
+                    {/* Sky icon, grey subtitle, like every other hub row; amber
+                        stays for pending invites, a state (UX scorecard run 7,
+                        C-vessel-seven-accents). */}
                     <OfficeRow
-                        icon={<CrewIcon color="var(--day-ui-purple, #c4b5fd)" />}
+                        icon={<CrewIcon color={HUB_ACCENT} />}
                         label="Crew & Float Plan"
                         status={
                             pendingCrewInvites > 0
                                 ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
                                 : 'Readiness checks & cast off'
                         }
-                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#a78bfa'}
+                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
                         value={passageCrewCount > 0 ? `${passageCrewCount} crew` : undefined}
-                        valueColor="#a78bfa"
+                        valueColor="#e2e8f0"
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('crew');
@@ -1281,106 +1300,96 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     left the skipper mid-list with the pinned hero above and no sense
                     of place. A row that opens a screen is the honest shape for a
                     section this big. */}
-                <button
-                    onClick={() => {
-                        triggerHaptic('light');
-                        // The hub port remounts at the top on the way back.
-                        setPortScrolled(false);
-                        setBinderOpen(true);
-                    }}
-                    style={GLASS.card}
-                    className="mb-3 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/3 active:scale-[0.99] card-lift"
-                >
-                    <div
-                        aria-hidden="true"
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
-                    >
-                        <BinderIcon color="var(--day-ui-accent, #67E8F9)" className="h-5 w-5" />
-                    </div>
-                    <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-black tracking-wide text-white">Boat Binder</span>
-                        <span className="mt-0.5 block text-xs font-semibold leading-snug text-cyan-300">
-                            Inventory &amp; reference
-                        </span>
-                    </span>
-                    <span aria-hidden className="shrink-0">
-                        <ChevronRight />
-                    </span>
-                </button>
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* WARDROOM — onboard comfort: music, etc.     */}
-                {/* The wardroom is the officers' lounge on a   */}
-                {/* vessel — the social/comfort space. Sits     */}
-                {/* between Reference (tools) and Connect       */}
-                {/* (instruments) intentionally: music isn't a  */}
-                {/* tool you need to plan a passage, but it     */}
-                {/* should still be a one-Nav-Station hop away  */}
-                {/* rather than buried inside Calypso (which    */}
-                {/* is Skipper-tier only). Future "lifestyle"   */}
-                {/* features (ambient sounds for sleep, reading */}
-                {/* lists, podcasts) belong here too.           */}
-                {/* ═══════════════════════════════════════════ */}
-                {/* ATMOSPHERE (Music) — removed 2026-07-19 ("it is not really
-                    part of the app and it can be accessed via the mic at the top
-                    anyway"), RESTORED 2026-08-08 at Shane's ask. The page and its
-                    route were never deleted, only this entry; the mic and the
-                    now-playing bar remained the only ways in, and neither helps
-                    if you want to go and choose something. */}
-                {/* Section label "Music", not "Atmosphere": it holds only the
-                    Music row (UX scorecard run 6). The id stays 'atmosphere'.
-                    mb-3 keeps two collapsed headers ~12pt apart. */}
-                <div className="mb-3">
-                    <SectionHeader
-                        color="var(--day-ui-purple, #f0abfc)"
-                        label="Music"
-                        id="atmosphere"
-                        expanded={expanded.has('atmosphere')}
-                        onToggle={toggleSection}
+                {/* Settings shares the Binder's card and is always shown (UX
+                    scorecard run 7, N-vessel-hub-structure): it was reachable
+                    only by expanding "Settings & Connect" at the foot of the
+                    hub, below the fold at 375x667. Both are ordinary hub rows
+                    now, one anatomy with Crew & Float Plan above, and the
+                    divider (not a 12pt gap) is what lets the Settings row peek
+                    above the 375x667 fold. */}
+                <div className="mb-3" style={GLASS.listContainer}>
+                    <OfficeRow
+                        icon={<BinderIcon color={HUB_ACCENT} />}
+                        label="Boat Binder"
+                        status="Inventory & reference"
+                        statusColor="#94a3b8"
+                        onClick={() => {
+                            triggerHaptic('light');
+                            // The hub port remounts at the top on the way back.
+                            setPortScrolled(false);
+                            setBinderOpen(true);
+                        }}
                     />
-                    <CollapsibleContent open={expanded.has('atmosphere')}>
-                        <div className="mt-2" style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={
-                                    <span className="flex" style={{ color: 'var(--day-ui-muted, #cbd5e1)' }}>
-                                        <SpeakerWaveIcon className={HUB_ICON} />
-                                    </span>
-                                }
-                                label="Music"
-                                status="Apple Music & speakers"
-                                statusColor="var(--day-ui-muted, #94a3b8)"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('music');
-                                }}
-                            />
-                        </div>
-                    </CollapsibleContent>
+                    <ListDivider />
+                    <OfficeRow
+                        // "Settings", with what is in it, not "Account &
+                        // Settings" over a sign-in status alone (UX scorecard
+                        // run 6).
+                        icon={
+                            <span className="flex" style={{ color: HUB_ACCENT }}>
+                                <GearIcon className={HUB_ICON} />
+                            </span>
+                        }
+                        label="Settings"
+                        status={`Units, alerts, vessel · ${(() => {
+                            // During the free public beta there is no
+                            // plan to name, so say what is true of this
+                            // account instead of "Free public beta"
+                            // (UX referee W-developer-speak).
+                            if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? 'Signed in' : 'Not signed in';
+                            // One source of truth for plan names —
+                            // the hub used to invent its own ("Vessel
+                            // Owner"/"Crew Plan") and disagree with
+                            // Settings and the paywall.
+                            const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                            return (
+                                (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ?? TIER_INFO.free
+                            ).label;
+                        })()}`}
+                        statusColor={(() => {
+                            if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#7dd3fc' : '#94a3b8';
+                            // Tier badge stays its own colour —
+                            // owner=amber (premium), crew=the hub
+                            // accent, free=grey. This is a deliberate
+                            // status signal, not chromatic noise.
+                            const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                            if (tier === 'owner') return '#f59e0b';
+                            if (tier === 'crew') return '#7dd3fc';
+                            return '#94a3b8';
+                        })()}
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('settings');
+                        }}
+                    />
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* SETTINGS & CONNECT                          */}
-                {/* (4-bucket IA, 2026-05-17). Merged the old   */}
-                {/* Connect (NMEA + Boat Network) and Account   */}
-                {/* sections — both are "configuration" surfaces*/}
-                {/* the punter visits rarely, so they don't     */}
-                {/* deserve two separate cognitive buckets.     */}
+                {/* CONNECTIONS & MUSIC                          */}
+                {/* The old Connect rows (NMEA + Boat Network)   */}
+                {/* are configuration the punter visits rarely,  */}
+                {/* so they stay folded. Settings, once the third*/}
+                {/* row here, is shown above (UX scorecard run   */}
+                {/* 7), and Music joined from its own one-row    */}
+                {/* accordion: a header and a row both named     */}
+                {/* "Music" cost a tap for one destination and   */}
+                {/* read "Music, button" twice to VoiceOver. The */}
+                {/* id stays 'setup'.                            */}
                 {/* ═══════════════════════════════════════════ */}
                 {/* A lower resting point lets Safari reach these controls
                     instead of pulling every scroll back to the first row. */}
                 <div className="mb-4" style={{ scrollSnapAlign: 'end' }}>
                     <SectionHeader
-                        color="var(--day-ui-accent, #67E8F9)"
-                        label="Settings & Connect"
+                        label="Connections & music"
                         id="setup"
+                        controlsId="vessel-hub-connections"
                         expanded={expanded.has('setup')}
                         onToggle={toggleSection}
                     />
-                    <CollapsibleContent open={expanded.has('setup')}>
+                    <CollapsibleContent open={expanded.has('setup')} id="vessel-hub-connections">
                         <div className="mt-2" style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<PlugIcon color="var(--day-ui-muted, #cbd5e1)" />}
+                                icon={<PlugIcon color={HUB_ACCENT} />}
                                 label="NMEA Gateway"
                                 status={gatewayStatus}
                                 statusColor={gatewayStatusColor}
@@ -1400,62 +1409,43 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 // A server, not the folded map the OBS tab uses:
                                 // this row is the boat computer (UX scorecard run 6).
                                 icon={
-                                    <span className="flex" style={{ color: 'var(--day-ui-muted, #cbd5e1)' }}>
+                                    <span className="flex" style={{ color: HUB_ACCENT }}>
                                         <ServerIcon className={HUB_ICON} />
                                     </span>
                                 }
                                 label="Boat Network"
-                                // Plain words (UX referee W-developer-speak): the
-                                // row used to list the software on the Pi.
-                                status="Boat computer & instruments"
-                                statusColor="var(--day-ui-muted, #94a3b8)"
+                                // Plain words (UX referee W-developer-speak), and
+                                // not "instruments": the gateway row above is the
+                                // instruments one, and two rows promising the same
+                                // thing left a skipper guessing (UX scorecard run 7).
+                                status="The Pi, charts & boat devices"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('avnav');
                                 }}
                             />
                             <ListDivider />
+                            {/* ATMOSPHERE (Music) — removed 2026-07-19 ("it is not
+                                really part of the app and it can be accessed via
+                                the mic at the top anyway"), RESTORED 2026-08-08 at
+                                Shane's ask. The page and its route were never
+                                deleted, only this entry; the mic and the
+                                now-playing bar remained the only ways in, and
+                                neither helps if you want to go and choose
+                                something. */}
                             <OfficeRow
-                                // "Settings", with what is in it, not "Account &
-                                // Settings" over a sign-in status alone: this row
-                                // is the only way into Settings (UX scorecard run 6).
                                 icon={
-                                    <span className="flex" style={{ color: 'var(--day-ui-muted, #cbd5e1)' }}>
-                                        <GearIcon className={HUB_ICON} />
+                                    <span className="flex" style={{ color: HUB_ACCENT }}>
+                                        <SpeakerWaveIcon className={HUB_ICON} />
                                     </span>
                                 }
-                                label="Settings"
-                                status={`Units, alerts, vessel · ${(() => {
-                                    // During the free public beta there is no
-                                    // plan to name, so say what is true of this
-                                    // account instead of "Free public beta"
-                                    // (UX referee W-developer-speak).
-                                    if (PUBLIC_BETA_ACCESS.enabled)
-                                        return authenticatedUserId ? 'Signed in' : 'Not signed in';
-                                    // One source of truth for plan names —
-                                    // the hub used to invent its own ("Vessel
-                                    // Owner"/"Crew Plan") and disagree with
-                                    // Settings and the paywall.
-                                    const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                    return (
-                                        (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ??
-                                        TIER_INFO.free
-                                    ).label;
-                                })()}`}
-                                statusColor={(() => {
-                                    if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#67E8F9' : '#94a3b8';
-                                    // Tier badge stays its own colour —
-                                    // owner=amber (premium), crew=cyan,
-                                    // free=grey. This is a deliberate
-                                    // status signal, not chromatic noise.
-                                    const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                    if (tier === 'owner') return '#f59e0b';
-                                    if (tier === 'crew') return '#67E8F9';
-                                    return '#94a3b8';
-                                })()}
+                                label="Music"
+                                status="Apple Music & speakers"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
-                                    onNavigate('settings');
+                                    onNavigate('music');
                                 }}
                             />
                         </div>
@@ -1514,7 +1504,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         ? claimHeld
             ? 'This device publishes the boat’s position to your public page.'
             : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
-        : 'No device claimed yet — any signed-in device can publish.';
+        : 'No phone is primary yet — any signed-in phone can post the boat’s position to your public page.';
 
     // The claim rides in user_settings, which is pulled from the cloud ONCE per
     // sign-in — so without this, a claim made on the other device is invisible
@@ -1533,11 +1523,15 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     const signedIn = !!authenticatedUserId;
     const needsSignIn = !signedIn && !claimHeld;
     const [signInOpen, setSignInOpen] = useState(false);
+    // "This phone", not "this … device" (UX scorecard run 7,
+    // W-vessel-settings-copy): the status beside it already says "Primary:
+    // this phone", and "the primary device" read as system jargon. "Primary"
+    // is Shane's word and stays.
     const actionLabel = claimHeld
-        ? 'Release — stop being the primary device'
+        ? 'Release — stop being primary'
         : needsSignIn
-          ? 'Sign in to make this the primary device'
-          : 'Make this the primary device';
+          ? 'Sign in to make this phone primary'
+          : 'Make this phone primary';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;
         claim: SkipperClaim;
@@ -1614,13 +1608,16 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
 
     return (
         <>
+            {/* The hub's own card surface (UX scorecard run 7,
+                C-vessel-seven-accents): the teal border it wore unclaimed was a
+                seventh accent on the screen. Emerald stays for the claim held,
+                which is a state. mb-3 like every other hub card. */}
             <div
                 data-testid="skipper-device-card"
-                className={`mb-4 h-[120px] overflow-hidden rounded-2xl border bg-slate-900/40 p-3 ${
-                    claimHeld
-                        ? 'border-emerald-400/35 shadow-[0_0_22px_-10px_rgba(52,211,153,0.45)]'
-                        : 'border-cyan-400/35 shadow-[0_0_22px_-10px_rgba(34,211,238,0.4)]'
+                className={`mb-3 h-[120px] overflow-hidden p-3 ${
+                    claimHeld ? 'shadow-[0_0_22px_-10px_rgba(52,211,153,0.45)]' : ''
                 }`}
+                style={claimHeld ? { ...GLASS.card, border: '1px solid rgba(52, 211, 153, 0.35)' } : GLASS.card}
             >
                 {/* Shane 2026-09-06: the boat's name is the top line, the GPS
                     order is the next, the button says what pressing it does.
@@ -1635,21 +1632,25 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 <div className="mb-1.5 flex h-5 items-center gap-2">
                     {/* A hull, not the anchor text glyph: the anchor belongs to
                         the Anchor watch tile above (UX scorecard run 6). */}
-                    <span aria-hidden="true" className="flex shrink-0 text-cyan-300">
+                    <span aria-hidden="true" className="flex shrink-0 text-sky-300">
                         <SailBoatIcon className="h-4 w-4" />
                     </span>
+                    {/* The card's title is its h2 (UX scorecard run 7,
+                        A-hub-dup-music-nested-headings): it was plain text, so
+                        the heading rotor skipped the card. Card-title white,
+                        like every other hub card. */}
                     {vesselName ? (
-                        <span
+                        <h2
                             data-testid="skipper-device-vessel"
                             title={vesselName}
-                            className="min-w-0 flex-1 truncate text-[13px] font-black tracking-wide text-white/90"
+                            className="min-w-0 flex-1 truncate text-[13px] font-black tracking-wide text-white"
                         >
                             {vesselName}
-                        </span>
+                        </h2>
                     ) : (
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-black tracking-wide text-slate-300">
+                        <h2 className="min-w-0 flex-1 truncate text-[13px] font-black tracking-wide text-white">
                             Your vessel
-                        </span>
+                        </h2>
                     )}
                     {piPrimary && (
                         <span className="shrink-0 text-[12px] font-bold text-emerald-300">Primary: the Pi</span>
@@ -1691,7 +1692,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                             )}
                             <span
                                 className={`rounded-full px-2 py-0.5 text-[12px] font-bold leading-none ${
-                                    claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/8 text-gray-300'
+                                    claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-400/15 text-gray-300'
                                 }`}
                             >
                                 This device
@@ -1711,10 +1712,16 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                                 ? claimHeld
                                     ? 'Primary: this phone'
                                     : `Primary: ${claim.deviceName} · ${claimAgeLabel(claim)}`
-                                : // The rest of the sentence ("any signed-in device
-                                  // can publish") is in the title and the sr-only
-                                  // line: it cannot fit this fixed one-line row.
-                                  'No primary device yet'}
+                                : // Plain words, not "No primary device yet" (UX
+                                  // scorecard run 7). The whole sentence is in the
+                                  // title and the sr-only line; beside the Boat GPS
+                                  // pill this fixed one-line row has room for less,
+                                  // and "Any phone can post" would drop the sign-in
+                                  // a post needs, so the short form names the state
+                                  // in the words of "Primary: this phone" instead.
+                                  vesselGpsLive
+                                  ? 'No primary phone yet'
+                                  : 'Any signed-in phone can post'}
                         </span>
                     )}
                     {!piPrimary && <p className="sr-only">{statusDescription}</p>}
@@ -1726,13 +1733,24 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     >
                         The Pi is the Primary Device
                     </p>
+                ) : needsSignIn ? (
+                    // The one sign-in control (ui/SignInButton), like Account &
+                    // Cloud and Voyage Log. h-11 and text-sm (about 13 px on the
+                    // fluid root at 375 pt) keep it on one line inside the
+                    // fixed 120 px card.
+                    <SignInButton
+                        fullWidth
+                        label={actionLabel}
+                        onClick={handleAction}
+                        className="h-11 whitespace-nowrap text-sm!"
+                    />
                 ) : (
                     <button
                         type="button"
                         onClick={handleAction}
                         aria-label={actionLabel}
                         className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[13px] font-bold transition-colors active:brightness-110 ${
-                            claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
+                            claimHeld ? 'bg-white/10 text-gray-300' : 'bg-sky-500/20 text-sky-300'
                         }`}
                     >
                         {actionLabel}
@@ -1761,7 +1779,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 <SignInScreen
                     isOpen={signInOpen}
                     onClose={() => setSignInOpen(false)}
-                    prompt="Sign in to make this device the one that publishes your boat’s position."
+                    prompt="Sign in to make this phone the one that posts your boat’s position."
                 />
             )}
         </>
@@ -2085,8 +2103,13 @@ const NavStationHero: React.FC<{
                         aria-label={vesselNameSet ? 'Open vessel settings' : 'Set up your vessel'}
                         className="w-full active:opacity-70 transition-opacity text-left"
                     >
+                        {/* Spans, not h2s (UX scorecard run 7): a heading inside
+                            a button is flattened into the button's name, and the
+                            skipper card's title is the vessel's heading. */}
                         {vesselNameSet ? (
-                            <h2 className="text-lg font-black text-white tracking-tight truncate">{vesselName}</h2>
+                            <span className="block text-lg font-black text-white tracking-tight truncate">
+                                {vesselName}
+                            </span>
                         ) : (
                             // Empty-state vessel header — was: a barely-
                             // visible italic 50%-white placeholder that
@@ -2099,7 +2122,7 @@ const NavStationHero: React.FC<{
                             // lets them plan without configuring; this
                             // is just an invitation.
                             <div className="flex flex-col gap-0.5">
-                                <h2 className="text-lg font-black text-sky-300 tracking-tight truncate flex items-center gap-1">
+                                <span className="text-lg font-black text-sky-300 tracking-tight truncate flex items-center gap-1">
                                     <span>Set up your vessel</span>
                                     <svg
                                         className="w-4 h-4 text-sky-400/80 shrink-0"
@@ -2111,7 +2134,7 @@ const NavStationHero: React.FC<{
                                     >
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                                     </svg>
-                                </h2>
+                                </span>
                                 <p className="text-[11px] font-medium text-slate-400 truncate">
                                     Personalise routing for your boat
                                 </p>

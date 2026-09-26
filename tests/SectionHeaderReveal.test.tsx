@@ -10,13 +10,7 @@ function Harness({ initialOpen = false }: { initialOpen?: boolean }) {
     return (
         <div data-testid="port">
             <div data-testid="section">
-                <SectionHeader
-                    color="cyan"
-                    label="Settings"
-                    id="settings"
-                    expanded={open}
-                    onToggle={() => setOpen(!open)}
-                />
+                <SectionHeader label="Settings" id="settings" expanded={open} onToggle={() => setOpen(!open)} />
                 <div data-testid="expansion" style={{ gridTemplateRows: open ? '1fr' : '0fr' }}>
                     Account &amp; Settings
                 </div>

@@ -32,7 +32,7 @@ describe('Skipper Device card while the Pi is primary', () => {
         expect(screen.queryByText('Boat GPS')).toBeNull();
         expect(screen.queryByTestId('skipper-device-gps-source')).toBeNull();
         expect(screen.getByTestId('skipper-device-pi-primary')).toHaveTextContent('The Pi is the Primary Device');
-        expect(screen.queryByRole('button', { name: /primary device/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: /primary/i })).toBeNull();
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
     });
 });

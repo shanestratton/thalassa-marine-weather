@@ -29,7 +29,7 @@ describe('Skipper Device release', () => {
                 updateSettings={updateSettings}
             />,
         );
-        fireEvent.click(screen.getByRole('button', { name: 'Release — stop being the primary device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Release — stop being primary' }));
         expect(updateSettings).toHaveBeenCalledTimes(1);
         const patch = updateSettings.mock.calls[0][0] as Record<string, unknown>;
         expect(patch).toEqual({ skipperDevice: null });

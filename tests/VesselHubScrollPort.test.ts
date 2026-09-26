@@ -68,11 +68,14 @@ describe('Vessel page scroll port', () => {
         expect(firstOpening).not.toContain('scrollSnapStop');
     });
 
-    it('provides a bottom resting position on the expandable Settings group', () => {
+    it('provides a bottom resting position on the expandable Connections & music group', () => {
         const port = lowerPortMarkup();
-        const settingsHeader = port.indexOf('label="Settings & Connect"');
-        expect(settingsHeader).toBeGreaterThan(0);
-        const groupStart = port.lastIndexOf('<div', settingsHeader);
+        // "Connections & music" since UX scorecard run 7: Settings left this
+        // group for an always-visible row, and Music joined it from its own
+        // one-row accordion. The id stays 'setup'.
+        const groupHeader = port.indexOf('label="Connections & music"');
+        expect(groupHeader).toBeGreaterThan(0);
+        const groupStart = port.lastIndexOf('<div', groupHeader);
         const opening = port.slice(groupStart, port.indexOf('>', groupStart) + 1);
         expect(opening).toContain("scrollSnapAlign: 'end'");
         // The existing bottom margin leaves reading room without extending
@@ -82,15 +85,34 @@ describe('Vessel page scroll port', () => {
         expect(opening).not.toContain('scrollMarginBottom');
         expect(opening).not.toContain('scrollSnapStop');
 
-        // Named "Settings" since UX scorecard run 6 (was "Account & Settings").
-        const accountRow = port.indexOf('label="Settings"', settingsHeader);
-        expect(accountRow).toBeGreaterThan(settingsHeader);
-        const settingsContents = port.slice(settingsHeader, accountRow);
-        expect(settingsContents).toContain("<CollapsibleContent open={expanded.has('setup')}>");
-        expect(settingsContents).toContain('label="NMEA Gateway"');
-        expect(settingsContents).toContain('label="Boat Network"');
+        const musicRow = port.indexOf('label="Music"', groupHeader);
+        expect(musicRow).toBeGreaterThan(groupHeader);
+        const groupContents = port.slice(groupHeader, musicRow);
+        expect(groupContents).toContain(
+            '<CollapsibleContent open={expanded.has(\'setup\')} id="vessel-hub-connections">',
+        );
+        expect(groupContents).toContain('controlsId="vessel-hub-connections"');
+        expect(groupContents).toContain('label="NMEA Gateway"');
+        expect(groupContents).toContain('label="Boat Network"');
         // Put the target around the whole expandable group, not inside its
         // clipped animated content, so it exists in the collapsed state too.
-        expect(settingsContents).not.toContain('scrollSnapAlign');
+        expect(groupContents).not.toContain('scrollSnapAlign');
+        // Only one collapsible group is left on the hub.
+        expect(port.match(/<SectionHeader/g)).toHaveLength(1);
+    });
+
+    it('shows the Settings row without an expand, beside the Boat Binder', () => {
+        // Settings was reachable only by expanding the collapsed group at the
+        // foot of the hub, below the fold at 375x667 (UX scorecard run 7,
+        // N-vessel-hub-structure).
+        const port = lowerPortMarkup();
+        const binder = port.indexOf('label="Boat Binder"');
+        const settings = port.indexOf('label="Settings"');
+        const group = port.indexOf('<SectionHeader');
+        expect(binder).toBeGreaterThan(0);
+        expect(settings).toBeGreaterThan(binder);
+        expect(group).toBeGreaterThan(settings);
+        expect(port.slice(binder, settings)).not.toContain('<CollapsibleContent');
+        expect(port.slice(settings, port.indexOf('/>', settings))).toContain("onNavigate('settings')");
     });
 });

@@ -1,10 +1,37 @@
 /**
- * Collapsible section header for the Vessel Hub menu groups.
+ * Section headings for the Vessel Hub: the static label and the collapsible
+ * header built on it.
  */
 import React, { useEffect, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 
-/** Collapsible section header with colored pip and chevron.
+/** The Settings pages' section-label style (SettingsPrimitives' Section and
+ *  SettingsModal's menu labels), so the hub, the Boat Binder and Settings
+ *  wear one heading: a sky dot and sky caps. It used to be a coloured bar in a
+ *  different hue per section (pink Music, cyan Settings & Connect), which read
+ *  as decoration beside the safety deck's state colours (UX scorecard run 7,
+ *  C-section-heading-styles / C-vessel-seven-accents). text-sky-300 takes the
+ *  daylight ink from styles/legibility.css like the Settings headings do. */
+const LABEL_TEXT = 'ui-section-heading text-label font-bold uppercase tracking-[0.15em] text-sky-300';
+
+/** span, not div: a heading may only hold phrasing content. As a flex item it
+ *  is blockified, so it still takes w/h. */
+const LabelDot: React.FC = () => (
+    <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50" />
+);
+
+/** Static section label: an h2 in the one hub heading style. */
+export const SectionLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({
+    children,
+    className = '',
+}) => (
+    <h2 className={`${LABEL_TEXT} flex items-center gap-2 ${className}`}>
+        <LabelDot />
+        {children}
+    </h2>
+);
+
+/** Collapsible section header: the same label, with a disclosure chevron.
  *  Tap target: min-h-[44px] meets Apple HIG minimum so wet-handed
  *  taps on a heeled boat actually hit. The previous py-1 was ~24pt
  *  and missed half the time.
@@ -13,14 +40,15 @@ import { triggerHaptic } from '../../utils/system';
  *  button inside it, the standard disclosure-heading pattern. The button's
  *  name is the plain label and never changes; open or closed is announced
  *  from aria-expanded, so a screen reader does not hear "Expand Atmosphere"
- *  become a different control called "Collapse Atmosphere" (UX referee). */
+ *  become a different control called "Collapse Atmosphere" (UX referee).
+ *  `controlsId` is the id of the panel it opens, for aria-controls. */
 export const SectionHeader: React.FC<{
-    color: string;
     label: string;
     id: string;
     expanded: boolean;
     onToggle: (id: string) => void;
-}> = ({ color, label, id, expanded, onToggle }) => {
+    controlsId?: string;
+}> = ({ label, id, expanded, onToggle, controlsId }) => {
     const headingRef = useRef<HTMLHeadingElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const revealRequested = useRef(false);
@@ -87,25 +115,20 @@ export const SectionHeader: React.FC<{
                     triggerHaptic('light');
                     onToggle(id);
                 }}
-                className="w-full flex items-center gap-2.5 py-3 min-h-[44px] active:opacity-70 transition-opacity"
+                className="w-full flex items-center gap-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
                 aria-expanded={expanded}
+                aria-controls={controlsId}
                 aria-label={label}
             >
-                {/* span, not div: a heading may only hold phrasing content. As a
-                    flex item it is blockified, so it still takes w/h. */}
-                <span aria-hidden="true" className="w-1.5 h-4 rounded-full" style={{ backgroundColor: color }} />
-                <span
-                    className="ui-section-heading text-xs font-bold uppercase tracking-[0.2em] flex-1 text-left"
-                    style={{ color }}
-                >
-                    {label}
-                </span>
+                <LabelDot />
+                <span className={`${LABEL_TEXT} flex-1 text-left`}>{label}</span>
+                {/* Full ink in the label's colour: at 60 % opacity the daylight
+                    chevrons measured 2.4-2.9:1 on the #e2e8f0 page (UX scorecard
+                    run 7, L-vessel-daylight-chevrons). */}
                 <svg
                     aria-hidden="true"
-                    className="w-4 h-4 transition-transform duration-200"
+                    className="w-4 h-4 shrink-0 text-sky-300 transition-transform duration-200"
                     style={{
-                        color,
-                        opacity: 0.6,
                         transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
                     }}
                     fill="none"
