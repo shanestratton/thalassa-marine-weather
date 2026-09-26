@@ -38,7 +38,7 @@ describe('RadialHelmMenu accessibility', () => {
         expect(onToggleAnchorage).toHaveBeenCalledOnce();
         expect(screen.getByRole('menu', { name: 'Sea layers' })).toBeInTheDocument();
     });
-    it('offers tide stations under Sea, not the Tactical category', async () => {
+    it('offers tide stations under Sea, not the Live category', async () => {
         const onToggleTideStations = vi.fn();
         render(
             <RadialHelmMenu
@@ -55,8 +55,8 @@ describe('RadialHelmMenu accessibility', () => {
         fireEvent.click(tide);
         expect(onToggleTideStations).toHaveBeenCalledOnce();
         fireEvent.keyDown(tide, { key: 'Escape' });
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Tactical layers' }));
-        expect(within(await screen.findByRole('menu', { name: 'Tactical layers' })).queryByText('Tides')).toBeNull();
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Live layers' }));
+        expect(within(await screen.findByRole('menu', { name: 'Live layers' })).queryByText('Tides')).toBeNull();
     });
 
     it('keeps a one-tap MOB emergency entry visible without opening the layer menu', () => {
@@ -71,7 +71,7 @@ describe('RadialHelmMenu accessibility', () => {
         );
 
         expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Open Man Overboard emergency' }));
+        fireEvent.click(screen.getByRole('button', { name: 'MOB, open Man Overboard emergency' }));
         expect(onOpenMob).toHaveBeenCalledOnce();
     });
 
@@ -85,7 +85,7 @@ describe('RadialHelmMenu accessibility', () => {
             />,
         );
 
-        expect(screen.getByRole('button', { name: 'Open active Man Overboard emergency' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'MOB active, open Man Overboard emergency' })).toBeInTheDocument();
     });
 
     it('does NOT duplicate MOB inside the layer menu', async () => {
@@ -104,16 +104,16 @@ describe('RadialHelmMenu accessibility', () => {
             />,
         );
 
-        // Drill into the Tactical category — MOB lived in that SUBMENU, not
+        // Drill into the Live (formerly Tactical) category — MOB lived in that SUBMENU, not
         // the top tier. Asserting against tier 1 would pass trivially even
         // with MOB restored, which is exactly what an unverified regression
         // test looks like.
         fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
-        fireEvent.click(await screen.findByRole('menuitem', { name: /Tactical/i }));
-        const tacticalMenu = await screen.findByRole('menu', { name: /Tactical/i });
+        fireEvent.click(await screen.findByRole('menuitem', { name: /Live/i }));
+        const tacticalMenu = await screen.findByRole('menu', { name: /Live/i });
         expect(within(tacticalMenu).queryByText('MOB')).not.toBeInTheDocument();
         // The dedicated button must still be there, and still work.
-        fireEvent.click(screen.getByRole('button', { name: 'Open Man Overboard emergency' }));
+        fireEvent.click(screen.getByRole('button', { name: 'MOB, open Man Overboard emergency' }));
         expect(onOpenMob).toHaveBeenCalledOnce();
     });
 
@@ -139,7 +139,7 @@ describe('RadialHelmMenu accessibility', () => {
         // 667x375: menu 64px, MOB top 0 / right 60px, band 64..116px — clear
         // of the status row (ends 56px) and the right rail (starts 128px).
         const source = readFileSync(join(process.cwd(), 'components/map/RadialHelmMenu.tsx'), 'utf8');
-        const mobButton = source.slice(source.indexOf("'Open Man Overboard emergency'"));
+        const mobButton = source.slice(source.indexOf("'MOB, open Man Overboard emergency'"));
         const className = mobButton.slice(mobButton.indexOf('className={`'), mobButton.indexOf('animate='));
 
         // The class is what CSS targets; without it neither rule applies.

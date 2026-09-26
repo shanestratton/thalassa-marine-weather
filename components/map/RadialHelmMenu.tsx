@@ -2,7 +2,7 @@
  * RadialHelmMenu — Gesture-based two-tiered radial/arc menu for chart layer toggling.
  *
  * A single glassmorphic FAB sits on the right edge (thumb zone). Press-and-hold
- * expands Tier 1 (categories) in a tight arc. Drag to a category to expand Tier 2
+ * expands Tier 1 (categories) as a block of tiles beside it. Drag to a category to expand Tier 2
  * (layer items). Release on an item to toggle the map layer. Quick-tap toggles the
  * layer menu open/closed without gestures.
  *
@@ -15,6 +15,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { type WeatherLayer, SEA_STATE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 import { isCmemsLayerAvailable, isCmemsProductLayer } from './cmemsFeatureAvailability';
+import { CORNER_STATUS_DOT_CLASS } from './cornerStatusDot';
 import {
     AnchorIcon as ChartAnchorIcon,
     NoaaIcon as ChartNoaaIcon,
@@ -131,37 +132,67 @@ export interface RadialHelmMenuProps {
     hidden?: boolean;
 }
 
-// ── Arc math ─────────────────────────────────────────────────────
+// ── Tier-1 tile geometry ─────────────────────────────────────────
 
-/** Convert polar (angle in degrees, radius in px) to cartesian offset from center */
-function polarToXY(angleDeg: number, radius: number): { x: number; y: number } {
-    const rad = (angleDeg * Math.PI) / 180;
-    return {
-        x: Math.cos(rad) * radius,
-        y: Math.sin(rad) * radius,
-    };
+/** Mirrors the container's top-[192px] class (the tier-2 grid is fixed). */
+const HELM_TOP_PX = 192;
+/** Half the 48 px FAB: tile offsets are measured from its centre. */
+const FAB_HALF = 24;
+/** Category tiles: 64 px, never closer than 10 px (UX scorecard run 6). */
+const TIER1_TILE = 64;
+const TIER1_PITCH = TIER1_TILE + 10;
+/** The same query index.css uses for the short-landscape helm layout. */
+const SHORT_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 500px)';
+
+/**
+ * Category tile centres, relative to the FAB centre (y down).
+ *
+ * A two-column block to the LEFT of the FAB, read left to right and top to
+ * bottom so arrow-key order matches what the eye sees. A circular arc of
+ * squares only kept 5–8 px on its diagonals (UX scorecard run 6); the block
+ * keeps every neighbour 10 px apart and stays off the rail column, where MOB
+ * sits above the FAB and vessel search below it. An odd last tile sits beside
+ * the FAB, under the one above it.
+ *
+ * In short landscape MOB moves LEFT of the FAB on the FAB's own row
+ * (index.css), so the block drops one row to clear it.
+ */
+function tier1Slots(count: number, shortLandscape: boolean): Array<{ x: number; y: number }> {
+    const top = shortLandscape ? TIER1_PITCH : 0;
+    return Array.from({ length: count }, (_, i) => {
+        const aloneOnLastRow = i === count - 1 && count % 2 === 1;
+        const nearFab = aloneOnLastRow || i % 2 === 1;
+        return { x: nearFab ? -TIER1_PITCH : -2 * TIER1_PITCH, y: top + Math.floor(i / 2) * TIER1_PITCH };
+    });
+}
+
+function useShortLandscape(): boolean {
+    const [matches, setMatches] = useState(
+        () => typeof window !== 'undefined' && !!window.matchMedia?.(SHORT_LANDSCAPE_QUERY).matches,
+    );
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+        const query = window.matchMedia(SHORT_LANDSCAPE_QUERY);
+        const sync = () => setMatches(query.matches);
+        sync();
+        query.addEventListener?.('change', sync);
+        return () => query.removeEventListener?.('change', sync);
+    }, []);
+    return matches;
 }
 
 /**
- * Distribute N items along an arc, centered on `centerAngle`.
- * Returns array of angles in degrees.
+ * Keyboard/programmatic focus must not look like "on". The app-wide ring is
+ * the same sky as an active layer, so the menu's own controls get a dashed
+ * neutral ring instead (UX scorecard run 6). Important, because the global
+ * *:focus-visible rule is unlayered and would otherwise win.
  */
-function distributeArc(count: number, centerAngle: number, spread: number): number[] {
-    if (count === 1) return [centerAngle];
-    const step = spread / (count - 1);
-    const start = centerAngle - spread / 2;
-    return Array.from({ length: count }, (_, i) => start + step * i);
-}
+const MENU_FOCUS_RING =
+    'focus-visible:outline-2! focus-visible:outline-dashed! focus-visible:outline-offset-[3px]! focus-visible:outline-white/85! [.display-light_&]:focus-visible:outline-slate-900/80!';
 
 // ── Animation variants ──────────────────────────────────────────
 
-const SPRING_TIGHT = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 };
 const SPRING_SNAPPY = { type: 'spring' as const, stiffness: 600, damping: 28, mass: 0.6 };
-
-const fabVariants: Variants = {
-    idle: { scale: 1, rotate: 0 },
-    active: { scale: 1.05, rotate: 45, transition: SPRING_TIGHT },
-};
 
 const categoryVariants: Variants = {
     hidden: { scale: 0, opacity: 0 },
@@ -316,7 +347,10 @@ function buildCategories(
     return [
         {
             id: 'tactical',
-            label: 'Tactical',
+            // "Live", not "Tactical": the word said nothing about what was
+            // inside (lightning, squalls, storms, AIS) and filled its tile
+            // edge to edge (UX scorecard run 6). The id stays for callers.
+            label: 'Live',
             icon: <TacticalCategoryIcon />,
             color: 'text-amber-400',
             glowColor: 'rgba(251,191,36,0.4)',
@@ -565,28 +599,17 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         [tacticalState, chartsState],
     );
 
-    // ── Arc layout parameters ──
-    // Categories fan out DOWN-LEFT from the FAB. With the FAB anchored at
-    // top-[192px] (below the Offline FAB on the right rail) we have ample
-    // upper headroom — and the menu opens away from the top-center mode chip.
-    //
-    // Chord geometry for no-overlap:
-    //   chord = 2 * R * sin(step/2)
-    //   At 60px bubble-diameter + 15px gap, we want chord ≥ 75px.
-    //   4 items, step = SPREAD/3. Solving gives R=125, SPREAD=105° as the
-    //   minimum that gives clear visual separation at every pair.
-    // Radius + spread widen with the count so adjacent bubbles stay ≥ ~85px
-    // apart (60px bubble + gap) at any category count. The old binary
-    // (>=4 ? 125/105 : 90/70) treated 3 the SAME as 2 — so when the Charts
-    // category was parked (4→3), the three bunched up (Shane 2026-07-17:
-    // "SKY/SEA/TACTICAL are all bunched — space them evenly like before").
-    // n=3 → chord = 2·115·sin(95/4°) ≈ 93px, cleanly spaced.
-    const TIER1_RADIUS = categories.length >= 4 ? 125 : categories.length === 3 ? 115 : 90;
-
-    const tier1Angles = useMemo(
-        () => distributeArc(categories.length, 150, categories.length >= 4 ? 105 : categories.length === 3 ? 95 : 60),
-        [categories.length],
+    // ── Tier-1 layout ──
+    // Evenly spaced at every count (Shane 2026-07-17: "space them evenly");
+    // see tier1Slots for the geometry and why it is no longer a circular arc.
+    const shortLandscape = useShortLandscape();
+    const tier1Positions = useMemo(
+        () => tier1Slots(categories.length, shortLandscape),
+        [categories.length, shortLandscape],
     );
+    // Lowest tile edge, measured down from the FAB centre. The tier-2 grid and
+    // the tier-1 Clear All pill both hang below it.
+    const tier1Bottom = tier1Positions.reduce((low, p) => Math.max(low, p.y + TIER1_TILE / 2), FAB_HALF);
 
     // ── Handlers ─────────────────────────────────────────────
 
@@ -694,23 +717,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             const fabCenterY = fabRect.top + fabRect.height / 2;
             const dx = e.clientX - fabCenterX;
             const dy = e.clientY - fabCenterY;
-            const dist = Math.hypot(dx, dy);
 
-            // Check if hovering over a category (Tier 1 zone: 50-130px from center)
-            if (dist > 50 && dist < 130 && !activeCategory) {
-                const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                // Find closest category
-                let closestIdx = 0;
-                let closestDist = Infinity;
-                tier1Angles.forEach((a, i) => {
-                    const d = Math.abs(((angle - a + 540) % 360) - 180);
-                    if (d < closestDist) {
-                        closestDist = d;
-                        closestIdx = i;
-                    }
-                });
-                if (closestDist < 35) {
-                    setActiveCategory(categories[closestIdx].id);
+            // Hovering a category: inside its tile or the half-gap around it.
+            if (!activeCategory) {
+                const reach = TIER1_PITCH / 2;
+                const hit = tier1Positions.findIndex((p) => Math.abs(dx - p.x) <= reach && Math.abs(dy - p.y) <= reach);
+                if (hit >= 0 && categories[hit]) {
+                    setActiveCategory(categories[hit].id);
                     triggerHaptic('light');
                 }
             }
@@ -727,7 +740,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 }
             }
         },
-        [isDragging, activeCategory, categories, tier1Angles, hoveredItem],
+        [isDragging, activeCategory, categories, tier1Positions, hoveredItem],
     );
 
     const handleCategoryTap = useCallback((catId: string) => {
@@ -936,7 +949,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 <motion.button
                     type="button"
                     aria-label={
-                        tacticalState.mobActive ? 'Open active Man Overboard emergency' : 'Open Man Overboard emergency'
+                        tacticalState.mobActive
+                            ? 'MOB active, open Man Overboard emergency'
+                            : 'MOB, open Man Overboard emergency'
                     }
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
@@ -988,6 +1003,14 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 {isOpen && (
                     <motion.div
                         className="fixed inset-0 z-[-1]"
+                        // A slate-950/45 wash so the tiles stop reading as part of
+                        // the chart under them (own-ship, its badge, place labels).
+                        // It fades out before the bottom corners: the map credits
+                        // there are a licence condition and stay undimmed.
+                        style={{
+                            background:
+                                'linear-gradient(to bottom, rgb(2 6 23 / 0.45) 0%, rgb(2 6 23 / 0.45) 55%, rgb(2 6 23 / 0) 75%)',
+                        }}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -1023,13 +1046,17 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                 className="radial-helm-layer-grid thalassa-popover-solid fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl"
                                 style={{
                                     // Anchor the grid to the right edge of the viewport, BELOW the
-                                    // Tier 1 category arc. Fixed (not absolute) so it escapes the
-                                    // 48px FAB container.
+                                    // Tier 1 category tiles. Fixed (not absolute) so it escapes the
+                                    // 48px FAB container. Short landscape overrides all of this
+                                    // from index.css (.radial-helm-layer-grid).
                                     right: 12,
-                                    // FAB at top-[192], arc radius 125 → lowest bubble center at
-                                    // y ≈ 192 + sin(97.5°)*125 = ~315, plus 30px bubble half-height
-                                    // = 345 bottom. Anchor grid at 364 with a ~20px gap.
-                                    top: 364,
+                                    // 12 px under the lowest tile.
+                                    top: HELM_TOP_PX + FAB_HALF + tier1Bottom + 12,
+                                    // Stop above the tab bar and scroll inside: on a 375x667
+                                    // phone a nine-item grid ran on under the bar.
+                                    maxHeight: `calc(100dvh - ${HELM_TOP_PX + FAB_HALF + tier1Bottom + 12}px - 4rem - 1px - env(safe-area-inset-bottom) - 8px)`,
+                                    overflowY: 'auto',
+                                    overscrollBehavior: 'contain',
                                     // Span most of the viewport width on phones; cap on tablets.
                                     width: 'calc(100vw - 24px)',
                                     maxWidth: 360,
@@ -1078,7 +1105,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                     e.stopPropagation();
                                                     handleItemTap(item);
                                                 }}
-                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter] hover:brightness-125 ${
+                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-xl! ${MENU_FOCUS_RING} ${
                                                     active
                                                         ? 'bg-sky-500/20 border-sky-400/50 text-white'
                                                         : hovered
@@ -1128,7 +1155,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                     })()}
             </AnimatePresence>
 
-            {/* ── Tier 1: Category Nodes (arc from FAB) ── */}
+            {/* ── Tier 1: Category tiles (block beside the FAB) ── */}
             <div
                 id={categoryMenuId}
                 role={isOpen ? 'menu' : undefined}
@@ -1138,7 +1165,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 <AnimatePresence>
                     {isOpen &&
                         categories.map((cat, i) => {
-                            const pos = polarToXY(tier1Angles[i], TIER1_RADIUS);
+                            const pos = tier1Positions[i];
                             const isActive = activeCategory === cat.id;
                             const hasActive = categoryHasActive(cat);
 
@@ -1162,8 +1189,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     // Opaque tiles: at /70–/90 the own-ship dot read through
                                     // one while its badge seemed to sit on top. Hover is a
                                     // brightness change only; the ring/glow belongs to the
-                                    // open category (aria-expanded) alone.
-                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter] hover:brightness-125 ${
+                                    // open category (aria-expanded) alone, and focus wears
+                                    // its own dashed ring (MENU_FOCUS_RING).
+                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-2xl! ${MENU_FOCUS_RING} ${
                                         isActive
                                             ? `bg-slate-800 border-white/20 ${cat.color}`
                                             : hasActive
@@ -1171,11 +1199,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                               : 'bg-slate-900 border-white/8 text-gray-500'
                                     }`}
                                     style={{
-                                        width: 60,
-                                        height: 60,
-                                        // Position: FAB is at right:12px, so offset leftward
-                                        right: -pos.x - 6,
-                                        top: pos.y - 6,
+                                        width: TIER1_TILE,
+                                        height: TIER1_TILE,
+                                        // Centre the tile on its slot, measured from the FAB
+                                        // centre (the container is the 48 px FAB's box).
+                                        right: -pos.x - (TIER1_TILE / 2 - FAB_HALF),
+                                        top: pos.y - (TIER1_TILE / 2 - FAB_HALF),
                                     }}
                                     whileTap={{ scale: 0.92 }}
                                 >
@@ -1186,11 +1215,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         style={isActive ? { boxShadow: `0 0 12px 2px ${cat.glowColor}` } : {}}
                                     >
                                         <span className="text-xl leading-none">{cat.icon}</span>
-                                        {/* Category label — tight tracking so longer words ("Tactical",
-                                        "Routes") fit inside the 60px bubble without hanging over
-                                        the edges. Width clamp + truncate is a safety net for any
-                                        future label that still overflows. */}
-                                        <span className="mt-1 max-w-[60px] truncate text-[10px] font-black uppercase leading-none tracking-tighter">
+                                        {/* Category label. Width clamp + truncate is a safety net
+                                        for any future label longer than the tile. */}
+                                        <span className="mt-1 max-w-[56px] truncate text-[12px] font-black uppercase leading-none tracking-tighter">
                                             {cat.label}
                                         </span>
                                     </motion.div>
@@ -1203,39 +1230,35 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 </AnimatePresence>
             </div>
 
-            {/* ── FAB (helm wheel) ── */}
-            <motion.button
+            {/* ── FAB (layers) ──
+                Stays a square whether open or shut: it used to rotate 45° into
+                a diamond, the only non-square control on the rail. Open is told
+                by the glyph cross-fading to a close mark (UX scorecard run 6). */}
+            <button
                 ref={fabRef}
+                type="button"
                 aria-label={isOpen ? 'Close layer menu' : 'Open layer menu'}
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
                 aria-controls={isOpen ? categoryMenuId : undefined}
-                variants={fabVariants}
-                animate={isOpen ? 'active' : 'idle'}
-                transition={SPRING_TIGHT}
                 onClick={handleTap}
                 onPointerDown={handlePointerDown}
-                className="relative w-12 h-12 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-colors active:scale-95"
+                className={`relative w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center shadow-2xl transition-colors active:scale-95 ${
+                    isOpen ? 'bg-slate-800/90 border-white/20' : 'bg-slate-900/90 border-white/8 hover:bg-slate-800/90'
+                }`}
                 style={{ touchAction: 'none' }}
             >
                 <HelmWheelIcon isOpen={isOpen} />
-                {totalActive > 0 && (
-                    <motion.span
-                        className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-sky-500 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-lg shadow-sky-500/50"
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={SPRING_SNAPPY}
-                    >
-                        {totalActive}
-                    </motion.span>
-                )}
-            </motion.button>
+                {/* Something is on: the shared corner dot, not a count that
+                    reads as unread alerts. The count is on the Clear All pill. */}
+                {totalActive > 0 && <span aria-hidden="true" className={CORNER_STATUS_DOT_CLASS} />}
+            </button>
 
             {/* ── Tier-1 Clear All pill ── Shown only when the menu is open,
                 NO category is selected (so the tier-2 grid isn't on screen),
-                AND there are active layers. Positioned below the category arc —
-                with FAB at top-[192] + radius 125, the bottom-most bubble
-                reaches ~345; this pill sits clear at 384px. */}
+                AND there are active layers. Hangs 10 px under the lowest tile,
+                measured from the FAB centre (24 px into this container), so it
+                follows the tiles in short landscape too. */}
             <AnimatePresence>
                 {isOpen && !activeCategory && totalActive > 0 && (
                     <motion.button
@@ -1245,8 +1268,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         exit={{ opacity: 0, scale: 0.85 }}
                         transition={{ ...SPRING_SNAPPY, delay: 0.2 }}
                         onClick={handleClearAll}
-                        className="fixed right-[16px] min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
-                        style={{ top: 384 }}
+                        className="absolute right-0 min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
+                        style={{ top: FAB_HALF + tier1Bottom + 10 }}
                     >
                         Clear All · {totalActive}
                     </motion.button>
@@ -1258,22 +1281,32 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
 // ── SVG Icons (compact, monochrome, optimized for 20-24px) ──────
 
+/** Layers glyph that cross-fades to a close mark while the menu is open. */
 const HelmWheelIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
-    <motion.svg
-        className="w-5 h-5 text-white"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        animate={{ rotate: isOpen ? 45 : 0 }}
-        transition={SPRING_TIGHT}
-    >
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"
-        />
-    </motion.svg>
+    <span aria-hidden="true" className="relative block h-5 w-5 text-white">
+        <svg
+            className={`absolute inset-0 h-5 w-5 transition-opacity duration-150 ${isOpen ? 'opacity-0' : 'opacity-100'}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+        >
+            <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"
+            />
+        </svg>
+        <svg
+            className={`absolute inset-0 h-5 w-5 transition-opacity duration-150 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.8}
+        >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+        </svg>
+    </span>
 );
 
 // Category icons

@@ -93,7 +93,7 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
         }
     });
     await page.goto('/');
-    const showNavigation = page.getByRole('button', { name: 'Show navigation', exact: true });
+    const showNavigation = page.getByRole('button', { name: /show navigation$/i });
     const viewport = page.viewportSize()!;
     const shortLandscape = viewport.width > viewport.height && viewport.height < 500;
     if (shortLandscape) {
@@ -301,7 +301,7 @@ for (const size of cases) {
                             nav: 'nav[aria-label="Main"]',
                             back: 'button[aria-label="Back"]',
                             locate: 'button[aria-label="Locate me"]',
-                            mob: 'button[aria-label="Open Man Overboard emergency"]',
+                            mob: 'button[aria-label="MOB, open Man Overboard emergency"]',
                             layers: 'button[aria-label="Open layer menu"]',
                             tide: 'button[aria-label="Live tide depth is on — tap to return to chart datum"]',
                         };
@@ -330,7 +330,7 @@ for (const size of cases) {
 
             const locate = page.getByRole('button', { name: 'Locate me', exact: true });
             const back = page.getByRole('button', { name: 'Back', exact: true });
-            const mob = page.getByRole('button', { name: 'Open Man Overboard emergency', exact: true });
+            const mob = page.getByRole('button', { name: 'MOB, open Man Overboard emergency', exact: true });
             const layers = page.getByRole('button', { name: 'Open layer menu', exact: true });
             const attribution = page.locator('.thalassa-chart-map .mapboxgl-ctrl-attrib');
             const scale = page.locator('.thalassa-chart-map .mapboxgl-ctrl-scale');
