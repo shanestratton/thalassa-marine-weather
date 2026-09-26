@@ -143,7 +143,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                             className="absolute bottom-12 left-0 z-50 w-72 rounded-2xl bg-slate-900 border border-white/10 shadow-2xl overflow-hidden fade-slide-down"
                                         >
                                             <div className="px-4 pt-3 pb-2" role="presentation">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-300/70">
+                                                <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-300/70">
                                                     Share with the crew
                                                 </p>
                                             </div>
@@ -160,7 +160,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                                     <span className="block text-sm text-white/90 font-semibold">
                                                         Share my location
                                                     </span>
-                                                    <span className="block text-[11px] text-white/50 mt-0.5">
+                                                    <span className="block text-xs text-white/50 mt-0.5">
                                                         Send your latest GPS fix
                                                     </span>
                                                 </span>
@@ -179,7 +179,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                                     <span className="block text-sm text-white/90 font-semibold">
                                                         Drop a pin
                                                     </span>
-                                                    <span className="block text-[11px] text-white/50 mt-0.5">
+                                                    <span className="block text-xs text-white/50 mt-0.5">
                                                         Search or choose any place on the chart
                                                     </span>
                                                 </span>
@@ -200,7 +200,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                                             <span className="block text-sm text-white/90 font-semibold">
                                                                 Share voyage track
                                                             </span>
-                                                            <span className="block text-[11px] text-white/50 mt-0.5">
+                                                            <span className="block text-xs text-white/50 mt-0.5">
                                                                 Choose a track from your ship's log
                                                             </span>
                                                         </span>

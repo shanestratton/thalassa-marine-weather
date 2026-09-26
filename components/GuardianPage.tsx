@@ -26,6 +26,7 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 import { PageHeader } from './ui/PageHeader';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { Button } from './ui/Button';
+import { SignInButton } from './ui/SignInButton';
 import { useAuthStore } from '../stores/authStore';
 import {
     getAuthIdentityScope,
@@ -72,6 +73,13 @@ function broadcastFeedback(result: GuardianBroadcastResult): string {
 }
 
 const GUARDIAN_INIT_TIMEOUT_MS = 15_000;
+
+/**
+ * The header subtitle says what the page shows. It was 'Bay watch', one of
+ * five 'watch' names in the app; 'watch' now belongs to Anchor Watch alone
+ * (UX scorecard run 7).
+ */
+const GUARDIAN_SUBTITLE = 'Nearby boats';
 
 /**
  * Guardian depends on both GPS and remote identity checks. Neither is allowed
@@ -663,22 +671,37 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle="Bay watch" onBack={onBack} />
-                <div className="flex-1 flex items-start justify-center px-6 pt-6">
+                <PageHeader title="Guardian" subtitle={GUARDIAN_SUBTITLE} onBack={onBack} />
+                <div className="flex-1 flex items-start justify-center px-5 pt-2">
                     {/* A static gate, not a live region: it holds a heading and a
-                        button, and nothing in it changes while it is shown. */}
-                    <div className="w-full max-w-sm rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center">
-                        <LockIcon className="mx-auto h-8 w-8 text-emerald-400" />
-                        <h2 className="mt-3 text-lg font-black text-white text-balance">Sign in to use Guardian</h2>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-300 text-pretty">
-                            While Guardian is armed, nearby Thalassa boats that also have it armed can see your vessel
-                            name and recent position. Nothing is shared while it is off.
-                        </p>
+                        button, and nothing in it changes while it is shown. Drawn
+                        with the shared unavailable-card recipe (round icon chip,
+                        bold heading, same copy measure, centred action). */}
+                    <div className="w-full max-w-2xl rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center">
+                        <div
+                            aria-hidden="true"
+                            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-300"
+                        >
+                            <LockIcon className="h-5 w-5" />
+                        </div>
+                        <h2 className="text-lg font-bold text-white text-balance">Sign in to use Guardian</h2>
+                        {/* What Guardian does for the skipper first, then what it
+                            shares (UX scorecard run 7). Multi-line paragraphs read
+                            left-aligned, as on the parked Calypso page. */}
+                        <div className="mx-auto mt-2 max-w-lg space-y-3 text-left text-sm leading-relaxed text-slate-300 text-pretty">
+                            <p>See Thalassa boats near you and share safety alerts with them.</p>
+                            <p>
+                                While Guardian is armed, nearby Thalassa boats that also have it armed can see your
+                                vessel name and recent position. Nothing is shared while it is off.
+                            </p>
+                        </div>
                         {onSignIn && (
                             // It opens Settings on Account & Cloud, so the label says so.
-                            <Button variant="primary" onClick={onSignIn} className="mx-auto mt-4">
-                                Sign in in Settings
-                            </Button>
+                            <SignInButton
+                                label="Open Settings to sign in"
+                                onClick={onSignIn}
+                                className="mx-auto mt-5"
+                            />
                         )}
                     </div>
                 </div>
@@ -692,12 +715,12 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle="Bay watch" onBack={onBack} />
+                <PageHeader title="Guardian" subtitle={GUARDIAN_SUBTITLE} onBack={onBack} />
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div role="status" aria-live="polite" className="text-center">
                         <div className="mx-auto w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                         <p className="mt-4 text-sm font-bold text-slate-200">Loading Guardian…</p>
-                        <p className="mt-1 text-xs text-slate-500">Checking your profile, position and local watch.</p>
+                        <p className="mt-1 text-xs text-slate-500">Checking your profile, position and nearby boats.</p>
                     </div>
                 </div>
             </div>
@@ -710,7 +733,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle="Bay watch" onBack={onBack} />
+                <PageHeader title="Guardian" subtitle={GUARDIAN_SUBTITLE} onBack={onBack} />
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div
                         role="alert"
@@ -739,7 +762,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
         >
             <PageHeader
                 title="Guardian"
-                subtitle="Bay watch"
+                subtitle={GUARDIAN_SUBTITLE}
                 onBack={() => {
                     triggerHaptic('light');
                     onBack();
@@ -751,7 +774,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             setShowSetup(true);
                         }}
                         className="hit-target-44 p-2 hover:bg-white/5 rounded-xl transition-colors"
-                        aria-label="Edit Profile"
+                        aria-label="Edit Guardian profile"
                     >
                         <GearIcon className="w-5 h-5 text-gray-400" />
                     </button>
@@ -813,9 +836,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                         />
                     </div>
 
-                    <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-[0.2em] mb-1">
-                        Bay Watch
-                    </div>
+                    <div className="text-xs font-bold text-emerald-400 uppercase tracking-[0.2em] mb-1">Around you</div>
 
                     {/* Your vessel identity */}
                     <div className="flex items-center gap-2 mb-2">
@@ -823,7 +844,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             className={`w-2.5 h-2.5 rounded-full shrink-0 ${armed ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'}`}
                         />
                         <span className={`text-sm font-bold truncate ${armed ? 'text-red-300' : 'text-white'}`}>
-                            {vesselName || 'Your Vessel'}
+                            {vesselName || 'Your vessel'}
                         </span>
                     </div>
 
@@ -843,7 +864,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                 }`}
                             >
                                 {coverageStatus === 'inactive'
-                                    ? 'Nearby watch paused'
+                                    ? 'Arm Guardian to see nearby boats'
                                     : coverageStatus === 'checking'
                                       ? 'Checking vessel position…'
                                       : 'GPS unavailable — nearby coverage not checked'}
@@ -892,12 +913,12 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <SosIcon className="w-5 h-5" />
                         </div>
                         <div className="text-sm font-black text-white tracking-wide">Report</div>
-                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-widest">Suspicious</div>
+                        <div className="text-xs text-red-400 font-bold">Suspicious</div>
                     </button>
 
                     {/* Weather Alert */}
                     <button
-                        aria-label="Broadcast a weather alert to nearby boats"
+                        aria-label="Weather alert: broadcast to nearby boats"
                         aria-disabled={!armed}
                         onClick={() => {
                             if (!armed) {
@@ -918,12 +939,12 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <ThunderstormIcon className="w-5 h-5" />
                         </div>
                         <div className="text-sm font-black text-white tracking-wide">Weather</div>
-                        <div className="text-[11px] text-sky-400 font-bold uppercase tracking-widest">Alert</div>
+                        <div className="text-xs text-sky-400 font-bold">Alert</div>
                     </button>
 
                     {/* Digital Tripwire */}
                     <button
-                        aria-label="Set digital tripwire at current position"
+                        aria-label="Tripwire: set home at current position"
                         onClick={handleSetTripwire}
                         className="bg-linear-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
@@ -931,7 +952,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <BellIcon className="w-5 h-5" />
                         </div>
                         <div className="text-sm font-black text-white tracking-wide">Tripwire</div>
-                        <div className="text-[11px] text-purple-400 font-bold uppercase tracking-widest">Set Home</div>
+                        <div className="text-xs text-purple-400 font-bold">Set home</div>
                     </button>
                 </div>
 
@@ -940,8 +961,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                     <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-3">
                             <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
-                                Nearby Boats
+                            <span className="text-xs font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                Nearby boats
                             </span>
                         </div>
                         <div className="max-h-52 space-y-2 overflow-y-auto">
@@ -961,7 +982,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                         <div className="text-[12px] text-gray-400 flex items-center gap-2">
                                             <span>{user.distance_nm.toFixed(1)} NM</span>
                                         </div>
-                                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
+                                        <div className="text-xs text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
                                             <LockIcon className="w-3 h-3" />
                                             <span>Armed</span>
                                         </div>
@@ -973,7 +994,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                             triggerHaptic('light');
                                             setShowHail(user);
                                         }}
-                                        className="px-3 py-1.5 min-h-[44px] bg-emerald-500/15 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider hover:bg-emerald-500/25 transition-colors active:scale-[0.95]"
+                                        className="px-3 py-1.5 min-h-[44px] bg-emerald-500/15 border border-emerald-500/20 rounded-lg text-xs font-bold text-emerald-400 uppercase tracking-wider hover:bg-emerald-500/25 transition-colors active:scale-[0.95]"
                                     >
                                         Hail
                                     </button>
@@ -987,11 +1008,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 <div className="flex-1 min-h-[120px] flex flex-col" data-testid="guardian-alert-feed">
                     <div className="shrink-0 flex items-center gap-2 mb-3">
                         <div className="w-1 h-4 rounded-full bg-amber-500" />
-                        <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">
-                            Alert Feed
-                        </span>
+                        <span className="text-xs font-black text-amber-400 uppercase tracking-[0.2em]">Alert feed</span>
                         {alerts.length > 0 && (
-                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-full">
+                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-xs font-bold rounded-full">
                                 {alerts.length}
                             </span>
                         )}
@@ -1029,7 +1048,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                                         <span className={`text-sm font-bold ${style.color}`}>
                                                             {alert.title}
                                                         </span>
-                                                        <span className="text-[11px] text-gray-500 shrink-0 ml-2">
+                                                        <span className="text-xs text-gray-500 shrink-0 ml-2">
                                                             {timeAgo(alert.created_at)}
                                                         </span>
                                                     </div>
@@ -1074,7 +1093,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                         tabIndex={arming ? -1 : 0}
                         aria-disabled={arming}
                         aria-pressed={armed}
-                        aria-label={armed ? 'Disarm Guardian vessel watch' : 'Arm Guardian vessel watch'}
+                        aria-label={armed ? 'Disarm Guardian' : 'Arm Guardian'}
                         aria-describedby={armDescriptionId}
                         onKeyDown={(event) => {
                             if (arming || (event.key !== 'Enter' && event.key !== ' ')) return;
@@ -1091,14 +1110,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                 className={`text-sm font-black uppercase tracking-[0.2em] inline-flex items-center gap-1.5 ${armed ? 'text-red-400' : 'text-gray-400'}`}
                             >
                                 {arming ? (
-                                    'Processing...'
+                                    'Processing…'
                                 ) : armed ? (
                                     <>
                                         <LockIcon className="w-4 h-4" />
-                                        <span>ARMED — Slide to Disarm</span>
+                                        <span>Armed — slide to disarm</span>
                                     </>
                                 ) : (
-                                    'Slide to ARM Vessel'
+                                    'Slide to arm vessel'
                                 )}
                             </span>
                         </div>
@@ -1134,7 +1153,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 {/* Keep the privacy explanation accessible without a second visible status row. */}
                 <p id={armDescriptionId} className="sr-only">
                     {armed
-                        ? 'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while this watch runs.'
+                        ? 'Armed: your recent vessel position is shared with other armed Guardian boats and refreshed while Guardian stays armed.'
                         : 'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'}
                 </p>
             </div>
@@ -1155,7 +1174,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                     >
                         <div className="flex items-center justify-between mb-6">
                             <h2 id="guardian-profile-title" className="text-lg font-black text-white">
-                                Guardian Profile
+                                Guardian profile
                             </h2>
                             <button
                                 ref={setupCloseRef}
@@ -1171,9 +1190,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <div>
                                 <label
                                     htmlFor="guardian-vessel-name"
-                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1"
                                 >
-                                    Vessel Name
+                                    Vessel name
                                 </label>
                                 <input
                                     id="guardian-vessel-name"
@@ -1187,9 +1206,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <div>
                                 <label
                                     htmlFor="guardian-owner-name"
-                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1"
                                 >
-                                    Your Name
+                                    Your name
                                 </label>
                                 <input
                                     id="guardian-owner-name"
@@ -1203,9 +1222,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <div>
                                 <label
                                     htmlFor="guardian-dog-name"
-                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1"
                                 >
-                                    Dog&apos;s Name 🐕 <span className="text-gray-500">(optional but encouraged)</span>
+                                    Dog&apos;s name <span className="text-gray-500">(optional but encouraged)</span>
                                 </label>
                                 <input
                                     id="guardian-dog-name"
@@ -1219,9 +1238,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             <div>
                                 <label
                                     htmlFor="guardian-vessel-bio"
-                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                    className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1"
                                 >
-                                    Vessel Bio
+                                    Vessel bio
                                 </label>
                                 <textarea
                                     id="guardian-vessel-bio"
@@ -1239,7 +1258,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                             onClick={handleSaveProfile}
                             className="w-full mt-6 py-3.5 bg-linear-to-r from-emerald-500 to-emerald-600 text-white font-bold rounded-xl text-sm tracking-wide shadow-lg shadow-emerald-500/25 active:scale-[0.98] transition-transform"
                         >
-                            Save Guardian Profile
+                            Save Guardian profile
                         </button>
                     </div>
                 </OverlayPortal>
@@ -1275,7 +1294,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                     className="text-lg font-black text-red-400 inline-flex items-center gap-2"
                                 >
                                     <SosIcon className="w-5 h-5" />
-                                    <span>Report Suspicious Activity</span>
+                                    <span>Report suspicious activity</span>
                                 </h2>
                                 <p id="guardian-report-description" className="text-xs text-gray-400">
                                     Broadcast to all Thalassa boats within 5 NM
@@ -1306,7 +1325,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                 disabled={!reportText.trim()}
                                 className="flex-1 py-3 bg-linear-to-r from-red-500 to-red-600 rounded-xl text-sm font-bold text-white shadow-lg shadow-red-500/25 active:scale-[0.98] transition-transform disabled:opacity-40"
                             >
-                                Broadcast Alert
+                                Broadcast alert
                             </button>
                         </div>
                     </div>
@@ -1343,7 +1362,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                     className="text-lg font-black text-sky-400 inline-flex items-center gap-2"
                                 >
                                     <ThunderstormIcon className="w-5 h-5" />
-                                    <span>Weather Alert</span>
+                                    <span>Weather alert</span>
                                 </h2>
                                 <p id="guardian-weather-description" className="text-xs text-gray-400">
                                     Broadcast a weather warning to boats within 5 NM
@@ -1410,7 +1429,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                                     className="bg-white/3 border border-white/6 rounded-xl p-3 text-center hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all active:scale-[0.95]"
                                 >
                                     <div className="text-xl mb-0.5">{h.emoji}</div>
-                                    <div className="text-[11px] text-gray-300 font-medium">{h.text}</div>
+                                    <div className="text-xs text-gray-300 font-medium">{h.text}</div>
                                 </button>
                             ))}
                         </div>

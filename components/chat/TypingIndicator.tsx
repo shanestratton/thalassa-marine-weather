@@ -4,6 +4,7 @@
  * bubble with three bouncing dots.
  */
 import React from 'react';
+import { ChatIcon } from '../Icons';
 
 interface TypingIndicatorProps {
     /** Display name of the person typing (optional) */
@@ -18,8 +19,11 @@ export const TypingIndicator: React.FC<TypingIndicatorProps> = ({ name }) => (
     >
         {/* Avatar placeholder */}
         <div className="w-12 h-8 flex items-end justify-center shrink-0">
-            <div className="w-6 h-6 rounded-full bg-white/4 flex items-center justify-center">
-                <span className="text-[11px]">💬</span>
+            <div
+                aria-hidden="true"
+                className="w-6 h-6 rounded-full bg-white/4 flex items-center justify-center text-white/50"
+            >
+                <ChatIcon className="h-3.5 w-3.5" />
             </div>
         </div>
         {/* Typing bubble */}
@@ -28,6 +32,6 @@ export const TypingIndicator: React.FC<TypingIndicatorProps> = ({ name }) => (
             <span className="typing-dot w-1.5 h-1.5 rounded-full bg-white/30" style={{ animationDelay: '160ms' }} />
             <span className="typing-dot w-1.5 h-1.5 rounded-full bg-white/30" style={{ animationDelay: '320ms' }} />
         </div>
-        {name && <span className="text-[11px] text-white/40 self-center">{name} is typing…</span>}
+        {name && <span className="text-xs text-white/60 self-center">{name} is typing…</span>}
     </div>
 );

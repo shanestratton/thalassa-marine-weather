@@ -1,5 +1,5 @@
 /**
- * Guardian's signed-out "Sign in in Settings" opens Settings on Account &
+ * Guardian's signed-out "Open Settings to sign in" opens Settings on Account &
  * Cloud and Settings' Back returns to Guardian — even though signing in flips
  * the auth scope the return key was written under (UX scorecard run 6).
  */

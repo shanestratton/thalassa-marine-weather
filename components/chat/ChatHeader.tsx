@@ -6,13 +6,19 @@
  * truncated the root title to 'SCUTTLEBU…' behind three 44 pt buttons and sat
  * on its own band in daylight; PageHeader steps the title down until the
  * whole word fits and sits on the page tint like every other page.
+ *
+ * The root list has ONE header action, the ⋮ Page actions menu the Binder
+ * pages use (UX scorecard run 7). Its three icon buttons squeezed the title
+ * to ~150 pt, and two of the glyphs misled: a paper plane read as 'send' and
+ * a bare '+' as 'new post'. In the menu each action has words. Unread direct
+ * messages still show on the ⋮ button itself, so the menu hides nothing.
  */
-import React from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
 import { ChatChannel } from '../../services/ChatService';
 import { SafeImage } from '../ui/SafeImage';
 import { useAuthStore } from '../../stores/authStore';
-import { ProhibitedIcon, SendIcon } from '../Icons';
+import { ChatIcon, ProhibitedIcon } from '../Icons';
 import { UserIcon } from '../vesselHub/icons';
 import { getChannelName } from './channelIcons';
 
@@ -39,9 +45,183 @@ export interface ChatHeaderProps {
     onPropose?: () => void;
 }
 
-/** The house 44 pt icon button, with a line icon in the accent colour. */
-const HEADER_ICON_BUTTON =
-    'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/8 text-sky-400 transition-all hover:border-sky-500/30 hover:bg-sky-500/15 active:scale-95';
+/** The Binder pages' ⋮ trigger (DocumentsHub, InventoryList, …). */
+const PAGE_ACTIONS_BUTTON =
+    'relative flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl bg-white/5 p-2 transition-colors hover:bg-white/10';
+
+/** One row of the Page actions menu: 44 pt, icon plus words. */
+const MENU_ITEM =
+    'flex min-h-[44px] w-full items-center gap-3 px-4 py-3 text-left text-sm text-white transition-colors hover:bg-white/5 focus-visible:bg-white/5';
+
+/** Every row's icon sits in the same 24 pt slot, so the labels line up. */
+const MENU_ICON_SLOT = 'relative flex h-6 w-6 shrink-0 items-center justify-center text-sky-400';
+
+const PlusGlyph: React.FC = () => (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+);
+
+interface PageActionsMenuProps {
+    myAvatarUrl: string | null;
+    signedIn: boolean;
+    unreadDMs: number;
+    onOpenProfile: () => void;
+    onOpenDMInbox: () => void;
+    onPropose?: () => void;
+}
+
+/**
+ * Scuttlebutt's ⋮ menu: direct messages, your profile, and proposing a
+ * channel. Escape or a tap outside closes it and returns focus to ⋮.
+ */
+const PageActionsMenu: React.FC<PageActionsMenuProps> = ({
+    myAvatarUrl,
+    signedIn,
+    unreadDMs,
+    onOpenProfile,
+    onOpenDMInbox,
+    onPropose,
+}) => {
+    const [open, setOpen] = useState(false);
+    const menuId = useId();
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const unreadLabel = unreadDMs > 9 ? '9+' : String(unreadDMs);
+
+    const close = (restoreFocus: boolean) => {
+        setOpen(false);
+        if (restoreFocus) triggerRef.current?.focus();
+    };
+
+    useEffect(() => {
+        if (!open) return;
+        menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setOpen(false);
+                triggerRef.current?.focus();
+                return;
+            }
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+            if (items.length === 0) return;
+            event.preventDefault();
+            const at = items.indexOf(document.activeElement as HTMLElement);
+            const step = event.key === 'ArrowDown' ? 1 : -1;
+            items[(at + step + items.length) % items.length].focus();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [open]);
+
+    const choose = (action: () => void) => () => {
+        close(false);
+        action();
+    };
+
+    return (
+        <div className="relative shrink-0">
+            <button
+                ref={triggerRef}
+                type="button"
+                onClick={() => setOpen((was) => !was)}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-controls={open ? menuId : undefined}
+                aria-label={
+                    unreadDMs > 0
+                        ? `Page actions, ${unreadDMs} unread direct ${unreadDMs === 1 ? 'message' : 'messages'}`
+                        : 'Page actions'
+                }
+                className={PAGE_ACTIONS_BUTTON}
+            >
+                <svg aria-hidden="true" className="h-5 w-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="1.5" />
+                    <circle cx="12" cy="12" r="1.5" />
+                    <circle cx="12" cy="19" r="1.5" />
+                </svg>
+                {unreadDMs > 0 && (
+                    <span
+                        aria-hidden="true"
+                        className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white shadow-lg shadow-red-500/30"
+                    >
+                        {unreadLabel}
+                    </span>
+                )}
+            </button>
+            {open && (
+                <>
+                    <div aria-hidden="true" className="fixed inset-0 z-40" onClick={() => close(false)} />
+                    <div
+                        ref={menuRef}
+                        id={menuId}
+                        role="menu"
+                        aria-label="Scuttlebutt actions"
+                        className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-white/10 bg-slate-800 shadow-2xl"
+                    >
+                        <button
+                            type="button"
+                            role="menuitem"
+                            onClick={choose(onOpenDMInbox)}
+                            aria-label={unreadDMs > 0 ? `Direct messages, ${unreadDMs} unread` : 'Direct messages'}
+                            className={MENU_ITEM}
+                        >
+                            <span aria-hidden="true" className={MENU_ICON_SLOT}>
+                                <ChatIcon className="h-4 w-4" />
+                            </span>
+                            <span className="flex-1">Direct messages</span>
+                            {unreadDMs > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white"
+                                >
+                                    {unreadLabel}
+                                </span>
+                            )}
+                        </button>
+                        <div className="border-t border-white/5" />
+                        <button type="button" role="menuitem" onClick={choose(onOpenProfile)} className={MENU_ITEM}>
+                            <span aria-hidden="true" className={MENU_ICON_SLOT}>
+                                {myAvatarUrl ? (
+                                    <SafeImage
+                                        src={myAvatarUrl}
+                                        loading="lazy"
+                                        alt=""
+                                        className="h-6 w-6 rounded-full object-cover"
+                                    />
+                                ) : (
+                                    // A person, not the anchor two channels also use.
+                                    <span className="[&>svg]:h-4 [&>svg]:w-4">
+                                        <UserIcon color="currentColor" />
+                                    </span>
+                                )}
+                                {/* The presence dot is a claim about the skipper:
+                                    only draw it when they are signed in to chat. */}
+                                {signedIn && (
+                                    <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-slate-800 bg-emerald-500 [.display-light_&]:border-slate-200" />
+                                )}
+                            </span>
+                            <span className="flex-1">Your profile</span>
+                        </button>
+                        {onPropose && (
+                            <>
+                                <div className="border-t border-white/5" />
+                                <button type="button" role="menuitem" onClick={choose(onPropose)} className={MENU_ITEM}>
+                                    <span aria-hidden="true" className={MENU_ICON_SLOT}>
+                                        <PlusGlyph />
+                                    </span>
+                                    <span className="flex-1">Propose a channel</span>
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
 
 const viewTitle = (view: ChatView, activeChannel: ChatChannel | null, dmPartnerName?: string): string => {
     switch (view) {
@@ -102,73 +282,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
         let action: React.ReactNode = null;
         if (view === 'channels') {
             action = (
-                <div className="flex shrink-0 items-center gap-2">
-                    {onPropose && (
-                        <button
-                            type="button"
-                            onClick={onPropose}
-                            aria-label="Propose a new channel"
-                            className={HEADER_ICON_BUTTON}
-                        >
-                            <svg
-                                aria-hidden="true"
-                                className="h-5 w-5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                        </button>
-                    )}
-                    <button
-                        type="button"
-                        aria-label="Open your profile"
-                        onClick={onOpenProfile}
-                        className={HEADER_ICON_BUTTON}
-                    >
-                        <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-xl">
-                            {myAvatarUrl ? (
-                                <SafeImage
-                                    src={myAvatarUrl}
-                                    loading="lazy"
-                                    alt=""
-                                    className="h-full w-full object-cover"
-                                />
-                            ) : (
-                                // A person, not the anchor two channels also use.
-                                <span aria-hidden="true" className="[&>svg]:h-5 [&>svg]:w-5">
-                                    <UserIcon color="currentColor" />
-                                </span>
-                            )}
-                        </span>
-                        {signedIn && (
-                            <span
-                                aria-hidden="true"
-                                className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-slate-950 bg-emerald-500 shadow-xs shadow-emerald-500/40 [.display-light_&]:border-slate-200"
-                            />
-                        )}
-                    </button>
-                    <button
-                        type="button"
-                        aria-label={
-                            unreadDMs > 0 ? `Open direct messages, ${unreadDMs} unread` : 'Open direct messages'
-                        }
-                        onClick={onOpenDMInbox}
-                        className={HEADER_ICON_BUTTON}
-                    >
-                        <SendIcon className="h-5 w-5" />
-                        {unreadDMs > 0 && (
-                            <span
-                                aria-hidden="true"
-                                className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white shadow-lg shadow-red-500/30"
-                            >
-                                {unreadDMs > 9 ? '9+' : unreadDMs}
-                            </span>
-                        )}
-                    </button>
-                </div>
+                <PageActionsMenu
+                    myAvatarUrl={myAvatarUrl}
+                    signedIn={signedIn}
+                    unreadDMs={unreadDMs}
+                    onOpenProfile={onOpenProfile}
+                    onOpenDMInbox={onOpenDMInbox}
+                    onPropose={onPropose}
+                />
             );
         } else if (view === 'messages') {
             action = (

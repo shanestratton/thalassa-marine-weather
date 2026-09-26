@@ -1,7 +1,7 @@
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { UsersIcon } from '../Icons';
-import { Button } from '../ui/Button';
+import { SignInButton } from '../ui/SignInButton';
 
 interface AuthBannerProps {
     onSignIn: () => void;
@@ -19,18 +19,16 @@ export const AuthBanner: React.FC<AuthBannerProps> = ({ onSignIn, onDismiss }) =
             <p className="text-sm font-semibold text-white/90">Sign in to chat</p>
             <p className="text-xs text-gray-400">Post in channels and message other sailors.</p>
         </div>
-        {/* The shared primary: a filled accent in daylight too, where the old
-            white button vanished into the near-white card (UX scorecard run 6). */}
-        <Button
-            variant="primary"
+        {/* The one sign-in control: a filled accent in daylight too, where the
+            old white button vanished into the near-white card (UX scorecard
+            run 6). Compact padding, so the banner stays one short row. */}
+        <SignInButton
             onClick={() => {
                 triggerHaptic('light');
                 onSignIn();
             }}
             className="shrink-0 px-4! py-2! text-sm!"
-        >
-            Sign in
-        </Button>
+        />
         <button
             onClick={onDismiss}
             className="hit-target-44 shrink-0 p-1 text-gray-500 hover:text-gray-300 transition-colors"

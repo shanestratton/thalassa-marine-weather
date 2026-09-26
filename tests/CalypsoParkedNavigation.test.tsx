@@ -26,7 +26,7 @@ describe.skipIf(FEATURE_VISIBILITY.calypsoConsole)('parked Calypso page', () => 
         const Page = voice.component as React.ComponentType<Record<string, unknown>>;
         render(<Page {...(voice.getProps?.(ctx(setPage)) ?? {})} />);
 
-        expect(screen.getByRole('heading', { name: 'Calypso is having a lie down' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Calypso is switched off' })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Open Radio' }));
         expect(setPage).toHaveBeenLastCalledWith('radio');
         fireEvent.click(screen.getByRole('button', { name: 'Open MOB' }));

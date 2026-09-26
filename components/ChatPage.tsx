@@ -31,6 +31,7 @@ const LonelyHeartsPage = lazyRetry(
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { toast } from './Toast';
+import { LockIcon, MuteIcon } from './Icons';
 import { useSettings } from '../context/SettingsContext';
 const AdminPanel = lazyRetry(() => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })), 'AdminPanel_Chat');
 import { ChannelList } from './chat/ChannelList';
@@ -546,7 +547,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
     const handleBlockUserPlatform = useCallback(async (userId: string, name: string) => {
         setConfirmAction({
-            title: 'Block User',
+            title: 'Block user',
             message: `Block ${name} from the platform? This will permanently prevent them from sending messages.`,
             destructive: true,
             confirmLabel: 'Block',
@@ -562,13 +563,13 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
     const handleMakeAdmin = useCallback(async (userId: string, name: string) => {
         setConfirmAction({
-            title: 'Promote to Admin',
+            title: 'Promote to admin',
             message: `Make ${name} an Admin? Admins can delete posts, pin messages, mute users, and create channels.`,
             destructive: false,
             confirmLabel: 'Promote',
             onConfirm: async () => {
                 const ok = await ChatService.setRole(userId, 'admin');
-                if (ok) toast.success(`${name} is now an Admin`);
+                if (ok) toast.success(`${name} is now an admin`);
                 setShowModMenu(null);
                 setConfirmAction(null);
             },
@@ -618,7 +619,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         if (!activeChannel) return;
         const { id, name } = activeChannel;
         setConfirmAction({
-            title: 'Leave Channel',
+            title: 'Leave channel',
             message: `Leave "${name}"? You'll need to request access again to rejoin.`,
             destructive: true,
             confirmLabel: 'Leave',
@@ -713,8 +714,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 connection state, and shows for fixed durations the user
                 set. */}
             {isMuted && mutedUntil && (
-                <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-red-500/6 border border-red-500/10 text-red-400/80 text-[11px] text-center fade-slide-down">
-                    🔇 Muted until {mutedUntil.toLocaleTimeString()} — you can still read messages
+                <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-red-500/6 border border-red-500/10 text-red-400/80 text-xs fade-slide-down flex items-center justify-center gap-1.5 text-center">
+                    <MuteIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span>Muted until {mutedUntil.toLocaleTimeString()}. You can still read messages.</span>
                 </div>
             )}
 
@@ -864,22 +866,22 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                 aria-labelledby="join-request-title"
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
-                                        🔒
+                                    <div
+                                        aria-hidden="true"
+                                        className="w-11 h-11 shrink-0 rounded-xl bg-linear-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-purple-300"
+                                    >
+                                        <LockIcon className="h-5 w-5" />
                                     </div>
                                     <div>
-                                        <h3 id="join-request-title" className="text-sm font-bold text-white">
-                                            Request Access to {joinRequestChannel.name}
-                                        </h3>
-                                        <p className="text-[11px] text-purple-400/60">
-                                            {joinRequestChannel.name} — Private Channel
-                                        </p>
+                                        <h2 id="join-request-title" className="text-base font-bold text-white">
+                                            Request access to {joinRequestChannel.name}
+                                        </h2>
+                                        <p className="text-xs text-purple-300/80">Private channel</p>
                                     </div>
                                 </div>
 
-                                <p className="text-xs text-white/50">
-                                    This is a private channel. Write a message to the channel owner explaining why you'd
-                                    like to join.
+                                <p className="text-sm text-white/70">
+                                    Write a message to the channel owner explaining why you&rsquo;d like to join.
                                 </p>
 
                                 <textarea
@@ -903,10 +905,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                     <button
                                         onClick={handleSubmitJoinRequest}
                                         disabled={joinRequestSent}
-                                        aria-label="Submit join request"
                                         className="flex-1 py-3 rounded-xl bg-purple-500/20 border border-purple-500/30 text-sm text-purple-400 font-bold active:scale-95 disabled:opacity-50 min-h-[48px]"
                                     >
-                                        {joinRequestSent ? '✓ Request Sent!' : '🙏 Submit Request'}
+                                        {joinRequestSent ? 'Request sent' : 'Send request'}
                                     </button>
                                 </div>
                             </div>

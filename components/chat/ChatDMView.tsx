@@ -31,10 +31,10 @@ const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ la
                 <span className="text-base">📍</span>
                 <span className="text-xs font-bold text-sky-300">{label}</span>
             </div>
-            <p className="text-[11px] text-white/40 font-mono">
+            <p className="text-xs text-white/40 font-mono">
                 {latStr}, {lonStr}
             </p>
-            <p className="text-[11px] text-sky-400/60 mt-1.5 font-semibold">Tap to view on map →</p>
+            <p className="text-xs text-sky-400/60 mt-1.5 font-semibold">Tap to view on map →</p>
         </button>
     );
 };
@@ -93,7 +93,7 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                     </div>
                 </div>
                 <p className="text-sm font-semibold text-white/70 mb-1">No messages in the bottle</p>
-                <p className="text-[11px] text-white/50 max-w-[220px] text-center leading-relaxed">
+                <p className="text-xs text-white/50 max-w-[220px] text-center leading-relaxed">
                     Tap a sailor's avatar in any channel to start a private conversation
                 </p>
             </div>
@@ -117,14 +117,12 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                     <div className="text-left flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-0.5">
                             <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
-                            <span className="text-[11px] text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
+                            <span className="text-xs text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
                         </div>
-                        <p className="text-[11px] text-white/60 truncate">
-                            {getConversationPreview(conv.last_message)}
-                        </p>
+                        <p className="text-xs text-white/60 truncate">{getConversationPreview(conv.last_message)}</p>
                     </div>
                     {conv.unread_count > 0 && (
-                        <span className="min-w-[20px] h-5 rounded-full bg-linear-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 shrink-0 shadow-lg shadow-sky-500/20">
+                        <span className="min-w-[20px] h-5 rounded-full bg-linear-to-r from-sky-500 to-sky-500 text-xs font-bold flex items-center justify-center px-1.5 shrink-0 shadow-lg shadow-sky-500/20">
                             {conv.unread_count}
                         </span>
                     )}
@@ -162,7 +160,7 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
                         <p className="text-sm font-semibold text-white/70 mb-1">
                             {isSelfConversation ? 'Send yourself a test message' : 'Start a conversation'}
                         </p>
-                        <p className="text-[11px] text-white/50 max-w-[200px] text-center leading-relaxed">
+                        <p className="text-xs text-white/50 max-w-[200px] text-center leading-relaxed">
                             {isSelfConversation ? (
                                 'Your saved test messages appear here.'
                             ) : (
@@ -187,7 +185,7 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
                                 }`}
                             >
                                 {renderMessageContent(dm.message, isSelf)}
-                                <p className="text-[11px] text-white/40 mt-1 tabular-nums">
+                                <p className="text-xs text-white/40 mt-1 tabular-nums">
                                     {timeAgo(dm.created_at)}
                                     {dm.delivery_status === 'sending' && (
                                         <span className="ml-1 text-sky-300/70" role="status">

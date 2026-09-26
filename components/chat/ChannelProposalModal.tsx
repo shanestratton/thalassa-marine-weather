@@ -97,7 +97,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         >
                             New Channel
                         </h1>
-                        <p className="text-[11px] text-white/50">Step {step} of 3</p>
+                        <p className="text-xs text-white/50">Step {step} of 3</p>
                     </div>
                     {/* Step dots */}
                     <div className="flex gap-1.5">
@@ -123,7 +123,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         {/* Icon input */}
                         <div className="flex gap-3">
                             <div className="shrink-0">
-                                <label className="text-[11px] text-white/50 block mb-1.5 px-1">Icon</label>
+                                <label className="text-xs text-white/50 block mb-1.5 px-1">Icon</label>
                                 <input
                                     value={proposalIcon}
                                     onChange={(e) => setProposalIcon(e.target.value)}
@@ -135,7 +135,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 />
                             </div>
                             <div className="flex-1">
-                                <label className="text-[11px] text-white/50 block mb-1.5 px-1">Channel Name</label>
+                                <label className="text-xs text-white/50 block mb-1.5 px-1">Channel Name</label>
                                 <input
                                     ref={nameInputRef}
                                     value={proposalName}
@@ -150,7 +150,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
 
                         {/* Description */}
                         <div>
-                            <label className="text-[11px] text-white/50 block mb-1.5 px-1">Description</label>
+                            <label className="text-xs text-white/50 block mb-1.5 px-1">Description</label>
                             <input
                                 value={proposalDesc}
                                 onChange={(e) => setProposalDesc(e.target.value)}
@@ -191,13 +191,13 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
 
                         {/* Parent channel selector */}
                         <div>
-                            <p className="text-[11px] text-white/50 mb-2 px-1">Parent Channel</p>
+                            <p className="text-xs text-white/50 mb-2 px-1">Parent Channel</p>
                             <div className="flex gap-2 flex-wrap">
                                 <button
                                     aria-label="Select top-level channel"
                                     aria-pressed={!proposalParentId}
                                     onClick={() => setProposalParentId(null)}
-                                    className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
+                                    className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 min-h-[44px] ${
                                         !proposalParentId
                                             ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
                                             : 'bg-white/4 border border-white/6 text-white/40'
@@ -211,7 +211,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                         aria-pressed={proposalParentId === p.id}
                                         key={p.id}
                                         onClick={() => setProposalParentId(p.id)}
-                                        className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
+                                        className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 min-h-[44px] ${
                                             proposalParentId === p.id
                                                 ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
                                                 : 'bg-white/4 border border-white/6 text-white/40'
@@ -225,13 +225,13 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
 
                         {/* Public / Private toggle */}
                         <div>
-                            <p className="text-[11px] text-white/50 mb-2 px-1">Visibility</p>
+                            <p className="text-xs text-white/50 mb-2 px-1">Visibility</p>
                             <div className="flex gap-2">
                                 <button
                                     aria-label="Set channel visibility to public"
                                     aria-pressed={!proposalIsPrivate}
                                     onClick={() => setProposalIsPrivate(false)}
-                                    className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
+                                    className={`flex-1 py-3.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         !proposalIsPrivate
                                             ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
                                             : 'bg-white/4 border-white/6 text-white/40'
@@ -243,7 +243,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     aria-label="Set channel visibility to private"
                                     aria-pressed={proposalIsPrivate}
                                     onClick={() => setProposalIsPrivate(true)}
-                                    className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
+                                    className={`flex-1 py-3.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         proposalIsPrivate
                                             ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
                                             : 'bg-white/4 border-white/6 text-white/40'
@@ -255,7 +255,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         </div>
 
                         {proposalIsPrivate && (
-                            <p className="text-[11px] text-purple-400/50 px-1">
+                            <p className="text-xs text-purple-400/50 px-1">
                                 Private channels require approval to join. You'll moderate who gets in.
                             </p>
                         )}
@@ -295,16 +295,16 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 </div>
                                 <div>
                                     <p className="text-base font-bold text-white/85">{proposalName}</p>
-                                    <p className="text-[11px] text-white/40">{proposalDesc || 'No description'}</p>
+                                    <p className="text-xs text-white/40">{proposalDesc || 'No description'}</p>
                                 </div>
                             </div>
                             <div className="flex gap-2">
                                 <span
-                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${proposalIsPrivate ? 'text-purple-400/70 bg-purple-500/10' : 'text-sky-400/70 bg-sky-500/10'}`}
+                                    className={`text-xs font-bold px-2.5 py-1 rounded-full ${proposalIsPrivate ? 'text-purple-400/70 bg-purple-500/10' : 'text-sky-400/70 bg-sky-500/10'}`}
                                 >
                                     {proposalIsPrivate ? '🔒 Private' : '🌊 Public'}
                                 </span>
-                                <span className="text-[11px] font-bold text-white/50 bg-white/4 px-2.5 py-1 rounded-full">
+                                <span className="text-xs font-bold text-white/50 bg-white/4 px-2.5 py-1 rounded-full">
                                     {proposalParentId
                                         ? `Sub of ${parentOptions.find((p) => p.id === proposalParentId)?.name || '?'}`
                                         : '📌 Top-Level'}
@@ -312,7 +312,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             </div>
                         </div>
 
-                        <p className="text-[11px] text-white/40 text-center">
+                        <p className="text-xs text-white/40 text-center">
                             {isAdmin
                                 ? 'This channel will be created instantly.'
                                 : "Submitted to admins for approval. You'll moderate it!"}
