@@ -20,6 +20,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { AlertTriangleIcon, MapPinIcon } from '../Icons';
 
 interface InventoryScannerProps {
     onClose: () => void;
@@ -54,8 +55,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     const [scannedBarcode, setScannedBarcode] = useState('');
     const [foundItem, setFoundItem] = useState<InventoryItem | null>(null);
     const [saving, setSaving] = useState(false);
-    const existingDoneRef = useRef<HTMLButtonElement>(null);
-    const newItemNameRef = useRef<HTMLInputElement>(null);
 
     // ── New item form ──
     const [newItem, setNewItem] = useState({
@@ -404,10 +403,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         initialFocusRef: cameraCloseRef,
         onEscape: onClose,
     });
-    const activeSheetRef = useFocusTrap<HTMLDivElement>(!startInManualMode && sheetMode !== 'hidden', {
-        initialFocusRef: sheetMode === 'existing' ? existingDoneRef : newItemNameRef,
-        onEscape: dismissSheet,
-    });
+    // The camera-mode sheets render through ModalSheet, which owns their
+    // focus trap and Escape handling.
 
     // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
     if (startInManualMode && sheetMode === 'new') {
@@ -429,7 +426,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                             : 'bg-white/5 text-gray-400 border border-white/5'
                                     }`}
                                 >
-                                    {CATEGORY_ICONS[cat]} {cat}
+                                    <span aria-hidden="true">{CATEGORY_ICONS[cat]}</span> {cat}
                                 </button>
                             ))}
                         </div>
@@ -690,29 +687,23 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             </div>
 
             {/* ═══════════════════════════════════════════ */}
-            {/* BOTTOM SHEET — Existing Item */}
+            {/* Existing Item — centred ModalSheet over the camera (house rule:
+                no bottom sheets). z-2000 clears the scanner's own z-1100 layer. */}
             {/* ═══════════════════════════════════════════ */}
             {sheetMode === 'existing' && foundItem && (
-                <div
-                    ref={activeSheetRef}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={`Inventory item ${foundItem.item_name}`}
-                    className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300"
-                >
-                    {/* Handle bar */}
-                    <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-4" />
-
-                    <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                            <p className="text-label font-bold text-sky-400 uppercase tracking-widest mb-1">
+                <ModalSheet isOpen={true} onClose={dismissSheet} title={foundItem.item_name} zIndex="z-2000">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-label font-bold text-sky-400 uppercase tracking-widest">
                                 {foundItem.category}
                             </p>
-                            <h3 className="text-lg font-black text-white leading-tight">{foundItem.item_name}</h3>
                             {foundItem.location_zone && (
-                                <p className="text-xs text-gray-400 mt-1">
-                                    📍 {foundItem.location_zone}
-                                    {foundItem.location_specific ? ` — ${foundItem.location_specific}` : ''}
+                                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                                    <MapPinIcon className="w-3.5 h-3.5 shrink-0" />
+                                    <span>
+                                        {foundItem.location_zone}
+                                        {foundItem.location_specific ? ` — ${foundItem.location_specific}` : ''}
+                                    </span>
                                 </p>
                             )}
                         </div>
@@ -748,41 +739,28 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Low stock warning */}
                     {foundItem.quantity <= foundItem.min_quantity && foundItem.min_quantity > 0 && (
                         <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl mb-4">
-                            <p className="text-xs font-bold text-amber-400">
-                                ⚠️ Low stock — minimum is {foundItem.min_quantity}
+                            <p className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                                <AlertTriangleIcon className="w-3.5 h-3.5 shrink-0" />
+                                <span>Low stock — minimum is {foundItem.min_quantity}</span>
                             </p>
                         </div>
                     )}
 
                     <button
-                        ref={existingDoneRef}
                         aria-label="Done reviewing inventory item"
                         onClick={dismissSheet}
                         className="w-full py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
                         Done
                     </button>
-                </div>
+                </ModalSheet>
             )}
 
             {/* ═══════════════════════════════════════════ */}
-            {/* BOTTOM SHEET — New Item Form (camera mode) */}
+            {/* New Item Form (camera mode) — centred ModalSheet, as above */}
             {/* ═══════════════════════════════════════════ */}
             {sheetMode === 'new' && (
-                <div
-                    ref={activeSheetRef}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="inventory-new-item-title"
-                    className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300 max-h-[70vh] overflow-y-auto"
-                >
-                    {/* Handle bar */}
-                    <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-4" />
-
-                    <h3 id="inventory-new-item-title" className="text-lg font-black text-white mb-4">
-                        Add New Item
-                    </h3>
-
+                <ModalSheet isOpen={true} onClose={dismissSheet} title="Add New Item" zIndex="z-2000">
                     <div className="space-y-3">
                         {/* Category — first */}
                         <div>
@@ -802,7 +780,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                                 : 'bg-white/5 text-gray-400 border border-white/5'
                                         }`}
                                     >
-                                        {CATEGORY_ICONS[cat]} {cat}
+                                        <span aria-hidden="true">{CATEGORY_ICONS[cat]}</span> {cat}
                                     </button>
                                 ))}
                             </div>
@@ -814,7 +792,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Item Name *
                             </label>
                             <input
-                                ref={newItemNameRef}
                                 aria-label="Item name"
                                 type="text"
                                 value={newItem.item_name}
@@ -956,7 +933,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             {saving ? 'Saving…' : 'Add Item'}
                         </button>
                     </div>
-                </div>
+                </ModalSheet>
             )}
         </OverlayPortal>
     );

@@ -9,7 +9,6 @@ import type { TaskWithStatus, TrafficLight } from '../../../services/Maintenance
 import type { MaintenanceTriggerType } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
-import { CATEGORIES } from './constants';
 
 /** Map period triggers to their interval in days */
 export const PERIOD_DAYS: Partial<Record<MaintenanceTriggerType, number>> = {
@@ -44,19 +43,31 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
         onSwipeComplete: () => void triggerHaptic('light'),
     });
     const light = LIGHT_COLORS[task.status];
-    const catConfig = CATEGORIES.find((c) => c.id === task.category);
+    const revealed = swipeOffset > 0;
+    const confirmDelete = () => {
+        resetSwipe();
+        onDelete();
+    };
 
     return (
         <div className="relative overflow-hidden rounded-lg">
-            {/* Delete button (revealed on swipe) */}
+            {/* Delete button (revealed on swipe). Hidden from assistive tech
+                until the swipe reveals it — opacity alone left VoiceOver
+                reading "Delete" before every one of the task headings. */}
             <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => {
-                    resetSwipe();
-                    onDelete();
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                aria-hidden={revealed ? undefined : true}
+                role={revealed ? 'button' : undefined}
+                aria-label={revealed ? `Delete ${task.title}` : undefined}
+                tabIndex={revealed ? 0 : -1}
+                onClick={confirmDelete}
+                onKeyDown={(e) => {
+                    if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                    e.preventDefault();
+                    confirmDelete();
                 }}
             >
-                <div className="text-center text-white">
+                <div className="text-center text-white" aria-hidden="true">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path
                             strokeLinecap="round"
@@ -83,13 +94,8 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
                 ref={ref}
             >
-                {/* Category badge — top of card */}
-                <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-micro">{catConfig?.icon || '📋'}</span>
-                    <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
-                        {catConfig?.label || task.category}
-                    </span>
-                </div>
+                {/* No per-card category badge: cards only render inside their
+                    category group, whose header already names it. */}
                 {/* Row 1: Title + 3-dot menu */}
                 <div className="flex items-start justify-between gap-2">
                     <h4 className="text-sm font-bold text-white truncate flex-1 min-w-0">{task.title}</h4>

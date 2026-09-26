@@ -22,6 +22,7 @@ import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
+import { WrenchIcon } from '../Icons';
 import { ModalSheet } from '../ui/ModalSheet';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
@@ -540,7 +541,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Tap below to add your first section or item.'
+                                    : 'Start with pre-departure, anchoring or heavy-weather checks. Tap Add Section or Item below.'
                             }
                             className="py-16"
                         />
@@ -834,11 +835,17 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     <div className="flex items-center gap-3">
                                         {runPassCount > 0 && (
                                             <span className="text-[11px] text-emerald-400 font-bold">
-                                                ✓ {runPassCount}
+                                                <span aria-hidden="true">✓ </span>
+                                                {runPassCount}
+                                                <span className="sr-only"> passed</span>
                                             </span>
                                         )}
                                         {runFailCount > 0 && (
-                                            <span className="text-[11px] text-red-400 font-bold">✗ {runFailCount}</span>
+                                            <span className="text-[11px] text-red-400 font-bold">
+                                                <span aria-hidden="true">✗ </span>
+                                                {runFailCount}
+                                                <span className="sr-only"> failed</span>
+                                            </span>
                                         )}
                                     </div>
                                 </div>
@@ -954,13 +961,14 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                     aria-label={`Flag ${item.text} for repair and maintenance`}
                                                                     aria-pressed={item.flagged_rm}
                                                                     onClick={() => toggleRmFlag(item.entry_id)}
-                                                                    className={`hit-target-44 shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                                                                    className={`hit-target-44 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                                                         item.flagged_rm
                                                                             ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                                                                             : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
                                                                     }`}
                                                                 >
-                                                                    🔧 Log repair
+                                                                    <WrenchIcon className="w-3 h-3" />
+                                                                    Log repair
                                                                 </button>
                                                             )}
                                                         </div>

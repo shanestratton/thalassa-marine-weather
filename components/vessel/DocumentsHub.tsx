@@ -519,14 +519,28 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {visibleDocuments.length} {visibleDocuments.length === 1 ? 'Document' : 'Documents'}
                             {selectedIds.size > 0 && (
-                                <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>
+                                <span className="text-sky-400 ml-2">
+                                    <span aria-hidden="true">✓ </span>
+                                    {selectedIds.size} selected
+                                </span>
                             )}
-                            {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
+                            {expiredCount > 0 && (
+                                <span className="text-red-400 ml-2">
+                                    <span aria-hidden="true">⚠ </span>
+                                    {expiredCount} Expired
+                                </span>
+                            )}
                             {warningCount > 0 && (
-                                <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>
+                                <span className="text-amber-400 ml-2">
+                                    <span aria-hidden="true">⚡ </span>
+                                    {warningCount} Expiring
+                                </span>
                             )}
                             {pendingSyncCount > 0 && (
-                                <span className="text-sky-400 ml-2">☁️ {pendingSyncCount} pending</span>
+                                <span className="text-sky-400 ml-2">
+                                    <span aria-hidden="true">☁️ </span>
+                                    {pendingSyncCount} pending
+                                </span>
                             )}
                         </p>
                     }
@@ -665,7 +679,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Tap Add Document below to file your first one.'
+                                    : "Registration, insurance, radio licence, crew passports — keep the ship's papers in one place. Tap Add Document below to file your first one."
                             }
                             className="py-16"
                         />
@@ -674,7 +688,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         grouped.map((group) => (
                             <div key={group.id}>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xs">{group.icon}</span>
+                                    <span className="text-xs" aria-hidden="true">
+                                        {group.icon}
+                                    </span>
                                     <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                         {group.label}
                                     </span>
