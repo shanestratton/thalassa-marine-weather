@@ -53,7 +53,7 @@ describe('ModalSheet', () => {
                 <p>Content</p>
             </ModalSheet>,
         );
-        const closeBtn = screen.getByLabelText('Close modal');
+        const closeBtn = screen.getByLabelText('Close');
         fireEvent.click(closeBtn);
         expect(onClose).toHaveBeenCalledTimes(1);
     });
@@ -90,7 +90,7 @@ describe('ModalSheet', () => {
                 </ModalSheet>
             </>,
         );
-        const close = screen.getByRole('button', { name: 'Close modal' });
+        const close = screen.getByRole('button', { name: 'Close' });
         const last = screen.getByRole('button', { name: 'Last action' });
         expect(close).toHaveFocus();
 

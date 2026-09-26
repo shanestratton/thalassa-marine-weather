@@ -14,8 +14,9 @@
  * Mount <ToastPortal /> once in App.tsx.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { FONT, SIZE } from '../styles/typeScale';
+import { CheckIcon, InfoIcon, XIcon } from './icons/UIIcons';
 import { triggerHaptic } from '../utils/system';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -89,11 +90,14 @@ export const toast = {
 };
 
 // ── Single Toast Component ─────────────────────────────────────────
-const ICONS: Record<ToastType, string> = {
-    success: '✓',
-    error: '✕',
-    loading: '⟳',
-    info: 'ℹ',
+// Stroke icons, not unicode glyphs: ℹ and ⟳ fell back to thin or emoji
+// renderings across iOS fonts, beside the app's line icons everywhere else.
+const ToastIcon: React.FC<{ type: ToastType }> = ({ type }) => {
+    if (type === 'loading') {
+        return <span className="block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />;
+    }
+    const Icon = type === 'success' ? CheckIcon : type === 'error' ? XIcon : InfoIcon;
+    return <Icon className="h-4 w-4" />;
 };
 
 const COLORS: Record<ToastType, { bg: string; border: string; glow: string }> = {
@@ -189,16 +193,14 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> 
             <span
                 aria-hidden="true"
                 style={{
-                    fontSize: 16,
+                    display: 'inline-flex',
                     flexShrink: 0,
                     // White in both palettes: the toast is a saturated slab, and by day the
                     // inherited page ink made the tick 3.5:1 on emerald and ✕ 2.7:1 on red.
                     color: '#ffffff',
-                    animation: item.type === 'loading' ? 'spin 1s linear infinite' : undefined,
-                    filter: 'brightness(1.3)',
                 }}
             >
-                {ICONS[item.type]}
+                <ToastIcon type={item.type} />
             </span>
             <span
                 style={{
@@ -251,9 +253,47 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> 
     );
 };
 
+// ── Placement ──────────────────────────────────────────────────────
+/**
+ * Where the stack's top edge goes: just below the page's own header (the
+ * brand <header> and any PageHeader, which carries data-page-header). A
+ * fixed top of 60 px landed toasts on the brand row and the breadcrumb/back
+ * row for 3–4 s: "40 suggested tasks added" sat over SHIP'S OFFICE ›
+ * MAINTENANCE and the only way out (UX scorecard run 6).
+ *
+ * Returns 0 — the old safe-area-aware top — while a dialog is open, since the
+ * dim already covers the header and lower down the toast would sit on the
+ * dialog's title; and when no header is on screen (the chart).
+ */
+export function measureToastAnchor(): number {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return 0;
+    const onScreen = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.left < window.innerWidth;
+    };
+    const dialogs = document.querySelectorAll('[aria-modal="true"], [role="dialog"], [role="alertdialog"]');
+    if (Array.from(dialogs).some(onScreen)) return 0;
+    const ceiling = window.innerHeight * 0.4;
+    let bottom = 0;
+    document.querySelectorAll('header, [data-page-header]').forEach((el) => {
+        if (!onScreen(el)) return;
+        const r = el.getBoundingClientRect();
+        // A header that starts low on the screen is not the page's top chrome.
+        if (r.top < ceiling) bottom = Math.max(bottom, r.bottom);
+    });
+    return Math.round(Math.min(bottom, ceiling));
+}
+
 // ── Portal — Mount once in App.tsx ─────────────────────────────────
 export const ToastPortal: React.FC = () => {
     const [toasts, setToasts] = useState<ToastItem[]>([]);
+    const [anchorTop, setAnchorTop] = useState(0);
+
+    // Re-measured whenever the stack changes, before paint, so a toast never
+    // flashes over the header first.
+    useLayoutEffect(() => {
+        if (toasts.length > 0) setAnchorTop(measureToastAnchor());
+    }, [toasts]);
 
     useEffect(() => {
         const handler: Listener = (item) => {
@@ -285,7 +325,7 @@ export const ToastPortal: React.FC = () => {
         <div
             style={{
                 position: 'fixed',
-                top: 'max(60px, calc(env(safe-area-inset-top) + 8px))',
+                top: `max(60px, calc(env(safe-area-inset-top) + 8px), ${anchorTop + 8}px)`,
                 left: '50%',
                 transform: 'translateX(-50%)',
                 zIndex: 9999,

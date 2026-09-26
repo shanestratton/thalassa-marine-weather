@@ -38,6 +38,11 @@ const longestWordLength = (title: string) =>
 
 export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack, action, status, breadcrumbs }) => {
     const lastCrumb = breadcrumbs ? breadcrumbs.length - 1 : -1;
+    // Use one title: when the trail ends on the page's own name (DIARY over
+    // DIARY on every Ship's Office page), the visible copy is dropped and the
+    // crumb stays for screen readers only (UX scorecard run 6).
+    const isTitleCrumb = (crumb: string, i: number) =>
+        i === lastCrumb && crumb.trim().toLowerCase() === title.trim().toLowerCase();
     // Words never split and never clip: the title column is a size container,
     // and the type steps down from 20 px (never below 14 px) until the longest
     // word fits its width. 0.8 em is a conservative per-character advance for
@@ -47,13 +52,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
     const titleFontSize = `clamp(14px, calc(100cqi / ${(longestWordLength(title) * 0.8).toFixed(1)}), 20px)`;
 
     return (
-        <div className="shrink-0 px-4 pt-4 pb-3">
+        // data-page-header: toasts anchor below it (components/Toast.tsx).
+        <div data-page-header className="shrink-0 px-4 pt-4 pb-3">
             {/* Breadcrumb trail */}
             {breadcrumbs && breadcrumbs.length > 0 && (
                 <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 mb-2">
                     {breadcrumbs.map((crumb, i) => (
                         <React.Fragment key={i}>
-                            {i > 0 && (
+                            {i > 0 && !isTitleCrumb(crumb, i) && (
                                 <svg
                                     aria-hidden="true"
                                     className="w-3 h-3 text-gray-400 shrink-0"
@@ -65,7 +71,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                 </svg>
                             )}
-                            {i === lastCrumb - 1 && onBack ? (
+                            {isTitleCrumb(crumb, i) ? (
+                                <span aria-current="page" className="sr-only">
+                                    {crumb}
+                                </span>
+                            ) : i === lastCrumb - 1 && onBack ? (
                                 // The parent crumb goes where Back goes — it looked like a
                                 // link and did nothing. The ::before stretches the 16 px
                                 // line to a 44 px hit area (16 up into the header's top

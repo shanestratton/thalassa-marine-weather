@@ -113,7 +113,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                        InventoryList; found by the 2026-09-02 audit). Fixed here
                        once rather than at every call site. */
                     onClick={() => onAction()}
-                    className="mt-4 min-h-[44px] px-5 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-bold uppercase tracking-wider hover:bg-sky-500/25 transition-all active:scale-95"
+                    className="mt-4 min-h-[44px] px-5 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-bold tracking-wider hover:bg-sky-500/25 transition-all active:scale-95"
                 >
                     {actionLabel}
                 </button>
@@ -122,7 +122,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             {secondaryLabel && onSecondary && (
                 <button
                     onClick={() => onSecondary()}
-                    className="mt-2 px-4 py-1.5 min-h-[44px] text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                    className="mt-2 px-4 py-1.5 min-h-[44px] text-xs text-gray-400 hover:text-gray-200 transition-colors"
                 >
                     {secondaryLabel}
                 </button>

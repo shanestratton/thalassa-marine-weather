@@ -700,8 +700,8 @@ const App: React.FC = () => {
                 <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6">
                     <div className="max-w-sm w-full">
                         <div className="text-center mb-8">
-                            <div className="text-5xl mb-3" aria-hidden="true">
-                                ⛵
+                            <div className="mb-3 flex justify-center text-sky-400" aria-hidden="true">
+                                <SailBoatIcon className="h-12 w-12" />
                             </div>
                             <h2 className="text-xl font-bold text-white mb-2">Welcome aboard</h2>
                             <p className="text-sm text-slate-400 leading-relaxed">
@@ -830,8 +830,10 @@ const App: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setLandscapeNavOpen((v) => !v)}
-                // e2e/chart-warning.spec.ts finds this by its exact name.
-                aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
+                // Closed, the name leads with the page word the pill shows
+                // ('OBS, show navigation'), so Voice Control can tap what it
+                // sees (UX scorecard run 6).
+                aria-label={landscapeNavOpen ? 'Hide navigation' : `${landscapeNavPageLabel}, show navigation`}
                 aria-expanded={landscapeNavOpen}
                 className={`press flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm ${docked ? '' : 'fixed bottom-2 z-901'} ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
                 style={
@@ -1005,7 +1007,9 @@ const App: React.FC = () => {
                 {/* HEADER */}
                 {showHeader && (
                     <header
-                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${
+                        // The Glass in phone landscape keeps plain px-4: md applies at
+                        // 852 wide and inset the location bar 8 pt from the card column.
+                        className={`${isDashboard && isMobileLandscape ? 'px-4' : 'px-4 md:px-6'} flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${
                             // Landscape pages collapse the brand block to one title row:
                             // at 393 px tall the full header left the Plan page ~160 px
                             // (UX scorecard run 5). The Glass keeps its own geometry.
@@ -1017,7 +1021,10 @@ const App: React.FC = () => {
                     >
                         {/* Logo row — same style on all pages */}
                         <div
-                            className="flex items-start justify-between pointer-events-auto shrink-0"
+                            // gap-2 keeps at least 8 pt between the SKIPPER · BETA chip
+                            // and the Systems button under 390 pt; the truncating
+                            // wordmark absorbs the space.
+                            className="flex items-start justify-between gap-2 pointer-events-auto shrink-0"
                             style={isDashboard ? { height: `${glassTopLayout.brandRowHeightPx}px` } : undefined}
                         >
                             <div className="flex min-w-0 items-center space-x-2">
@@ -1025,13 +1032,15 @@ const App: React.FC = () => {
                                     Combined with the app-icon SVG mark-scale
                                     bump (0.49 → 0.55), the in-app header now
                                     has a properly sized compass that doesn't
-                                    drown next to the wordmark + Skipper pill. */}
+                                    drown next to the wordmark + Skipper pill.
+                                    48 px on the short Glass, where 64 met the
+                                    location bar. */}
                                 <img
                                     src="/thalassa-icon-128.png"
                                     alt=""
                                     width={64}
                                     height={64}
-                                    className={`thalassa-header-logo ${isMobileLandscape ? 'w-10 h-10' : 'w-[64px] h-[64px]'} rounded-lg`}
+                                    className={`thalassa-header-logo ${isMobileLandscape ? 'w-10 h-10' : isDashboard && glassTopLayout.isShortViewport ? 'w-12 h-12' : 'w-[64px] h-[64px]'} rounded-lg`}
                                 />
                                 <div className="min-w-0">
                                     <div className="flex min-w-0 items-center gap-1">
@@ -1156,9 +1165,12 @@ const App: React.FC = () => {
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
                                         <input
                                             type="text"
-                                            value={displayTitle}
+                                            // The 'Select Location' fallback is not a place: show
+                                            // it as an empty field with a placeholder so
+                                            // VoiceOver doesn't announce it as the current location.
+                                            value={displayTitle === 'Select Location' ? '' : displayTitle}
                                             readOnly
-                                            placeholder="Saved locations ★"
+                                            placeholder="Select a location"
                                             aria-label="Current location"
                                             // Offline styling kept at the same contrast as online —
                                             // a deliberate but subtle ring change instead of the
@@ -1490,7 +1502,11 @@ const App: React.FC = () => {
                                         : { display: 'none' }
                             }
                         >
-                            {chartVisible && <h1 className="sr-only">Chart</h1>}
+                            {chartVisible && (
+                                <h1 className="sr-only">
+                                    {tracerActive ? 'Plan: route plotting' : 'OBS: charts and observations'}
+                                </h1>
+                            )}
                             <ErrorBoundary boundaryName="MapView">
                                 <Suspense
                                     fallback={
@@ -1710,7 +1726,10 @@ const App: React.FC = () => {
                                     </div>
                                 }
                                 label="OBS"
-                                ariaLabel="Navigate to Charts and observations"
+                                // Leads with the visible word so Voice Control's "Tap OBS"
+                                // resolves, and uses the same gloss as the chart's h1
+                                // (UX scorecard run 6). e2e finds it by 'Navigate to Charts'.
+                                ariaLabel="OBS, navigate to charts and observations"
                                 // Plotting lives on the map surface but BELONGS to
                                 // Plan: "Slide to Start Plotting" does setPage('map'),
                                 // which lit OBS and made the tab bar contradict the
