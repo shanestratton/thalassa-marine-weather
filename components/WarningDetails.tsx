@@ -11,6 +11,8 @@ interface WarningDetailsProps {
     alerts: string[];
     /** ISO time the weather report was generated — 'none issued' and 'not checked' must not look the same. */
     checkedAt?: string;
+    /** The place the forecast was checked for, so the clear state says where. */
+    placeName?: string;
 }
 
 // Critical warnings that CANNOT be dismissed (life/vessel safety)
@@ -27,7 +29,7 @@ const CRITICAL_PATTERNS = [
 ];
 const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
 
-export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedAt }) => {
+export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedAt, placeName }) => {
     // Age, not clock time: 'checked at 08:01' read as this morning after a
     // night with the app closed. Re-rendered each minute so it stays honest.
     const [now, setNow] = useState(() => Date.now());
@@ -83,9 +85,10 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                 every other sub-page. While anything is active a red count pill
                 sits under the title; once the list is clear there is no
                 triangle at all (a lone triangle sat where icon buttons sit). */}
-            <div className="shrink-0 border-b border-white/10 bg-slate-950">
+            <div className="shrink-0 bg-slate-950">
                 <PageHeader
-                    title="Active Warnings"
+                    title="Forecast Alerts"
+                    subtitle={placeName || undefined}
                     onBack={() => setPage('dashboard')}
                     status={
                         activeAlerts.length > 0 ? (
@@ -135,7 +138,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                                     isCritical(alert) ? 'bg-red-600' : 'bg-amber-500'
                                                 }`}
                                             >
-                                                {isCritical(alert) ? '⚠️ Critical' : 'Advisory'}
+                                                {isCritical(alert) ? 'Critical' : 'Advisory'}
                                             </span>
                                         </div>
                                         <p className="text-lg font-medium text-red-100 leading-relaxed">{alert}</p>
@@ -160,9 +163,17 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                         <div className="bg-white/5 p-6 rounded-full mb-4">
                             <CheckCircleIcon className="w-12 h-12 text-emerald-400" />
                         </div>
-                        <p className="text-gray-400 font-medium">No active warnings.</p>
-                        <p className="mt-1 text-xs text-gray-500">
+                        {/* Not an all-clear: these are Thalassa's own forecast
+                            thresholds, never the Bureau's warnings (UX scorecard run 6). */}
+                        <p className="text-base font-semibold text-slate-200 text-center">
+                            {placeName ? `No forecast alerts for ${placeName}` : 'No forecast alerts'}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-400">
                             {checkedLabel ? `Forecast checked ${checkedLabel}` : 'Forecast not checked yet'}
+                        </p>
+                        <p className="mt-4 max-w-xs text-center text-sm leading-relaxed text-slate-400">
+                            Thalassa checks the forecast for gale, storm, fog and heat thresholds. Not an official
+                            warning service: check BoM marine warnings.
                         </p>
                         {dismissed.size > 0 && (
                             <p className="text-gray-400 text-sm mt-2">

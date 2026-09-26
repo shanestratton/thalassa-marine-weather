@@ -611,8 +611,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         + safe area, so the last field needs that overlap plus the
                         bar's 16px top fade plus 8px: 72px + safe area. The flat 80px
                         left it under the bar on a notched phone; the old 192px left
-                        ~150pt of empty page above it. */}
+                        ~150pt of empty page above it.
+
+                        Keyed on the tab so every sub-page opens at its top: one
+                        shared scroller used to carry the last page's offset, so
+                        Account opened past its sign-in card (UX scorecard run 6). */}
                     <div
+                        key={activeTab ?? 'menu'}
                         className={`flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 ${
                             activeTab === 'vessel'
                                 ? 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-[calc(72px+env(safe-area-inset-bottom))]'

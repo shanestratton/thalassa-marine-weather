@@ -221,6 +221,8 @@ export interface ViewContext {
     weatherAlerts: unknown[];
     /** When the report behind those alerts was generated — the Warnings page says when it last checked. */
     weatherGeneratedAt?: string;
+    /** Place the current forecast is for — the Warnings page names it. */
+    weatherLocationName?: string;
 }
 
 /** Configuration for a single registered view. */
@@ -291,7 +293,11 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: WarningDetails,
         boundaryName: 'Warnings',
         group: 'standalone',
-        getProps: (ctx) => ({ alerts: ctx.weatherAlerts, checkedAt: ctx.weatherGeneratedAt }),
+        getProps: (ctx) => ({
+            alerts: ctx.weatherAlerts,
+            checkedAt: ctx.weatherGeneratedAt,
+            placeName: ctx.weatherLocationName,
+        }),
     },
     chat: {
         component: ChatPage,

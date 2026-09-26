@@ -5017,9 +5017,10 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
    instead of collapsing to nothing under the controls, and the first-run
    guidance card sets tighter so the sliders and the arming bar fit. */
 @media (orientation: portrait) and (max-height: 700px) {
+    /* 184 px, not 160: the dial plus its 13 px quality line under it. */
     .anchor-setup-radar {
-        flex: 0 0 160px !important;
-        min-height: 160px !important;
+        flex: 0 0 184px !important;
+        min-height: 184px !important;
     }
     .anchor-setup-guidance {
         margin-top: 4px !important;
