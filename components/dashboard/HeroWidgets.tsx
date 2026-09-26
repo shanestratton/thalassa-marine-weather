@@ -606,6 +606,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         ) : (
                             <InstrumentCell
                                 label="PERIOD"
+                                // Six letters at tracking-widest overflow a 320 px pane's
+                                // fifth column; the CHANCE treatment fits it.
+                                compactLabel
                                 icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
                                 value={wavePeriod}
                                 unit="s"
