@@ -6,6 +6,21 @@ import path from 'node:path';
 import { SCAN } from './scan.mjs';
 
 const ORIGIN = 'http://127.0.0.1:4173';
+// Playwright WebKit stamps geolocation fixes in microseconds, so the app read
+// every fix as decades in the future and fell back to its no-fix states (UX
+// scorecard run 7: the chart opened on the whole continent). A device stamps
+// milliseconds; normalise before the app sees it.
+const GEO_TIMESTAMP_FIX = () => {
+    const g = navigator.geolocation;
+    if (!g) return;
+    const fix = (cb) => (p) =>
+        cb({ coords: p.coords, timestamp: p.timestamp > 1e14 ? Math.floor(p.timestamp / 1000) : p.timestamp });
+    const gcp = g.getCurrentPosition.bind(g);
+    const wp = g.watchPosition.bind(g);
+    g.getCurrentPosition = (ok, err, o) => gcp(fix(ok), err, o);
+    g.watchPosition = (ok, err, o) => wp(fix(ok), err, o);
+};
+
 const OUT = process.argv[2];
 const MODE = process.argv[3] || 'dark';
 fs.mkdirSync(OUT, { recursive: true });
@@ -85,6 +100,7 @@ const ctx = async (ls, viewport) => {
             origins: [{ origin: ORIGIN, localStorage: ls.map(([name, value]) => ({ name, value })) }],
         },
     });
+    await c.addInitScript(GEO_TIMESTAMP_FIX);
     const p = await c.newPage();
     p.on('console', (m) => {
         if (m.type() === 'error') consoleLog.push({ view: current, text: m.text().slice(0, 240) });
@@ -217,9 +233,9 @@ if (SECTIONS.includes('A')) {
     await capture(p, 'voyage-end');
     // Vessel hub: expand the two collapsed sections
     await go(p, 'vessel', 2000);
-    // 'Atmosphere' is now 'Music'. Anchored, so it hits the section header
-    // rather than the Music row or another Music control.
-    for (const sec of ['Music', 'Settings & Connect']) {
+    // The one collapsed Vessel group since run 7 (Settings is always shown and
+    // Music moved into this group). Anchored, so it hits the section header.
+    for (const sec of ['Connections & music']) {
         const b = p.getByRole('button', { name: new RegExp('^' + sec + '$', 'i') }).first();
         if (await b.count()) await b.click({ timeout: 2000 }).catch(() => {});
         await p.waitForTimeout(600);
