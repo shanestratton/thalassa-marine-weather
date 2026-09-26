@@ -35,7 +35,10 @@ describe('Pi pinned-transport boundary', () => {
         // a transport. Presence of the native verifier is the only opener.
         expect(boundary).not.toMatch(/import\.meta\.env\.VITE_PI/);
         expect(boundary).toContain('isPinnedTransportAvailable()');
-        expect(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE).toMatch(/pinned/i);
+        // The skipper reads this sentence, so it names what to use instead,
+        // not the transport (UX run 5: "pinned boat-network transport").
+        expect(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE).toMatch(/iPhone app/);
+        expect(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE).not.toMatch(/pinned|transport|HTTPS/i);
     });
 
     it('has no cleartext lane left to the Pi', () => {

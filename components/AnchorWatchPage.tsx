@@ -897,6 +897,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     className="w-full h-2 bg-slate-800/60 rounded-full accent-sky-500 appearance-none cursor-pointer"
                                     style={{ touchAction: 'none' }}
                                 />
+                                {/* The track's ends, so a skipper can see how far a slide goes.
+                                    Must match min/max above. */}
+                                <div
+                                    aria-hidden="true"
+                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums"
+                                >
+                                    <span>1 m</span>
+                                    <span>30 m</span>
+                                </div>
                             </div>
 
                             {/* Rode Deployed */}
@@ -920,6 +929,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     className="w-full h-2 bg-slate-800/60 rounded-full accent-amber-500 appearance-none cursor-pointer"
                                     style={{ touchAction: 'none' }}
                                 />
+                                <div
+                                    aria-hidden="true"
+                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums"
+                                >
+                                    <span>5 m</span>
+                                    <span>100 m</span>
+                                </div>
                             </div>
                         </div>
 
@@ -973,10 +989,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                               : 'text-red-400'
                                     }`}
                                 >
+                                    {/* The same word the scope dial prints (ScopeRadar) —
+                                        one 6:1 must not read ADEQUATE there and OK here. */}
                                     {scopeQuality === 'excellent'
-                                        ? 'Safe'
+                                        ? 'Excellent'
                                         : scopeQuality === 'adequate'
-                                          ? 'OK'
+                                          ? 'Adequate'
                                           : 'Poor'}{' '}
                                     {scopeRatio.toFixed(0)}:1
                                 </span>

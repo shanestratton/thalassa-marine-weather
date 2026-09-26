@@ -34,8 +34,13 @@
 
 import { isPinnedTransportAvailable } from './piTls';
 
+/**
+ * Shown to the skipper (Boat Network card, Calypso, ENC Library, pairing
+ * errors), so it says what to use instead in skipper words — not the name of
+ * the transport. The engineering reason lives in the header above.
+ */
 export const PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE =
-    'Pi integration needs the pinned boat-network transport, which this build does not include.';
+    "Boat-network features need the current Thalassa iPhone app, which can check it is talking to your boat's Pi. Weather, charts and the diary still work here.";
 
 export interface PiBuildPolicyInput {
     /** Vite dev build — the Mac talks to the Pi over the dev server's lane. */

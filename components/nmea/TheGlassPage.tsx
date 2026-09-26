@@ -80,12 +80,14 @@ interface TheGlassPageProps {
     onBack: () => void;
 }
 
-// ── Format helper — shows em-dash for null / non-finite values ──
+// ── Format helper — shows "--" for null / non-finite values ──
 // Used everywhere a numeric reading would otherwise render. Keeps
-// the panel honest: if we don't have the data, we show "—" instead
-// of fabricating a plausible-looking number.
+// the panel honest: if we don't have the data, we show "--" instead
+// of fabricating a plausible-looking number. "--" is the panel's ONE
+// no-data glyph (the min/max cells and formatSeaTemp use it too) —
+// don't reintroduce "—" beside it (UX run 5 saw "— kts" next to "-- kts").
 function fmt(val: number | null | undefined, decimals: number = 1): string {
-    return val !== null && val !== undefined && Number.isFinite(val) ? val.toFixed(decimals) : '—';
+    return val !== null && val !== undefined && Number.isFinite(val) ? val.toFixed(decimals) : '--';
 }
 
 // ── Sparkline component — rolling SVG polyline ──
@@ -230,7 +232,7 @@ const FlankMetricComponent: React.FC<{
 }> = ({ label, value, unit, digits = 1, pad3 = false, tone = 'text-white', sideColoured = false }) => {
     const has = value !== null && Number.isFinite(value);
     const text = !has
-        ? '—'
+        ? '--'
         : pad3
           ? Math.round(value as number)
                 .toString()
@@ -517,7 +519,7 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
                 fontFamily="ui-monospace, SFMono-Regular, monospace"
                 style={{ letterSpacing: '-1px' }}
             >
-                {value === null ? '—' : value.toFixed(1)}
+                {value === null ? '--' : value.toFixed(1)}
             </text>
             <text
                 x={HERO_CX}
@@ -562,7 +564,7 @@ function useMetricHistory(metric: TimestampedMetric): { history: number[]; max: 
 // ── Pass-through accessor — kept as a thin wrapper for symmetry
 //    with the multi-source aggregation we used to do. Returns the
 //    metric's actual value (which may be null if no data has arrived
-//    yet) and its freshness. Callers render via fmt() for the "—"
+//    yet) and its freshness. Callers render via fmt() for the "--"
 //    fallback. ──
 function resolveMetric(metric: TimestampedMetric): { value: number | null; freshness: DataFreshness } {
     return { value: metric.freshness === 'dead' ? null : metric.value, freshness: metric.freshness };
@@ -684,7 +686,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const compassMaxWidth = pickByDevice(deviceClass, 110, 160);
 
     // Resolve all metrics — values may be null when no NMEA data has
-    // arrived yet. Render sites use fmt() to show "—" in that case.
+    // arrived yet. Render sites use fmt() to show "--" in that case.
     const sog = resolveMetric(state.sog);
     const tws = resolveMetric(state.tws);
     const depth = resolveMetric(state.depth);
@@ -1113,6 +1115,18 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 : diagnosis.actionable
                   ? 'bg-rose-400'
                   : 'bg-slate-500';
+    // The same bordered pill Radio Console and Anchor Watch use for their fix
+    // state (UX run 5: this was the one page showing it as underlined text).
+    const panelStatusPill =
+        diagnosis.state === 'live'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            : diagnosis.state === 'remote'
+              ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+              : diagnosis.state === 'stale'
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                : diagnosis.actionable
+                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                  : 'bg-white/5 border-white/15 text-gray-400';
 
     // Which transducer is quiet while the rest of the boat reports? Naming it
     // turns "why is the wind rose empty" into a job on the boat rather than a
@@ -1128,7 +1142,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     ]);
 
     /* Only worth a tap when there is something to read. With everything
-       reporting the chip stays a plain label, so the underline is a promise
+       reporting the chip stays a plain pill, so the chevron is a promise
        that there is detail behind it rather than decoration. */
     const hasDiagnosisDetail = Boolean(diagnosis.detail) || quietInstruments.length > 0;
 
@@ -1140,24 +1154,43 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     onBack={handleBack}
                     action={
                         hasDiagnosisDetail ? (
+                            // 44 pt tall tap target around the pill; the chevron, not an
+                            // underline, says there is detail behind it.
                             <button
                                 type="button"
                                 onClick={() => setShowDiagnosis(true)}
                                 aria-label={`Instrument status: ${panelStatus}. Show details`}
-                                className="flex min-h-[44px] items-center gap-1.5 px-1"
+                                className="flex min-h-[44px] items-center"
                             >
-                                <div className={`w-2 h-2 rounded-full ${panelStatusDot}`} />
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 underline underline-offset-2">
+                                <span
+                                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${panelStatusPill}`}
+                                >
+                                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${panelStatusDot}`} />
                                     {panelStatus}
+                                    <svg
+                                        aria-hidden="true"
+                                        className="h-3 w-3 shrink-0"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                                        />
+                                    </svg>
                                 </span>
                             </button>
                         ) : (
-                            <div className="flex items-center gap-1.5">
-                                <div className={`w-2 h-2 rounded-full ${panelStatusDot}`} />
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
-                                    {panelStatus}
-                                </span>
-                            </div>
+                            <span
+                                role="status"
+                                className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${panelStatusPill}`}
+                            >
+                                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${panelStatusDot}`} />
+                                {panelStatus}
+                            </span>
                         )
                     }
                 />
@@ -1835,7 +1868,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                                 <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
                                     {waterTemp.value === null
-                                        ? 'This needs a water-temperature sentence ($--MTW) from the gateway, or the Pi reading it from Signal K. Nothing here is invented.'
+                                        ? 'Your instruments are not sending a sea temperature, so none is shown. It appears here once a hull sensor reports through the gateway or the Pi.'
                                         : (seaTrend?.read ??
                                           'Building a record — give it a few minutes before it can say what the water is doing.')}
                                 </p>
@@ -1997,11 +2030,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     </>
                                 ) : (
                                     <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
-                                        <p className="text-4xl font-black text-gray-600">—</p>
+                                        <p aria-hidden="true" className="text-4xl font-black text-gray-600">
+                                            --
+                                        </p>
                                         <p className="mt-2 text-sm font-bold text-gray-300">No rudder sensor</p>
                                         <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
-                                            Helm balance needs a rudder-angle sentence ($--RSA) on the NMEA bus. Nothing
-                                            is shown rather than something invented.
+                                            Helm balance needs a rudder-angle sensor reporting on your instruments.
+                                            Until one does, this stays blank rather than guessing.
                                         </p>
                                     </div>
                                 )}
