@@ -44,12 +44,18 @@ const isMapboxConfigured = () => {
 const isOpenMeteoConfigured = () => isSupabaseConfigured();
 
 // ── Status Row sub-component ──
+// A STATE, never an instruction: the green "Set up" beside a service read as a
+// tappable "Set up →" (it is not a button) and meant the opposite of what it
+// said. Configured services read "Ready"; the live forecast check reads
+// "Working"; a service with nothing behind it reads "Not set up" — except the
+// marine forecast, whose missing key really does mean the free fallback.
 const StatusRow = ({
     label,
     isConnected,
     status,
     details,
     loading,
+    freeFallback,
     onTest,
 }: {
     label: string;
@@ -57,13 +63,15 @@ const StatusRow = ({
     status?: string;
     details?: string;
     loading?: boolean;
+    /** Missing means "running on the free source", not "not set up". */
+    freeFallback?: boolean;
     onTest?: () => void;
 }) => {
     const isMissing = status === 'MISSING_KEY' || (!isConnected && !status);
     const isActive = status === 'OK' || isConnected;
     let indicatorColor = 'bg-red-500 shadow-red-500/20';
     let textColor = 'text-red-400';
-    let displayText = details || (isActive ? 'ACTIVE' : 'MISSING');
+    let displayText = details || (isActive ? 'Ready' : 'Not set up');
 
     if (loading) {
         indicatorColor = 'bg-yellow-500 animate-pulse';
@@ -72,31 +80,35 @@ const StatusRow = ({
     } else if (isActive) {
         indicatorColor = 'bg-emerald-500 shadow-emerald-500/50';
         textColor = 'text-emerald-400';
-    } else if (isMissing) {
+    } else if (isMissing && freeFallback) {
         indicatorColor = 'bg-sky-500 shadow-sky-500/50';
         textColor = 'text-sky-300';
         displayText = 'FREE MODE';
+    } else if (isMissing) {
+        indicatorColor = 'bg-slate-500';
+        textColor = 'text-slate-300';
+        displayText = 'Not set up';
     }
 
     return (
-        <div className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">
+        <li className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">
             <div className="flex items-center gap-3">
-                <div className={`w-2.5 h-2.5 rounded-full shadow-lg ${indicatorColor}`}></div>
+                <div aria-hidden="true" className={`w-2.5 h-2.5 rounded-full shadow-lg ${indicatorColor}`}></div>
                 <span className="text-xs font-bold text-white uppercase tracking-wider">{label}</span>
             </div>
             <div className="flex items-center gap-3">
-                <span className={`text-[11px] font-semibold ${textColor}`}>{displayText}</span>
+                <span className={`text-xs font-semibold ${textColor}`}>{displayText}</span>
                 {onTest && (
                     <button
                         aria-label="Test push notification delivery"
                         onClick={onTest}
-                        className="hit-target-44 px-2 py-1 rounded-sm bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
+                        className="hit-target-44 px-2 py-1 rounded-sm bg-white/5 border border-white/10 text-xs font-bold text-white uppercase"
                     >
                         Test
                     </button>
                 )}
             </div>
-        </div>
+        </li>
     );
 };
 
@@ -189,9 +201,11 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         <CloudIcon className={`w-8 h-8 ${user ? 'text-white' : 'text-gray-400'}`} />
                     </div>
                     <div>
-                        <h3 className="text-lg font-bold text-white">
+                        {/* h2, like every section heading below it — as an h3 it
+                            sat under the Network Mode / Services h2s in the outline. */}
+                        <h2 className="text-lg font-bold text-white">
                             {user ? 'Connected to Cloud' : 'Cloud Connection'}
-                        </h3>
+                        </h2>
                         <p className="text-sm text-gray-400 max-w-md mt-1">
                             {user
                                 ? 'Your data is synced securely to the cloud.'
@@ -378,35 +392,36 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             )}
 
             <Section title="Services">
-                <div className="p-3 space-y-2">
+                <ul className="p-3 space-y-2" role="list" aria-label="Service status">
                     <StatusRow
                         label="Marine forecast"
                         isConnected={isStormglassKeyPresent()}
                         status={sgStatus?.status}
                         details={sgStatus ? (sgStatus.status === 'OK' ? 'Working' : sgStatus.message) : undefined}
                         loading={sgStatus?.status === 'LOADING'}
+                        freeFallback
                     />
                     <StatusRow
                         label="Assistant"
                         isConnected={isGeminiConfigured()}
-                        details={isGeminiConfigured() ? 'Set up' : 'Not set up'}
+                        details={isGeminiConfigured() ? 'Ready' : 'Not set up'}
                     />
                     <StatusRow
                         label="Charts"
                         isConnected={isMapboxConfigured()}
-                        details={isMapboxConfigured() ? 'Set up' : 'Not set up'}
+                        details={isMapboxConfigured() ? 'Ready' : 'Not set up'}
                     />
                     <StatusRow
                         label="Cloud sync"
                         isConnected={isSupabaseConfigured()}
-                        details={isSupabaseConfigured() ? 'Set up' : 'Not set up'}
+                        details={isSupabaseConfigured() ? 'Ready' : 'Not set up'}
                     />
                     <StatusRow
                         label="Weather models"
                         isConnected={!!isOpenMeteoConfigured()}
-                        details={isOpenMeteoConfigured() ? 'Set up' : 'Not set up'}
+                        details={isOpenMeteoConfigured() ? 'Ready' : 'Not set up'}
                     />
-                </div>
+                </ul>
             </Section>
 
             {/* Account Actions */}

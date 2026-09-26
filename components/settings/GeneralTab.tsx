@@ -3,11 +3,11 @@
  * Extracted from SettingsModal to reduce component size.
  */
 import React from 'react';
-import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
+import { Section, Row, RowChevron, type SettingsTabProps } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
 import { AestheticsSections } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
-import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
+import { CompassIcon, TrashIcon } from '../Icons';
 import type { LengthUnit, OffshoreModel } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
 import { canAccess } from '../../services/SubscriptionService';
@@ -215,7 +215,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 return (
                                     <button
                                         key={opt.value}
-                                        aria-label={`Select ${opt.label}`}
+                                        type="button"
+                                        // Pressed state, like Display Mode's buttons: the ring
+                                        // alone told a screen reader nothing about which is chosen.
+                                        aria-label={`${opt.label} offshore model — ${opt.desc}`}
+                                        aria-pressed={isActive}
                                         onClick={() => onSave({ offshoreModel: opt.value })}
                                         className={`w-full text-left p-3 rounded-xl border transition-all duration-200 flex items-center gap-3 ${
                                             isActive
@@ -238,7 +242,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                                     {opt.label}
                                                 </span>
                                                 {opt.tag && (
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                                                    <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
                                                         {opt.tag}
                                                     </span>
                                                 )}
@@ -281,7 +285,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 View our terms, conditions, and data practices
                             </p>
                         </div>
-                        <ArrowRightIcon className="w-4 h-4 text-gray-400" />
+                        <RowChevron />
                     </button>
                 </div>
             </Section>
@@ -309,11 +313,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                 Report a bug or tell us what needs improving; version and platform are pre-filled.
                             </p>
                         </div>
-                        <ArrowRightIcon className="h-4 w-4 text-sky-300" />
+                        <RowChevron className="h-4 w-4 text-sky-300" />
                     </button>
                 </div>
             </Section>
-            <Section title="Danger Zone">
+            <Section title="Danger Zone" tone="danger">
                 <div className="p-4">
                     <button
                         aria-label="Factory reset all settings and data"
@@ -328,7 +332,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 dates the JavaScript actually running, so a stale install is
                 visible at a glance. If this does not match roughly when you
                 last pressed Run in Xcode, the phone is running old code. */}
-            <p className="pb-6 pt-1 text-center text-[10px] tracking-wide text-white/50">bundle {__BUILD_STAMP__}</p>
+            <p className="pb-2 pt-1 text-center text-xs tracking-wide text-white/50">bundle {__BUILD_STAMP__}</p>
         </div>
     );
 };

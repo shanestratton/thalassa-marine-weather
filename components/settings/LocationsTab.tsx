@@ -49,9 +49,11 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                             <div className="text-center py-8 text-gray-400">
                                 <MapPinIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
                                 <p className="text-sm font-bold text-gray-300">No saved locations</p>
+                                {/* "The Glass", not "the weather page" — that is what
+                                    the tab is called. Ports are saved from its ★ menu. */}
                                 <p className="text-xs mt-1">
-                                    Search for a port on the weather page or save a departure / destination from the
-                                    route planner to add it here.
+                                    Save a port from the ★ menu on The Glass, or save a departure or destination in the
+                                    route planner, to add it here.
                                 </p>
                             </div>
                         )}
@@ -76,7 +78,7 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                                         <div className="min-w-0">
                                             <div className="font-bold text-white text-sm truncate">{loc}</div>
                                             {coords && (
-                                                <div className="text-[10px] font-mono text-sky-300/70 mt-0.5">
+                                                <div className="text-xs font-mono text-sky-300/70 mt-0.5">
                                                     {coords.lat.toFixed(4)}°{coords.lat >= 0 ? 'N' : 'S'} ·{' '}
                                                     {coords.lon.toFixed(4)}°{coords.lon >= 0 ? 'E' : 'W'}
                                                 </div>
@@ -98,8 +100,8 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                         })}
                         {(settings.savedLocations || []).length > 0 && (
                             <p className="px-2 pt-1 pb-1 text-xs leading-snug text-gray-400">
-                                Add more by searching a port on the weather page, or saving a departure or destination
-                                in the route planner.
+                                Add more from the ★ menu on The Glass, or by saving a departure or destination in the
+                                route planner.
                             </p>
                         )}
                     </div>
