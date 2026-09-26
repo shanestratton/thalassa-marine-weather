@@ -116,16 +116,24 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
     // routing every dimension through the conversion + unit helpers.
     const typeLabel = vessel.type === 'sail' ? 'Sail' : vessel.type === 'power' ? 'Power' : 'Observer';
 
+    // A vessel unit never chosen falls back to the Preferences length unit,
+    // exactly as the Vessel tab does, so both screens show the same unit.
     const lengthDisplay = vessel.length
         ? (() => {
-              const { value, unit } = lengthInUnit(vessel.length, settings.vesselUnits?.length);
+              const { value, unit } = lengthInUnit(
+                  vessel.length,
+                  settings.vesselUnits?.length || settings.units?.length || 'ft',
+              );
               return `${fmtInt(value)} ${unit}`;
           })()
         : '';
 
     const draftDisplay = vessel.draft
         ? (() => {
-              const { value, unit } = lengthInUnit(vessel.draft, settings.vesselUnits?.draft);
+              const { value, unit } = lengthInUnit(
+                  vessel.draft,
+                  settings.vesselUnits?.draft || settings.units?.length || 'ft',
+              );
               return `${fmt1(value)} ${unit} draft`;
           })()
         : '';

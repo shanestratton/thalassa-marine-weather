@@ -25,11 +25,20 @@ function formatCurrency(val: number | null): string {
 
 // ── TEMPLATE A: Engine Room Clipboard ───────────────────────────
 
-function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number, vesselName: string): string {
+function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number | null, vesselName: string): string {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-    const sorted = sortByUrgency(tasks.map((t) => calculateStatus(t, engineHours)));
+    // Engine hours not entered: judge hour-based tasks on their date alone
+    // (as the Maintenance screen does) instead of counting from an invented 0.
+    const sorted = sortByUrgency(
+        tasks.map((t) => {
+            if (engineHours !== null || t.next_due_hours === null || t.next_due_hours === undefined) {
+                return calculateStatus(t, engineHours ?? 0);
+            }
+            return { ...calculateStatus({ ...t, next_due_hours: null }, 0), next_due_hours: t.next_due_hours };
+        }),
+    );
 
     const rows = sorted
         .map((task) => {
@@ -40,7 +49,8 @@ function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number, ve
                       ? formatDate(task.next_due_date)
                       : '—';
 
-            const statusDot = task.status === 'red' ? '🔴' : task.status === 'yellow' ? '🟡' : '🟢';
+            const statusDot =
+                task.status === 'red' ? '🔴' : task.status === 'yellow' ? '🟡' : task.status === 'grey' ? '⚪' : '🟢';
 
             return `
             <tr>
@@ -73,7 +83,7 @@ function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number, ve
     <div class="header">
         <h1>⚓ VESSEL MAINTENANCE CHECKLIST</h1>
         <div class="meta">
-            <strong>${escapeHtml(vesselName)}</strong> &nbsp;|&nbsp; ${dateStr} &nbsp;|&nbsp; Engine Hours: <strong>${engineHours.toLocaleString()}</strong>
+            <strong>${escapeHtml(vesselName)}</strong> &nbsp;|&nbsp; ${dateStr} &nbsp;|&nbsp; Engine Hours: <strong>${engineHours === null ? '—' : engineHours.toLocaleString()}</strong>
         </div>
     </div>
 
@@ -240,7 +250,7 @@ async function generateAndSharePdf(html: string, filename: string): Promise<void
  * Export a blank maintenance checklist PDF (Template A).
  * For printing and taking to the engine room.
  */
-export async function exportChecklist(engineHours: number, vesselName: string): Promise<void> {
+export async function exportChecklist(engineHours: number | null, vesselName: string): Promise<void> {
     const tasks = await MaintenanceService.getTasks();
     const html = generateChecklistHtml(tasks, engineHours, vesselName);
     const dateSlug = new Date().toISOString().slice(0, 10);

@@ -1442,7 +1442,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         : lifetimeError
           ? lifetimeLoaded
               ? 'Couldn’t refresh lifetime totals. Showing the last complete history with locally recorded updates.'
-              : 'Lifetime history is unavailable. Only locally loaded recordings are shown; totals are incomplete.'
+              : 'Lifetime history is unavailable. Only voyages on this phone are counted, so totals are incomplete.'
           : undefined;
 
     // "Recording" vs "Acquiring GPS fix…" — keyed on whether the active
@@ -2004,6 +2004,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     selectedVoyageId={selectedVoyageId}
                     lifetimeStats={lifetimeStats}
                     lifetimeStatsNotice={lifetimeStatsNotice}
+                    lifetimeUnavailable={!!lifetimeError && !lifetimeLoaded}
                 />
             ) : (
                 <div className="flex flex-col h-full">

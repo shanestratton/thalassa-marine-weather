@@ -271,7 +271,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         if (!sheetTask) return;
         const { identity, task } = sheetTask;
         const taskId = task.id;
-        const hoursSnapshot = engineHours || null;
+        // Same figure the sheet shows: a real 0 is kept, "not entered" is null.
+        const hoursSnapshot = engineHours;
         const notesSnapshot = sheetNotes.trim() || null;
         if (!isAuthIdentityScopeCurrent(identity)) return;
         setSheetSaving(true);
@@ -369,7 +370,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const handleExport = useCallback(
         async (type: 'checklist' | 'history', identity: AuthIdentityScope = getAuthIdentityScope()) => {
             if (!isAuthIdentityScopeCurrent(identity)) return;
-            const engineHoursSnapshot = engineHours ?? 0;
+            const engineHoursSnapshot = engineHours;
             const vesselNameSnapshot = vesselName;
             setExporting(true);
             try {
@@ -798,7 +799,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 const catConfig = CATEGORIES.find((c) => c.id === group.category);
                                 return (
                                     <div key={group.category}>
-                                        <div className="flex items-center gap-2 mb-2 mt-1">
+                                        <h2 className="flex items-center gap-2 mb-2 mt-1">
                                             <span className="text-sm" aria-hidden="true">
                                                 {catConfig?.icon}
                                             </span>
@@ -808,7 +809,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             <span className="text-micro text-gray-400 font-bold">
                                                 ({group.tasks.length})
                                             </span>
-                                        </div>
+                                        </h2>
                                         <div className="space-y-2">
                                             {group.tasks.map((task) => (
                                                 <SwipeableTaskCard
@@ -864,7 +865,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {sheetTask && (
                     <ServiceLogSheet
                         task={sheetTask.task}
-                        engineHours={engineHours ?? 0}
+                        engineHours={engineHours}
                         notes={sheetNotes}
                         onNotesChange={setSheetNotes}
                         saving={sheetSaving}
@@ -884,7 +885,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         setCategory={setFormCategory}
                         setTaskType={setTaskType}
                         setTrigger={setTrigger}
-                        engineHours={engineHours ?? 0}
+                        engineHours={engineHours}
                         onSubmit={handleAddTask}
                         onClose={() => {
                             setShowAddForm(false);
@@ -902,7 +903,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         setCategory={setFormCategory}
                         setTaskType={setTaskType}
                         setTrigger={setTrigger}
-                        engineHours={engineHours ?? 0}
+                        engineHours={engineHours}
                         onSubmit={handleEditTask}
                         onClose={() => {
                             setShowEditForm(false);

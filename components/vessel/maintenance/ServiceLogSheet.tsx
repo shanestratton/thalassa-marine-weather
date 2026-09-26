@@ -12,7 +12,8 @@ import { LIGHT_COLORS } from './SwipeableTaskCard';
 
 interface ServiceLogSheetProps {
     task: TaskWithStatus;
-    engineHours: number;
+    /** null until the skipper has entered engine hours — never shown as 0. */
+    engineHours: number | null;
     notes: string;
     onNotesChange: (v: string) => void;
     saving: boolean;
@@ -88,7 +89,14 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest mb-1">
                             Engine Hours at Service
                         </p>
-                        <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
+                        {engineHours === null ? (
+                            <>
+                                <p className="text-xl font-black text-gray-400">—</p>
+                                <p className="text-xs text-gray-400">Not entered — logged without hours</p>
+                            </>
+                        ) : (
+                            <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
+                        )}
                     </div>
                 )}
 

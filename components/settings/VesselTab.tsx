@@ -976,11 +976,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             // No entry animation here: `animate-in` leaves a transform on the wrapper,
             // which makes it the containing block for the FIXED Save bar below — the
             // bar then scrolled away with the form (UX scorecard 2026-09-25).
-            // No bottom padding of our own while the keyboard is down: SettingsModal's
-            // scroller already reserves pb-48, which clears the fixed Save bar (it
-            // overlaps the scroller by only ~50px). A second 120px reserve left ~275pt
-            // of empty page above the bar (UX scorecard run 5). If that pb-48 is ever
-            // trimmed, reserve the bar's overlap + 8px here instead.
+            // No bottom padding of our own while the keyboard is down: on the vessel
+            // tab SettingsModal's scroller reserves calc(72px + safe area) — the Save
+            // bar's overlap (~48px + safe area) + its 16px top fade + 8px. A second
+            // reserve here left ~275pt of empty page above the bar (UX scorecard run 5).
+            // If that reserve changes, reserve the bar's overlap + fade + 8px here.
             className="w-full max-w-2xl mx-auto"
             style={keyboardHeight > 0 ? { paddingBottom: `${keyboardHeight + 120}px` } : undefined}
         >
@@ -2266,12 +2266,24 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 className="fixed left-0 right-0 z-20 px-4 pt-2 pb-2"
                 style={{
                     bottom: 'calc(72px + 8px + env(safe-area-inset-bottom))',
-                    // Opaque: the Max Gust slider was showing through the bar
-                    // (UX scorecard 2026-09-25).
-                    background: 'var(--day-ui-surface, rgba(2, 6, 23, 0.96))',
+                    // Fully opaque (daylight: the white surface token): at 0.96 the
+                    // Max Gust slider still ghosted through the bar (UX scorecard
+                    // 2026-09-25, run 5).
+                    background: 'var(--day-ui-surface, rgb(2, 6, 23))',
                     boxShadow: '0 -10px 18px -10px rgba(0, 0, 0, 0.45)',
                 }}
             >
+                {/* Scroll fade on the bar's top edge, so a field scrolling under it
+                    fades out instead of being sliced. It lives here, not as a
+                    mask on SettingsModal's scroller: this bar is position:fixed
+                    INSIDE that scroller, and a mask there would fade the bar too. */}
+                <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-0 right-0 bottom-full h-4"
+                    style={{
+                        background: 'linear-gradient(to bottom, transparent, var(--day-ui-surface, rgb(2, 6, 23)))',
+                    }}
+                />
                 <div className="max-w-2xl mx-auto">
                     <button
                         type="button"
