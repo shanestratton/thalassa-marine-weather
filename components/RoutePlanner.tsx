@@ -555,12 +555,60 @@ export const RoutePlanner: React.FC<{
         }
         prevVoyagePlanRef.current = voyagePlan;
     }, [voyagePlan, origin, destination, setPage]);
+    // The two front-door cards sit in the free band between the form and the
+    // fixed CTA instead of leaving a ~260 px void under them (UX audit run 5 —
+    // no hint text returns there: Shane removed it 2026-07-16). The page's
+    // flex-1 is inert (its scroller parent is a block), so min-h-full is what
+    // lets the empty map region below the form become that band.
+    const frontDoorCentred = !embedded && !LEGACY_PLANNER_FORM && !voyagePlan;
+    const frontDoorCards = (
+        <div className="space-y-2">
+            {(
+                [
+                    {
+                        kind: 'voyage' as const,
+                        icon: <SailBoatIcon className="h-6 w-6" />,
+                        title: 'From a past voyage',
+                        sub: 'Reuse a track you’ve already sailed',
+                        accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
+                    },
+                    {
+                        kind: 'saved' as const,
+                        icon: <RouteIcon className="h-6 w-6" />,
+                        title: 'Saved routes',
+                        sub: 'Open one — timings refreshed for today’s tide',
+                        accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
+                    },
+                ] as const
+            ).map((b) => (
+                <button
+                    key={b.kind}
+                    type="button"
+                    onClick={() => void openRoutePicker(b.kind)}
+                    className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
+                >
+                    <span aria-hidden="true" className="shrink-0">
+                        {b.icon}
+                    </span>
+                    <span className="min-w-0">
+                        <span className="block text-sm font-black uppercase tracking-wide">{b.title}</span>
+                        <span className="block text-[11px] font-medium leading-snug text-gray-400">{b.sub}</span>
+                    </span>
+                    <span aria-hidden="true" className="ml-auto text-gray-500">
+                        ›
+                    </span>
+                </button>
+            ))}
+        </div>
+    );
     return (
         <div
             className={
                 embedded
                     ? 'relative flex flex-col'
-                    : 'route-planner-page relative flex-1 bg-slate-950 overflow-hidden flex flex-col'
+                    : `route-planner-page relative flex-1 bg-slate-950 overflow-hidden flex flex-col${
+                          frontDoorCentred ? ' min-h-full' : ''
+                      }`
             }
         >
             {!embedded && (
@@ -796,46 +844,8 @@ export const RoutePlanner: React.FC<{
                                 previous leg's arrival). */}
                             <TripLegPicker onOpenChart={() => setPage('map')} />
                             <DepartControl />
-                            <div className="space-y-2">
-                                {(
-                                    [
-                                        {
-                                            kind: 'voyage' as const,
-                                            icon: <SailBoatIcon className="h-6 w-6" />,
-                                            title: 'From a past voyage',
-                                            sub: 'Sail it once, save it forever',
-                                            accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
-                                        },
-                                        {
-                                            kind: 'saved' as const,
-                                            icon: <RouteIcon className="h-6 w-6" />,
-                                            title: 'Saved routes',
-                                            sub: 'Open one, re-graded at today’s tide',
-                                            accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
-                                        },
-                                    ] as const
-                                ).map((b) => (
-                                    <button
-                                        key={b.kind}
-                                        type="button"
-                                        onClick={() => void openRoutePicker(b.kind)}
-                                        className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
-                                    >
-                                        <span aria-hidden="true" className="shrink-0">
-                                            {b.icon}
-                                        </span>
-                                        <span className="min-w-0">
-                                            <span className="block text-sm font-black uppercase tracking-wide">
-                                                {b.title}
-                                            </span>
-                                            <span className="block text-[11px] font-medium leading-snug text-gray-400">
-                                                {b.sub}
-                                            </span>
-                                        </span>
-                                        <span className="ml-auto text-gray-500">›</span>
-                                    </button>
-                                ))}
-                            </div>
+                            {/* Centred in the band below when the map is empty. */}
+                            {!frontDoorCentred && frontDoorCards}
                         </>
                     )}
 
@@ -1008,8 +1018,27 @@ export const RoutePlanner: React.FC<{
                 </div>
             )}
 
+            {/* ═══ FRONT DOOR — the two cards, centred in the free band ═══
+                Its own element, not the map region: short landscape collapses
+                .route-planner-map to 0 (index.css) and puts the CTA in flow.
+                The bottom padding stops the band above the FIXED portrait CTA
+                (its tab-bar clearance + ~vessel line + slide button; a few px
+                either way only nudges the centring). In short landscape the
+                CTA follows in flow, so the reserve drops to a normal gap, and
+                shrink-0 joins index.css's landscape column rule for the page's
+                direct children so the cards line up with the form. */}
+            {frontDoorCentred && (
+                <div className="flex flex-1 shrink-0 flex-col px-4 pt-2 pb-[calc(4rem+env(safe-area-inset-bottom)+8px+6rem)] [@media(orientation:landscape)_and_(max-height:500px)]:pb-3">
+                    <div className="mx-auto my-auto w-full max-w-xl">{frontDoorCards}</div>
+                </div>
+            )}
+
             {/* ═══ MAP — fills remaining space ═══ */}
-            <div className="route-planner-map flex-1 min-h-0 relative">
+            <div
+                className={
+                    frontDoorCentred ? 'route-planner-map relative' : 'route-planner-map flex-1 min-h-0 relative'
+                }
+            >
                 {voyagePlan ? (
                     <>
                         {/* Route summary overlay */}
@@ -1174,15 +1203,15 @@ export const RoutePlanner: React.FC<{
                             for personalised polars/ETAs without
                             blocking the demo. */}
                         {vessel && (
-                            <div className="flex items-center justify-center gap-2 mb-2 opacity-60">
+                            <div className="flex items-center justify-center gap-2 mb-2">
                                 {vessel.type === 'power' ? (
-                                    <PowerBoatIcon className="w-3.5 h-3.5 text-slate-400" />
+                                    <PowerBoatIcon className="w-3.5 h-3.5 text-slate-500" />
                                 ) : (
-                                    <SailBoatIcon className="w-3.5 h-3.5 text-slate-400" />
+                                    <SailBoatIcon className="w-3.5 h-3.5 text-slate-500" />
                                 )}
-                                <span className="text-[11px] font-mono text-slate-400 tracking-wide">
-                                    Active Vessel: {vessel.name}
-                                </span>
+                                {/* The page's caption style — it was the only
+                                    monospace text on the page (UX audit run 5). */}
+                                <span className="text-xs font-medium text-slate-400">Active Vessel: {vessel.name}</span>
                                 {usingDefaultVessel && (
                                     <button
                                         type="button"
@@ -1202,7 +1231,7 @@ export const RoutePlanner: React.FC<{
                                             }
                                             setPage('settings');
                                         }}
-                                        className="inline-flex min-h-[44px] items-center text-[11px] font-mono text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
+                                        className="inline-flex min-h-[44px] items-center text-xs font-semibold text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
                                         aria-label="Personalise vessel profile in Settings"
                                     >
                                         Personalise →
@@ -1306,11 +1335,15 @@ export const RoutePlanner: React.FC<{
                                     >
                                         {routePicker.kind === 'voyage' ? 'Past voyages' : 'Saved routes'}
                                     </span>
-                                    {routePicker.kind === 'saved' && (
-                                        <p className="mt-0.5 text-xs leading-snug text-gray-400">
-                                            Open a route, or swipe left on one to delete it.
-                                        </p>
-                                    )}
+                                    {/* The swipe hint only makes sense over rows: above an
+                                        empty list it promised gestures on nothing. */}
+                                    {routePicker.kind === 'saved' &&
+                                        !routePicker.loading &&
+                                        routePicker.items.length > 0 && (
+                                            <p className="mt-0.5 text-xs leading-snug text-gray-400">
+                                                Open a route, or swipe left on one to delete it.
+                                            </p>
+                                        )}
                                 </div>
                                 <button
                                     ref={routePickerCloseRef}
@@ -1396,6 +1429,7 @@ export const RoutePlanner: React.FC<{
                                                         </span>
                                                     )}
                                                     <span
+                                                        aria-hidden="true"
                                                         className={`text-gray-500 ${it.kind === 'passage' ? 'ml-2' : 'ml-auto'}`}
                                                     >
                                                         ›

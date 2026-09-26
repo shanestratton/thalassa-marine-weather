@@ -7,7 +7,10 @@ export const VoyageStatsRollup: React.FC<{
     voyageStats: React.ComponentProps<typeof VoyageTotalsTiles>['voyageStats'];
     records: PersonalRecords;
     notice?: string;
-}> = ({ voyageStats, records, notice }) => {
+    /** The lifetime (archive-inclusive) read failed and never succeeded, so
+     *  the totals are this phone's recordings only — or nothing at all. */
+    lifetimeUnavailable?: boolean;
+}> = ({ voyageStats, records, notice, lifetimeUnavailable = false }) => {
     const [expanded, setExpanded] = useState(false);
     const panelId = useId();
     return (
@@ -24,7 +27,14 @@ export const VoyageStatsRollup: React.FC<{
                     <span className="block text-xs font-black uppercase tracking-widest text-amber-300">
                         Voyage stats
                     </span>
-                    <span className="mt-1 block text-[11px] text-slate-400">Lifetime · includes archived</span>
+                    {/* Never claim "includes archived" over totals that could
+                        not include it (UX audit run 5: a skipper with forty
+                        archived voyages read "0.0 nm lifetime"). */}
+                    <span className="mt-1 block text-[11px] text-slate-400">
+                        {lifetimeUnavailable
+                            ? 'Lifetime unavailable · this phone only'
+                            : 'Lifetime · includes archived'}
+                    </span>
                 </span>
                 <span aria-hidden="true" className="flex items-center gap-2 text-xs font-bold text-sky-200">
                     {expanded ? 'Hide' : 'Show'}
@@ -47,7 +57,10 @@ export const VoyageStatsRollup: React.FC<{
                         {notice}
                     </p>
                 )}
-                <VoyageTotalsTiles voyageStats={voyageStats} />
+                <VoyageTotalsTiles
+                    voyageStats={voyageStats}
+                    unavailable={lifetimeUnavailable && voyageStats.voyageCount === 0}
+                />
                 {records.voyageCount > 0 && <PersonalRecordsStrip records={records} />}
             </div>
         </section>

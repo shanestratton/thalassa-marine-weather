@@ -28,13 +28,20 @@ export const VoyageListEmptyState: React.FC = () => (
             compass used to be (Shane 2026-09-06: "the thalassa icon in a
             watermark look. do it big"). The PNG is opaque on near-black:
             `lighten` lets the page ground win under it and a radial mask
-            feathers the square away, so only the rose and the wave remain. */}
-        <div className="relative mb-2 h-[280px] w-full max-w-[380px]" aria-hidden="true" data-testid="log-watermark">
+            feathers the square away, so only the rose and the wave remain.
+            Height and width shrink only on SHORT screens (clamp on dvh): at
+            375x667 a fixed 280 px pushed "Begin Your Log" below the fold
+            (UX audit run 5). From ~760 px tall it is the full 280/380. */}
+        <div
+            className="relative mb-2 h-[clamp(140px,calc(100dvh-500px),280px)] w-full max-w-[380px]"
+            aria-hidden="true"
+            data-testid="log-watermark"
+        >
             <img
                 src="/thalassa-icon.png"
                 alt=""
                 draggable={false}
-                className="pointer-events-none absolute left-1/2 top-1/2 w-[380px] max-w-none -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.16] mix-blend-lighten"
+                className="pointer-events-none absolute left-1/2 top-1/2 w-[380px] max-w-[clamp(190px,calc((100dvh-500px)*1.36),380px)] -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.16] mix-blend-lighten"
                 style={{
                     maskImage: 'radial-gradient(circle at 50% 50%, black 52%, transparent 76%)',
                     WebkitMaskImage: 'radial-gradient(circle at 50% 50%, black 52%, transparent 76%)',

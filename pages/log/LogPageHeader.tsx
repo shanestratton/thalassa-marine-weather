@@ -5,7 +5,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
-import { DownloadIcon, MapIcon, ShareIcon } from '../../components/Icons';
+import { DownloadIcon, MapIcon, ShareIcon, XIcon } from '../../components/Icons';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import type { LogPageAction } from '../../hooks/useLogPageState';
@@ -22,6 +22,8 @@ export const LogPageHeader: React.FC<{
     onBack?: () => void;
     overflowTriggerRef: React.RefObject<HTMLButtonElement>;
     overflowMenuRef: React.RefObject<HTMLDivElement>;
+    /** The dialog's Close button — the focus trap lands here on open. */
+    overflowCloseRef: React.RefObject<HTMLButtonElement>;
     overflowMenuId: string;
     showMenu: boolean;
     setShowMenu: React.Dispatch<React.SetStateAction<boolean>>;
@@ -38,6 +40,7 @@ export const LogPageHeader: React.FC<{
     onBack,
     overflowTriggerRef,
     overflowMenuRef,
+    overflowCloseRef,
     overflowMenuId,
     showMenu,
     setShowMenu,
@@ -49,6 +52,12 @@ export const LogPageHeader: React.FC<{
 }) => {
     // The overflow menu is portalled to the pane/body so it centres on the screen.
     const portalTarget = usePanePortalTarget();
+    const noLoggedData = loggedVoyages.length === 0 && loggedEntries.length === 0;
+    const statsDisabled = !hasLifetimeVoyages && noLoggedData;
+    // Every row but Import waits on a recorded voyage. Say so once, under the
+    // rows, rather than leaving four dead rows to explain themselves.
+    const allRowsLocked = statsDisabled && !FEATURE_VISIBILITY.communityTrackSharing;
+    const titleId = `${overflowMenuId}-title`;
     return (
         <PageHeader
             title="Ship's Log"
@@ -86,7 +95,7 @@ export const LogPageHeader: React.FC<{
                     <button
                         ref={overflowTriggerRef}
                         aria-label="Page actions"
-                        aria-haspopup="menu"
+                        aria-haspopup="dialog"
                         aria-expanded={showMenu}
                         aria-controls={showMenu ? overflowMenuId : undefined}
                         onClick={() => setShowMenu(!showMenu)}
@@ -101,7 +110,10 @@ export const LogPageHeader: React.FC<{
                     {/* Overflow Menu — CENTRED like the Plan page's, per the house
                     rule (every modal centred and clear of the tab bar), and
                     portalled so PageTransition's transform cannot pin the scrim
-                    to the page box (the lesson RoutePlanner already learned). */}
+                    to the page box (the lesson RoutePlanner already learned).
+                    Same chrome as the Route Planner actions dialog: a visible
+                    title, a 44 px Close, and a focus trap with Escape (LogPage
+                    owns the trap) — one kebab pattern on sibling tabs. */}
                     {showMenu &&
                         portalTarget &&
                         createPortal(
@@ -113,11 +125,29 @@ export const LogPageHeader: React.FC<{
                                 <div
                                     ref={overflowMenuRef}
                                     id={overflowMenuId}
-                                    role="menu"
-                                    aria-label="Log actions"
+                                    role="dialog"
+                                    aria-modal={portalTarget.tagName === 'BODY' ? true : undefined}
+                                    aria-labelledby={titleId}
                                     className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
                                     onClick={(e) => e.stopPropagation()}
                                 >
+                                    <div className="flex items-center justify-between pl-3 pr-1">
+                                        <h2
+                                            id={titleId}
+                                            className="text-[11px] font-black uppercase tracking-widest text-gray-400"
+                                        >
+                                            Log actions
+                                        </h2>
+                                        <button
+                                            ref={overflowCloseRef}
+                                            type="button"
+                                            onClick={closeOverflowMenu}
+                                            aria-label="Close"
+                                            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+                                        >
+                                            <XIcon className="h-5 w-5" />
+                                        </button>
+                                    </div>
                                     {/* Rapid Mode + Precision Mode toggles were removed
                                                 from this menu 2026-05-17. Precision Mode is now
                                                 always-on whenever tracking is active (the
@@ -144,11 +174,7 @@ export const LogPageHeader: React.FC<{
                                             dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' });
                                             setShowMenu(false);
                                         }}
-                                        disabled={
-                                            !hasLifetimeVoyages &&
-                                            loggedVoyages.length === 0 &&
-                                            loggedEntries.length === 0
-                                        }
+                                        disabled={statsDisabled}
                                     />
                                     <MenuBtn
                                         icon={<MapIcon className="w-4 h-4" />}
@@ -157,7 +183,7 @@ export const LogPageHeader: React.FC<{
                                             dispatch({ type: 'SHOW_TRACK_MAP', show: true });
                                             setShowMenu(false);
                                         }}
-                                        disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
+                                        disabled={noLoggedData}
                                     />
                                     <MenuBtn
                                         icon={<ExportIcon className="w-4 h-4" />}
@@ -166,7 +192,7 @@ export const LogPageHeader: React.FC<{
                                             dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' });
                                             setShowMenu(false);
                                         }}
-                                        disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
+                                        disabled={noLoggedData}
                                     />
                                     {FEATURE_VISIBILITY.communityTrackSharing && (
                                         <MenuBtn
@@ -185,8 +211,13 @@ export const LogPageHeader: React.FC<{
                                             dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' });
                                             setShowMenu(false);
                                         }}
-                                        disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
+                                        disabled={noLoggedData}
                                     />
+                                    {allRowsLocked && (
+                                        <p className="px-4 pb-2 pt-1 text-xs text-slate-400">
+                                            Record a voyage to unlock these.
+                                        </p>
+                                    )}
                                 </div>
                             </div>,
                             portalTarget,

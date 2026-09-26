@@ -16,6 +16,7 @@ import { publishFollowedRouteDetailed } from '../../services/shiplog/publishFoll
 import { VoyageLogService } from '../../services/VoyageLogService';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
+import { LockIcon } from '../../components/Icons';
 import {
     groupEntriesByDate,
     groupEntriesByNoonWindow,
@@ -35,7 +36,12 @@ export const StatBox: React.FC<{ label: string; value: string | number }> = Reac
     </div>
 ));
 
-// ── MenuBtn — overflow menu item ──
+// ── MenuBtn — one row of the Log actions dialog ──
+//
+// A plain button, not role="menuitem": the Log kebab opens the same titled
+// dialog as the Route Planner's (UX audit run 5). Disabled rows stay legible
+// (slate-400, no opacity fade — the old slate-500 at 40% measured ~2.95:1 and
+// read as "broken") and carry a lock so they read as "not yet", not "gone".
 
 export const MenuBtn: React.FC<{
     /** Glyph shown before the label — the app's stroke SVG icons, not emoji. */
@@ -47,13 +53,13 @@ export const MenuBtn: React.FC<{
     accent?: boolean;
 }> = React.memo(({ icon, label, onClick, disabled, danger, accent }) => (
     <button
-        role="menuitem"
+        type="button"
         onClick={onClick}
         disabled={disabled}
         aria-disabled={disabled || undefined}
-        className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
+        className={`w-full min-h-[44px] rounded-xl px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
             disabled
-                ? 'text-slate-500 opacity-40 cursor-not-allowed'
+                ? 'text-slate-400 cursor-not-allowed'
                 : danger
                   ? 'text-red-400 hover:bg-red-500/10'
                   : accent
@@ -65,6 +71,11 @@ export const MenuBtn: React.FC<{
             {icon}
         </span>
         {label}
+        {disabled && (
+            <span className="ml-auto shrink-0" aria-hidden="true">
+                <LockIcon className="h-3.5 w-3.5" />
+            </span>
+        )}
     </button>
 ));
 

@@ -35,7 +35,6 @@ import { UndoToast } from '../components/ui/UndoToast';
 import { useGpsHealth, gpsHealthMessage } from '../hooks/useGpsHealth';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import { useMenuNavigation } from '../hooks/useMenuNavigation';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { useFollowRouteStore } from '../stores/followRouteStore';
 import { useUI } from '../context/UIContext';
@@ -1816,14 +1815,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         filters: _filters,
     } = state;
 
-    // Overflow (kebab) menu — real ARIA menu semantics with the shared keyboard
-    // lifecycle (arrows / Home / End / Escape + focus restore), as the diary has.
+    // Overflow (kebab) menu — a titled dialog with the Route Planner actions
+    // dialog's discipline: trap focus, land it on Close, Escape dismisses, focus
+    // returns to the kebab (UX audit run 5: one kebab pattern on sibling tabs).
     const overflowTriggerRef = useRef<HTMLButtonElement>(null);
+    const overflowCloseRef = useRef<HTMLButtonElement>(null);
     const overflowMenuId = React.useId();
     const closeOverflowMenu = useCallback(() => setShowMenu(false), []);
-    const overflowMenuRef = useMenuNavigation<HTMLDivElement>(showMenu, {
-        triggerRef: overflowTriggerRef,
-        onClose: closeOverflowMenu,
+    const overflowMenuRef = useFocusTrap<HTMLDivElement>(showMenu, {
+        initialFocusRef: overflowCloseRef,
+        onEscape: closeOverflowMenu,
     });
     const engineGroupId = React.useId();
 
@@ -2015,6 +2016,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         onBack={onBack}
                         overflowTriggerRef={overflowTriggerRef}
                         overflowMenuRef={overflowMenuRef}
+                        overflowCloseRef={overflowCloseRef}
                         overflowMenuId={overflowMenuId}
                         showMenu={showMenu}
                         setShowMenu={setShowMenu}
@@ -2051,7 +2053,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     )}
 
                     {/* Career totals and records stay available without crowding the log. */}
-                    <VoyageStatsRollup voyageStats={voyageStats} records={records} notice={lifetimeStatsNotice} />
+                    <VoyageStatsRollup
+                        voyageStats={voyageStats}
+                        records={records}
+                        notice={lifetimeStatsNotice}
+                        lifetimeUnavailable={!!lifetimeError && !lifetimeLoaded}
+                    />
 
                     {castOffHandoff &&
                         (castOffHandoff.caution ||
@@ -2129,7 +2136,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         <>
                             {/* ── NOT TRACKING: Scrollable voyage list ── */}
                             <div
-                                className="flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2"
+                                className="flex-1 overflow-y-auto overflow-x-hidden px-4 snap-y snap-proximity scroll-pt-2"
                                 style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}
                             >
                                 {/* The smaller "X TODAY · Y VOYAGES · Z NM"
