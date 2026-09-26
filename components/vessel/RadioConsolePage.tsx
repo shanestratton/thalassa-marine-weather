@@ -438,7 +438,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 <p className="mt-2 font-semibold">This fix belongs to another vessel. State your position yourself.</p>
             )}
             {dialogStep === 'instructions' && position && receiverMatchesSelection && (
-                <div className="mt-2 flex items-center gap-2 border-t border-current/15 pt-1">
+                <div className="mt-2 [@media(max-height:700px)]:mt-1 flex items-center gap-2 border-t border-current/15 pt-1">
                     <p className="min-w-0 flex-1 text-xs">Receiver aboard {vesselName ?? 'your vessel'}?</p>
                     <button
                         type="button"
@@ -829,13 +829,13 @@ const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
             }`}
         >
             {mode !== 'routine' && (
-                <p className={`mb-2 text-sm font-bold ${tone}`}>
+                <p className={`mb-2 [@media(max-height:700px)]:mb-1 text-sm font-bold ${tone}`}>
                     {isDistress
                         ? 'MAYDAY · grave & imminent danger. Immediate help needed.'
                         : 'PAN-PAN · urgent safety concern, below distress.'}
                 </p>
             )}
-            <ol className="space-y-2 text-sm leading-snug">
+            <ol className="space-y-2 [@media(max-height:700px)]:space-y-1 text-sm leading-snug">
                 {steps.map(([title, detail], i) => (
                     <li key={title} className="flex gap-2">
                         <span
@@ -854,7 +854,9 @@ const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
                     </li>
                 ))}
             </ol>
-            <p className={`mt-2 border-t border-current/15 pt-1 text-xs font-semibold ${tone}`}>
+            <p
+                className={`mt-2 [@media(max-height:700px)]:mt-1 border-t border-current/15 pt-1 text-xs font-semibold ${tone}`}
+            >
                 Ch 70: DSC only, never voice. This app does not transmit.
             </p>
         </div>
