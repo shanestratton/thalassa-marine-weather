@@ -1,6 +1,7 @@
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { UsersIcon } from '../Icons';
+import { Button } from '../ui/Button';
 
 interface AuthBannerProps {
     onSignIn: () => void;
@@ -11,22 +12,25 @@ interface AuthBannerProps {
 // notice above it — the violet card and Title Case read as a different app.
 export const AuthBanner: React.FC<AuthBannerProps> = ({ onSignIn, onDismiss }) => (
     <div className="mx-4 mt-3 mb-1 p-3 rounded-2xl bg-white/3 border border-white/6 flex items-center gap-3">
-        <div className="p-1.5 rounded-lg bg-white/5 text-sky-300">
+        <div aria-hidden="true" className="p-1.5 rounded-lg bg-white/5 text-sky-300">
             <UsersIcon className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white/90">Sign in to chat</p>
             <p className="text-xs text-gray-400">Post in channels and message other sailors.</p>
         </div>
-        <button
+        {/* The shared primary: a filled accent in daylight too, where the old
+            white button vanished into the near-white card (UX scorecard run 6). */}
+        <Button
+            variant="primary"
             onClick={() => {
                 triggerHaptic('light');
                 onSignIn();
             }}
-            className="hit-target-44 shrink-0 px-3 py-1.5 bg-white text-slate-900 text-xs font-bold rounded-lg hover:bg-gray-100 transition-all active:scale-95"
+            className="shrink-0 px-4! py-2! text-sm!"
         >
             Sign in
-        </button>
+        </Button>
         <button
             onClick={onDismiss}
             className="hit-target-44 shrink-0 p-1 text-gray-500 hover:text-gray-300 transition-colors"

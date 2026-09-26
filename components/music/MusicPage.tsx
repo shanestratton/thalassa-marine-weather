@@ -19,6 +19,7 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
+import { UnavailableNotice } from '../ui/UnavailableNotice';
 import {
     getUserPlaylists,
     playPlaylist,
@@ -836,21 +837,30 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - calc(${maskBottomEnd} + 12px)), transparent calc(100% - ${maskBottomEnd}))`;
 
     const activePlaylist = activePlaylistId ? (playlists.find((p) => p.id === activePlaylistId) ?? null) : null;
+    // Off the iPhone app this is a "not available here" page, and it wears the
+    // same header and card as Calypso and Boat Network (UX scorecard run 6).
+    const offIphoneApp = authGranted === false && authStatus === 'unsupported';
 
     return (
         <div className="relative flex flex-col h-full overflow-hidden bg-slate-950">
             {/* A restrained deep-water glow keeps this surface tied to the
              * rest of Thalassa without competing with the album artwork. */}
-            <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-0 h-80 opacity-80"
-                style={{
-                    background:
-                        'radial-gradient(ellipse at 82% -20%, rgba(14, 165, 233, 0.19), transparent 52%), radial-gradient(ellipse at 4% 0%, rgba(2, 132, 199, 0.11), transparent 48%)',
-                }}
-            />
+            {!offIphoneApp && (
+                <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 top-0 h-80 opacity-80"
+                    style={{
+                        background:
+                            'radial-gradient(ellipse at 82% -20%, rgba(14, 165, 233, 0.19), transparent 52%), radial-gradient(ellipse at 4% 0%, rgba(2, 132, 199, 0.11), transparent 48%)',
+                    }}
+                />
+            )}
             <div className="relative flex min-h-0 flex-1 flex-col">
-                <PageHeader title="Apple Music" subtitle="Soundtrack for the watch" onBack={onBack} />
+                <PageHeader
+                    title="Apple Music"
+                    subtitle={offIphoneApp ? 'iPhone app only' : 'Soundtrack for the watch'}
+                    onBack={onBack}
+                />
 
                 <div
                     ref={musicScrollRef}
@@ -861,27 +871,34 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                         WebkitMaskImage: fadeMask,
                     }}
                 >
-                    {authGranted === false && (
+                    {offIphoneApp && (
+                        <UnavailableNotice
+                            icon={<MusicIcon className="h-5 w-5" />}
+                            title="Apple Music lives in the iPhone app"
+                        >
+                            <p>
+                                Open Thalassa on your iPhone to play your library and playlists hands-free while you
+                                sail.
+                            </p>
+                        </UnavailableNotice>
+                    )}
+
+                    {authGranted === false && !offIphoneApp && (
                         <div className="mx-auto flex max-w-md flex-col items-center justify-center px-4 pt-12 text-center">
-                            <div className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-sky-400/25 bg-linear-to-br from-sky-400/20 to-sky-500/10 shadow-2xl">
+                            <div
+                                aria-hidden="true"
+                                className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-sky-400/25 bg-linear-to-br from-sky-400/20 to-sky-500/10 shadow-2xl"
+                            >
                                 <div className="absolute inset-2 rounded-2xl border border-sky-200/10" />
                                 <MusicIcon className="relative h-9 w-9 text-sky-300" />
                             </div>
-                            <p className="text-xs font-black uppercase tracking-[0.2em] text-sky-300/75">
-                                Onboard audio
-                            </p>
-                            {/* Real h2/p, not stacked divs that read as one run. Off the
-                                iPhone app there is nothing to connect, so the heading says
-                                where Apple Music lives instead of promising an action. */}
-                            <h2 className="mt-2 text-xl font-extrabold text-white">
-                                {authStatus === 'unsupported'
-                                    ? 'Apple Music lives in the iPhone app'
-                                    : 'Connect Apple Music'}
-                            </h2>
+                            {/* Real h2/p, not stacked divs that read as one run. No
+                                eyebrow: the header subtitle already says what the
+                                page is for (UX scorecard run 6). */}
+                            <h2 className="text-xl font-extrabold text-white text-balance">Connect Apple Music</h2>
                             <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-300">
-                                {authStatus === 'unsupported'
-                                    ? 'Open Thalassa on your iPhone to play your library and playlists hands-free while you sail.'
-                                    : 'Give Thalassa access to your library, playlists, and proper hands-free playback while you sail.'}
+                                Give Thalassa access to your library, playlists, and proper hands-free playback while
+                                you sail.
                             </p>
                             {musicAccessNeedsSettings ? (
                                 <div
@@ -901,7 +918,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                         Open Music settings
                                     </button>
                                 </div>
-                            ) : authStatus === 'unsupported' ? null : (
+                            ) : (
                                 <button
                                     onClick={() => void handleGrantAccess()}
                                     className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-2xl bg-sky-600 px-5 py-3 text-sm font-extrabold text-white shadow-xl transition-all hover:bg-sky-500 active:scale-[0.97]"
@@ -911,17 +928,13 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 </button>
                             )}
                             <p className="mt-4 max-w-xs text-xs leading-relaxed text-slate-500">
-                                Your library stays yours. Thalassa only uses access to play and organise the music you
-                                choose.
+                                Thalassa only plays and organises the music you pick. Your library stays yours.
                             </p>
-                            {authStatus &&
-                                authStatus !== 'notDetermined' &&
-                                authStatus !== 'unsupported' &&
-                                !musicAccessNeedsSettings && (
-                                    <div className="mt-4 text-xs text-slate-500">
-                                        Status: <code>{authStatus}</code>
-                                    </div>
-                                )}
+                            {authStatus && authStatus !== 'notDetermined' && !musicAccessNeedsSettings && (
+                                <div className="mt-4 text-xs text-slate-500">
+                                    Status: <code>{authStatus}</code>
+                                </div>
+                            )}
                         </div>
                     )}
 
