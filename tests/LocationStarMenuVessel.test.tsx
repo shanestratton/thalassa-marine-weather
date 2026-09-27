@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -127,8 +127,13 @@ describe('★ menu — the vessel as a special saved location', () => {
         });
         expect(current).toHaveAttribute('aria-current', 'location');
         expect(current.querySelector('svg.text-amber-400')).not.toBeNull();
-        // No GPS sentence on the page: the words live only in the name.
-        expect(screen.getByText(/GPS unavailable/)).toHaveClass('sr-only');
+        // The name reads without a stray space before its comma (UX scorecard run 9).
+        expect(current).toHaveAccessibleName('Current Location, GPS unavailable, showing last location');
+        expect(screen.queryByText(/GPS unavailable/)).toBeNull();
+        // Amber alone was colour-only: the row also shows the fix state, in the
+        // one truth's words and naming no GPS source (run 9). Seen, not read twice.
+        const caption = within(current).getByText('No live fix · last position');
+        expect(caption).toHaveAttribute('aria-hidden', 'true');
         const boat = screen.getByTestId('location-star-vessel');
         expect(boat).not.toHaveAttribute('aria-current');
         expect(boat).not.toHaveTextContent(/GPS unavailable/);

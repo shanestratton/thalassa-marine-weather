@@ -77,7 +77,7 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         expect(dialog.querySelector('path[d^="M 60 28"]')).toBeNull();
     });
 
-    it('the dry detail names one horizon: headline, chart summary and credit agree (UX scorecard run 7)', () => {
+    it('the dry detail names one horizon: headline, chart summary and the axis agree (UX scorecard runs 7, 9)', () => {
         render(<RainForecastCard data={dryFeed(240, Date.now() - 25 * 60_000)} source="rainbow" />);
         fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
         const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
@@ -85,8 +85,14 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         expect(
             within(dialog).getByRole('img', { name: 'Rain intensity, next 3\u00bd hours: none' }),
         ).toBeInTheDocument();
-        expect(within(dialog).getByText('Rainbow.ai nowcast · 1 km, next 3\u00bd hours')).toBeInTheDocument();
+        // The credit names the feed only; the horizon is not said a third time.
+        expect(within(dialog).getByText('Rainbow.ai nowcast · 1 km')).toBeInTheDocument();
         expect(within(dialog).queryByText(/4 hours ahead/)).toBeNull();
+        // The axis ends at the stated horizon, not at a '4 h' it cannot vouch for.
+        for (const tick of ['Now', '1 h', '2 h', '3\u00bd h']) {
+            expect(within(dialog).getByText(tick)).toBeInTheDocument();
+        }
+        expect(within(dialog).queryByText('4 h')).toBeNull();
     });
 
     it('trace drizzle under the rain threshold draws no bars under a dry verdict', () => {
@@ -128,10 +134,11 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         const { rerender } = render(<RainForecastCard data={dryFeed(240)} source="rainbow" />);
         expect(screen.queryByText(/Right now/)).toBeNull();
         rerender(<RainForecastCard data={dryFeed(240)} source="rainbow" isLive={false} />);
-        expect(screen.getByText(/Right now: No rain expected next 4 hours/)).toBeInTheDocument();
-        // The strip's name is the action; the verdict is its description.
+        // Short, so it holds one line on a 375 pt phone (UX scorecard run 9).
+        expect(screen.getByText('Right now: dry for the next 4 h')).toBeInTheDocument();
+        // The strip's name is the action; the verdict, in whole words, is its description.
         expect(screen.getByRole('button', { name: 'Open rain forecast detail' })).toHaveAccessibleDescription(
-            /Right now: No rain expected next 4 hours/,
+            /Right now: dry for the next 4 hours/,
         );
     });
 
@@ -231,6 +238,7 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
 
     it('a fully-elapsed feed is out of date, not a forecast', () => {
         render(<RainForecastCard data={dryFeed(60, Date.now() - 90 * 60_000)} source="weatherkit" />);
-        expect(screen.getByText('Rain Data Out Of Date')).toBeInTheDocument();
+        // In sentence case, as every verdict on the strip is (UX scorecard run 9).
+        expect(screen.getByText('Rain data out of date')).toBeInTheDocument();
     });
 });

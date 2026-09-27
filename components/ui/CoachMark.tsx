@@ -48,6 +48,10 @@ interface CoachMarkProps {
     /** Extra class for the arrow, e.g. a responsive rotation that follows a
      *  responsive `flex-row` in `className` when the mark moves beside its target. */
     arrowClassName?: string;
+    /** A short message kept on one line. A nowrap on the wrapper does not reach
+     *  the bubble: its text-balance sets text-wrap back to wrap, so a mark in a
+     *  narrow containing block went one word per line (UX scorecard run 9). */
+    singleLine?: boolean;
 }
 
 const ANCHOR_CLASSES: Record<CoachMarkAnchor, string> = {
@@ -105,6 +109,7 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
     arrow,
     className = '',
     arrowClassName = '',
+    singleLine = false,
 }) => {
     // Lazy-initialise from localStorage so SSR or non-DOM environments don't
     // crash. Default to true (already seen) if localStorage is unavailable —
@@ -193,7 +198,7 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
             <div
                 // text-balance: two even lines, never one word left alone on the
                 // second ('chart.' under the map's coach, UX scorecard run 8).
-                className="thalassa-popover-solid px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center text-balance"
+                className={`thalassa-popover-solid px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center ${singleLine ? 'whitespace-nowrap' : 'text-balance'}`}
                 style={{
                     boxShadow: '0 0 20px -4px rgba(56,189,248,0.4), 0 4px 12px rgba(0,0,0,0.4)',
                 }}

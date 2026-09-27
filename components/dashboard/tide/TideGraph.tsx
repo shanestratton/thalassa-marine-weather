@@ -215,18 +215,26 @@ export const TideGraphOriginal = ({
     const visibleMarkers = React.useMemo(() => allMarkers.filter((m) => m.time >= 0 && m.time <= 24), [allMarkers]);
 
     // The hero caption band's rendered height, so the chart can keep the
-    // curve's crest below it rather than drawing through the values.
+    // curve's crest below it rather than drawing through the values — and the
+    // chart area's own height, which says when the card is short.
     const heroHeaderRef = React.useRef<HTMLDivElement | null>(null);
+    const chartAreaRef = React.useRef<HTMLDivElement | null>(null);
     const [heroHeaderPx, setHeroHeaderPx] = React.useState(0);
+    const [chartAreaPx, setChartAreaPx] = React.useState(0);
     const hasPoints = dataPoints.length > 0;
     React.useLayoutEffect(() => {
-        const el = heroHeaderRef.current;
-        if (!el) return;
-        const measure = () => setHeroHeaderPx(Math.ceil(el.getBoundingClientRect().height));
+        const header = heroHeaderRef.current;
+        const area = chartAreaRef.current;
+        if (!header && !area) return;
+        const measure = () => {
+            if (header) setHeroHeaderPx(Math.ceil(header.getBoundingClientRect().height));
+            if (area) setChartAreaPx(Math.floor(area.clientHeight));
+        };
         measure();
         if (typeof ResizeObserver === 'undefined') return;
         const ro = new ResizeObserver(measure);
-        ro.observe(el);
+        if (header) ro.observe(header);
+        if (area) ro.observe(area);
         return () => ro.disconnect();
     }, [stationPosition, hasPoints]);
 
@@ -268,10 +276,16 @@ export const TideGraphOriginal = ({
     // Trend Logic
     const isSlack = visibleMarkers.some((m) => Math.abs(m.time - currentHour) < 0.33);
     const nextHourVal = dataPoints.find((p) => p.time > currentHour + 0.5 && p.time < currentHour + 1.5)?.height;
-    const isRising = nextHourVal !== undefined ? nextHourVal > currentHeight : false;
+    // Past 23:00 the curve ends before the next hour: the next extreme says
+    // which way the water is going, as the card's accessible name does. A
+    // bare `false` drew a falling arrow on a tide rising to tomorrow's high.
+    const isRising = nextHourVal !== undefined ? nextHourVal > currentHeight : nextEvent?.type === 'High';
 
     let TrendIcon = isRising ? ArrowUpIcon : ArrowDownIcon;
-    let trendColor = isRising ? 'text-emerald-400' : 'text-red-400';
+    // The card's own sky tone either way: a falling tide is not the grid's
+    // red 'worsening', nor a rising one its green (UX scorecard run 9). The
+    // arrow's direction carries the trend.
+    let trendColor = 'text-sky-300';
 
     if (isSlack) {
         TrendIcon = MinusIcon;
@@ -300,8 +314,51 @@ export const TideGraphOriginal = ({
 
     const domainBuffer = (maxHeight - minHeight) * 0.2;
 
+    // The chart's vertical range. On a short card (a 667 pt phone gives the
+    // tide card about 85 pt) TideCanvas keeps 48 px of plot, so the caption
+    // band's second line sat on the crest and the now-dot's halo met a height
+    // (UX scorecard run 9). Here the range gains headroom instead: the crest
+    // stays under the captions, and the now-dot's ring 8 px clear of them.
+    // The tall card is untouched — its crest already sits below the band.
+    const chartMin = minHeight - domainBuffer;
+    let chartMax = maxHeight + domainBuffer;
+    // Whether the canvas draws inside the caption band (its grid lines and
+    // the now hairline start above the band's foot), so the band needs the
+    // chart's own surface behind it.
+    let bandNeedsBacking = false;
+    if (stationPosition === 'bottom' && heroHeaderPx > 0 && chartAreaPx > 0) {
+        // TideCanvas's own geometry: a 14 px hour-axis band, a 48 px plot
+        // floor, and a 20 px least top margin, its caption band plus 4 px.
+        const marginTop = Math.max(20, Math.min(heroHeaderPx + 4, chartAreaPx - 14 - 48));
+        const plotH = chartAreaPx - marginTop - 14;
+        // The band's foot in the chart area's own pixels (1 px of border).
+        const bandFoot = heroHeaderPx - 1;
+        bandNeedsBacking = marginTop < heroHeaderPx + 4;
+        if (plotH > 0) {
+            // A value sits `f` of the plot below its top when the range tops
+            // out at (v - f·min) / (1 - f). At most three quarters: the curve
+            // always keeps a quarter of the plot to draw its swing in.
+            const fractionFor = (y: number) => Math.min(0.75, Math.max(0, (y - marginTop) / plotH));
+            const topFor = (v: number, f: number) => (v - f * chartMin) / (1 - f);
+            chartMax = Math.max(
+                chartMax,
+                // The crest's 3 px stroke, clear of the band's foot.
+                topFor(maxHeight, fractionFor(bandFoot + 4)),
+                // The now-dot's 7 px ring, 8 px under the lowest caption.
+                topFor(currentHeight, fractionFor(bandFoot + 7 + 8)),
+            );
+        }
+    }
+    // A short card: its station name moves up beside the height, out of the
+    // trough the curve swings through along the bottom (UX scorecard run 9).
+    const shortCard = stationPosition === 'bottom' && !showAllDayEvents && chartAreaPx > 0 && chartAreaPx < 130;
+    const stationLabel = guiDetails?.stationName || stationName;
+
     const nextHigh = allMarkers.find((m) => m.time > currentHour && m.type === 'High');
     const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
+    const nextEvents = [nextHigh, nextLow]
+        .filter((e): e is NonNullable<typeof e> => Boolean(e))
+        .sort((a, b) => a.time - b.time);
 
     const heroLabelClass = 'glass-tide-caption text-[11px] text-sky-300/80 font-bold uppercase tracking-widest';
     // One unit convention for every value in the band: a thin space, then the
@@ -326,7 +383,7 @@ export const TideGraphOriginal = ({
         const cardIsToday = dayKey(effectiveTime) === dayKey(new Date());
         return (eventHour: number): { shown: string; spoken: string } | null => {
             if (eventHour < 24) return null;
-            if (cardIsToday) return { shown: 'Tmrw', spoken: 'tomorrow' };
+            if (cardIsToday) return { shown: 'tmrw', spoken: 'tomorrow' };
             const at = new Date(effectiveTime.getTime() + (eventHour - currentHour) * 3_600_000);
             let weekday: string;
             try {
@@ -337,12 +394,33 @@ export const TideGraphOriginal = ({
             return { shown: weekday, spoken: weekday };
         };
     })();
+    // The cue column exists only while an event has a cue.
+    const nextHasCue = nextEvents.some((e) => dayCue(e.time) !== null);
+
+    // Round to whole minutes FIRST, then split — rounding the fraction alone
+    // produced "HH:60" (audit 2026-09-02).
+    const eventClock = (eventHour: number) => {
+        const total = Math.round(eventHour * 60);
+        const h = Math.floor(total / 60) % 24;
+        const m = total % 60;
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    };
 
     return (
         <div
             className={`flex flex-col h-full relative group ${className || ''}`}
             style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}
         >
+            {/* On a short card the canvas's grid lines and now hairline start
+                inside the caption band and ran through its words: the band
+                takes the chart's own surface, as the tall card's band has. */}
+            {stationPosition === 'bottom' && bandNeedsBacking && (
+                <div
+                    aria-hidden="true"
+                    className="absolute left-px right-px top-px z-10 rounded-t-[11px] bg-slate-950 pointer-events-none"
+                    style={{ height: heroHeaderPx + 1 }}
+                />
+            )}
             {/* INTUITIVE HEADER OVERLAYS */}
             {stationPosition === 'bottom' ? (
                 /* HERO MODE (Clean, Single Line) */
@@ -351,76 +429,118 @@ export const TideGraphOriginal = ({
                     className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline pl-2 pt-1.5 pointer-events-none"
                     style={{ paddingRight: 8 + reserveRightPx }}
                 >
-                    {/* LEFT: Height */}
+                    {/* LEFT: Height — and, on a short card, the station under it */}
                     {!showAllDayEvents ? (
-                        <div className="flex items-baseline gap-1 pointer-events-auto">
-                            <span className={heroLabelClass}>Height</span>
-                            <span className="whitespace-nowrap leading-none">
-                                <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
-                                    {currentHeight.toFixed(1)}
+                        <div className="flex flex-col min-w-0 gap-1 pointer-events-auto">
+                            <div className="flex items-baseline gap-1">
+                                <span className={heroLabelClass}>Height</span>
+                                <span className="whitespace-nowrap leading-none">
+                                    <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
+                                        {currentHeight.toFixed(1)}
+                                    </span>
+                                    {'\u2009'}
+                                    <span className={unitClass}>{unit}</span>
                                 </span>
-                                {'\u2009'}
-                                <span className={unitClass}>{unit}</span>
-                            </span>
-                            <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
+                                <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
+                            </div>
+                            {shortCard && stationLabel && (
+                                <span
+                                    className="truncate text-xs leading-4 font-semibold text-white/60 tracking-wide select-none"
+                                    data-testid="tide-station-name"
+                                >
+                                    {stationLabel}
+                                </span>
+                            )}
                         </div>
                     ) : (
                         <div className="hidden"></div>
                     )}
 
                     {/* RIGHT: High / Low Events */}
-                    <div
-                        className={`flex items-baseline gap-3 pointer-events-auto ${showAllDayEvents ? 'w-full justify-between px-2' : ''}`}
-                    >
-                        {(showAllDayEvents ? visibleMarkers : [nextHigh, nextLow])
-                            .filter(Boolean)
-                            .sort((a, b) => a!.time - b!.time)
-                            .map((event, idx) => {
-                                const cue = dayCue(event!.time);
+                    {showAllDayEvents ? (
+                        <div className="flex items-baseline gap-3 pointer-events-auto w-full justify-between px-2">
+                            {[...visibleMarkers]
+                                .sort((a, b) => a.time - b.time)
+                                .map((event, idx) => {
+                                    const cue = dayCue(event.time);
+                                    return (
+                                        // Label over its day cue, value over its height: baselines
+                                        // pair across each row.
+                                        <div
+                                            key={idx}
+                                            className="grid grid-cols-[auto_auto] items-baseline gap-x-1 gap-y-1"
+                                        >
+                                            <span className={`${heroLabelClass} justify-self-end`}>{event.type}</span>
+                                            <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
+                                                {eventClock(event.time)}
+                                            </span>
+                                            {cue ? (
+                                                <span
+                                                    className={`${heroLabelClass} tracking-normal! justify-self-end ${scrimClass}`}
+                                                    data-testid="tide-day-cue"
+                                                >
+                                                    <span aria-hidden="true">{cue.shown}</span>
+                                                    <span className="sr-only">{cue.spoken}</span>
+                                                </span>
+                                            ) : (
+                                                <span aria-hidden="true" />
+                                            )}
+                                            <span
+                                                className={`justify-self-end whitespace-nowrap leading-none ${scrimClass}`}
+                                            >
+                                                <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
+                                                    {event.height.toFixed(1)}
+                                                </span>
+                                                {'\u2009'}
+                                                <span className={unitClass}>{unit}</span>
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                        </div>
+                    ) : (
+                        // One line per event, soonest first: 'LOW 03:47 tmrw · 0.5 m'.
+                        // The day cue follows the time it qualifies: under the
+                        // label, 'TMRW 0.5m' read as tomorrow's height, and that
+                        // row of chips sat on the crest of a short card (UX
+                        // scorecard run 9). Columns keep times and heights aligned.
+                        <div
+                            className={`grid shrink-0 ${nextHasCue ? 'grid-cols-[auto_auto_auto_auto]' : 'grid-cols-[auto_auto_auto]'} items-baseline gap-x-1 gap-y-1 pointer-events-auto`}
+                        >
+                            {nextEvents.map((event, idx) => {
+                                const cue = dayCue(event.time);
                                 return (
-                                    // Label over its day cue, value over its height: baselines
-                                    // pair across each row.
-                                    <div
-                                        key={idx}
-                                        className="grid grid-cols-[auto_auto] items-baseline gap-x-1 gap-y-1"
-                                    >
-                                        <span className={`${heroLabelClass} justify-self-end`}>{event!.type}</span>
+                                    <React.Fragment key={idx}>
+                                        <span className={heroLabelClass}>{event.type}</span>
                                         <span className="justify-self-end text-base font-bold text-white tracking-tight leading-none font-mono">
-                                            {(() => {
-                                                // Round to whole minutes FIRST, then split — rounding the
-                                                // fraction alone produced "HH:60" (audit 2026-09-02).
-                                                const total = Math.round(event!.time * 60);
-                                                const h = Math.floor(total / 60) % 24;
-                                                const m = total % 60;
-                                                return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                                            })()}
+                                            {eventClock(event.time)}
                                         </span>
                                         {cue ? (
-                                            // tracking-normal: at 375 pt the band has ~6 px to spare,
-                                            // and 'TMRW' spaced like 'LOW' would push past the rail.
                                             <span
-                                                className={`${heroLabelClass} tracking-normal! justify-self-end ${scrimClass}`}
+                                                className="glass-tide-caption text-xs font-semibold leading-none text-sky-200/80"
                                                 data-testid="tide-day-cue"
                                             >
                                                 <span aria-hidden="true">{cue.shown}</span>
                                                 <span className="sr-only">{cue.spoken}</span>
                                             </span>
                                         ) : (
-                                            <span aria-hidden="true" />
+                                            nextHasCue && <span aria-hidden="true" />
                                         )}
-                                        <span
-                                            className={`justify-self-end whitespace-nowrap leading-none ${scrimClass}`}
-                                        >
+                                        <span className="justify-self-end whitespace-nowrap leading-none">
+                                            <span aria-hidden="true" className={unitClass}>
+                                                {'· '}
+                                            </span>
                                             <span className="glass-tide-caption text-sm font-medium text-sky-200/80 leading-none font-mono">
-                                                {event!.height.toFixed(1)}
+                                                {event.height.toFixed(1)}
                                             </span>
                                             {'\u2009'}
                                             <span className={unitClass}>{unit}</span>
                                         </span>
-                                    </div>
+                                    </React.Fragment>
                                 );
                             })}
-                    </div>
+                        </div>
+                    )}
                 </div>
             ) : (
                 /* ORIGINAL MODE (Boxed Labels) */
@@ -465,26 +585,31 @@ export const TideGraphOriginal = ({
                 can be shorter than 120 px on a 667 pt phone, and a floor just
                 pushed the axis and the now-dot out under the card's clip
                 (UX scorecard run 6). The other hosts give it 160 px anyway. */}
-            <div className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-0">
+            <div
+                ref={chartAreaRef}
+                className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-0"
+            >
                 <TideCanvas
                     dataPoints={dataPoints}
                     currentHour={currentHour}
                     currentHeight={currentHeight}
-                    minHeight={minHeight}
-                    maxHeight={maxHeight}
-                    domainBuffer={domainBuffer}
+                    minHeight={chartMin}
+                    maxHeight={chartMax}
+                    domainBuffer={0}
                     topBandPx={stationPosition === 'bottom' ? heroHeaderPx : 0}
                     rightInsetPx={reserveRightPx}
                 />
                 {/* Station name — bottom left, lifted clear of the 14 px hour
                     axis band TideCanvas draws along the bottom edge. On the
                     heights' backing pill: bare, it sat on the curve with
-                    nothing behind it (UX scorecard run 8). */}
-                {(guiDetails?.stationName || stationName) && (
+                    nothing behind it (UX scorecard run 8). A short card
+                    carries it in the caption band instead. */}
+                {stationLabel && !shortCard && (
                     <span
                         className={`absolute bottom-4 left-2 text-xs leading-4 font-semibold text-white/60 tracking-wide pointer-events-none select-none ${scrimClass}`}
+                        data-testid="tide-station-name"
                     >
-                        {guiDetails?.stationName || stationName}
+                        {stationLabel}
                     </span>
                 )}
             </div>

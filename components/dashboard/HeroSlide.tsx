@@ -621,6 +621,12 @@ const HeroSlideComponent = ({
     const labelTimeMs =
         labelSlide?.type === 'current' ? Date.now() : labelSlide?.type === 'hourly' ? labelSlide.time : undefined;
     const dayLabelText = labelTimeMs ? `${dayName} · ${tideHourFmt.format(new Date(labelTimeMs))}` : dayName;
+    // A day past the model's range still carries its hours, every value null:
+    // nothing worth paging to, so no more-hours cue (Hero drops its dots too).
+    const overview = slides[0]?.type === 'daily' ? slides[0].daily : undefined;
+    const dayBeyondRange =
+        index > 0 && !!overview && !overview.condition && !forecastDayHasWeather(overview, hourlyToRender);
+    const showMoreHoursCue = !isEssentialMode && !showSwipeHint && !dayBeyondRange && shownHIdx < slides.length - 1;
 
     return (
         <div className="relative w-full h-full overflow-hidden">
@@ -658,6 +664,32 @@ const HeroSlideComponent = ({
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        <polyline points="9 6 15 12 9 18" />
+                    </svg>
+                </div>
+            )}
+
+            {/* ========== MORE HOURS CUE ==========
+                Quiet and persistent while later hours lie to the right: the
+                first-run chevron above goes after one viewing, and the 24-dot
+                hour row that also said so went in batch 10, so nothing did (UX
+                scorecard run 9). In the card's bottom-right corner, under the
+                day rail and past the tide curve's 16 pt inset. */}
+            {showMoreHoursCue && (
+                <div
+                    data-testid="glass-more-hours"
+                    className="absolute right-1 bottom-1 z-40 flex h-4 w-4 items-center justify-center pointer-events-none text-sky-300 drop-shadow-[0_0_3px_rgba(0,0,0,0.6)]"
+                    aria-hidden="true"
+                >
+                    <svg
+                        className="h-3.5 w-3.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                     >
@@ -713,16 +745,25 @@ const HeroSlideComponent = ({
                                     // overflow-hidden + min-h-0: the daily card must NOT make the
                                     // parent's overflow-y-auto scrollable, or it captures the
                                     // up/down day-swipe and the snap "bounces" (regression fix).
-                                    className="w-full h-full min-h-0 overflow-hidden snap-start snap-always shrink-0 relative pb-4 flex flex-col"
+                                    // No bottom padding: the 16 pt it kept was the band of the
+                                    // hour dots (gone since batch 10), a 20 pt gap under the card
+                                    // where daylight drew a square shadow slab (UX scorecard
+                                    // run 9). Dashboard's hero bottom now carries the 8 pt gap.
+                                    className="w-full h-full min-h-0 overflow-hidden snap-start snap-always shrink-0 relative flex flex-col"
                                 >
                                     {/* Framed like every other Glass slide: it used to float
-                                        unframed on black (UX scorecard run 6). */}
-                                    <div className="relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border border-white/8 bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)]">
+                                        unframed on black (UX scorecard run 6). No outer
+                                        shadow: the carousel clips it square, so by day it
+                                        drew grey corners outside the rounded card (run 9). */}
+                                    <div className="relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border border-white/8 bg-white/4">
                                         {beyondRange && !hasWave && !d.tideSummary ? (
                                             <ForecastHorizonCard
                                                 dateLabel={rowDateLabel}
                                                 caption={caption}
-                                                showDateHeading={!showDayLabel}
+                                                // Not on a 667 pt phone: the hero above already
+                                                // names the day and the reason, and in the ~95 pt
+                                                // card the heading and button were cut (run 9).
+                                                showDateHeading={!showDayLabel && !compact}
                                                 onChooseModel={
                                                     forecastRange?.modelLabel ? openGlassModelPicker : undefined
                                                 }
@@ -796,7 +837,8 @@ const HeroSlideComponent = ({
                                 // exposed at once (UX scorecard run 6).
                                 ref={(el) => setSlideInert(el, slideIdx !== shownHIdx, horizontalScrollRef.current)}
                                 aria-hidden={slideIdx !== shownHIdx || undefined}
-                                className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
+                                // No bottom padding (see the day overview above).
+                                className="w-full h-full snap-start snap-always shrink-0 relative flex flex-col"
                             >
                                 {showMapInstead && showAnchorView ? (
                                     // Anchor deployed → radar-style anchor watch view
@@ -879,7 +921,9 @@ const HeroSlideComponent = ({
                                                 }
                                             }}
                                             title={showWindVsTide ? undefined : 'Tap for wind vs tide'}
-                                            className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${showWindVsTide ? '' : 'cursor-pointer'} ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
+                                            // No outer shadow, as the day overview: clipped square
+                                            // by the carousel, it was the daylight slab (run 9).
+                                            className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/4 ${showWindVsTide ? '' : 'cursor-pointer'} ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
                                         >
                                             {/* BG Gradient — golden hour amber tinge */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
@@ -957,7 +1001,9 @@ const HeroSlideComponent = ({
                                                         <WaveIcon className="w-5 h-5 text-amber-400" />
                                                     </div>
                                                 )}
-                                                <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-widest">
+                                                {/* A sentence, so sentence case, not tracked
+                                                    capitals (UX scorecard run 9). */}
+                                                <p className="text-sm font-semibold text-amber-400/90">
                                                     Tides temporarily unavailable
                                                 </p>
                                                 <p className="text-xs text-white/60 leading-snug max-w-[260px]">

@@ -180,7 +180,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // wraps, so the hero stands on its measured height, not on the 47 px it
     // used to be: a two-line credit covered the tide card's
     // hour axis (UX scorecard run 7). 74 px is the footer's own bottom offset;
-    // 3 px keeps the old gap between the hero and the badges.
+    // the Glass card gap (8, or 6 on a 667 pt phone) is the gap between the
+    // tide card and the badges. It was 3 px on top of the slide's 16 px bottom
+    // padding: a 20 pt band against 8 pt everywhere else (UX scorecard run 9).
     const [glassFooterHeightPx, setGlassFooterHeightPx] = useState(47);
     const glassFooterObserverRef = useRef<ResizeObserver | null>(null);
     // A callback ref, because the footer mounts after the first render (it
@@ -199,7 +201,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         glassFooterObserverRef.current = observer;
     }, []);
     useEffect(() => () => glassFooterObserverRef.current?.disconnect(), []);
-    const glassHeroBottom = `calc(env(safe-area-inset-bottom) + ${74 + glassFooterHeightPx + 3}px)`;
+    const glassHeroBottom = `calc(env(safe-area-inset-bottom) + ${74 + glassFooterHeightPx + glassTopLayout.cardGapPx}px)`;
     const glassLayerPos = landscapeFlow ? 'absolute' : 'fixed';
     // A 667 pt phone held upright. (A landscape phone is under 700 tall too,
     // but its column scrolls, so it keeps the roomier hero.)
@@ -864,6 +866,37 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         return trends;
     }, [hourly, safeActive]);
 
+    // Which arrows earn red. The alarm colour used to fire on any change, so a
+    // 3 kt breeze rising to 4 and the barometer easing at 1026 hPa were drawn
+    // as warnings (UX scorecard run 9). Red is kept for a threshold crossed:
+    // wind rising to 15 kt, gusts to 20 kt, sea to 2 m, visibility falling
+    // under 2 nm, and a 3 hPa fall over three hours (the gale line, see
+    // utils/barometerTendency). Internal units: kt, ft, km, hPa. Live card
+    // only: the trends read now against the coming hours, which says nothing
+    // about a later card's own hour.
+    const widgetTrendAlarms = useMemo(() => {
+        if (activeDay !== 0 || activeHour !== 0) return undefined;
+        if (!widgetTrends || !hourly || hourly.length < 2 || !safeActive) return undefined;
+        const nextHour = hourly[1];
+        const risesTo = (now: number | null | undefined, next: number | null | undefined, limit: number) =>
+            now != null && next != null && next > now && next >= limit;
+        const fallsBelow = (now: number | null | undefined, next: number | null | undefined, limit: number) =>
+            now != null && next != null && next < now && next < limit;
+        const inThreeHours = hourly[3]?.pressure;
+        return {
+            windSpeed: widgetTrends.windSpeed === 'up' && risesTo(safeActive.windSpeed, nextHour.windSpeed, 15),
+            windGust: widgetTrends.windGust === 'up' && risesTo(safeActive.windGust, nextHour.windGust, 20),
+            waveHeight: widgetTrends.waveHeight === 'up' && risesTo(safeActive.waveHeight, nextHour.waveHeight, 6.56),
+            visibility:
+                widgetTrends.visibility === 'down' && fallsBelow(safeActive.visibility, nextHour.visibility, 3.704),
+            pressure:
+                widgetTrends.pressure === 'down' &&
+                safeActive.pressure != null &&
+                inThreeHours != null &&
+                safeActive.pressure - inThreeHours >= 3,
+        };
+    }, [activeDay, activeHour, widgetTrends, hourly, safeActive]);
+
     // Helper to generate proper date labels
     //
     // Derive purely from dayIndex (row position in the vertical carousel),
@@ -994,7 +1027,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // GUARD: All hooks above, early return here is safe
     if (!data || !current || !safeActive) {
         return (
-            <div className="h-dvh w-full flex flex-col items-center justify-center bg-black text-white px-4 py-8">
+            <div className="h-dvh w-full flex flex-col items-center justify-center bg-slate-950 text-white px-4 py-8">
                 {/* isOffline (internetProbe-verified WAN reachability), NOT
                     navigator.onLine. On a boat the phone is joined to the Pi's
                     wifi LAN, so navigator.onLine reads TRUE while the uplink is
@@ -1063,7 +1096,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 </Suspense>
 
                 <div
-                    className={`${landscapeFlow ? 'min-h-dvh' : 'h-dvh overflow-hidden'} w-full flex flex-col relative bg-black`}
+                    className={`${landscapeFlow ? 'min-h-dvh' : 'h-dvh overflow-hidden'} w-full flex flex-col relative bg-slate-950`}
                     // Which glassLayout rhythm is in force, for cards that must size
                     // themselves to its trimmed slots (warnings row 32, conditions
                     // header 56) via Tailwind's in-data-[glass-rhythm=…] variants.
@@ -1175,7 +1208,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall.
                                     It starts one shared Glass gap below the location card. */}
                                 <div
-                                    className={`shrink-0 z-120 w-full bg-linear-to-b from-black/80 to-transparent px-4 pb-0 ${glassLayerPos} left-0 right-0 pointer-events-none`}
+                                    className={`shrink-0 z-120 w-full bg-linear-to-b from-slate-950/80 [.display-light_&]:from-slate-200/80 to-transparent px-4 pb-0 ${glassLayerPos} left-0 right-0 pointer-events-none`}
                                     style={{ top: glassSafeTopOffset(glassTopLayout.compactHeaderTopPx) }}
                                 >
                                     <div className="pointer-events-auto">
@@ -1193,7 +1226,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                                 {/* Covers the fixed card stack until the scrollable forecast deck. */}
                                 <div
-                                    className={`${glassLayerPos} top-0 left-0 right-0 bg-black z-100 transition-all duration-300`}
+                                    className={`${glassLayerPos} top-0 left-0 right-0 bg-slate-950 z-100 transition-all duration-300`}
                                     style={{
                                         height: isExpanded
                                             ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
@@ -1210,6 +1243,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     className={`${glassLayerPos} left-0 right-0 z-115 px-4`}
                                     style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
                                 >
+                                    {/* Section headings for VoiceOver's rotor: the Glass
+                                        had only its h1, so there was no jumping to the
+                                        tides or the forecast source (UX scorecard run 9). */}
+                                    <h2 className="sr-only">
+                                        {activeDay === 0 && activeHour === 0 ? 'Conditions now' : 'Forecast conditions'}
+                                    </h2>
                                     <HeroHeader
                                         data={safeActive}
                                         units={units}
@@ -1223,6 +1262,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         locationType={data.locationType}
                                         onToggleExpand={isInland || isOffshore ? undefined : handleToggleExpand}
                                         onReturnToToday={activeDay > 0 ? handleReturnToToday : undefined}
+                                        rangeNote={activeDay > 0 ? shownDayRangeNote : null}
                                     />
                                 </div>
 
@@ -1279,6 +1319,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         cardTime={widgetCardTime}
                                         sources={widgetSources}
                                         trends={widgetTrends}
+                                        trendAlarms={widgetTrendAlarms}
                                         isLive={activeDay === 0 && activeHour === 0}
                                         locationType={data.locationType}
                                         hourly={hourly}
@@ -1294,7 +1335,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     Its top is calculated from the rendered card heights so it
                                     preserves the same 8px gap in either dashboard mode. */}
                                 <div
-                                    className={`${glassLayerPos} left-0 right-0 z-120 bg-black transition-[top] duration-300 flex flex-col pt-0 ${
+                                    className={`${glassLayerPos} left-0 right-0 z-120 bg-slate-950 transition-[top] duration-300 flex flex-col pt-0 ${
                                         // Clipping is fine when there is room. On a short
                                         // viewport the hero would otherwise be a sliver with
                                         // no scroll escape, so let it scroll instead.
@@ -1315,6 +1356,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 >
                                     {/* STATIC RAIN FORECAST — always visible */}
                                     <div className="shrink-0 px-4">
+                                        <h2 className="sr-only">Rain</h2>
                                         <RainForecastCard
                                             data={minutelyRain}
                                             timeZone={data.timeZone}
@@ -1326,6 +1368,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             coordinates={data.coordinates}
                                         />
                                     </div>
+                                    <h2 className="sr-only">
+                                        {!isExpanded
+                                            ? 'Map'
+                                            : (data.locationType === 'coastal' || data.locationType === 'inshore') &&
+                                                !isLandlocked
+                                              ? 'Tides'
+                                              : 'Hourly forecast'}
+                                    </h2>
                                     <HeroSection
                                         current={current}
                                         forecasts={data.forecast}
@@ -1396,6 +1446,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             : { bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }
                                     }
                                 >
+                                    <h2 className="sr-only">Forecast source</h2>
                                     <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                         <StatusBadges
                                             isLandlocked={isLandlocked}
@@ -1430,15 +1481,22 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         {landscapeMoreBelow && (
                                             <div
                                                 data-testid="glass-fold-cue"
-                                                className="fixed inset-x-0 bottom-0 z-130 h-10 flex items-end justify-center pb-[max(4px,env(safe-area-inset-bottom))] bg-linear-to-t from-black/80 to-transparent pointer-events-none animate-in fade-in duration-300"
+                                                className="fixed inset-x-0 bottom-0 z-130 h-6 flex items-end justify-center pb-[max(2px,env(safe-area-inset-bottom))] bg-linear-to-t from-slate-950/80 [.display-light_&]:from-slate-200/80 to-transparent pointer-events-none animate-in fade-in duration-300"
                                                 aria-hidden="true"
                                             >
                                                 {/* Words on a chip of its own: a bare chevron at
                                                     the bottom centre sat in the BARO cell and read
                                                     as a BARO control (UX scorecard run 8). Sky-200
                                                     because daylight takes it to sky-700 (4.7:1 on
-                                                    the pale chip); sky-300 goes to sky-600, 3.4:1. */}
-                                                <span className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/90 py-0.5 pl-2.5 pr-2 text-xs font-bold text-sky-200 animate-bounce-subtle">
+                                                    the pale chip); sky-300 goes to sky-600, 3.4:1.
+                                                    A 16 pt chip on a 24 pt band, low on the grid's
+                                                    bottom border: at 22 pt its top sat on the foot
+                                                    of '1026' and it still read as BARO's (run 9).
+                                                    It bounces twice, then rests. */}
+                                                <span
+                                                    className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/90 py-0 pl-2.5 pr-2 text-xs leading-[14px] font-bold text-sky-200 animate-bounce-subtle"
+                                                    style={{ animationIterationCount: 2 }}
+                                                >
                                                     More below
                                                     <svg
                                                         viewBox="0 0 24 24"
@@ -1447,7 +1505,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                         strokeWidth="2.5"
                                                         strokeLinecap="round"
                                                         strokeLinejoin="round"
-                                                        className="h-4 w-4"
+                                                        className="h-3.5 w-3.5"
                                                     >
                                                         <polyline points="6 9 12 15 18 9" />
                                                     </svg>

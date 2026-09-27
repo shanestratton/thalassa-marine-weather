@@ -494,11 +494,13 @@ export const HeroSection = ({
                 lands on the header or the curve (run 7). The box spans the
                 card — below the day label row, above the hour-dot band — and
                 centres the rail. On a short phone the ~94 pt card is shorter
-                than the 96 px rail, so it steps to 5 px dots on a 2 px gap
-                inset from the card's top border. */}
+                than the 96 px rail, so it steps to 5 px dots on a 1 px gap
+                (65 px for 11 days), inset 16 px from the top so the first dot
+                clears the card's corner radius and the last clears the
+                more-hours chevron (UX scorecard run 9). */}
             {!isEssentialMode && dayRows.length > 1 && (
                 <div
-                    className={`absolute right-[18px] ${compact ? 'top-1.5 bottom-[22px] gap-0.5' : 'top-5 bottom-4 gap-[3px]'} z-30 flex flex-col justify-center pointer-events-none`}
+                    className={`absolute right-[18px] ${compact ? 'top-4 bottom-5 gap-px' : 'top-5 bottom-4 gap-[3px]'} z-30 flex flex-col justify-center pointer-events-none`}
                     aria-hidden="true"
                 >
                     {dayRows.map((_, i) => (

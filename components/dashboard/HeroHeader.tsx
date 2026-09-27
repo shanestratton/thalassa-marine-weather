@@ -31,7 +31,9 @@ const ConditionText: React.FC<{ text: string; live?: boolean }> = ({ text, live 
                   : 'text-base' // "Mostly Clear", "Partly Cloudy"
               : 'text-sm'; // "Thunderstorms"
 
-    return <span className={`${sizeClass} text-ivory font-mono font-bold tracking-tight leading-none`}>{text}</span>;
+    // Inter, not mono: mono is kept for numbers, and the weather word is a
+    // word (UX scorecard run 9).
+    return <span className={`${sizeClass} text-ivory font-sans font-bold tracking-tight leading-none`}>{text}</span>;
 };
 
 /** Chevron-down SVG icon */
@@ -68,6 +70,11 @@ interface HeroHeaderProps {
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     /** Set while a later day is shown: the date gains a "Today" control. */
     onReturnToToday?: () => void;
+    /** Why a later day is all dashes ("Beyond ICON's range (ends Sun 4 Oct) —
+     *  try another model"). Its first clause stands under the date in place
+     *  of the '--' condition: the full caption sat ~300 pt below the wall of
+     *  dashes it explains (UX scorecard run 9). */
+    rangeNote?: string | null;
 }
 
 const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
@@ -82,6 +89,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     isExpanded = true,
     onToggleExpand,
     onReturnToToday,
+    rangeNote,
 }) => {
     // PERF: Memoize helper to get source text color for temperature
     const getTempColor = useCallback((): string => {
@@ -99,6 +107,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     // shown as text, no icon overlay). Kept the text-only display.
     // '' is the producers' sentinel for an unknown condition; never invent 'Cloudy'.
     const displayCondition = data.condition || '--';
+    // The reason alone; the card below keeps the '— try another model' and its button.
+    const rangeReason = !isLive && rangeNote ? rangeNote.split(' — ')[0] : null;
 
     // ── PINNED METRIC STATE ──────────────────────────────────────────
     // When `heroMetric` !== 'temp', the LEFT partition renders the pinned
@@ -180,7 +190,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     aria-label={
                         pinnedDisplay
                             ? `Pinned metric ${pinnedDisplay.label}${pinnedMissing ? ', no reading' : ''}. Tap to change, double-tap to reset. Drop a grid metric here to pin it.`
-                            : `Temperature ${tempMissing ? 'no reading' : `${tempStr} degrees ${units.temp}`}. Tap to pin a different metric to the top, or drop one from the grid below.`
+                            : `Temperature ${tempMissing ? 'no reading' : `${tempStr} degrees ${units.temp === 'F' ? 'Fahrenheit' : 'Celsius'}`}. Tap to pin a different metric to the top, or drop one from the grid below.`
                     }
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
@@ -296,6 +306,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                                 initialDelayMs={1500}
                                                 ttlMs={6000}
                                                 className="top-1/2 -translate-y-1/2 left-full ml-2 items-center whitespace-nowrap"
+                                                // The bubble itself: its text-balance undid the
+                                                // wrapper's nowrap, 'Tap / to / pin' (run 9).
+                                                singleLine
                                             />
                                         )}
                                     </div>
@@ -316,8 +329,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     // py-0 in the trimmed rhythms: date, condition and hour stack to
                     // 52 px, and with py-2 they stretched a 56 px slot to 70.
                     // Invisible (space kept) while the first-run coach mark is
-                    // standing in its place.
-                    className="flex-2 flex items-center justify-center min-w-0 py-2 in-data-[glass-rhythm]:py-0 px-1 group-has-[[role=status]]/hero:invisible"
+                    // standing in its place. Portrait only: in landscape the mark
+                    // is ~250 pt away and the hero was left as '19°C' and a void
+                    // for its 6 s (UX scorecard run 9).
+                    className="flex-2 flex items-center justify-center min-w-0 py-2 in-data-[glass-rhythm]:py-0 px-1 portrait:group-has-[[role=status]]/hero:invisible"
                 >
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
@@ -379,9 +394,15 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     </button>
                                 )}
                             </div>
-                            <div className="flex items-center justify-center gap-2 max-w-full">
-                                <ConditionText text={displayCondition} />
-                            </div>
+                            {rangeReason ? (
+                                <p className="glass-forecast-caption max-w-full text-center text-xs font-medium leading-tight">
+                                    {rangeReason}
+                                </p>
+                            ) : (
+                                <div className="flex items-center justify-center gap-2 max-w-full">
+                                    <ConditionText text={displayCondition} />
+                                </div>
+                            )}
                             {timeLabel && (
                                 <span className="text-sky-300 text-sm font-bold font-mono leading-none mt-1">
                                     {timeLabel}
@@ -434,8 +455,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             aria-expanded={isExpanded}
                             className="-mx-1 w-11 h-11 shrink-0 rounded-full flex items-center justify-center"
                         >
+                            {/* A hairline edge: by day the white/5 disc is white on
+                                a white card, and its boundary vanished (run 9). */}
                             <span
-                                className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center"
+                                className="w-9 h-9 rounded-full bg-white/5 border border-white/8 flex items-center justify-center"
                                 aria-hidden="true"
                             >
                                 <ChevronIcon

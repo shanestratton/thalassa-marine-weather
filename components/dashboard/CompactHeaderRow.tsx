@@ -65,6 +65,19 @@ export const CompactHeaderRow = ({
     const setKnown = !!sunset && /\d/.test(sunset);
     const goldenHour = Boolean(riseKnown && setKnown && sunrise && sunset && isGoldenHour(sunrise, sunset));
 
+    // What the chip says, one sr-only phrase per part with its comma at the
+    // end. A comma in its own span, or leading the next part, was read with a
+    // space before it ('Sunrise 05:41 , sunset 17:53 , full moon'), because
+    // each sr-only span is a block in the name (UX scorecard run 9).
+    const riseWords = riseKnown
+        ? `Sunrise ${sunrise}`
+        : setKnown
+          ? 'Sunrise not yet known'
+          : 'Sunrise and sunset not yet known';
+    // When both are pending the sunset is said with the sunrise.
+    const setWords = setKnown ? `sunset ${sunset}` : riseKnown ? 'sunset not yet known' : '';
+    const withComma = (words: string, more: boolean) => (more ? `${words},` : words);
+
     return (
         <div className="w-full flex items-center gap-2">
             {/* WARNINGS BUTTON - Expands to fill available space. The live
@@ -80,14 +93,12 @@ export const CompactHeaderRow = ({
                         void triggerHaptic('light');
                         setPage('warnings');
                     }}
-                    aria-label={
-                        hasWarnings ? `${activeAlerts.length} active weather warnings` : 'No active weather warnings'
-                    }
+                    aria-label={hasWarnings ? `${activeAlerts.length} active weather warnings` : 'No forecast alerts'}
                     className={`${
                         hasWarnings
                             ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
                             : 'bg-emerald-500/10 border-emerald-500/20'
-                    } transition-all active:scale-[0.97] border rounded-xl px-3 h-[max(44px,2.75rem)] -my-0.5 in-data-[glass-rhythm]:h-8 in-data-[glass-rhythm]:my-0 hit-target-44 flex items-center gap-2 shadow-lg cursor-pointer group flex-1 min-w-0`}
+                    } transition-all active:scale-[0.97] border rounded-xl px-2.5 h-[max(44px,2.75rem)] -my-0.5 in-data-[glass-rhythm]:h-8 in-data-[glass-rhythm]:my-0 hit-target-44 flex items-center gap-1.5 shadow-lg cursor-pointer group flex-1 min-w-0`}
                 >
                     {hasWarnings ? (
                         <>
@@ -102,8 +113,14 @@ export const CompactHeaderRow = ({
                     ) : (
                         <>
                             <CheckIcon className="w-4 h-4 text-emerald-400" />
-                            <span className="glass-clear-status text-emerald-100 font-bold text-sm uppercase tracking-wider">
-                                No Warnings
+                            {/* It opens Forecast alerts, which checks forecast
+                                thresholds only. 'NO WARNINGS' read as 'no
+                                official warnings' (UX scorecard run 9). The
+                                pill's padding and gap, and the sun chip's gap,
+                                are trimmed so the words stay on one line at
+                                375 pt. */}
+                            <span className="glass-clear-status text-emerald-100 font-bold text-xs leading-4 text-balance">
+                                No forecast alerts
                             </span>
                         </>
                     )}
@@ -114,7 +131,7 @@ export const CompactHeaderRow = ({
                 The times and the moon glyph said nothing to a screen reader
                 ('05:42 17:53 🌕'), so each carries its words. */}
             <div
-                className={`${goldenHour ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] in-data-[glass-rhythm]:h-8 flex items-center gap-3 shrink-0 transition-colors duration-500`}
+                className={`${goldenHour ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] in-data-[glass-rhythm]:h-8 flex items-center gap-2.5 shrink-0 transition-colors duration-500`}
                 role="group"
                 aria-label="Sun and moon"
             >
@@ -122,7 +139,10 @@ export const CompactHeaderRow = ({
                 {goldenHour ? (
                     <div className="flex items-center gap-1.5 animate-in fade-in duration-500">
                         <SunIcon className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">Golden Hour</span>
+                        <span aria-hidden="true" className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                            Golden Hour
+                        </span>
+                        <span className="sr-only">{withComma('Golden hour', !!moonPhase)}</span>
                     </div>
                 ) : (
                     <>
@@ -135,19 +155,8 @@ export const CompactHeaderRow = ({
                             <span
                                 className={`font-bold text-sm font-mono tracking-tight ${riseKnown ? 'text-white' : 'text-slate-500'}`}
                             >
-                                {riseKnown ? (
-                                    <>
-                                        <span className="sr-only">Sunrise </span>
-                                        {sunrise}
-                                    </>
-                                ) : (
-                                    <>
-                                        <span aria-hidden="true">--:--</span>
-                                        <span className="sr-only">
-                                            {setKnown ? 'Sunrise not yet known' : 'Sunrise and sunset not yet known'}
-                                        </span>
-                                    </>
-                                )}
+                                <span aria-hidden="true">{riseKnown ? sunrise : '--:--'}</span>
+                                <span className="sr-only">{withComma(riseWords, !!setWords || !!moonPhase)}</span>
                             </span>
                         </div>
 
@@ -156,31 +165,20 @@ export const CompactHeaderRow = ({
                             <span
                                 className={`font-bold text-sm font-mono tracking-tight ${setKnown ? 'text-white' : 'text-slate-500'}`}
                             >
-                                {setKnown ? (
-                                    <>
-                                        <span className="sr-only">, sunset </span>
-                                        {sunset}
-                                    </>
-                                ) : (
-                                    <>
-                                        <span aria-hidden="true">--:--</span>
-                                        {/* Said once with the sunrise when both are pending. */}
-                                        {riseKnown && <span className="sr-only">, sunset not yet known</span>}
-                                    </>
-                                )}
+                                <span aria-hidden="true">{setKnown ? sunset : '--:--'}</span>
+                                {setWords && <span className="sr-only">{withComma(setWords, !!moonPhase)}</span>}
                             </span>
                         </div>
                     </>
                 )}
 
                 {/* Moon phase: the glyph is the picture, the words are what is
-                    read. Something always precedes it now, so the comma joins
-                    two parts rather than starting the chip's text. */}
+                    read. The part before it carries the comma. */}
                 {moonPhase && (
                     <span className="text-base leading-none">
                         <span aria-hidden="true">{moonPhase}</span>
                         <span className="sr-only">
-                            , {moonPhaseName ? `${moonPhaseName.toLowerCase()} moon` : 'moon phase'}
+                            {moonPhaseName ? `${moonPhaseName.toLowerCase()} moon` : 'moon phase'}
                         </span>
                     </span>
                 )}

@@ -126,6 +126,10 @@ interface HeroWidgetsProps {
         { source: string; sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'; sourceName?: string }
     >;
     trends?: Record<string, 'up' | 'down' | 'stable'>;
+    /** Metrics whose trend crosses a threshold worth a red arrow (Dashboard
+     *  decides). Every other arrow is drawn neutral: red on a 3 kt breeze
+     *  was an alarm with nothing behind it (UX scorecard run 9). */
+    trendAlarms?: Record<string, boolean>;
     isLive?: boolean;
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     hourly?: HourlyForecast[];
@@ -180,8 +184,12 @@ const spokenReading = (value: string | number, unit?: string): string => {
     return `${shown} ${Number(value) === 1 ? words[0] : words[1]}`;
 };
 
-const spokenTrend = (value: string | number, trend?: 'up' | 'down' | 'stable'): string =>
-    value === '--' || !trend ? '' : trend === 'up' ? ', rising' : trend === 'down' ? ', falling' : ', steady';
+const spokenTrend = (value: string | number, trend?: 'up' | 'down' | 'stable', alarm?: boolean): string =>
+    value === '--' || !trend
+        ? ''
+        : trend === 'stable'
+          ? ', steady'
+          : `${trend === 'up' ? ', rising' : ', falling'}${alarm ? ', worsening' : ''}`;
 
 /** Any dash-only value ('---', '—') is the one placeholder, '--': while
  *  loading DIR drew a bright '---' that VoiceOver read as 'dash dash dash'
@@ -211,21 +219,23 @@ const GLOSSARY = {
 // Stroke arrows, not filled triangles: a ▲/▼ beside a label read as a
 // dropdown caret, and the flat bar for 'steady' read as the '--' of a missing
 // value (UX scorecard run 6). Steady is a level arrow, so all three are arrows.
-const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boolean }> = ({ trend, improving }) => {
+// A direction is drawn neutral; red is kept for a threshold crossing (run 9:
+// WIND, GUST and BARO all red on a calm clear night). 8 px wide, flush to the
+// label, so a four-letter label and its arrow keep 4 pt off the dividers.
+const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; alarm?: boolean }> = ({ trend, alarm }) => {
     if (!trend) return null;
 
     const isUp = trend === 'up';
     const isStable = trend === 'stable';
 
-    // Green = improving, red = worsening, dim white = stable
-    const color = isStable ? 'text-white/60' : improving ? 'text-emerald-400' : 'text-red-400';
+    const color = !isStable && alarm ? 'text-red-400' : 'text-white/60';
 
     return (
-        <span className={`inline-flex items-center ml-1 ${color}`}>
+        <span className={`inline-flex items-center ${color}`}>
             <svg
-                width="10"
+                width="8"
                 height="10"
-                viewBox="0 0 10 10"
+                viewBox="1 0 8 10"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.6"
@@ -235,8 +245,8 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
             >
                 {isStable ? (
                     <>
-                        <path d="M1.5 5h7" />
-                        <path d="M5.5 2l3 3-3 3" />
+                        <path d="M2 5h6" />
+                        <path d="M5.2 2.2l2.8 2.8-2.8 2.8" />
                     </>
                 ) : isUp ? (
                     <>
@@ -250,9 +260,9 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
                     </>
                 )}
             </svg>
-            {/* The colour alone carried improving/worsening; say it too. */}
+            {/* The red says worsening; say it too, and only then. */}
             <span className="sr-only">
-                {isStable ? 'steady' : improving ? `${trend}, improving` : `${trend}, worsening`}
+                {isStable ? 'steady' : `${isUp ? 'rising' : 'falling'}${alarm ? ', worsening' : ''}`}
             </span>
         </span>
     );
@@ -283,13 +293,14 @@ const InstrumentCell: React.FC<{
     value: string | number;
     unit?: string;
     trend?: 'up' | 'down' | 'stable';
-    improving?: boolean;
+    /** The trend crosses a threshold: red arrow, and 'worsening' in the name. */
+    alarm?: boolean;
     tealHeading?: boolean;
     dirDeg?: number | null; // Optional directional arrow
     onClick?: () => void;
     tooltip?: string; // Long-press / hover explanation
-    /** Wide six-letter labels (CHANCE) ran flush into the cell border at
-     *  393 px; tighten tracking and the icon gap for those alone. */
+    /** Six-letter labels (PERIOD) drop the tracking altogether, so they keep
+     *  4 pt off the cell dividers on a 375 pt phone. */
     compactLabel?: boolean;
     /** The metric in full words for the cell's name, starting with the word
      *  its label shortens ("Direction of the wind" for DIR). */
@@ -304,7 +315,7 @@ const InstrumentCell: React.FC<{
     value,
     unit,
     trend,
-    improving,
+    alarm,
     tealHeading = true,
     dirDeg,
     onClick,
@@ -323,12 +334,13 @@ const InstrumentCell: React.FC<{
             title={tooltip}
             // Value and trend only: the glossary is the description
             // (DraggableMetricCell), not ten definitions in the names.
-            aria-label={`${spokenLabel}${reading}${spokenTrend(value, trend)}${value !== '--' && spokenExtra ? `, ${spokenExtra}` : ''}`}
+            aria-label={`${spokenLabel}${reading}${spokenTrend(value, trend, alarm)}${value !== '--' && spokenExtra ? `, ${spokenExtra}` : ''}`}
         >
-            {/* Header: icon + label + trend — locked to a single 12px line */}
-            <div
-                className={`glass-metric-heading-row flex items-center ${compactLabel ? 'gap-0.5' : 'gap-1'} opacity-90 h-3`}
-            >
+            {/* Header: icon + label + trend — locked to a single 12px line.
+                Tracking-wide and 2 px gaps: at tracking-widest the WIND icon
+                and the GUST/BARO arrows sat on the cell dividers at 393 and
+                375 pt (UX scorecard run 9). */}
+            <div className="glass-metric-heading-row flex items-center gap-0.5 opacity-90 h-3">
                 <span
                     className={`w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}
                     aria-hidden="true"
@@ -336,12 +348,12 @@ const InstrumentCell: React.FC<{
                     {icon}
                 </span>
                 <span
-                    className={`glass-metric-heading text-[11px] font-sans font-bold ${compactLabel ? 'tracking-wide' : 'tracking-widest'} uppercase leading-none ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}
+                    className={`glass-metric-heading text-[11px] font-sans font-bold ${compactLabel ? 'tracking-normal' : 'tracking-wide'} uppercase leading-none whitespace-nowrap ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}
                 >
                     {label}
                 </span>
                 {/* No arrow beside a missing value: compare() reports 'stable' for null. */}
-                <TrendArrow trend={value === '--' ? undefined : trend} improving={improving} />
+                <TrendArrow trend={value === '--' ? undefined : trend} alarm={alarm} />
             </div>
 
             {/* Value */}
@@ -370,30 +382,28 @@ const InstrumentCell: React.FC<{
 const BarometerCell: React.FC<{
     pressure: string | number;
     trend?: 'up' | 'down' | 'stable';
-}> = ({ pressure: rawPressure, trend }) => {
+    /** A fall of 3 hPa or more over three hours: the one BARO arrow drawn red. */
+    alarm?: boolean;
+}> = ({ pressure: rawPressure, trend, alarm }) => {
     const pressure = asReading(rawPressure);
-    // Semantic coloring: rising pressure = improving (green), falling = worsening (red)
-    const isRising = trend === 'up';
-    const trendWord =
-        pressure === '--' || !trend ? '' : trend === 'up' ? ', rising' : trend === 'down' ? ', falling' : ', steady';
 
     return (
         <div
             className="flex flex-col items-center justify-between h-full py-2 px-1 relative"
-            aria-label={`Barometer${pressure === '--' ? ', no reading' : ` ${spokenReading(pressure, 'hPa')}`}${trendWord}`}
+            aria-label={`Barometer${pressure === '--' ? ', no reading' : ` ${spokenReading(pressure, 'hPa')}`}${spokenTrend(pressure, trend, alarm)}`}
         >
-            {/* Header: icon + label + trend — locked to 12px line */}
-            <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
+            {/* Header: icon + label + trend — locked to 12px line, spaced as InstrumentCell. */}
+            <div className="glass-metric-heading-row flex items-center gap-0.5 opacity-90 h-3">
                 <span
                     className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400"
                     aria-hidden="true"
                 >
                     <GaugeIcon className="w-3 h-3 metric-anim-gauge" />
                 </span>
-                <span className="glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">
+                <span className="glass-metric-heading text-[11px] font-sans font-bold tracking-wide uppercase leading-none whitespace-nowrap text-emerald-300">
                     BARO
                 </span>
-                <TrendArrow trend={pressure === '--' ? undefined : trend} improving={isRising} />
+                <TrendArrow trend={pressure === '--' ? undefined : trend} alarm={alarm} />
             </div>
 
             {/* Value */}
@@ -418,6 +428,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     units,
     cardTime,
     trends,
+    trendAlarms,
     isLive = true,
     locationType,
     hourly,
@@ -532,14 +543,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const waveUnit = units.waveHeight || 'm';
     const distUnit = units.visibility || 'nm';
 
-    // Determine trend improving/worsening context
-    // Wind up = bad, gust up = bad, wave up = bad
-    // Visibility up = good, pressure up = good (generally)
-    const isWindImproving = trends?.windSpeed === 'down'; // Less wind = better for most
-    const isGustImproving = trends?.windGust === 'down';
-    const isWaveImproving = trends?.waveHeight === 'down';
-    const isVisImproving = trends?.visibility === 'up';
-    const isHumidityImproving = trends?.humidity === 'down'; // Lower humidity = more comfortable
+    // Red only where Dashboard found a threshold crossed (wind rising to 15 kt,
+    // pressure falling 3 hPa in 3 h, ...); every other arrow is a direction.
+    const alarmFor = (key: string): boolean => trendAlarms?.[key] === true;
 
     // PERF: useState kept to maintain hook order (React rules-of-hooks).
     // Compass overlay has been removed, but deleting this useState would crash
@@ -676,7 +682,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 value={windSpeed}
                                 unit={speedUnit}
                                 trend={trends?.windSpeed}
-                                improving={isWindImproving}
+                                alarm={alarmFor('windSpeed')}
                                 tooltip={GLOSSARY.wind}
                             />
                         )}
@@ -698,7 +704,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 spokenLabel="Direction of the wind"
                                 icon={<CompassIcon className="w-3 h-3 metric-anim-compass" rotation={0} />}
                                 value={windDir}
-                                spokenValue={windDirSpoken}
+                                // 'Direction of the wind from the south', not '… wind
+                                // south'. The name still starts with the word DIR
+                                // shortens, so a voice 'tap DIR' finds the cell.
+                                spokenValue={windDirSpoken ? `from the ${windDirSpoken}` : undefined}
                             />
                         )}
                     </DraggableMetricCell>
@@ -724,7 +733,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 value={gustVal}
                                 unit={speedUnit}
                                 trend={trends?.windGust}
-                                improving={isGustImproving}
+                                alarm={alarmFor('windGust')}
                                 tooltip={GLOSSARY.gust}
                             />
                         )}
@@ -752,7 +761,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 value={waveHeight ?? '--'}
                                 unit={waveUnit}
                                 trend={trends?.waveHeight}
-                                improving={isWaveImproving}
+                                alarm={alarmFor('waveHeight')}
                                 dirDeg={swellDirDeg}
                                 tooltip={isOffshore ? GLOSSARY.swell : GLOSSARY.wave}
                             />
@@ -773,8 +782,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             <InstrumentCell
                                 label="PERIOD"
                                 spokenLabel={isOffshore ? 'Period of the swell' : 'Period of the waves'}
-                                // Six letters at tracking-widest overflow a 320 px pane's
-                                // fifth column; the CHANCE treatment fits it.
+                                // Six letters overflow a 375 pt phone's fifth column at
+                                // any tracking; untracked, it keeps 4 pt clear.
                                 compactLabel
                                 icon={<WavePeriodIcon className="w-3 h-3 metric-anim-gauge" />}
                                 value={wavePeriod}
@@ -835,7 +844,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 value={visVal}
                                 unit={distUnit}
                                 trend={trends?.visibility}
-                                improving={isVisImproving}
+                                alarm={alarmFor('visibility')}
                                 tooltip={GLOSSARY.vis}
                             />
                         )}
@@ -855,7 +864,11 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 unit={tempUnit}
                             />
                         ) : (
-                            <BarometerCell pressure={pressureVal} trend={trends?.pressure} />
+                            <BarometerCell
+                                pressure={pressureVal}
+                                trend={trends?.pressure}
+                                alarm={alarmFor('pressure')}
+                            />
                         )}
                     </DraggableMetricCell>
 
@@ -880,7 +893,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 value={humidityVal}
                                 unit="%"
                                 trend={trends?.humidity}
-                                improving={isHumidityImproving}
+                                alarm={alarmFor('humidity')}
                                 tooltip={GLOSSARY.humidity}
                             />
                         )}
@@ -901,9 +914,11 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             />
                         ) : (
                             <InstrumentCell
-                                label={isLive ? 'RAIN' : 'CHANCE'}
-                                spokenLabel={isLive ? 'Rain today' : 'Chance of rain'}
-                                compactLabel={!isLive}
+                                // 'RAIN %', not CHANCE: six wide capitals ran divider to
+                                // divider (UX scorecard run 9). The name says it in full,
+                                // starting with the visible word.
+                                label={isLive ? 'RAIN' : 'RAIN %'}
+                                spokenLabel={isLive ? 'Rain today' : 'Rain chance'}
                                 icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                                 value={rainValue}
                                 unit={rainUnit}

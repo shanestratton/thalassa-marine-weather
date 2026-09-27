@@ -53,7 +53,7 @@ describe('tide band day cue', () => {
         render(<TideGraph tides={tides} unit="m" unitPref={units} timeZone={tz} stationPosition="bottom" />);
         const cues = screen.getAllByTestId('tide-day-cue');
         expect(cues).toHaveLength(1);
-        expect(cues[0]).toHaveTextContent('Tmrw');
+        expect(cues[0]).toHaveTextContent('tmrw');
         expect(cues[0]).toHaveTextContent('tomorrow');
         expect(screen.getByText('20:56')).toBeInTheDocument();
         expect(screen.getByText('03:13')).toBeInTheDocument();
@@ -89,12 +89,32 @@ describe('tide band day cue', () => {
         expect(text).toMatch(/\d\.\d\u2009m/);
         expect(text).not.toMatch(/\d\.\d m/);
     });
+
+    it('after 23:00 the trend arrow follows the next extreme, in the card\u2019s sky tone', () => {
+        // The curve ends at 24:00, so there is no next-hour height to compare:
+        // a tide rising to tomorrow\u2019s high drew a falling arrow (review, batch 11).
+        const lateTides = [
+            { time: '2026-09-26T00:20:00Z', height: 0.6, type: 'Low' as const }, // 10:20 local
+            { time: '2026-09-26T06:30:00Z', height: 4.0, type: 'High' as const }, // 16:30 local
+            { time: '2026-09-26T12:40:00Z', height: 0.5, type: 'Low' as const }, // 22:40 local
+            { time: '2026-09-26T18:50:00Z', height: 4.1, type: 'High' as const }, // 04:50 local, the 27th
+        ];
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-26T13:40:00Z')); // 23:40 local
+        const { container } = render(
+            <TideGraph tides={lateTides} unit="m" unitPref={units} timeZone={tz} stationPosition="bottom" />,
+        );
+        const arrow = container.querySelector('svg.text-sky-300');
+        expect(arrow).not.toBeNull();
+        expect(arrow!.querySelector('path[d="m5 12 7-7 7 7"]')).not.toBeNull(); // up, not down
+        expect(container.querySelector('svg.text-red-400, svg.text-emerald-400')).toBeNull();
+    });
 });
 
 describe('warnings pill and sun chip', () => {
     it('lets the trimmed rhythm set the pill height instead of the floored h-11', () => {
         render(<CompactHeaderRow alerts={[]} sunrise="05:42" sunset="17:53" moonPhase="🌕" moonPhaseName="Full" />);
-        const pill = screen.getByRole('button', { name: 'No active weather warnings' });
+        const pill = screen.getByRole('button', { name: 'No forecast alerts' });
         expect(pill.className).not.toMatch(/(^|\s)h-11(\s|$)/);
         expect(pill.className).toContain('in-data-[glass-rhythm]:h-8');
         expect(pill.className).toContain('hit-target-44');
@@ -107,18 +127,22 @@ describe('warnings pill and sun chip', () => {
         expect(chip).toHaveTextContent(/sunset 17:53/);
         expect(chip).toHaveTextContent(/full moon/);
         expect(screen.getByText('🌕')).toHaveAttribute('aria-hidden', 'true');
+        // Each spoken part carries its own trailing comma, so no part starts
+        // with one: a leading comma was read after a space (UX scorecard run 9).
+        const spoken = Array.from(chip.querySelectorAll('.sr-only')).map((el) => el.textContent);
+        expect(spoken).toEqual(['Sunrise 05:42,', 'sunset 17:53,', 'full moon']);
     });
 
     it('holds the sun times’ places with muted placeholders while they load (UX scorecard run 8)', () => {
         render(<CompactHeaderRow alerts={[]} moonPhase="🌕" moonPhaseName="Full" />);
         const chip = screen.getByRole('group', { name: 'Sun and moon' });
-        expect(chip.textContent).toMatch(/^--:--Sunrise and sunset not yet known--:--.*, full moon$/);
+        expect(chip.textContent).toMatch(/^--:--Sunrise and sunset not yet known,--:--.*full moon$/);
         expect(chip.textContent).not.toMatch(/^,/);
     });
 
     it('keeps the live region on the warnings, not on the sunrise times', () => {
         render(<CompactHeaderRow alerts={[]} sunrise="05:42" sunset="17:53" moonPhase="🌕" />);
-        const pill = screen.getByRole('button', { name: 'No active weather warnings' });
+        const pill = screen.getByRole('button', { name: 'No forecast alerts' });
         expect(pill.parentElement).toHaveAttribute('aria-live', 'polite');
         expect(screen.getByRole('group', { name: 'Sun and moon' }).closest('[aria-live]')).toBeNull();
     });
@@ -218,7 +242,7 @@ describe('instrument grid names', () => {
     it('names every cell in full words', () => {
         renderGrid({ hourly: [{ time: new Date().toISOString(), precipitation: 1 }] as never });
         expect(screen.getByLabelText(/^Wind speed 8 knots/)).toBeInTheDocument();
-        expect(screen.getByLabelText(/^Direction of the wind east-southeast/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/^Direction of the wind from the east-southeast/)).toBeInTheDocument();
         expect(screen.getByLabelText(/^Gusts 17 knots/)).toBeInTheDocument();
         expect(screen.getByLabelText(/^Wave height, no reading/)).toBeInTheDocument();
         expect(screen.getByLabelText(/^UV index 0/)).toBeInTheDocument();
