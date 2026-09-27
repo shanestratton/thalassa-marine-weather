@@ -179,6 +179,52 @@ function fillRequest(mode: 'canal' | 'open-water' | null = 'open-water') {
     if (mode) fireEvent.click(screen.getByRole('button', { name: mode === 'canal' ? 'Canal / marina' : 'Open water' }));
 }
 const calculateButton = () => screen.getByRole('button', { name: 'Calculate trial route' });
+// The workspace keeps two ResizeObservers: one on the chart container (refit
+// on orientation, keyboard and pane changes) and, while the tracer is folded,
+// one on the folded card (refit when its status wraps onto another line).
+// Tests drive each by what it observes, never by construction order.
+function installResizeObservers() {
+    const original = globalThis.ResizeObserver;
+    type Entry = {
+        callback: ResizeObserverCallback;
+        targets: Element[];
+        disconnect: ReturnType<typeof vi.fn<() => void>>;
+    };
+    const observers: Entry[] = [];
+    globalThis.ResizeObserver = class {
+        private readonly entry: Entry;
+        constructor(callback: ResizeObserverCallback) {
+            this.entry = { callback, targets: [], disconnect: vi.fn<() => void>() };
+            observers.push(this.entry);
+        }
+        observe(target: Element) {
+            this.entry.targets.push(target);
+        }
+        unobserve() {}
+        disconnect() {
+            this.entry.disconnect();
+            this.entry.targets.length = 0;
+        }
+    } as unknown as typeof ResizeObserver;
+    const isCard = (target: Element) => target.classList.contains('trial-tracer-shell');
+    const live = (match: (target: Element) => boolean) => observers.filter((observer) => observer.targets.some(match));
+    const fire = (match: (target: Element) => boolean) => {
+        const watching = live(match);
+        // A notification nobody receives would let a 'no refit' assertion
+        // pass without exercising anything.
+        if (!watching.length) throw new Error('No live ResizeObserver watches that element');
+        for (const observer of watching) observer.callback([], {} as ResizeObserver);
+    };
+    return {
+        resizeChart: () => fire((target) => !isCard(target)),
+        resizeCard: () => fire(isCard),
+        chartObservers: () => live((target) => !isCard(target)),
+        cardObservers: () => live(isCard),
+        restore: () => {
+            globalThis.ResizeObserver = original;
+        },
+    };
+}
 async function openReview() {
     const toggle = await screen.findByRole('button', { name: /^(Expand|Collapse) tracer panel$/ });
     if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle);
@@ -840,19 +886,10 @@ describe('isolated autorouting trial workspace', () => {
         expect(mocks.review).toHaveBeenCalledTimes(1);
     });
 
-    it.each(['dragstart', 'zoomstart'])(
+    it.each(['dragstart', 'zoomstart', 'movestart', 'boxzoomstart'])(
         'keeps a user %s viewport through panel folds, chart warnings and resize',
         async (eventName) => {
-            const originalObserver = globalThis.ResizeObserver;
-            let resize = () => {};
-            globalThis.ResizeObserver = class {
-                constructor(callback: ResizeObserverCallback) {
-                    resize = () => callback([], this);
-                }
-                observe = vi.fn();
-                unobserve = vi.fn();
-                disconnect = vi.fn();
-            };
+            const observers = installResizeObservers();
             try {
                 await openWorkspace();
                 fillRequest();
@@ -863,7 +900,8 @@ describe('isolated autorouting trial workspace', () => {
                 map.fitBounds.mockClear();
                 fireEvent.click(screen.getByRole('button', { name: 'Collapse tracer panel' }));
                 act(() => map.handlers.get('error')!());
-                act(() => resize());
+                act(() => observers.resizeChart());
+                expect(map.resize).toHaveBeenCalled();
                 expect(map.fitBounds).not.toHaveBeenCalled();
                 await openReview();
                 expect(map.fitBounds).not.toHaveBeenCalled();
@@ -876,7 +914,7 @@ describe('isolated autorouting trial workspace', () => {
                 expect(routeLine()).toEqual(route.coordinates);
             } finally {
                 cleanup();
-                globalThis.ResizeObserver = originalObserver;
+                observers.restore();
             }
         },
     );
@@ -1103,17 +1141,7 @@ describe('isolated autorouting trial workspace', () => {
         expect(screen.getByText('Loading ENC chart detail…')).toBeVisible();
     });
     it('refits the same proposal after chart resize, then clears bounds and disconnects on unmount', async () => {
-        const original = globalThis.ResizeObserver;
-        const disconnect = vi.fn();
-        let resize = () => {};
-        globalThis.ResizeObserver = class {
-            constructor(callback: ResizeObserverCallback) {
-                resize = () => callback([], this);
-            }
-            observe = vi.fn();
-            unobserve = vi.fn();
-            disconnect = disconnect;
-        };
+        const observers = installResizeObservers();
         try {
             const view = await openWorkspace();
             fillRequest();
@@ -1122,22 +1150,80 @@ describe('isolated autorouting trial workspace', () => {
             const map = mocks.maps[0];
             expect(map.fitBounds).toHaveBeenCalledTimes(1);
             const bounds = map.fitBounds.mock.calls[0][0];
-            act(() => resize());
+            act(() => observers.resizeChart());
             expect(map.resize).toHaveBeenCalledTimes(1);
             expect(map.fitBounds).toHaveBeenLastCalledWith(bounds, { padding: 40, duration: 0 });
             expect(map.fitBounds).toHaveBeenCalledTimes(2);
             await openSetup();
             fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-            act(() => resize());
+            act(() => observers.resizeChart());
             expect(map.fitBounds).toHaveBeenCalledTimes(2);
             expect(mocks.maps).toHaveLength(1);
+            const [chart] = observers.chartObservers();
             view.unmount();
-            expect(disconnect).toHaveBeenCalledTimes(1);
+            expect(chart.disconnect).toHaveBeenCalledTimes(1);
+            expect(observers.cardObservers()).toHaveLength(0);
         } finally {
             cleanup();
-            globalThis.ResizeObserver = original;
+            observers.restore();
         }
     });
+    it.each(['dragstart', 'movestart'])(
+        'refits a folded proposal when the tracer card gains a line, never after a skipper %s',
+        async (eventName) => {
+            const observers = installResizeObservers();
+            try {
+                await openWorkspace();
+                fillRequest();
+                fireEvent.click(calculateButton());
+                await openReview();
+                const map = mocks.maps[0];
+                const bounds = map.fitBounds.mock.calls[0][0];
+                // jsdom lays nothing out: give the card a height the test controls.
+                const card = document.querySelector<HTMLElement>('.trial-tracer-shell')!;
+                let height = 120;
+                vi.spyOn(card, 'getBoundingClientRect').mockImplementation(
+                    () =>
+                        ({
+                            x: 8,
+                            y: 8,
+                            top: 8,
+                            left: 8,
+                            width: 300,
+                            height,
+                            right: 308,
+                            bottom: 8 + height,
+                            toJSON: () => ({}),
+                        }) as DOMRect,
+                );
+                expect(observers.cardObservers()).toHaveLength(0);
+                fireEvent.click(screen.getByRole('button', { name: 'Collapse tracer panel' }));
+                expect(observers.cardObservers()).toHaveLength(1);
+                map.fitBounds.mockClear();
+                // Same height: a resize notification alone moves nothing.
+                act(() => observers.resizeCard());
+                expect(map.fitBounds).not.toHaveBeenCalled();
+                // A late wrap adds a line: frame the same proposal below it again.
+                height = 140;
+                act(() => observers.resizeCard());
+                expect(map.fitBounds).toHaveBeenCalledTimes(1);
+                expect(map.fitBounds).toHaveBeenLastCalledWith(bounds, { padding: 40, duration: 0 });
+                // Once the skipper has moved the chart (a drag, or a keyboard
+                // pan, which starts no drag or zoom), a growing card leaves it be.
+                act(() => map.handlers.get(eventName)!({ originalEvent: { type: eventName } }));
+                map.fitBounds.mockClear();
+                height = 160;
+                act(() => observers.resizeCard());
+                expect(map.fitBounds).not.toHaveBeenCalled();
+                // Unfolded, the card is no longer watched.
+                await openReview();
+                expect(observers.cardObservers()).toHaveLength(0);
+            } finally {
+                cleanup();
+                observers.restore();
+            }
+        },
+    );
     it('uses only opening snapshots for camera and vessel inputs, keeps endpoints empty, and offers compact zoom', async () => {
         const onClose = vi.fn();
         const view = render(
