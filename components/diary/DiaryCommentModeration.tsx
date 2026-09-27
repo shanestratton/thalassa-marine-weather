@@ -5,6 +5,27 @@ import {
     type DiaryGuestComment,
 } from '../../services/DiaryCommentService';
 import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('DiaryCommentModeration');
+
+/** DiaryCommentService's own sentences, written for the skipper. */
+const SERVICE_SENTENCE =
+    /^(Sign in to review comments|Comment check cancelled|Account changed|Comment checks unavailable|Comments could not be loaded|That comment could not be changed|Only the public-log owner)/;
+
+/**
+ * The service's own sentences pass through; anything else (a thrown library
+ * or network error) is logged and said plainly, so raw error text never
+ * reaches the screen (UX scorecard run 9).
+ */
+function describeCommentError(cause: unknown, fallback: string): string {
+    const raw = cause instanceof Error ? cause.message : String(cause);
+    if (SERVICE_SENTENCE.test(raw)) return raw;
+    log.warn('Guest comment review failed:', raw);
+    if (cause instanceof TypeError || /load failed|failed to fetch|network/i.test(raw))
+        return "Couldn't reach the server. Check your connection and try again.";
+    return fallback;
+}
 
 /** Owners only: the database checks current public-log ownership for every row/action. */
 export function DiaryCommentModeration({ entryId }: { entryId: string }) {
@@ -26,7 +47,7 @@ export function DiaryCommentModeration({ entryId }: { entryId: string }) {
             if (generation.current === version) setComments(rows);
         } catch (cause) {
             if (generation.current === version)
-                setError(cause instanceof Error ? cause.message : 'Comments unavailable.');
+                setError(describeCommentError(cause, 'Comments could not be loaded. Try again.'));
         } finally {
             if (generation.current === version) setLoading(false);
         }
@@ -70,7 +91,7 @@ export function DiaryCommentModeration({ entryId }: { entryId: string }) {
             );
         } catch (cause) {
             if (version === generation.current)
-                setError(cause instanceof Error ? cause.message : 'Could not update comment.');
+                setError(describeCommentError(cause, 'That comment could not be changed. Try again.'));
         } finally {
             if (version === generation.current) setBusy(null);
         }

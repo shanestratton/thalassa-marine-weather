@@ -95,13 +95,13 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                     }
                     if (publish.deferred) {
                         toast.success(
-                            'Published — it will appear on your Voyage Log as soon as this entry finishes syncing.',
+                            'Published — it will appear on your public voyage page as soon as this entry finishes syncing.',
                         );
                     }
                 } else {
                     const unpublished = await unpublishDiaryEntryFromVoyageLog(e.id);
                     if (!unpublished) {
-                        toast.error('This entry could not be unpublished. It is still on your Voyage Log.');
+                        toast.error('This entry could not be unpublished. It is still on your public voyage page.');
                         return;
                     }
                 }
@@ -407,11 +407,14 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                             </div>
                         )}
 
-                        {/* Voyage Log publish toggle */}
+                        {/* Public voyage page publish toggle: one name for the public
+                            follow page everywhere (UX scorecard run 9). */}
                         <div className="bg-white/3 border border-white/8 rounded-2xl p-4 flex items-center gap-3">
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-white">
-                                    {isPublished ? '🌍 On your Voyage Log' : 'Publish to Voyage Log'}
+                                    {isPublished
+                                        ? '🌍 On your public voyage page'
+                                        : 'Publish to your public voyage page'}
                                 </p>
                                 <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
                                     {isPublished
@@ -429,7 +432,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                             <button
                                 role="switch"
                                 aria-checked={isPublished}
-                                aria-label="Publish this entry to your voyage log"
+                                aria-label="Publish this entry to your public voyage page"
                                 disabled={publishBusy}
                                 onClick={handleTogglePublish}
                                 className="relative shrink-0 disabled:opacity-60"

@@ -336,14 +336,14 @@ describe('content workflow dialog accessibility', () => {
         );
 
         const safeAction = screen.getByRole('button', { name: 'Keep this entry private' });
-        expect(screen.getByRole('dialog', { name: 'Share to your Voyage Log?' })).toContainElement(safeAction);
+        expect(screen.getByRole('dialog', { name: 'Share to your public voyage page?' })).toContainElement(safeAction);
         expect(screen.getByRole('dialog')).toHaveTextContent(
             'Anyone who has or guesses your public handle can read it',
         );
         expect(safeAction).toHaveFocus();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
-        const workingDialog = screen.getByRole('dialog', { name: 'Share to your Voyage Log?' });
+        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your public voyage page' }));
+        const workingDialog = screen.getByRole('dialog', { name: 'Share to your public voyage page?' });
         expect(workingDialog).toHaveAttribute('aria-busy', 'true');
         await act(async () => {
             await Promise.resolve();
@@ -358,7 +358,7 @@ describe('content workflow dialog accessibility', () => {
         expect(serviceMocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
 
         const done = await screen.findByRole('button', { name: 'Done' });
-        expect(screen.getByRole('dialog', { name: 'Published to your Voyage Log' })).toContainElement(done);
+        expect(screen.getByRole('dialog', { name: 'Published to your public voyage page' })).toContainElement(done);
         expect(screen.getByRole('dialog')).toHaveTextContent('public to anyone who has or guesses your handle');
         expect(done).toHaveFocus();
         fireEvent.keyDown(done, { key: 'Escape' });
@@ -375,11 +375,11 @@ describe('content workflow dialog accessibility', () => {
 
         expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-        const publish = screen.getByRole('button', { name: 'Publish this entry to your voyage log' });
+        const publish = screen.getByRole('button', { name: 'Publish this entry to your public voyage page' });
         expect(publish).toBeEnabled();
         fireEvent.click(publish);
 
-        await screen.findByRole('heading', { name: 'Published to your Voyage Log' });
+        await screen.findByRole('heading', { name: 'Published to your public voyage page' });
         expect(onPublishChange).toHaveBeenCalledExactlyOnceWith({ ...unlocated, is_public: true });
         expect(serviceMocks.setEntryPublished).toHaveBeenCalledExactlyOnceWith(unlocated.id, true);
         expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
@@ -406,14 +406,17 @@ describe('content workflow dialog accessibility', () => {
         const onPublishChange = vi.fn();
         render(<DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={onPublishChange} />);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your public voyage page' }));
 
         expect(await screen.findByRole('alert')).toHaveTextContent(
             'could not confirm this entry online, so it has not been published',
         );
-        expect(screen.getByRole('dialog', { name: 'Share to your Voyage Log?' })).toHaveAttribute('aria-busy', 'false');
+        expect(screen.getByRole('dialog', { name: 'Share to your public voyage page?' })).toHaveAttribute(
+            'aria-busy',
+            'false',
+        );
         expect(onPublishChange).not.toHaveBeenCalled();
-        expect(screen.queryByRole('heading', { name: 'Published to your Voyage Log' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Published to your public voyage page' })).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Keep this entry private' })).toHaveFocus();
     });
 
@@ -424,13 +427,13 @@ describe('content workflow dialog accessibility', () => {
         const onPublishChange = vi.fn();
         render(<DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={onPublishChange} />);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your public voyage page' }));
 
         expect(await screen.findByRole('alert', {}, { timeout: 8000 })).toHaveTextContent(
-            "We couldn't prepare your Voyage Log",
+            "We couldn't prepare your public voyage page",
         );
         expect(serviceMocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         expect(onPublishChange).not.toHaveBeenCalled();
-        expect(screen.queryByRole('heading', { name: 'Published to your Voyage Log' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Published to your public voyage page' })).not.toBeInTheDocument();
     });
 });

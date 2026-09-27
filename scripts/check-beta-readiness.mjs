@@ -3144,7 +3144,7 @@ check(
         ]) &&
         includesAll(voyageLogSettings, [
             'VoyageLogService.ensureConfigured()',
-            'Your Voyage Log is switched off',
+            'Your public voyage page is switched off',
             'intentionally uses the public handle, not a secret key',
             'enabled: false',
         ]) &&

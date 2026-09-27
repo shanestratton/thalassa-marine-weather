@@ -92,7 +92,7 @@ export const unpublishDiaryEntryFromVoyageLog = async (entryId: string): Promise
 
 export const diaryPublishFailureMessage = (reason: DiaryPublishFailure): string => {
     if (reason === 'voyage-log') {
-        return "We couldn't prepare your Voyage Log. This entry is still private — check your connection and try again.";
+        return "We couldn't prepare your public voyage page. This entry is still private — check your connection and try again.";
     }
     return "Thalassa could not confirm this entry online, so it has not been published. It may still be syncing — keep the app open, then try again when you're connected.";
 };

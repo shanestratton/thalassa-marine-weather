@@ -82,7 +82,7 @@ const slides: OnboardingSlide[] = [
         title: 'Your vessel',
         subtitle: 'Everything about your boat in one place',
         features: [
-            { text: 'Logbook, diary, and voyage tracking' },
+            { text: "Ship's Log, diary, and voyage tracking" },
             { Icon: WrenchIcon, text: "Maintenance, equipment, and ship's stores" },
             { text: 'Meal planning + community recipe library' },
             { Icon: AnchorIcon, text: 'Anchor watch + MOB safety systems' },
