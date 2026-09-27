@@ -5,6 +5,8 @@ import { formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness
 interface TopNavProps {
     vessel: VoyageLogData['vessel'];
     telemetry: VoyageLogTelemetry | null;
+    /** Still passed by callers and tests; the count now lives in the diary's
+     *  chapter head, so the masthead no longer renders it. */
     entryCount: number;
     /** Dashboard clock; advances independently of network responses. */
     nowMs: number;
@@ -13,8 +15,15 @@ interface TopNavProps {
     /** Replaces the live-status chip while browsing historical material or
      *  the unassigned all-diary view. */
     viewStatus?: string;
-    /** Map-first public view: a small floating identity card, not a masthead. */
-    compact?: boolean;
+    /** 'hero': the floating card over the chart (name, specs, status, the
+     *  instruments row). 'bar': the docked one-row header above a phone
+     *  panel, where the trip chip and chapter head already say the rest. */
+    layout?: 'hero' | 'bar';
+    /** The exact 'Last known · N ago' string, shown only after viewStatus. */
+    positionLabel?: string | null;
+    /** Freshness of the shared instruments, or null when none are shared. */
+    instrumentStatus?: { live: boolean; age: string } | null;
+    onOpenInstruments?: () => void;
 }
 
 const VESSEL_TYPE_LABEL: Record<string, string> = {
@@ -26,109 +35,112 @@ const VESSEL_TYPE_LABEL: Record<string, string> = {
 export default function TopNav({
     vessel,
     telemetry,
-    entryCount,
     nowMs,
     connectionLost,
     lastSuccessfulAt,
     viewStatus,
-    compact = false,
+    layout = 'hero',
+    positionLabel = null,
+    instrumentStatus = null,
+    onOpenInstruments,
 }: TopNavProps) {
     const specs = [VESSEL_TYPE_LABEL[vessel.type] ?? 'Vessel', vessel.model].filter(Boolean).join(' · ');
     const telemetryIsFresh =
         telemetry !== null && !telemetry.is_last_known && isPublicPositionFresh(telemetry.updated_at, nowMs);
+    const isHero = layout === 'hero';
+
+    const instrumentTone = instrumentStatus?.live ? 'live' : 'idle';
+    const instrumentContent = instrumentStatus && (
+        <>
+            <span className="pv-dot" data-tone={instrumentTone} aria-hidden="true" />
+            <span className="pv-num">
+                {`Instruments · ${instrumentStatus.live ? `Live · ${instrumentStatus.age}` : `Last report ${instrumentStatus.age}`}`}
+            </span>
+        </>
+    );
 
     return (
-        <header
-            className={`relative z-20 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 py-2 ${compact ? '' : 'border-b border-teal-200/15 bg-linear-to-r from-slate-950 via-slate-900 to-teal-950/70 shadow-md lg:flex lg:justify-between lg:gap-3 lg:px-6 lg:py-3'}`}
-        >
-            {/* Brand & vessel */}
-            <div className={`col-start-1 row-start-1 flex min-w-0 flex-1 flex-col ${compact ? '' : 'lg:gap-1'}`}>
-                <span
-                    className={`text-[9px] leading-3 font-semibold tracking-[0.18em] text-teal-300 uppercase ${compact ? '' : 'lg:text-xs'}`}
-                >
-                    Thalassa
-                </span>
-                <div className="flex flex-col min-w-0">
-                    <h1
-                        title={vessel.name}
-                        className={`${compact ? 'text-base' : 'text-lg lg:text-2xl'} font-semibold tracking-tight text-slate-100 truncate`}
-                    >
-                        {vessel.name}
-                    </h1>
-                    {!compact && <span className="hidden text-xs text-slate-400 truncate lg:block">{specs}</span>}
-                </div>
+        <header className={`pv-masthead flex min-w-0 flex-col ${isHero ? 'gap-1.5' : 'gap-0.5'}`} data-layout={layout}>
+            {/* Identity: exactly one h1 on the page, holding only the name. */}
+            <div className="min-w-0">
+                <h1 title={vessel.name} className="pv-boat-name">
+                    {vessel.name}
+                </h1>
+                {isHero && specs && <p className="pv-specs hidden [@media(min-height:720px)]:block">{specs}</p>}
             </div>
 
-            {/* Status */}
-            <div
-                className={
-                    compact
-                        ? 'contents'
-                        : 'contents lg:flex lg:max-w-[45%] lg:flex-wrap lg:items-center lg:justify-end lg:gap-x-4 lg:gap-y-1 lg:text-right'
-                }
-            >
-                {/* Skipper door — the public log page's only outbound link.
-                    RELATIVE /plan (Shane 2026-07-17: "it defaults back to
-                    www.thalassawx.app/plan rather than boat-name.thalassawx.app
-                    /plan"). This tracking page is served on the vessel
-                    subdomain, so a relative link keeps the punter on THEIR
-                    boat's planner (serene-summer.thalassawx.app/plan) — the
-                    old absolute apex link 308-redirected to www and dropped
-                    the handle. Sign-in happens on the subdomain now (its own
-                    per-origin session), which is the intended per-vessel model.
-                    Still supabase-free here — a plain <a>, not an auth flow. */}
-                <a
-                    href="/plan"
-                    aria-label="Skipper sign in"
-                    className={`col-start-2 row-start-1 flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] px-2 py-1.5 rounded-lg border border-slate-700 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-slate-500 transition-colors ${compact ? '' : 'row-span-2'}`}
-                    title="Skipper? Sign in and build a passage on the big screen"
-                >
-                    ⚓ {!compact && 'Skipper'}
-                </a>
-                <span className={`${compact ? 'hidden' : 'hidden lg:block'} text-[11px] font-mono text-slate-400`}>
-                    {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
+            {/* LIVE vs LAST KNOWN. This used to read "Live" whenever telemetry
+                existed at all — which became a lie the moment the page grew a
+                last-known-position fallback, because telemetry then ALWAYS
+                exists. A 21-hour-old berth fix under a pulsing green "Live" is
+                worse than the blank it replaced: a viewer could plan around it.
+                Under way breathes and says how fresh; moored is grey, still, and
+                says when it was last seen. */}
+            {connectionLost ? (
+                <span role="status" aria-live="polite" className="pv-status" data-tone="warn">
+                    <span className="pv-dot" data-tone="warn" aria-hidden="true" />
+                    Connection lost · last update {formatPublicAge(lastSuccessfulAt, nowMs)}
                 </span>
-                {/* LIVE vs LAST KNOWN. This used to read "Live" whenever telemetry
-                    existed at all — which became a lie the moment the page grew a
-                    last-known-position fallback, because telemetry then ALWAYS
-                    exists. A 21-hour-old berth fix under a pulsing green "Live" is
-                    worse than the blank it replaced: a viewer could plan around it.
-                    Under way pulses and says how fresh; moored is grey, still, and
-                    says when it was last seen. */}
-                <div className={compact ? 'col-span-2 row-start-2' : 'contents'}>
-                    {connectionLost ? (
-                        <span
-                            role="status"
-                            aria-live="polite"
-                            className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-amber-300 lg:text-[11px] lg:uppercase lg:tracking-wider"
+            ) : viewStatus ? (
+                // In the docked bar the trip chip and the chapter head already
+                // say which record this is, so the line is hero-only.
+                isHero && (
+                    <span className="pv-status" data-tone="idle">
+                        <span className="pv-dot" data-tone="idle" aria-hidden="true" />
+                        {viewStatus}
+                        {positionLabel && <span className="pv-status__detail"> · {positionLabel}</span>}
+                    </span>
+                )
+            ) : telemetry ? (
+                !telemetryIsFresh ? (
+                    <span className="pv-status" data-tone="idle">
+                        <span className="pv-dot" data-tone="idle" aria-hidden="true" />
+                        Not tracking · {formatPublicAge(telemetry.updated_at, nowMs)}
+                    </span>
+                ) : (
+                    <span className="pv-status" data-tone="live">
+                        <span className="pv-dot" data-tone="live" aria-hidden="true" />
+                        Live · {formatPublicAge(telemetry.updated_at, nowMs)}
+                    </span>
+                )
+            ) : (
+                isHero && (
+                    <span className="pv-status" data-tone="quiet">
+                        No telemetry yet
+                    </span>
+                )
+            )}
+
+            {/* What the boat is reporting right now, in the panel's own
+                'Live' / 'Last report' words. A door to the instruments when
+                the page can open them; otherwise a plain line. */}
+            {isHero &&
+                instrumentStatus &&
+                (onOpenInstruments ? (
+                    <button
+                        type="button"
+                        onClick={onOpenInstruments}
+                        className="pv-now"
+                        data-tone={instrumentTone}
+                        title="Open the instruments"
+                    >
+                        {instrumentContent}
+                        <svg
+                            className="pv-now__chev"
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
                         >
-                            <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" />
-                            Connection lost · last update {formatPublicAge(lastSuccessfulAt, nowMs)}
-                        </span>
-                    ) : viewStatus ? (
-                        <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-slate-300 lg:text-[11px] lg:uppercase lg:tracking-wider">
-                            <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-slate-500" />
-                            {viewStatus}
-                        </span>
-                    ) : telemetry ? (
-                        !telemetryIsFresh ? (
-                            <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-slate-300 lg:text-[11px] lg:uppercase lg:tracking-wider">
-                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-slate-500" />
-                                Not tracking · {formatPublicAge(telemetry.updated_at, nowMs)}
-                            </span>
-                        ) : (
-                            <span className="col-start-1 row-start-2 flex items-center gap-1.5 text-xs leading-4 font-semibold text-emerald-400 lg:text-[11px] lg:uppercase lg:tracking-wider">
-                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
-                                Live · {formatPublicAge(telemetry.updated_at, nowMs)}
-                            </span>
-                        )
-                    ) : (
-                        <span className="col-start-1 row-start-2 text-xs leading-4 text-slate-300 lg:text-[11px] lg:font-mono">
-                            No telemetry yet
-                        </span>
-                    )}
-                </div>
-            </div>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+                        </svg>
+                    </button>
+                ) : (
+                    <p className="pv-now" data-tone={instrumentTone}>
+                        {instrumentContent}
+                    </p>
+                ))}
         </header>
     );
 }

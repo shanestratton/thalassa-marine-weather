@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-        <meta name="theme-color" content="#0f172a" />
+        <meta name="theme-color" content="#0b1220" />
         <meta name="robots" content="noindex, nofollow, noarchive" />
         <meta name="description" content="Live voyage log — follow the passage at sea." />
         <title>Voyage Log — Thalassa</title>
@@ -16,6 +16,17 @@
             html.public-voyage-page {
                 font-size: 100%;
             }
+            /* Critical first paint: the page's own stylesheet
+               (src/public-voyage.css) only arrives with the module bundle.
+               Paint the night-watch ink now so there is no slate or white
+               flash before it lands. */
+            html.public-voyage-page,
+            html.public-voyage-page body {
+                background-color: #0b1220;
+                color: #dbe3ee;
+                color-scheme: dark;
+                margin: 0;
+            }
             /* AIS popup — strip Mapbox's default white shell so the dark
                glass card inside is what shows. */
             .voyage-log-ais-popup .mapboxgl-popup-content {
@@ -25,10 +36,10 @@
                 box-shadow: none;
             }
             .voyage-log-ais-popup .mapboxgl-popup-tip {
-                border-top-color: rgb(15 23 42);
-                border-bottom-color: rgb(15 23 42);
-                border-left-color: rgb(15 23 42);
-                border-right-color: rgb(15 23 42);
+                border-top-color: #111a2e;
+                border-bottom-color: #111a2e;
+                border-left-color: #111a2e;
+                border-right-color: #111a2e;
             }
             /* Lift the satellite basemap out of "goth" — affects only the
                raster canvas, not markers/popups/labels (those are HTML). */
@@ -50,17 +61,9 @@
             /* Provider logo and attribution controls deliberately remain
                visible. They are required map provenance, including when the
                satellite style or MapTiler bathymetry is selected. */
-            @media (max-width: 1023px) {
-                /* Mapbox defaults to 29px controls: enlarge the real buttons,
-                   not just their icons, for thumbs on a moving boat. */
-                .public-voyage-map .mapboxgl-ctrl-group button {
-                    width: 44px;
-                    height: 44px;
-                }
-            }
         </style>
     </head>
-    <body class="bg-slate-900">
+    <body>
         <div id="root"></div>
         <script type="module" src="/src/logs-main.tsx"></script>
     </body>

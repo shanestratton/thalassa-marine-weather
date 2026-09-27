@@ -44,74 +44,68 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
 
     return (
         <div
-            className={`shrink-0 px-3 pb-3 z-20 relative ${compact ? '' : 'lg:px-6 py-2 lg:py-2.5 bg-slate-900 border-b border-slate-700/80'}`}
+            className={
+                compact
+                    ? 'pv-progress relative'
+                    : 'pv-progress shrink-0 px-3 pb-3 z-20 relative lg:px-6 py-2 lg:py-2.5 bg-slate-900 border-b border-slate-700/80'
+            }
         >
             <div
-                className={`mb-2 flex min-w-0 items-center justify-between gap-3 text-xs ${compact ? '' : 'lg:hidden'}`}
+                className={`pv-progress__head mb-2 flex min-w-0 items-center justify-between gap-3 ${compact ? '' : 'lg:hidden'}`}
             >
-                <span className="truncate font-semibold text-teal-200" title={destination.name ?? 'Destination'}>
+                <span className="pv-progress__to truncate" title={destination.name ?? 'Destination'}>
                     To {destination.name ?? 'Destination'}
                 </span>
-                <span className="shrink-0 text-slate-300">
-                    <strong className="text-white">{Math.round(dtgNm)} nm</strong> to go
+                <span className="shrink-0">
+                    <strong>{Math.round(dtgNm)} nm</strong> to go
                 </span>
             </div>
             <div
-                className={`${compact ? 'hidden' : 'hidden lg:flex'} items-center justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-1.5`}
+                className={`${compact ? 'hidden' : 'hidden lg:flex'} mb-1.5 items-center justify-between text-xs font-bold uppercase tracking-[0.15em]`}
             >
                 <span>Passage Progress</span>
-                <span className="text-sky-400">{Math.round(pct)}%</span>
+                <span className="pv-num">{Math.round(pct)}%</span>
             </div>
 
-            {/* The bar */}
+            {/* The bar: teal, the colour of the sailed track */}
             <div
-                className="relative h-1.5 rounded-full bg-slate-800 overflow-visible"
+                className="pv-progress__track"
                 role="progressbar"
                 aria-label="Passage progress"
                 aria-valuenow={Math.round(pct)}
                 aria-valuemin={0}
                 aria-valuemax={100}
             >
-                {/* Fill */}
-                <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-sky-500 to-emerald-400"
-                    style={{ width: `${pct}%` }}
-                />
-                {/* Origin dot */}
-                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-sky-500 border-2 border-slate-900" />
-                {/* Destination dot */}
-                <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-900" />
+                <div className="pv-progress__fill" style={{ width: `${pct}%` }} />
+                {/* Origin and destination ends */}
+                <div className="pv-progress__end" style={{ left: 0 }} />
+                <div className="pv-progress__end" style={{ left: '100%' }} />
                 {/* Current-position pip */}
-                <div
-                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-sky-500 shadow-lg shadow-sky-500/40"
-                    style={{ left: `${pct}%` }}
-                />
+                <div className="pv-progress__pip" style={{ left: `${pct}%` }} />
             </div>
 
-            {/* End labels + stats */}
+            {/* End labels + stats (wide non-compact layout only) */}
             <div
-                className={`${compact ? 'hidden' : 'hidden lg:flex'} flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mt-1.5 text-[10px] font-mono`}
+                className={`${compact ? 'hidden' : 'hidden lg:flex'} pv-num mt-1.5 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs`}
             >
-                <span className="text-slate-500">Departure</span>
-                <div className="flex flex-wrap items-baseline gap-3 text-slate-400">
+                {/* Default text colour throughout; the bold figures carry the weight. */}
+                <span>Departure</span>
+                <div className="flex flex-wrap items-baseline gap-3">
                     <span>
-                        <span className="text-slate-500">DTG</span>{' '}
-                        <span className="text-white font-bold">{Math.round(dtgNm)} nm</span>
+                        <span>DTG</span> <span className="font-bold">{Math.round(dtgNm)} nm</span>
                     </span>
                     {avgSog != null && (
                         <span>
-                            <span className="text-slate-500">SOG 24h</span>{' '}
-                            <span className="text-emerald-400 font-bold">{avgSog.toFixed(1)} kt</span>
+                            <span>SOG 24h</span> <span className="font-bold">{avgSog.toFixed(1)} kt</span>
                         </span>
                     )}
                     {etaDate && (
                         <span>
-                            <span className="text-slate-500">ETA</span>{' '}
-                            <span className="text-amber-300 font-bold">{formatDateTime(etaDate)}</span>
+                            <span>ETA</span> <span className="font-bold">{formatDateTime(etaDate)}</span>
                         </span>
                     )}
                 </div>
-                <span className="text-emerald-300">{destination.name ?? 'Destination'}</span>
+                <span>{destination.name ?? 'Destination'}</span>
             </div>
         </div>
     );

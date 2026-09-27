@@ -102,7 +102,8 @@ describe('public diary map pins', () => {
         expect(screen.getAllByRole('button', { name: /^Voyage log entry:/ })).toHaveLength(3);
         for (const entry of entries) {
             const pin = screen.getByRole('button', { name: `Voyage log entry: ${entry.title}` });
-            expect(pin).toHaveTextContent('📷');
+            // Photo pins carry an inline SVG camera badge (was the 📷 emoji).
+            expect(pin.querySelector('.pv-pin svg')).toBeInTheDocument();
             expect(pin.closest('[data-testid="map-marker"]')).toHaveAttribute('data-latitude', `${entry.latitude}`);
             expect(pin.closest('[data-testid="map-marker"]')).toHaveAttribute('data-longitude', `${entry.longitude}`);
             fireEvent.click(pin);

@@ -1,0 +1,1837 @@
+/* ══════════════════════════════════════════════════════════════════════
+   src/public-voyage.css — public voyage log · "Night-Watch Logbook"
+   Imported only by src/logs-main.tsx. Every rule is scoped to
+   html.public-voyage-page and every class is pv-*, so no selector in the
+   app's /index.css (legibility remaps, tablet overrides) can reach it.
+
+   House rules
+   1. Tailwind (from /index.css) owns LAYOUT, SPACING-BETWEEN and
+      VISIBILITY: hidden / flex / grid / lg:* / gap / margins / offsets.
+      This file is unlayered, so it beats @layer utilities: it therefore
+      never sets `display`, `margin` or `gap` on an element that also
+      carries a Tailwind class for that property. It paints: colour,
+      type, borders, radii, shadows, inner padding.
+   2. Provider credits are untouchable. Never name the Mapbox logo or
+      attribution classes here. The single Mapbox rule in §6 keeps the
+      bottom-left control CONTAINER from being hidden and never restyles
+      the wordmark. Page chrome stays out of the bottom 40 px of both
+      bottom corners and steps up when the (i) credits are opened.
+   3. Floors: text >= 12px, touch targets >= 44px, WCAG AA. Ratios are
+      noted on --pv-ink / --pv-hull / worst-case glass over white imagery.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Tokens ─────────────────────────────────────────────────────── */
+html.public-voyage-page {
+    color-scheme: dark;
+
+    /* Surfaces */
+    --pv-ink: #0b1220;
+    --pv-ink-2: #0e1628;
+    --pv-console: #0d1526;
+    --pv-hull: #111a2e;
+    --pv-hull-2: #16223a;
+    --pv-tile: #0e1a2c;
+    --pv-well-inner: #07111f;
+    --pv-well-outer: #030812;
+    --pv-glass: rgba(10, 17, 32, 0.88);
+    --pv-glass-strong: rgba(10, 17, 32, 0.95);
+    --pv-glass-solid: #0f182b;
+    --pv-blur: blur(18px) saturate(1.4);
+    --pv-line: rgba(255, 255, 255, 0.12);
+    --pv-line-strong: rgba(255, 255, 255, 0.22);
+    --pv-rim: rgba(148, 197, 255, 0.16);
+    --pv-spec: rgba(255, 255, 255, 0.07);
+    --pv-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    --pv-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.35);
+
+    /* Ink */
+    --pv-ivory: #f3efe6; /* 16.3 / 15.1 / 12.7 — headlines, boat name */
+    --pv-text: #dbe3ee; /* 14.5 / 13.4 / 11.3 — body */
+    --pv-meta: #a8b3c4; /* 8.8 / 8.2 / 6.9 — meta, labels */
+    --pv-faint: #8d9ab0; /* 6.6 / 6.1 / 5.1 — captions only, never on tints */
+
+    /* Signal — one meaning each */
+    --pv-sea: #5eead4; /* the sailed track · live · selected · primary (12.7) */
+    --pv-sea-hover: #8bf1e1;
+    --pv-sea-deep: #2dd4bf; /* the track glow colour */
+    --pv-sea-glow: rgba(45, 212, 191, 0.38);
+    --pv-sea-tint: rgba(94, 234, 212, 0.12);
+    --pv-sea-sel: #123a3a; /* selected cell; sea text on it 8.3 */
+    --pv-on-sea: #04201c; /* ink on a sea fill, 11.6 */
+    --pv-brass: #f5c26b; /* the story: kickers, waypoints, guest names (11.4) */
+    --pv-brass-tint: rgba(245, 194, 107, 0.12);
+    --pv-route: #c4b5fd; /* planned route only (10.1) */
+    --pv-idle: #94a3b8; /* last known / historic — never animated (7.3) */
+    --pv-warn: #fcd34d; /* connection lost only (13.0) */
+    --pv-warn-soft: #fde68a;
+    --pv-warn-tint: rgba(252, 211, 77, 0.08);
+    --pv-alarm: #fda4af; /* barometer 'warn' tendency only */
+    --pv-start: #6ee7b7; /* planned-route origin label */
+
+    /* Type — system faces only (privacy page: no font hosts) */
+    --pv-font-display:
+        ui-serif, 'New York', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Noto Serif', serif;
+    --pv-font-ui:
+        system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+    --pv-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; /* coordinates only */
+    --pv-fs-caption: 12px;
+    --pv-fs-small: 13px;
+    --pv-fs-ui: 14px;
+    --pv-fs-body: 15px;
+    --pv-fs-read: 17px;
+    --pv-fs-lead: 20px;
+    --pv-fs-title: 22px;
+    --pv-fs-stat: 22px;
+    --pv-fs-name: 26px;
+    --pv-fs-article: 28px;
+    --pv-fs-value: 28px;
+    --pv-fs-name-lg: 32px;
+    --pv-track-kicker: 0.12em;
+    --pv-track-eyebrow: 0.14em;
+
+    /* Shape & inner spacing (spacing BETWEEN elements is Tailwind gap) */
+    --pv-r-sm: 10px;
+    --pv-r: 14px;
+    --pv-r-lg: 18px;
+    --pv-r-pill: 999px;
+    --pv-space-1: 4px;
+    --pv-space-2: 8px;
+    --pv-space-3: 12px;
+    --pv-space-4: 16px;
+    --pv-space-5: 20px;
+    --pv-space-6: 24px;
+
+    /* Map chrome geometry — one cluster, bottom-right, clear of credits */
+    --pv-edge: 12px;
+    --pv-ctrl: 44px;
+    --pv-gap: 8px;
+    --pv-credit-clear: 40px; /* reserved band above BOTH bottom corners */
+    --pv-credit-lift: 64px; /* chrome steps up this far while credits are open */
+    --pv-rail-bottom: calc(var(--pv-credit-clear) + var(--pv-gap));
+    --pv-rail-w: calc(var(--pv-ctrl) * 2 + var(--pv-gap));
+    --pv-notes-max: calc(100% - var(--pv-edge) * 2 - var(--pv-rail-w) - var(--pv-gap));
+
+    background: var(--pv-ink);
+}
+
+html.public-voyage-page body {
+    margin: 0;
+    background: var(--pv-ink);
+    color: var(--pv-text);
+    font-family: var(--pv-font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── 2. Primitives ─────────────────────────────────────────────────── */
+html.public-voyage-page .pv-app {
+    background: var(--pv-ink);
+    color: var(--pv-text);
+    font-family: var(--pv-font-ui);
+}
+html.public-voyage-page .pv-num {
+    font-variant-numeric: tabular-nums lining-nums;
+}
+html.public-voyage-page .pv-glass {
+    background: var(--pv-glass);
+    -webkit-backdrop-filter: var(--pv-blur);
+    backdrop-filter: var(--pv-blur);
+    border: 1px solid var(--pv-rim);
+    box-shadow:
+        inset 0 1px 0 var(--pv-spec),
+        var(--pv-shadow);
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    html.public-voyage-page .pv-glass,
+    html.public-voyage-page .pv-ctrl--solo {
+        background: var(--pv-glass-solid);
+    }
+}
+html.public-voyage-page .pv-eyebrow {
+    font-family: var(--pv-font-ui);
+    font-size: var(--pv-fs-caption);
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: var(--pv-track-eyebrow);
+    text-transform: uppercase;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-eyebrow--sea {
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-eyebrow--brass {
+    color: var(--pv-brass);
+}
+html.public-voyage-page .pv-kicker {
+    font-family: var(--pv-font-ui);
+    font-size: var(--pv-fs-caption);
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: var(--pv-track-kicker);
+    text-transform: uppercase;
+    color: var(--pv-brass);
+}
+html.public-voyage-page .pv-dot {
+    display: inline-block;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    border-radius: 50%;
+    vertical-align: 1px;
+    background: var(--pv-idle);
+}
+html.public-voyage-page .pv-dot[data-tone='live'] {
+    background: var(--pv-sea);
+    box-shadow:
+        0 0 0 3px rgba(94, 234, 212, 0.16),
+        0 0 8px var(--pv-sea-glow);
+    animation: pv-breathe 2.4s ease-in-out infinite;
+}
+html.public-voyage-page .pv-dot[data-tone='warn'] {
+    background: var(--pv-warn);
+}
+html.public-voyage-page .pv-dot[data-tone='idle'] {
+    background: var(--pv-idle);
+}
+html.public-voyage-page .pv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: var(--pv-r-pill);
+    border: 1px solid var(--pv-line);
+    background: rgba(255, 255, 255, 0.04);
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-text);
+    white-space: nowrap;
+}
+html.public-voyage-page .pv-chip .pv-dot {
+    margin-right: 0;
+}
+html.public-voyage-page .pv-chip--live {
+    color: var(--pv-sea);
+    border-color: rgba(94, 234, 212, 0.3);
+    background: var(--pv-sea-tint);
+}
+html.public-voyage-page .pv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: var(--pv-r-pill);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(8, 13, 26, 0.82);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-ivory);
+    white-space: nowrap;
+}
+html.public-voyage-page .pv-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 10px 18px;
+    border-radius: var(--pv-r-pill);
+    border: 1px solid transparent;
+    font: 600 15px/20px var(--pv-font-ui);
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+        background-color 0.15s,
+        border-color 0.15s,
+        color 0.15s;
+}
+html.public-voyage-page .pv-btn--primary {
+    background: var(--pv-sea);
+    color: var(--pv-on-sea);
+    box-shadow: 0 6px 18px rgba(45, 212, 191, 0.22);
+}
+html.public-voyage-page .pv-btn--primary:hover {
+    background: var(--pv-sea-hover);
+}
+html.public-voyage-page .pv-btn--ghost {
+    background: transparent;
+    color: var(--pv-sea);
+    border-color: rgba(94, 234, 212, 0.38);
+}
+html.public-voyage-page .pv-btn--ghost:hover {
+    background: var(--pv-sea-tint);
+}
+html.public-voyage-page .pv-btn--quiet {
+    min-height: 44px;
+    padding: 8px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--pv-ivory);
+    border-color: var(--pv-line-strong);
+    font-size: 14px;
+}
+html.public-voyage-page .pv-btn--quiet:hover {
+    border-color: rgba(94, 234, 212, 0.45);
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-btn:disabled {
+    background: transparent;
+    color: var(--pv-meta);
+    border-color: var(--pv-line-strong);
+    box-shadow: none;
+    cursor: not-allowed;
+}
+html.public-voyage-page .pv-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--pv-sea);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+}
+html.public-voyage-page .pv-link:hover {
+    color: var(--pv-sea-hover);
+}
+html.public-voyage-page
+    :is(
+        .pv-btn,
+        .pv-link,
+        .pv-ctrl,
+        .pv-now,
+        .pv-entry,
+        .pv-back,
+        .pv-photo,
+        .pv-mode,
+        .pv-switch__btn,
+        .pv-tab,
+        .pv-fold,
+        .pv-pill,
+        .pv-dest,
+        .pv-pin-btn,
+        .pv-more
+    ):focus-visible {
+    outline: 2px solid var(--pv-sea);
+    outline-offset: 2px;
+}
+html.public-voyage-page .pv-spinner {
+    display: inline-block;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(94, 234, 212, 0.25);
+    border-top-color: var(--pv-sea);
+    animation: pv-spin 0.8s linear infinite;
+}
+
+/* ── 3. Masthead (header card over the chart / docked bar on phone panels) */
+html.public-voyage-page .pv-hero {
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-hero[data-overlay='true'] {
+    border-radius: var(--pv-r-lg);
+    padding: 14px 14px 12px;
+}
+html.public-voyage-page .pv-hero[data-overlay='false'] {
+    padding: 10px 12px;
+    background: var(--pv-ink-2);
+    border-bottom: 1px solid var(--pv-line);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+html.public-voyage-page .pv-boat-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-family: var(--pv-font-display);
+    font-size: var(--pv-fs-name);
+    line-height: 30px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--pv-ivory);
+}
+@media (min-width: 1024px) {
+    html.public-voyage-page .pv-hero[data-overlay='true'] .pv-boat-name {
+        font-size: var(--pv-fs-name-lg);
+        line-height: 36px;
+    }
+}
+html.public-voyage-page .pv-hero[data-overlay='false'] .pv-boat-name {
+    display: block;
+    font-size: 19px;
+    line-height: 24px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+html.public-voyage-page .pv-specs {
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-status {
+    display: block;
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--pv-text);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-status[data-tone='live'] {
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-status[data-tone='warn'] {
+    color: var(--pv-warn);
+}
+html.public-voyage-page .pv-status[data-tone='quiet'] {
+    font-weight: 500;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-status__detail {
+    font-weight: 500;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-hero[data-overlay='false'] .pv-status {
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+}
+html.public-voyage-page .pv-now {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(94, 234, 212, 0.28);
+    background: var(--pv-sea-tint);
+    color: var(--pv-sea);
+    font: 600 14px/20px var(--pv-font-ui);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+html.public-voyage-page .pv-now .pv-dot {
+    margin-right: 0;
+}
+html.public-voyage-page .pv-now[data-tone='idle'] {
+    border-color: var(--pv-line);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--pv-text);
+}
+html.public-voyage-page button.pv-now:hover {
+    background: rgba(94, 234, 212, 0.18);
+}
+html.public-voyage-page p.pv-now {
+    cursor: default;
+}
+html.public-voyage-page .pv-now__chev {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin-left: auto;
+    opacity: 0.8;
+}
+
+/* Trip chip: a custom face over the untouched native <select> */
+html.public-voyage-page .pv-trip {
+    min-height: 52px;
+    padding: 7px 12px 7px 14px;
+    border-radius: var(--pv-r);
+    border: 1px solid var(--pv-line-strong);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--pv-ivory);
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        background-color 0.15s;
+}
+html.public-voyage-page .pv-trip:hover {
+    border-color: rgba(94, 234, 212, 0.45);
+    background: rgba(255, 255, 255, 0.07);
+}
+html.public-voyage-page .pv-trip:focus-within {
+    outline: 2px solid var(--pv-sea);
+    outline-offset: 2px;
+}
+html.public-voyage-page .pv-trip[aria-busy='true'] {
+    border-color: rgba(94, 234, 212, 0.45);
+}
+html.public-voyage-page .pv-trip__eyebrow {
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: var(--pv-track-eyebrow);
+    text-transform: uppercase;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-trip__value {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font: 600 15px/20px var(--pv-font-ui);
+    color: var(--pv-ivory);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-hero[data-overlay='false'] .pv-trip {
+    min-height: 44px;
+    padding: 6px 10px 6px 12px;
+}
+/* Docked phone bar: two 16 px lines still fit the 44 px chip, so the
+   distance reads in full instead of '25 Sept 2026 · 17…'. */
+html.public-voyage-page .pv-hero[data-overlay='false'] .pv-trip__value {
+    font-size: 13px;
+    line-height: 16px;
+    white-space: normal;
+}
+html.public-voyage-page .pv-trip__icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-trip__select {
+    opacity: 0; /* the real control — its face above is aria-hidden */
+    font-size: 16px; /* no iOS focus zoom */
+    color: var(--pv-ink);
+}
+
+/* ── 4. Passage stats ──────────────────────────────────────────────── */
+html.public-voyage-page .pv-stat {
+    min-width: 0;
+    padding: 8px 10px 9px;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line);
+    background: rgba(255, 255, 255, 0.04);
+}
+/* Labels wrap to two lines rather than ellipsize ('START TO / FINISH').
+   overflow-wrap: normal overrides #voyage-panel-content's
+   [overflow-wrap:anywhere], which would split 'DISTANCE' mid-word. */
+html.public-voyage-page .pv-stat__label {
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pv-meta);
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+html.public-voyage-page .pv-stat[data-key='distance'] .pv-stat__label::before {
+    content: '';
+    display: inline-block;
+    width: 14px;
+    height: 3px;
+    margin-right: 6px;
+    border-radius: 2px;
+    vertical-align: 3px;
+    background: var(--pv-sea);
+    box-shadow: 0 0 6px var(--pv-sea-glow);
+}
+html.public-voyage-page .pv-stat__value {
+    padding-top: 2px;
+    font: 600 var(--pv-fs-stat) / 28px var(--pv-font-ui);
+    letter-spacing: -0.01em;
+    color: var(--pv-ivory);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums lining-nums;
+}
+html.public-voyage-page .pv-stat__unit {
+    margin-left: 2px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-stat__note {
+    padding-top: 2px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--pv-meta);
+}
+/* One- and two-line labels still put every value on one shared row. */
+@supports (grid-template-rows: subgrid) {
+    html.public-voyage-page .pv-stats {
+        grid-auto-rows: auto;
+    }
+    html.public-voyage-page .pv-stat {
+        display: grid;
+        grid-row: span 3;
+        grid-template-rows: subgrid;
+        row-gap: 0;
+    }
+}
+@media (max-width: 359px) {
+    html.public-voyage-page .pv-stat__label {
+        letter-spacing: 0.05em;
+    }
+    html.public-voyage-page .pv-stat__value {
+        font-size: 18px;
+        line-height: 24px;
+    }
+}
+
+/* ── 5. Passage progress (active trip with a destination) ─────────── */
+html.public-voyage-page .pv-progress__head {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-text);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-progress__to {
+    font-weight: 600;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-progress__head strong {
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-progress__track {
+    position: relative;
+    height: 6px;
+    border-radius: var(--pv-r-pill);
+    background: rgba(255, 255, 255, 0.1);
+}
+html.public-voyage-page .pv-progress__fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--pv-sea-deep), var(--pv-sea));
+    box-shadow: 0 0 10px var(--pv-sea-glow);
+}
+html.public-voyage-page .pv-progress__end {
+    position: absolute;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--pv-ink);
+    border: 2px solid var(--pv-meta);
+}
+html.public-voyage-page .pv-progress__pip {
+    position: absolute;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--pv-ivory);
+    border: 3px solid var(--pv-sea);
+    box-shadow: 0 0 12px var(--pv-sea-glow);
+}
+
+/* ── 6. Chart & its overlay layer ──────────────────────────────────── */
+html.public-voyage-page .public-voyage-map {
+    isolation: isolate; /* Mapbox's control corners (z 2) stay above our chrome (z 1) */
+    background: var(--pv-ink);
+}
+/* mapbox-gl 3.x's LogoControl can set its own container to display:none
+   after the page's inline raster sources register. The page always draws a
+   Mapbox basemap, so the wordmark is always owed: keep its CONTAINER shown.
+   This does not restyle, move or resize the wordmark itself. */
+html.public-voyage-page .public-voyage-map .mapboxgl-ctrl-bottom-left > .mapboxgl-ctrl {
+    display: block !important;
+}
+html.public-voyage-page .pv-map-empty {
+    background: var(--pv-ink);
+    color: var(--pv-meta);
+    font-size: var(--pv-fs-ui);
+}
+
+/* Control cluster: [Map|Sat] [+|−] over [Expand][Locate] */
+html.public-voyage-page .pv-rail {
+    right: var(--pv-edge);
+    bottom: var(--pv-rail-bottom);
+    z-index: 1;
+    grid-template-columns: repeat(2, var(--pv-ctrl));
+    grid-template-rows: calc(var(--pv-ctrl) * 2 + 2px) var(--pv-ctrl); /* + the capsule's 1 px glass rim, top and bottom */
+    column-gap: var(--pv-gap);
+    row-gap: var(--pv-gap);
+    transition: transform 0.2s ease;
+}
+html.public-voyage-page .pv-capsule {
+    overflow: hidden;
+    border-radius: var(--pv-r);
+    grid-row: 1;
+}
+html.public-voyage-page .pv-capsule > .pv-ctrl {
+    flex-shrink: 0;
+}
+html.public-voyage-page .pv-capsule--basemap {
+    grid-column: 1;
+}
+html.public-voyage-page .pv-capsule--zoom {
+    grid-column: 2;
+}
+html.public-voyage-page .pv-locate {
+    grid-column: 2;
+    grid-row: 2;
+}
+html.public-voyage-page .pv-ctrl {
+    width: var(--pv-ctrl);
+    height: var(--pv-ctrl);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--pv-text);
+    cursor: pointer;
+    transition:
+        background-color 0.15s,
+        color 0.15s;
+}
+html.public-voyage-page .pv-ctrl:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-ctrl svg {
+    width: 20px;
+    height: 20px;
+}
+html.public-voyage-page .pv-capsule > .pv-ctrl + .pv-ctrl {
+    border-top: 1px solid var(--pv-line);
+}
+html.public-voyage-page .pv-ctrl[aria-pressed='true'] {
+    background: var(--pv-sea-sel);
+    color: var(--pv-sea);
+    box-shadow: inset 3px 0 0 var(--pv-sea);
+}
+html.public-voyage-page .pv-ctrl__label {
+    font: 600 12px/14px var(--pv-font-ui);
+    letter-spacing: 0.02em;
+}
+html.public-voyage-page .pv-ctrl--solo {
+    border-radius: var(--pv-r);
+    background: var(--pv-glass);
+    border: 1px solid var(--pv-rim);
+}
+html.public-voyage-page .pv-ctrl--solo[aria-pressed='true'] {
+    box-shadow:
+        inset 0 1px 0 var(--pv-spec),
+        var(--pv-shadow);
+    background: var(--pv-glass);
+    color: var(--pv-sea);
+}
+/* Expand/Restore lives in ThalassaDashboard but sits in the cluster's lower-left cell */
+html.public-voyage-page .pv-expand {
+    right: calc(var(--pv-edge) + var(--pv-ctrl) + var(--pv-gap));
+    bottom: var(--pv-rail-bottom);
+    transition:
+        transform 0.2s ease,
+        background-color 0.15s,
+        color 0.15s;
+}
+/* Bottom-left: destination pill above the map key */
+html.public-voyage-page .pv-map-notes {
+    left: var(--pv-edge);
+    bottom: var(--pv-rail-bottom);
+    z-index: 1;
+    max-width: var(--pv-notes-max);
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    row-gap: var(--pv-gap);
+    column-gap: var(--pv-gap);
+    pointer-events: none;
+    transition: transform 0.2s ease;
+}
+html.public-voyage-page .pv-map-notes > button {
+    pointer-events: auto;
+}
+@media (max-height: 500px) {
+    html.public-voyage-page .pv-map-notes {
+        flex-direction: row;
+        flex-wrap: wrap-reverse;
+        align-items: flex-end;
+    }
+}
+/* When a viewer opens the (i) credits, the chrome steps up out of the way */
+html.public-voyage-page #voyage-map:has(.mapboxgl-compact-show) :is(.pv-rail, .pv-expand, .pv-map-notes) {
+    transform: translateY(calc(-1 * var(--pv-credit-lift)));
+}
+html.public-voyage-page .pv-pill {
+    max-width: 100%;
+    padding: 0 16px;
+    border-radius: var(--pv-r-pill);
+    font: 600 14px/20px var(--pv-font-ui);
+    color: var(--pv-sea);
+    cursor: pointer;
+}
+html.public-voyage-page .pv-pill:hover {
+    color: var(--pv-sea-hover);
+}
+html.public-voyage-page .pv-key {
+    padding: 8px 12px;
+    border-radius: 12px;
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-text);
+    pointer-events: none;
+    user-select: none;
+}
+html.public-voyage-page .pv-key__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+html.public-voyage-page .pv-key__row + .pv-key__row {
+    padding-top: 6px;
+}
+html.public-voyage-page .pv-key__stats {
+    font-size: 13px;
+    color: var(--pv-ivory);
+}
+/* Below 390 px the stats cannot share the 'Track sailed' line beside the
+   cluster, so they take a line of their own, under the words and without
+   a leading separator. */
+@media (max-width: 389px) {
+    html.public-voyage-page .pv-key__stats {
+        flex-basis: 100%;
+        padding-left: 30px; /* swatch 22 + column gap 8 */
+    }
+    html.public-voyage-page .pv-key__sep {
+        display: none;
+    }
+}
+html.public-voyage-page .pv-swatch {
+    display: inline-block;
+    position: relative;
+    flex: none;
+    width: 22px;
+    height: 3px;
+    border-radius: 2px;
+}
+html.public-voyage-page .pv-swatch--track {
+    background: var(--pv-sea);
+    box-shadow: 0 0 6px var(--pv-sea-glow);
+}
+html.public-voyage-page .pv-swatch--track::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--pv-ink);
+    border: 1.5px solid var(--pv-sea);
+}
+html.public-voyage-page .pv-swatch--route {
+    background: var(--pv-route);
+}
+
+/* Own ship */
+html.public-voyage-page .pv-ownship {
+    position: relative;
+    width: 22px;
+    height: 22px;
+}
+html.public-voyage-page .pv-ownship__ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    box-sizing: border-box;
+}
+html.public-voyage-page .pv-ownship[data-state='live'] .pv-ownship__ring {
+    background: var(--pv-sea);
+    border: 3px solid var(--pv-ivory);
+    box-shadow:
+        0 0 0 4px rgba(94, 234, 212, 0.25),
+        0 0 16px var(--pv-sea-glow);
+}
+html.public-voyage-page .pv-ownship[data-state='live'] .pv-ownship__ring::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 2px solid var(--pv-sea);
+    animation: pv-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+html.public-voyage-page .pv-ownship[data-state='last-known'] .pv-ownship__ring {
+    background: var(--pv-ink);
+    border: 3px solid var(--pv-idle);
+    box-shadow:
+        0 0 0 3px rgba(11, 18, 32, 0.6),
+        0 2px 8px rgba(0, 0, 0, 0.5);
+}
+html.public-voyage-page .pv-ownship[data-state='last-known'] .pv-ownship__ring::after {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    background: var(--pv-idle);
+}
+html.public-voyage-page .pv-flag {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-width: 200px;
+    padding: 5px 10px;
+    border-radius: var(--pv-r-sm);
+    white-space: nowrap;
+    pointer-events: none;
+}
+html.public-voyage-page .pv-ownship[data-state='live'] .pv-flag {
+    border-color: rgba(94, 234, 212, 0.45);
+}
+html.public-voyage-page .pv-flag__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font: 600 15px/18px var(--pv-font-display);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-flag__age {
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-ownship[data-side='below'] .pv-flag {
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+}
+html.public-voyage-page .pv-ownship[data-side='above'] .pv-flag {
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+}
+html.public-voyage-page .pv-ownship[data-side='right'] .pv-flag {
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+}
+html.public-voyage-page .pv-ownship[data-side='left'] .pv-flag {
+    right: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    align-items: flex-end;
+}
+
+/* Lifecycle waypoints: place on line one, qualifier muted on line two */
+html.public-voyage-page .pv-wp {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    pointer-events: none;
+    user-select: none;
+}
+html.public-voyage-page .pv-wp__diamond {
+    position: absolute;
+    inset: 1px;
+    transform: rotate(45deg);
+    background: var(--pv-brass);
+    border: 1.5px solid var(--pv-ink);
+    box-shadow: 0 0 8px rgba(245, 194, 107, 0.6);
+}
+html.public-voyage-page .pv-wp__label {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    padding: 3px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--pv-line);
+    background: var(--pv-glass-strong);
+    white-space: nowrap;
+}
+html.public-voyage-page .pv-wp[data-side='below'] .pv-wp__label {
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+}
+html.public-voyage-page .pv-wp[data-side='above'] .pv-wp__label {
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+}
+html.public-voyage-page .pv-wp[data-side='right'] .pv-wp__label {
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+}
+html.public-voyage-page .pv-wp[data-side='left'] .pv-wp__label {
+    right: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    align-items: flex-end;
+}
+html.public-voyage-page .pv-wp[data-quiet='true'] .pv-wp__label {
+    display: none;
+}
+html.public-voyage-page .pv-wp__place {
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-brass);
+}
+html.public-voyage-page .pv-wp__role {
+    font: 500 12px/16px var(--pv-font-ui);
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-plan-start {
+    margin-top: 6px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(110, 231, 183, 0.35);
+    background: var(--pv-glass-strong);
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-start);
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Diary pins */
+html.public-voyage-page .pv-pin {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid var(--pv-pin-ring, var(--pv-brass));
+    background: var(--pv-glass-strong);
+    color: var(--pv-ivory);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+html.public-voyage-page .pv-pin svg {
+    width: 16px;
+    height: 16px;
+}
+html.public-voyage-page .pv-pin[data-selected='true'] {
+    box-shadow:
+        0 0 0 3px rgba(94, 234, 212, 0.45),
+        0 0 16px var(--pv-sea-glow);
+}
+html.public-voyage-page .pv-pin-halo {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--pv-sea);
+    animation: pv-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+    pointer-events: none;
+}
+html.public-voyage-page .pv-pin-emoji {
+    font-size: 24px;
+    line-height: 1;
+}
+html.public-voyage-page .pv-dest {
+    border-radius: 12px;
+    color: var(--pv-sea);
+    cursor: pointer;
+}
+html.public-voyage-page .pv-dest__name {
+    font: 600 14px/20px var(--pv-font-ui);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-dest__sub {
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-sea);
+}
+
+/* AIS popup card (Mapbox shell is stripped in logs.html) */
+html.public-voyage-page .pv-popup {
+    min-width: 190px;
+    max-width: 240px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line-strong);
+    background: var(--pv-hull);
+    color: var(--pv-text);
+    box-shadow: var(--pv-shadow);
+    font: 400 13px/18px var(--pv-font-ui);
+}
+html.public-voyage-page .pv-popup__name {
+    font: 600 14px/18px var(--pv-font-ui);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-popup__fresh {
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pv-idle);
+}
+html.public-voyage-page .pv-popup__fresh[data-fresh='true'] {
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-popup__type {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-popup__grid dt {
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-popup__grid dd {
+    text-align: right;
+    color: var(--pv-ivory);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── 7. Side panel, switch, fold rail, phone tab bar ──────────────── */
+html.public-voyage-page .pv-panel {
+    background: var(--pv-console);
+    color: var(--pv-text);
+}
+@media (min-width: 1024px) {
+    html.public-voyage-page .pv-panel {
+        border-left: 1px solid var(--pv-line);
+        box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+    }
+}
+html.public-voyage-page .pv-fold {
+    border: 0;
+    border-right: 1px solid var(--pv-line);
+    background: var(--pv-console);
+    color: var(--pv-meta);
+    cursor: pointer;
+    transition:
+        background-color 0.15s,
+        color 0.15s;
+}
+html.public-voyage-page .pv-fold:hover {
+    background: var(--pv-hull-2);
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-fold__label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: var(--pv-track-eyebrow);
+    text-transform: uppercase;
+}
+html.public-voyage-page .pv-switch-wrap {
+    border-bottom: 1px solid var(--pv-line);
+    background: var(--pv-console);
+}
+html.public-voyage-page .pv-switch {
+    border-radius: var(--pv-r);
+    border: 1px solid var(--pv-line);
+    background: var(--pv-ink);
+}
+html.public-voyage-page .pv-switch__btn {
+    border: 0;
+    border-radius: var(--pv-r-sm);
+    background: transparent;
+    color: var(--pv-meta);
+    font: 600 14px/20px var(--pv-font-ui);
+    cursor: pointer;
+    transition:
+        background-color 0.15s,
+        color 0.15s;
+}
+html.public-voyage-page .pv-switch__btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-switch__btn[aria-pressed='true'] {
+    background: var(--pv-sea-sel);
+    color: var(--pv-sea);
+    box-shadow: inset 0 -2px 0 var(--pv-sea);
+}
+html.public-voyage-page .pv-switch__btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+html.public-voyage-page .pv-tabbar {
+    background: rgba(8, 13, 26, 0.96);
+    border-top: 1px solid var(--pv-line);
+    box-shadow: inset 0 1px 0 var(--pv-spec);
+}
+html.public-voyage-page .pv-tab {
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--pv-meta);
+    font: 600 13px/16px var(--pv-font-ui);
+    cursor: pointer;
+}
+html.public-voyage-page .pv-tab:hover:not(:disabled) {
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-tab[aria-pressed='true'] {
+    background: var(--pv-sea-tint);
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-tab[aria-pressed='true']::before {
+    content: '';
+    position: absolute;
+    top: -7px;
+    left: 50%;
+    width: 28px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    transform: translateX(-50%);
+    background: var(--pv-sea);
+    box-shadow: 0 0 10px var(--pv-sea-glow);
+}
+html.public-voyage-page .pv-tab:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ── 8. Diary: chapter head, dispatch cards, empty chapter ─────────── */
+html.public-voyage-page .pv-scroll {
+    background: var(--pv-console);
+}
+html.public-voyage-page .pv-scroll:focus-visible {
+    outline: 2px solid var(--pv-sea);
+    outline-offset: -2px;
+}
+html.public-voyage-page .pv-chapter {
+    padding: 16px 16px 14px;
+    border-bottom: 1px solid var(--pv-line);
+    background: linear-gradient(180deg, rgba(94, 234, 212, 0.06), transparent 70%);
+}
+html.public-voyage-page .pv-chapter__title {
+    font: 600 var(--pv-fs-title) / 28px var(--pv-font-display);
+    letter-spacing: -0.01em;
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-chapter__meta {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-chapter__loading {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-chapter__note {
+    padding: 8px 8px 8px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line);
+    background: rgba(255, 255, 255, 0.03);
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-feed {
+    padding: 12px;
+    transition: opacity 0.2s;
+}
+html.public-voyage-page .pv-feed[aria-busy='true'] {
+    opacity: 0.45;
+    pointer-events: none;
+}
+html.public-voyage-page .pv-entry {
+    width: 100%;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid var(--pv-line);
+    background: var(--pv-hull);
+    color: var(--pv-text);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        background-color 0.15s,
+        transform 0.15s;
+}
+html.public-voyage-page .pv-entry:hover {
+    border-color: rgba(245, 194, 107, 0.45);
+    background: var(--pv-hull-2);
+}
+html.public-voyage-page .pv-entry:active {
+    transform: scale(0.995);
+}
+html.public-voyage-page .pv-entry__media {
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: var(--pv-ink);
+}
+html.public-voyage-page .pv-entry__media img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+html.public-voyage-page .pv-entry__body {
+    padding: 12px 14px 14px;
+}
+html.public-voyage-page .pv-entry__title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font: 600 var(--pv-fs-lead) / 26px var(--pv-font-display);
+    letter-spacing: -0.005em;
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-entry__excerpt {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    font-size: var(--pv-fs-body);
+    line-height: 22px;
+    color: var(--pv-text);
+    white-space: normal;
+}
+html.public-voyage-page .pv-entry__meta {
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-empty {
+    padding: 24px 20px;
+    border-radius: var(--pv-r-lg);
+    border: 1px dashed rgba(94, 234, 212, 0.28);
+    background: radial-gradient(120% 80% at 50% 0%, rgba(94, 234, 212, 0.08), transparent 60%), var(--pv-hull);
+}
+html.public-voyage-page .pv-empty__art {
+    width: 120px;
+    height: 56px;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-empty__title {
+    font: 600 var(--pv-fs-lead) / 26px var(--pv-font-display);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-empty__body {
+    max-width: 36ch;
+    font-size: var(--pv-fs-body);
+    line-height: 22px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-colophon {
+    padding: 16px;
+    border-top: 1px solid var(--pv-line);
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+    color: var(--pv-faint);
+}
+
+/* ── 9. Entry detail ───────────────────────────────────────────────── */
+html.public-voyage-page .pv-detail-bar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--pv-line);
+    background: rgba(13, 21, 38, 0.92);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+}
+html.public-voyage-page .pv-back {
+    min-height: 44px;
+    padding: 0 14px 0 8px;
+    border-radius: var(--pv-r-pill);
+    border: 1px solid var(--pv-line-strong);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--pv-ivory);
+    font: 600 14px/20px var(--pv-font-ui);
+    cursor: pointer;
+}
+html.public-voyage-page .pv-back:hover {
+    border-color: rgba(94, 234, 212, 0.45);
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-back svg {
+    width: 20px;
+    height: 20px;
+}
+html.public-voyage-page .pv-article {
+    padding: 16px 16px 8px;
+}
+html.public-voyage-page .pv-article__title {
+    font: 600 var(--pv-fs-article) / 34px var(--pv-font-display);
+    letter-spacing: -0.015em;
+    color: var(--pv-ivory);
+}
+@media (min-width: 1024px) {
+    html.public-voyage-page .pv-article__title {
+        font-size: 30px;
+        line-height: 36px;
+    }
+}
+html.public-voyage-page .pv-byline {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-mood {
+    font-weight: 600;
+}
+html.public-voyage-page .pv-lead-media {
+    margin: 0 -16px;
+    width: calc(100% + 32px);
+    padding: 0;
+    border: 0;
+    background: var(--pv-ink);
+    cursor: zoom-in;
+}
+html.public-voyage-page .pv-lead-media img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+}
+html.public-voyage-page .pv-video {
+    margin: 0 -16px;
+    width: calc(100% + 32px);
+}
+html.public-voyage-page .pv-video__label {
+    padding: 0 16px 6px;
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: var(--pv-track-kicker);
+    text-transform: uppercase;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-video video {
+    aspect-ratio: 16 / 9;
+    background: radial-gradient(circle at 50% 45%, var(--pv-hull-2) 0%, #070c16 70%);
+}
+html.public-voyage-page .pv-pending {
+    padding: 16px;
+    border-radius: var(--pv-r);
+    border: 1px solid var(--pv-line);
+    background: var(--pv-hull);
+    font-size: var(--pv-fs-body);
+    line-height: 22px;
+    color: var(--pv-text);
+    text-align: center;
+}
+html.public-voyage-page .pv-pending svg {
+    width: 28px;
+    height: 28px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-article__body {
+    max-width: 65ch;
+    font-size: var(--pv-fs-read);
+    line-height: 1.6;
+    color: var(--pv-text);
+    white-space: pre-line;
+}
+html.public-voyage-page .pv-photo {
+    padding: 0;
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line);
+    background: var(--pv-ink);
+    cursor: zoom-in;
+}
+html.public-voyage-page .pv-photo img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s;
+}
+html.public-voyage-page .pv-photo:hover img {
+    transform: scale(1.03);
+}
+html.public-voyage-page .pv-weather {
+    padding-top: 12px;
+    border-top: 1px solid var(--pv-line);
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+
+/* ── 10. Guest comments ────────────────────────────────────────────── */
+html.public-voyage-page .pv-comments {
+    padding-top: 20px;
+    border-top: 1px solid var(--pv-line);
+}
+html.public-voyage-page .pv-comments__title {
+    font: 600 18px/24px var(--pv-font-display);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-comments__intro,
+html.public-voyage-page .pv-form-note {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-comment {
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line);
+    background: rgba(255, 255, 255, 0.03);
+}
+html.public-voyage-page .pv-comment strong {
+    font-size: var(--pv-fs-ui);
+    color: var(--pv-brass);
+    overflow-wrap: anywhere;
+}
+html.public-voyage-page .pv-comment p {
+    font-size: var(--pv-fs-body);
+    line-height: 22px;
+    color: var(--pv-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+html.public-voyage-page .pv-field {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line-strong);
+    background: var(--pv-ink);
+    color: var(--pv-ivory);
+    font: 400 16px/22px var(--pv-font-ui);
+}
+html.public-voyage-page textarea.pv-input {
+    min-height: 96px;
+    resize: vertical;
+}
+html.public-voyage-page .pv-input:focus {
+    outline: none;
+    border-color: var(--pv-sea);
+    box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.25);
+}
+html.public-voyage-page .pv-input:disabled {
+    opacity: 0.6;
+}
+html.public-voyage-page .pv-form-error {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-warn);
+}
+html.public-voyage-page .pv-form-ok {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-sea);
+}
+
+/* ── 11. Instruments console ───────────────────────────────────────── */
+html.public-voyage-page .pv-console {
+    padding: 16px;
+    border-bottom: 1px solid var(--pv-line);
+    background: radial-gradient(140% 90% at 0% 0%, rgba(94, 234, 212, 0.08), transparent 55%), var(--pv-console);
+}
+html.public-voyage-page .pv-console__title {
+    font: 600 var(--pv-fs-title) / 28px var(--pv-font-display);
+    letter-spacing: -0.01em;
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-console__source {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-console__body {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-now-line {
+    font: 600 var(--pv-fs-lead) / 26px var(--pv-font-display);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-readout {
+    min-width: 0;
+    padding: 10px 12px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 197, 255, 0.12);
+    background: var(--pv-tile);
+    box-shadow: inset 0 1px 0 var(--pv-spec);
+}
+html.public-voyage-page .pv-readout__label {
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-readout__value {
+    padding-top: 4px;
+    font: 600 var(--pv-fs-value) / 32px var(--pv-font-ui);
+    letter-spacing: -0.02em;
+    color: var(--pv-ivory);
+    text-shadow: 0 0 18px rgba(94, 234, 212, 0.22);
+    font-variant-numeric: tabular-nums lining-nums;
+    overflow-wrap: normal;
+}
+html.public-voyage-page .pv-readout__unit {
+    margin-left: 4px;
+    font-size: var(--pv-fs-ui);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--pv-sea);
+    text-shadow: none;
+}
+html.public-voyage-page .pv-readout__unit[data-tight] {
+    margin-left: 1px;
+}
+html.public-voyage-page .pv-readout__status {
+    font-size: 16px;
+    line-height: 22px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--pv-meta);
+    text-shadow: none;
+}
+html.public-voyage-page .pv-more {
+    font: 600 15px/20px var(--pv-font-ui);
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-more-panel {
+    border-top: 1px solid var(--pv-line);
+}
+html.public-voyage-page .pv-disclaimer {
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+    color: var(--pv-faint);
+}
+html.public-voyage-page .pv-notice {
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line);
+    background: rgba(255, 255, 255, 0.03);
+    font-size: var(--pv-fs-body);
+    line-height: 22px;
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-notice--warn {
+    border-color: rgba(252, 211, 77, 0.3);
+    background: var(--pv-warn-tint);
+    color: var(--pv-warn);
+}
+html.public-voyage-page .pv-notice__sub {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-notice--warn .pv-notice__sub {
+    color: var(--pv-warn-soft);
+}
+/* The dial well: the app's grey gauge reads as hardware set into a console */
+html.public-voyage-page .pv-well {
+    padding: 12px;
+    border-radius: 20px;
+    border: 1px solid rgba(94, 234, 212, 0.14);
+    background: radial-gradient(circle at 50% 42%, var(--pv-well-inner) 0%, var(--pv-well-outer) 78%);
+    box-shadow:
+        inset 0 2px 14px rgba(0, 0, 0, 0.65),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+html.public-voyage-page .pv-modes {
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid var(--pv-line-strong);
+    background: rgba(255, 255, 255, 0.02);
+}
+html.public-voyage-page .pv-mode {
+    min-height: 44px;
+    padding: 6px 4px;
+    border: 0;
+    border-right: 1px solid var(--pv-line);
+    border-bottom: 1px solid var(--pv-line);
+    background: transparent;
+    color: var(--pv-text);
+    font: 600 13px/16px var(--pv-font-ui);
+    cursor: pointer;
+    transition:
+        background-color 0.15s,
+        color 0.15s;
+}
+html.public-voyage-page .pv-mode:nth-child(4n) {
+    border-right: 0;
+}
+html.public-voyage-page .pv-mode:nth-child(n + 5) {
+    border-bottom: 0;
+}
+html.public-voyage-page .pv-mode:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-mode[aria-pressed='true'] {
+    background: var(--pv-sea-sel);
+    color: var(--pv-sea);
+    box-shadow: inset 0 -2px 0 var(--pv-sea);
+}
+html.public-voyage-page .pv-dial-title {
+    text-align: center;
+    font: 600 13px/16px var(--pv-font-ui);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-dial-note {
+    text-align: center;
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-dial-figure {
+    font: 600 20px/26px var(--pv-font-ui);
+    color: var(--pv-ivory);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-dial-figure[data-accent] {
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-tendency {
+    text-align: center;
+    font-weight: 600;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-tendency[data-severity='watch'] {
+    color: var(--pv-warn);
+}
+html.public-voyage-page .pv-tendency[data-severity='warn'] {
+    color: var(--pv-alarm);
+}
+html.public-voyage-page .pv-bell-zone {
+    color: var(--pv-brass);
+}
+html.public-voyage-page .pv-watch {
+    font-size: var(--pv-fs-ui);
+    line-height: 20px;
+    color: var(--pv-meta);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-watch[data-active='true'] {
+    font-weight: 600;
+    color: var(--pv-brass);
+}
+
+/* ── 12. Photo lightbox ────────────────────────────────────────────── */
+html.public-voyage-page .pv-lightbox__count {
+    font: 600 14px/20px var(--pv-font-ui);
+    color: var(--pv-meta);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-lightbox__caption {
+    font-size: var(--pv-fs-body);
+    line-height: 22px;
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-lightbox__meta {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-lightbox__coords {
+    font-family: var(--pv-font-mono);
+}
+html.public-voyage-page .pv-lightbox__dot {
+    width: 6px;
+    background: rgba(255, 255, 255, 0.3);
+}
+html.public-voyage-page button:not([aria-current='true']):hover > .pv-lightbox__dot {
+    background: rgba(255, 255, 255, 0.55);
+}
+html.public-voyage-page [aria-current='true'] > .pv-lightbox__dot {
+    width: 24px;
+    background: var(--pv-sea);
+}
+
+/* ── 13. First load & error ────────────────────────────────────────── */
+html.public-voyage-page .pv-state {
+    background: var(--pv-ink);
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-graticule {
+    background-image:
+        linear-gradient(rgba(94, 234, 212, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(94, 234, 212, 0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+    background-position: center;
+}
+html.public-voyage-page .pv-state__title {
+    font: 600 24px/30px var(--pv-font-display);
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-state__text {
+    font-size: 16px;
+    line-height: 24px;
+    color: var(--pv-meta);
+}
+html.public-voyage-page .pv-state__icon {
+    width: 48px;
+    height: 48px;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-skel {
+    border-radius: 8px;
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.06) 0%,
+        rgba(255, 255, 255, 0.12) 50%,
+        rgba(255, 255, 255, 0.06) 100%
+    );
+    background-size: 200% 100%;
+    animation: pv-shimmer 1.4s ease-in-out infinite;
+}
+html.public-voyage-page .pv-skel--title {
+    height: 28px;
+    width: 62%;
+}
+html.public-voyage-page .pv-skel--line {
+    height: 14px;
+    width: 80%;
+}
+html.public-voyage-page .pv-skel--chip {
+    height: 52px;
+    width: 100%;
+    border-radius: var(--pv-r);
+}
+
+/* ── 14. Motion ────────────────────────────────────────────────────── */
+@keyframes pv-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+@keyframes pv-breathe {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 3px rgba(94, 234, 212, 0.16),
+            0 0 8px rgba(45, 212, 191, 0.38);
+    }
+    50% {
+        box-shadow:
+            0 0 0 5px rgba(94, 234, 212, 0.06),
+            0 0 14px rgba(45, 212, 191, 0.38);
+    }
+}
+@keyframes pv-ping {
+    0% {
+        transform: scale(1);
+        opacity: 0.7;
+    }
+    80%,
+    100% {
+        transform: scale(2.2);
+        opacity: 0;
+    }
+}
+@keyframes pv-shimmer {
+    0% {
+        background-position: 100% 0;
+    }
+    100% {
+        background-position: -100% 0;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    html.public-voyage-page .pv-dot,
+    html.public-voyage-page .pv-pin-halo,
+    html.public-voyage-page .pv-skel,
+    html.public-voyage-page .pv-spinner {
+        animation: none !important;
+    }
+    html.public-voyage-page .pv-ownship__ring::after {
+        animation: none !important;
+    }
+    html.public-voyage-page :is(.pv-rail, .pv-expand, .pv-map-notes, .pv-entry, .pv-feed, .pv-photo img) {
+        transition: none !important;
+    }
+}
