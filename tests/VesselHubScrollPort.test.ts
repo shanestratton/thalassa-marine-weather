@@ -47,7 +47,9 @@ describe('Vessel page scroll port', () => {
         expect(opening).toContain('pt-2');
         expect(opening).toContain("scrollPaddingTop: '0.5rem'");
         expect(opening).toContain('pb-4');
-        expect(opening).toContain("scrollPaddingBottom: '1rem'");
+        // The last group's mb-4 plus pb-4: the lower resting point is the
+        // true bottom, not a second one 16 pt short of it.
+        expect(opening).toContain("scrollPaddingBottom: '2rem'");
         expect(opening).toContain("overscrollBehaviorY: 'contain'");
         expect(opening).not.toContain('mandatory');
     });
@@ -77,9 +79,12 @@ describe('Vessel page scroll port', () => {
         expect(groupHeader).toBeGreaterThan(0);
         const groupStart = port.lastIndexOf('<div', groupHeader);
         const opening = port.slice(groupStart, port.indexOf('>', groupStart) + 1);
-        // The end snap exists only while the group is open, so a collapsed
-        // pane a few points short never rests just below home.
-        expect(opening).toContain("scrollSnapAlign: expanded.has('setup') ? 'end' : 'none'");
+        // The end snap exists while the group is open, and closed only when
+        // the page has real room to scroll, so a collapsed pane a few points
+        // short never rests just below home.
+        expect(opening).toContain("scrollSnapAlign: expanded.has('setup') || portRoomy ? 'end' : 'none'");
+        expect(hub).toMatch(/const END_REST_MIN_SCROLL = 48;/);
+        expect(hub).toContain('port.scrollHeight - port.clientHeight >= END_REST_MIN_SCROLL');
         // The existing bottom margin leaves reading room without extending
         // the snap area. Adding another scroll margin would make a tiny
         // collapsed overflow a second resting point just below home.

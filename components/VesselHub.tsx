@@ -148,6 +148,11 @@ const SAFETY_CONTROL_CARD = {
         'inset 0 1px 0 rgba(167, 243, 208, 0.22), 0 0 0 1px rgba(16, 185, 129, 0.10), 0 8px 22px rgba(16, 185, 129, 0.12)',
 } as React.CSSProperties;
 
+/** Scroll room (pt) before a closed page gets a resting point at its end: twice
+ *  the 24 pt a return gesture can leave the first row under the deck, so the
+ *  end never sits nearer that gesture than home does. */
+const END_REST_MIN_SCROLL = 48;
+
 /** Whether Connections & music was left open — a per-device view preference. */
 const CONNECTIONS_OPEN_KEY = 'thalassa_vessel_connections_open';
 
@@ -374,6 +379,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         setPortScrolled(event.currentTarget.scrollTop > 1);
     }, []);
     const hubPortFade = portScrolled ? HUB_PORT_FADE_BOTH : HUB_PORT_FADE_BOTTOM;
+
+    // Whether the port scrolls far enough for the page end to be a resting
+    // point of its own (see the Connections & music group). Since the run-8
+    // spacing, a 390x650 pane overflows by ~90 pt with the group closed; with
+    // home as the only snap target, scrolling part-way to the group's header
+    // pulled it straight back under the fold.
+    const portRef = useRef<HTMLDivElement>(null);
+    const [portRoomy, setPortRoomy] = useState(false);
+    useEffect(() => {
+        const port = portRef.current;
+        if (!port || typeof ResizeObserver === 'undefined') return;
+        const measure = () => setPortRoomy(port.scrollHeight - port.clientHeight >= END_REST_MIN_SCROLL);
+        const observer = new ResizeObserver(measure);
+        observer.observe(port);
+        for (const child of Array.from(port.children)) observer.observe(child);
+        measure();
+        return () => observer.disconnect();
+        // Boat Binder replaces the whole page, so the port remounts on return.
+    }, [expanded, binderOpen]);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');
@@ -1183,6 +1207,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 music header sat wholly under the fold, over a blank band, so
                 the page read as finished. It now shows in the bottom fade. */}
             <div
+                ref={portRef}
                 className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in ${hubPortFade}`}
                 // The ROOT already ends 8px above the tab bar, so this port's own
                 // bottom padding must not repeat that: with the tab-bar calc here
@@ -1198,7 +1223,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     // Match pt-2 so the first row rests at scrollTop 0,
                     // not one padding-width under the operational deck.
                     scrollPaddingTop: '0.5rem',
-                    scrollPaddingBottom: '1rem',
+                    // The last group's mb-4 plus the port's pb-4, so the lower
+                    // resting point is the true bottom of the page, not a
+                    // second one 16 pt short of it.
+                    scrollPaddingBottom: '2rem',
                 }}
                 onScroll={handlePortScroll}
             >
@@ -1418,11 +1446,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* id stays 'setup'.                            */}
                 {/* ═══════════════════════════════════════════ */}
                 {/* A lower resting point lets Safari reach these controls
-                    instead of pulling every scroll back to the first row —
-                    only while the group is open. Collapsed, a pane a few
-                    points too short (768x768) made that end snap a second
-                    resting point just below home. */}
-                <div className="mb-4" style={{ scrollSnapAlign: expanded.has('setup') ? 'end' : 'none' }}>
+                    instead of pulling every scroll back to the first row.
+                    Always while the group is open; closed, only when the page
+                    has real room to scroll (portRoomy) — a pane a few points
+                    too short (768x768) made that end snap a second resting
+                    point just below home. */}
+                <div className="mb-4" style={{ scrollSnapAlign: expanded.has('setup') || portRoomy ? 'end' : 'none' }}>
                     <SectionHeader
                         label="Connections & music"
                         id="setup"

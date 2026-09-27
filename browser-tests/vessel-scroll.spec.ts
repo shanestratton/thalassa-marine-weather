@@ -27,6 +27,15 @@ async function contained(element: Locator, port: Locator) {
     return !!inner && !!outer && inner.y >= outer.y - 1 && inner.y + inner.height <= outer.y + outer.height + 1;
 }
 
+// Where a return gesture lets go: 24 pt short of home, the first row still
+// partly under the deck — but always nearer home than the page's lower resting
+// point, which is the true bottom. Since the run-8 spacing, 430x932 with
+// Connections & music open scrolls only ~33 pt, so a fixed 24 pt was a release
+// beside the bottom, not a return.
+function returnTop(max: number) {
+    return Math.max(0, Math.min(24, Math.floor(max / 2) - 1));
+}
+
 async function waitForSettledScroll(port: Locator) {
     let previousTop = Number.NaN;
     let stableReadings = 0;
@@ -106,7 +115,7 @@ for (const size of [
 
         // Model the end of a return gesture with the first row still partly
         // beneath the fixed deck. The resting position must be exactly home.
-        await port.evaluate((el) => el.scrollTo({ top: 24, behavior: 'instant' }));
+        await port.evaluate((el, top) => el.scrollTo({ top, behavior: 'instant' }), returnTop(before.max));
         await expect.poll(async () => Math.abs((await geometry(port)).top)).toBeLessThanOrEqual(1);
         const portRect = await port.boundingBox();
         for (const tile of [diary, chat]) {
@@ -191,7 +200,8 @@ for (const size of [
         expect(lastRowRect!.y + lastRowRect!.height).toBeLessThanOrEqual(bottomPort!.y + bottomPort!.height + 1);
         expect(await deck.boundingBox()).toEqual(initialDeck);
 
-        await port.evaluate((el) => el.scrollTo({ top: 24, behavior: 'instant' }));
+        const expandedMax = (await geometry(port)).max;
+        await port.evaluate((el, top) => el.scrollTo({ top, behavior: 'instant' }), returnTop(expandedMax));
         await expect.poll(async () => Math.abs((await geometry(port)).top)).toBeLessThanOrEqual(1);
         await expect(diary).toBeVisible();
         await expect(chat).toBeVisible();
