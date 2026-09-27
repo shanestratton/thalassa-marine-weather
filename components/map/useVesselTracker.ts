@@ -257,6 +257,73 @@ function applyGpsAgeTier(el: HTMLDivElement, tier: GpsAgeTier, chipText: string 
     chip.style.borderColor = tier === 'lost' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(245, 158, 11, 0.5)';
 }
 
+// ── Own-ship footprint: a label-collision obstacle ──
+//
+// The marker is a DOM element, and Mapbox's label placement cannot see DOM,
+// so at a marina the town's place label was drawn straight through the dot
+// and its chip: "Gla◯to Stopped" (UX scorecard run 8). An invisible symbol at
+// the fix, sized to the dot plus the chip beside it, is placed first (it sits
+// above the basemap's label layers) and takes that box in the collision
+// index, so a place label that would run under the boat is dropped or moved
+// instead. Nothing is drawn: the image is fully transparent.
+const OBSTACLE_SOURCE = 'vessel-ownship-obstacle';
+const OBSTACLE_LAYER = 'vessel-ownship-obstacle-symbol';
+const OBSTACLE_IMAGE = 'vessel-ownship-obstacle';
+/** From the glow's left edge to the end of a typical chip ('Last fix 46 s'). */
+const OBSTACLE_LEFT_PX = GLOW_DIAMETER_PX / 2 + 2;
+const OBSTACLE_WIDTH_PX = OBSTACLE_LEFT_PX + BADGE_OFFSET_PX + 112;
+const OBSTACLE_HEIGHT_PX = 28;
+
+export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] | null, onlyIfMissing = false): void {
+    try {
+        // A map (or a test double) without an image registry has no symbol
+        // placement to protect.
+        if (typeof map.addImage !== 'function' || typeof map.hasImage !== 'function') return;
+        if (!lngLat) {
+            if (map.getLayer(OBSTACLE_LAYER)) map.removeLayer(OBSTACLE_LAYER);
+            if (map.getSource(OBSTACLE_SOURCE)) map.removeSource(OBSTACLE_SOURCE);
+            return;
+        }
+        if (!map.hasImage(OBSTACLE_IMAGE)) {
+            map.addImage(OBSTACLE_IMAGE, {
+                width: OBSTACLE_WIDTH_PX,
+                height: OBSTACLE_HEIGHT_PX,
+                data: new Uint8Array(OBSTACLE_WIDTH_PX * OBSTACLE_HEIGHT_PX * 4),
+            });
+        }
+        const data: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: lngLat } }],
+        };
+        const source = map.getSource(OBSTACLE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
+        if (source && onlyIfMissing && map.getLayer(OBSTACLE_LAYER)) return;
+        if (source) source.setData(data);
+        else map.addSource(OBSTACLE_SOURCE, { type: 'geojson', data });
+        if (!map.getLayer(OBSTACLE_LAYER)) {
+            map.addLayer({
+                id: OBSTACLE_LAYER,
+                type: 'symbol',
+                source: OBSTACLE_SOURCE,
+                layout: {
+                    'icon-image': OBSTACLE_IMAGE,
+                    // The chip sits to the right of the dot, so the box does
+                    // too: its left edge just past the glow, left of the fix.
+                    'icon-anchor': 'left',
+                    'icon-offset': [-OBSTACLE_LEFT_PX, 0],
+                    // Always placed, and always in the collision index.
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': false,
+                    // The marker turns and tilts with the map; so does its box.
+                    'icon-rotation-alignment': 'map',
+                    'icon-pitch-alignment': 'map',
+                },
+            });
+        }
+    } catch {
+        // Mid style swap: the next fix, or the staleness tick, puts it back.
+    }
+}
+
 // ── Trail layer setup ──
 
 function ensureTrailLayers(map: mapboxgl.Map) {
@@ -532,6 +599,8 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             } else {
                 markerRef.current.setLngLat([longitude, latitude]);
             }
+            // The footprint moves with the marker, so place labels step aside.
+            syncOwnshipObstacle(map, [longitude, latitude]);
             // A quiet tell for anyone debugging which truth the arrow is on.
             if (elementRef.current) elementRef.current.dataset.source = viaVessel ? 'vessel' : 'phone';
 
@@ -626,6 +695,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             if (map) {
                 removeTrailLayers(map);
                 removeSwingLayers(map);
+                syncOwnshipObstacle(map, null);
             }
             // Keep trail coords in memory so they reappear on re-toggle
             return;
@@ -724,6 +794,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             if (!elementRef.current || !lastMarkerPositionRef.current) return;
             updateStatusBadge();
             updateDirection();
+            // A base-map swap wipes custom layers; with no new fix arriving,
+            // this is what puts the label obstacle back under the marker.
+            const { latitude, longitude } = lastMarkerPositionRef.current.position;
+            if (map) syncOwnshipObstacle(map, [longitude, latitude], true);
         }, 1000);
 
         return () => {
@@ -742,6 +816,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             if (map) {
                 removeTrailLayers(map);
                 removeSwingLayers(map);
+                syncOwnshipObstacle(map, null);
             }
         };
     }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, mapRef]);

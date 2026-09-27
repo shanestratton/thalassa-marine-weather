@@ -28,11 +28,11 @@ describe('Skipper Device card while the Pi is primary', () => {
 
     it('says nothing about this device, reads "The Pi is the Primary Device", and keeps its height', () => {
         render(<SkipperDeviceControl claim={null} authenticatedUserId="skipper-user" updateSettings={vi.fn()} />);
-        expect(screen.queryByText('This device')).toBeNull();
+        expect(screen.queryByText(/this phone/i)).toBeNull();
         expect(screen.queryByText('Boat GPS')).toBeNull();
         expect(screen.queryByTestId('skipper-device-gps-source')).toBeNull();
         expect(screen.getByTestId('skipper-device-pi-primary')).toHaveTextContent('The Pi is the Primary Device');
         expect(screen.queryByRole('button', { name: /primary/i })).toBeNull();
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
     });
 });

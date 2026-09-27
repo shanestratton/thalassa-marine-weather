@@ -164,7 +164,7 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
                                 dominantBaseline="middle"
                                 fill="#e2e8f0"
                                 fillOpacity={dead ? 0.3 : 0.85}
-                                fontSize="10"
+                                fontSize="12"
                                 fontWeight="800"
                                 fontFamily="ui-monospace, monospace"
                             >
@@ -205,10 +205,10 @@ export const RudderGauge: React.FC<RudderGaugeProps> = ({ angle, maxAngle = 40, 
                     x={CX}
                     y={CY - 74}
                     textAnchor="middle"
-                    fill={dead ? '#64748b' : needleColor}
-                    fontSize="10"
+                    fill={dead ? '#94a3b8' : needleColor}
+                    fontSize="12"
                     fontWeight="900"
-                    letterSpacing="2.5"
+                    letterSpacing="2"
                 >
                     {dead ? 'NO DATA' : side === 'port' ? 'PORT' : side === 'stbd' ? 'STARBOARD' : 'AMIDSHIPS'}
                 </text>

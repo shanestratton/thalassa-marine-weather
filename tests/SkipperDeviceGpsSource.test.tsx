@@ -61,7 +61,7 @@ describe('skipper device card — GPS source of truth', () => {
         getFeedStatus.mockReturnValue('unavailable');
         renderCard();
         expect(card()).not.toHaveTextContent('Boat GPS');
-        expect(card()).toHaveTextContent('This device');
+        expect(card()).toHaveTextContent('GPS: this phone');
     });
 
     it('notices the feed GOING AWAY, which emits no event', () => {
@@ -74,14 +74,14 @@ describe('skipper device card — GPS source of truth', () => {
             vi.advanceTimersByTime(2_100);
         });
         expect(card()).not.toHaveTextContent('Boat GPS');
-        expect(card()).toHaveTextContent('This device');
+        expect(card()).toHaveTextContent('GPS: this phone');
     });
 
     it('recovers to the boat GPS without a remount', () => {
         getFeedStatus.mockReturnValue('unavailable');
         renderCard();
         expect(card()).not.toHaveTextContent('Boat GPS');
-        expect(card()).toHaveTextContent('This device');
+        expect(card()).toHaveTextContent('GPS: this phone');
 
         getFeedStatus.mockReturnValue('live');
         act(() => {
@@ -95,6 +95,6 @@ describe('skipper device card — GPS source of truth', () => {
         // card cannot grow — a new row would push the claim button out.
         getFeedStatus.mockReturnValue('live');
         renderCard();
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
     });
 });

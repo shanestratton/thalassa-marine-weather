@@ -293,16 +293,35 @@ describe('AnchorWatchPage', () => {
         );
     });
 
-    it("prints the strip ratio with the dial's one decimal, and says arming waits for GPS (UX scorecard run 7)", () => {
+    it('sets the wind advice under the verdict, and says arming waits for GPS (UX scorecard runs 7 and 8)', () => {
         render(<AnchorWatchPage {...defaultProps} />);
 
-        // 30 m of rode in 5 m: the dial says 6.0:1, so the strip must too —
-        // a rounded 5:1 beside "Poor" at 4.6 contradicted its own word.
-        expect(screen.getByText('Adequate 6.0:1')).toBeInTheDocument();
+        // The advice sits with the dial's verdict, not in a strip the sticky
+        // arming bar covered. No current wind in this mock: '--', never 0, and
+        // the light-air scope still offered as a one-tap set (5 m x 5:1).
+        expect(screen.getByText('ADEQUATE')).toBeInTheDocument();
+        const advice = screen.getByRole('button', { name: /^Wind -- kts: 25 m for 5:1, set rode to 25 metres$/ });
+        fireEvent.click(advice);
+        expect(screen.getByText('25 m')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Wind -- kts: 5:1 set/ })).toBeInTheDocument();
         // No fix in the test environment: the bar says so before the slide,
         // and the name the tests and Voice Control use is unchanged.
         const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
         expect(arm).toHaveAccessibleDescription(/GPS/);
+    });
+
+    it('arms from a VoiceOver double-tap through the Sound Check, never from a finger tap (UX scorecard run 8)', async () => {
+        render(<AnchorWatchPage {...defaultProps} />);
+        const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+        expect(arm).toHaveAccessibleDescription(/Double-tap to arm/);
+
+        // A finger's tap on the track (detail 1) springs back: it must slide.
+        fireEvent.click(arm, { detail: 1 });
+        expect(screen.queryByRole('button', { name: 'Play test alarm' })).not.toBeInTheDocument();
+
+        // Assistive activation carries no pointer travel (detail 0).
+        fireEvent.click(arm, { detail: 0 });
+        expect(await screen.findByRole('button', { name: 'Play test alarm' })).toBeInTheDocument();
     });
 
     it('surfaces the exact actionable setup failure returned by the safety service', async () => {

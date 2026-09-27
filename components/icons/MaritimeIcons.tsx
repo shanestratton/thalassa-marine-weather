@@ -1,26 +1,5 @@
 import React from 'react';
 
-export const BoatIcon = ({ className }: { className?: string }) => (
-    <svg
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className={className}
-    >
-        <path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2Z" />
-        <path d="M10 14L2.3 6.3" />
-        <path d="m14 6 7.7 7.7" />
-        <path d="m8 6 8 8" />
-    </svg>
-);
-
 export const SailBoatIcon = ({ className }: { className?: string }) => (
     <svg
         aria-hidden="true"
@@ -42,6 +21,13 @@ export const SailBoatIcon = ({ className }: { className?: string }) => (
         <path d="M2 21h20" strokeOpacity="0.3" strokeDasharray="2 2" />
     </svg>
 );
+
+/**
+ * The boat, drawn as the sailboat the Vessel tab and the hub card wear. It
+ * was a rounded box with diagonal hatching, which read as a hazard or a
+ * 'closed' sign wherever a boat was meant (UX scorecard run 8).
+ */
+export const BoatIcon = ({ className }: { className?: string }) => <SailBoatIcon className={className} />;
 
 export const PowerBoatIcon = ({ className }: { className?: string }) => (
     <svg

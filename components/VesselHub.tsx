@@ -110,10 +110,14 @@ const HUB_ACCENT_CHIP = 'rgba(125, 211, 252, 0.12)';
 // The top fade runs 8px clear then 28px of ramp (UX scorecard run 7,
 // Y-hub-empty-tray-under-deck): at 14px the bottom edge of a card parked under
 // the deck, 2-11px into the port, stayed visible as an empty rounded tray.
+// 14px clear then an 18px ramp since run 8: in the long ramp a card title
+// 8-15px into the port still read through as a ghost under the pinned tiles
+// ("Serene Summer" showing through the gap), so the band under the deck is
+// now clear for longer and the fade itself short.
 const HUB_PORT_FADE_BOTTOM =
     '[-webkit-mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)]';
 const HUB_PORT_FADE_BOTH =
-    '[-webkit-mask-image:linear-gradient(to_bottom,transparent_8px,#000_36px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_8px,#000_36px,#000_calc(100%_-_14px),transparent)]';
+    '[-webkit-mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)]';
 import { BinderSubLabel, CollapsibleContent, ListDivider, OfficeRow } from './vesselHub/listRows';
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SectionHeader } from './vesselHub/SectionHeader';
@@ -143,6 +147,16 @@ const SAFETY_CONTROL_CARD = {
     boxShadow:
         'inset 0 1px 0 rgba(167, 243, 208, 0.22), 0 0 0 1px rgba(16, 185, 129, 0.10), 0 8px 22px rgba(16, 185, 129, 0.12)',
 } as React.CSSProperties;
+
+/** Whether Connections & music was left open — a per-device view preference. */
+const CONNECTIONS_OPEN_KEY = 'thalassa_vessel_connections_open';
+
+// The tiles' descriptors (MOB's "Overboard", Radio's "Position") in true
+// slate-400, set inline: the app-wide caption rule lifts .text-slate-400 to
+// slate-300, which sat 1.1:1 from the "Up" state word and read as one more
+// state (UX scorecard run 8). 7:1 on the tile still; daylight takes the muted
+// ink. The 9.5 px size is Shane's, and stays.
+const DESCRIPTOR_INK = 'var(--day-ui-muted, #94a3b8)';
 
 const ALERT_SAFETY_CONTROL_CARD = {
     ...SAFETY_CONTROL_CARD,
@@ -190,7 +204,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     //                   in 2 taps — had a one-row accordion of its own,
     //                   the 'atmosphere' section, until UX scorecard
     //                   run 7; Settings was this group's third row.)
-    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    //
+    // The group remembers how the skipper left it (UX scorecard run 8): a
+    // skipper aboard opened it on every visit to reach the NMEA Gateway. First
+    // visit, and any visit where storage is unavailable, it starts closed.
+    const [expanded, setExpanded] = useState<Set<string>>(() => {
+        try {
+            return localStorage.getItem(CONNECTIONS_OPEN_KEY) === '1' ? new Set(['setup']) : new Set();
+        } catch {
+            return new Set();
+        }
+    });
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
     const [binderOpen, setBinderOpen] = useState(() => {
         if (typeof window === 'undefined') return false;
@@ -357,6 +381,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
+            if (id === 'setup') {
+                try {
+                    localStorage.setItem(CONNECTIONS_OPEN_KEY, next.has(id) ? '1' : '0');
+                } catch {
+                    /* private mode: the group still toggles for this visit */
+                }
+            }
             return next;
         });
     };
@@ -975,7 +1006,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <span className="text-[11px] font-black leading-none tracking-wide text-white">
                                     MOB
                                 </span>
-                                <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
+                                <p
+                                    className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
+                                    style={{ color: DESCRIPTOR_INK }}
+                                >
                                     Overboard
                                 </p>
                             </button>
@@ -998,7 +1032,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <span className="text-[11px] font-black leading-none tracking-wide text-white">
                                     Radio
                                 </span>
-                                <p className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere] text-slate-400">
+                                <p
+                                    className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
+                                    style={{ color: DESCRIPTOR_INK }}
+                                >
                                     Position
                                 </p>
                             </button>
@@ -1139,8 +1176,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 the Settings & Connect header, right where the tab bar begins,
                 and read as "blocked by the menu" with nothing hinting it
                 scrolls. The vertical rhythm here (pt-2, pb-1 on the deck,
-                mb-3 rows, mb-4 headers) is sized so the whole page fits an
-                844pt phone without scrolling; smaller phones still scroll. */}
+                mb-2 rows, mb-4 headers) is sized so the whole page fits an
+                844pt phone without scrolling; smaller phones still scroll.
+                8 pt between cards, not 12, and the device card and rows 4-8 pt
+                tighter (UX scorecard run 8): at 375x667 the Connections &
+                music header sat wholly under the fold, over a blank band, so
+                the page read as finished. It now shows in the bottom fade. */}
             <div
                 className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in ${hubPortFade}`}
                 // The ROOT already ends 8px above the tab bar, so this port's own
@@ -1168,7 +1209,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     up" — Skipper Device, Passage Planning, Boat Binder — and
                     before the menu headers below them. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
-                <div className="relative mb-3" style={{ scrollSnapAlign: 'start' }}>
+                <div className="relative mb-2" style={{ scrollSnapAlign: 'start' }}>
                     {/* Screen-reader section heading for the two tiles, so they
                         do not read as part of the safety controls above. */}
                     <h2 className="sr-only">Journal and community</h2>
@@ -1176,7 +1217,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         the "Journal" and "Community" subtitles restated the
                         titles, and each wore its own hue (green, blue). The
                         tiles now take the hub's one accent and a single line,
-                        the same 58pt as the rows below, and the names are
+                        near the height of the rows below, and the names are
                         spans: a heading inside a button is flattened into the
                         button's name (UX scorecard run 7). */}
                     <div className="grid grid-cols-2 gap-3">
@@ -1188,7 +1229,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('diary');
                             }}
                             style={GLASS.card}
-                            className="flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
+                            className="flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
                             <span
                                 aria-hidden="true"
@@ -1214,7 +1255,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('chat');
                             }}
                             style={GLASS.card}
-                            className="flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
+                            className="flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
                             <span
                                 aria-hidden="true"
@@ -1255,7 +1296,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     to be inside Boat Binder, which made an operational voyage
                     workflow look like stored paperwork. Import GPX remains in
                     the Binder; planning the voyage belongs on the live hub. */}
-                <div className="mb-3" style={PASSAGE_PLANNING_GROUP}>
+                <div className="mb-2" style={PASSAGE_PLANNING_GROUP}>
                     {/* Named "Crew & Float Plan" from the app glossary (UX
                         scorecard run 6, W-glossary): "Passage Planning / Plan
                         your voyage" collided with the Plan tab's route planner. */}
@@ -1307,7 +1348,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     now, one anatomy with Crew & Float Plan above, and the
                     divider (not a 12pt gap) is what lets the Settings row peek
                     above the 375x667 fold. */}
-                <div className="mb-3" style={GLASS.listContainer}>
+                <div className="mb-2" style={GLASS.listContainer}>
                     <OfficeRow
                         icon={<BinderIcon color={HUB_ACCENT} />}
                         label="Boat Binder"
@@ -1614,17 +1655,20 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
             {/* The hub's own card surface (UX scorecard run 7,
                 C-vessel-seven-accents): the teal border it wore unclaimed was a
                 seventh accent on the screen. Emerald stays for the claim held,
-                which is a state. mb-3 like every other hub card. */}
+                which is a state. mb-2 like every other hub card. */}
             <div
                 data-testid="skipper-device-card"
-                className={`mb-3 h-[120px] overflow-hidden p-3 ${
+                className={`mb-2 h-[calc(7rem_+_2px)] overflow-hidden px-3 py-2 ${
                     claimHeld ? 'shadow-[0_0_22px_-10px_rgba(52,211,153,0.45)]' : ''
                 }`}
                 style={claimHeld ? { ...GLASS.card, border: '1px solid rgba(52, 211, 153, 0.35)' } : GLASS.card}
             >
                 {/* Shane 2026-09-06: the boat's name is the top line, the GPS
                     order is the next, the button says what pressing it does.
-                    Fixed h-[120px] with overflow-hidden (tests assert it), so
+                    Fixed at 7rem + 2px with overflow-hidden (tests assert it): in
+                    rem, like the rows inside it, so the fluid root (13-17 px) can
+                    never clip the button on a Plus phone; py-2 and 7rem, not p-3
+                    and 120 px, since UX scorecard run 8. So
                     every row has a fixed height and truncates, never wraps.
 
                     The top line carries no "PRIMARY DEVICE" label any more: in
@@ -1693,12 +1737,15 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                                     </span>
                                 </>
                             )}
+                            {/* A predicate, not a bare "This device" (UX scorecard
+                                run 8): alone, the chip says what it is the source
+                                of; after the Boat GPS pill the chain says it. */}
                             <span
                                 className={`rounded-full px-2 py-0.5 text-[12px] font-bold leading-none ${
                                     claimHeld ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-400/15 text-gray-300'
                                 }`}
                             >
-                                This device
+                                {vesselGpsLive ? 'This phone' : 'GPS: this phone'}
                             </span>
                         </span>
                     )}
@@ -1722,9 +1769,11 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                                   // and "Any phone can post" would drop the sign-in
                                   // a post needs, so the short form names the state
                                   // in the words of "Primary: this phone" instead.
+                                  // Post WHAT is said (UX scorecard run 8), in the
+                                  // width left beside "GPS: this phone" at 375 pt.
                                   vesselGpsLive
                                   ? 'No primary phone yet'
-                                  : 'Any signed-in phone can post'}
+                                  : 'Signed-in phones post position'}
                         </span>
                     )}
                     {!piPrimary && <p className="sr-only">{statusDescription}</p>}
@@ -1740,7 +1789,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     // The one sign-in control (ui/SignInButton), like Account &
                     // Cloud and Voyage Log. h-11 and text-sm (about 13 px on the
                     // fluid root at 375 pt) keep it on one line inside the
-                    // fixed 120 px card.
+                    // fixed-height card.
                     <SignInButton
                         fullWidth
                         label={actionLabel}

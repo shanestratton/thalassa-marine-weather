@@ -51,11 +51,14 @@ export const BookIcon: React.FC<{ color: string }> = ({ color }) => (
     </svg>
 );
 
+/** The lifebuoy the chart's MOB button wears (RadialHelmMenu), so one
+ *  emergency action has one glyph app-wide; the hub drew bare concentric
+ *  rings (UX scorecard run 8). */
 export const MobIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
         <circle cx="12" cy="12" r="9" />
-        <circle cx="12" cy="12" r="4.5" />
-        <circle cx="12" cy="12" r="1.5" fill={color} />
+        <circle cx="12" cy="12" r="4" />
+        <path strokeLinecap="round" d="M12 3v5M12 16v5M3 12h5M16 12h5" />
     </svg>
 );
 

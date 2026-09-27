@@ -146,11 +146,14 @@ describe('MapActionFabs locate feedback', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
         expect(screen.getByRole('button', { name: 'Locate me' })).toHaveAttribute('aria-busy', 'true');
         expect(screen.getByRole('status')).toHaveTextContent('Finding your position…');
+        // Said on screen as well, in the slot the failure takes (UX scorecard run 8).
+        expect(screen.getByText('Finding position…')).toBeInTheDocument();
         act(() => map.emit('movestart', { originalEvent: new Event('touchstart') }));
         expect(screen.getByRole('status')).toHaveTextContent('Finding your position…');
         act(() => {
             vi.advanceTimersByTime(11_000);
         });
+        expect(screen.queryByText('Finding position…')).not.toBeInTheDocument();
         expect(screen.getByText('No position fix')).toBeInTheDocument();
         expect(screen.getByRole('status')).toHaveTextContent('No position fix. The chart has not moved.');
         // A slow permission answer still lands, and clears the notice.

@@ -154,10 +154,14 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                             textAnchor="middle"
                             dominantBaseline="middle"
                             fill={band.color}
-                            fillOpacity={dead ? 0.25 : 0.75}
-                            fontSize="8"
+                            fillOpacity={dead ? 0.25 : 0.9}
+                            /* 12, the text floor: at 8 the legend was 8 px on
+                               a 300 px face (UX scorecard run 8). The arc between
+                               the band and the ticks is 24 units deep and every
+                               band name fits its own arc at this size. */
+                            fontSize="12"
                             fontWeight="800"
-                            letterSpacing="1.1"
+                            letterSpacing="0.8"
                             /* Tangential, but flipped through the lower half —
                                a label rotated by its own dial angle reads
                                upside down anywhere past the horizontal, which
@@ -201,7 +205,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                                 dominantBaseline="middle"
                                 fill="#e2e8f0"
                                 fillOpacity={dead ? 0.3 : 0.9}
-                                fontSize="11"
+                                fontSize="12"
                                 fontWeight="800"
                                 fontFamily="ui-monospace, monospace"
                             >
@@ -276,7 +280,7 @@ export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
                             y={CY + 46}
                             textAnchor="middle"
                             fill="#94a3b8"
-                            fontSize="8"
+                            fontSize="12"
                             fontWeight="800"
                             letterSpacing="2"
                         >

@@ -85,6 +85,9 @@ function renderHub() {
 afterEach(() => {
     cleanup();
     vessel.name = 'Serene Summer';
+    // The Connections & music group remembers how it was left (UX scorecard
+    // run 8), so each test starts from a first visit.
+    localStorage.removeItem('thalassa_vessel_connections_open');
 });
 
 describe('Vessel hub accessible structure', () => {
@@ -134,6 +137,21 @@ describe('Vessel hub accessible structure', () => {
         expect(within(panel!).getByRole('button', { name: 'NMEA Gateway' })).toBeInTheDocument();
         expect(within(panel!).getByRole('button', { name: 'Boat Network' })).toBeInTheDocument();
         expect(within(panel!).getByRole('button', { name: 'Music' })).toBeInTheDocument();
+    });
+
+    it('reopens Connections & music the way the skipper left it', () => {
+        renderHub();
+        fireEvent.click(screen.getByRole('button', { name: 'Connections & music', expanded: false }));
+        cleanup();
+
+        renderHub();
+        expect(screen.getByRole('button', { name: 'Connections & music', expanded: true })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'NMEA Gateway' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Connections & music', expanded: true }));
+        cleanup();
+
+        renderHub();
+        expect(screen.getByRole('button', { name: 'Connections & music', expanded: false })).toBeInTheDocument();
     });
 
     it('tells the two connection rows apart', () => {

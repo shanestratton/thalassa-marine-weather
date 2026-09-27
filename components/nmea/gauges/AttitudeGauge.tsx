@@ -56,7 +56,7 @@ export const AttitudeGauge: React.FC<{ angle: number | null; axis: 'heel' | 'pit
                                     y={p.y}
                                     textAnchor="middle"
                                     dominantBaseline="middle"
-                                    fontSize="11"
+                                    fontSize="12"
                                     fill="#cbd5e1"
                                     fontFamily="monospace"
                                 >
@@ -89,7 +89,15 @@ export const AttitudeGauge: React.FC<{ angle: number | null; axis: 'heel' | 'pit
                 >
                     {dead ? '--' : `${Math.abs(value).toFixed(1)}°`}
                 </text>
-                <text x="150" y="233" textAnchor="middle" fill={color} fontSize="11" fontWeight="800" letterSpacing="2">
+                <text
+                    x="150"
+                    y="233"
+                    textAnchor="middle"
+                    fill={dead ? '#94a3b8' : color}
+                    fontSize="12"
+                    fontWeight="800"
+                    letterSpacing="2"
+                >
                     {dead ? 'NO DATA' : side}
                 </text>
             </svg>

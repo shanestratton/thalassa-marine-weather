@@ -143,7 +143,18 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                     {announcement}
                 </span>
 
-                {/* Grows leftwards from the right-anchored row: Locate never moves. */}
+                {/* Grows leftwards from the right-anchored row: Locate never moves.
+                    The search is said on screen too, in the same slot the
+                    failure takes (UX scorecard run 8): it was a pulsing ring
+                    and a VoiceOver-only status, while the failure got words. */}
+                {locate === 'finding' && (
+                    <span
+                        aria-hidden="true"
+                        className="flex h-12 items-center whitespace-nowrap rounded-2xl border border-sky-400/40 bg-slate-900/90 px-3 text-[13px] font-bold text-sky-300 shadow-2xl backdrop-blur-xl"
+                    >
+                        Finding position…
+                    </span>
+                )}
                 {locate === 'no-fix' && (
                     <span
                         aria-hidden="true"

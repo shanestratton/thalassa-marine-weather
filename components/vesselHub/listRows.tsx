@@ -110,7 +110,7 @@ export const OfficeRow: React.FC<{
             aria-label={label}
             aria-describedby={value ? `${id}-status ${id}-value` : `${id}-status`}
             onClick={onClick}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all active:scale-[0.98] ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all active:scale-[0.98] ${
                 disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3'
             }`}
         >
