@@ -311,6 +311,14 @@ export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] 
                     'icon-anchor': 'left',
                     'icon-offset': [-OBSTACLE_LEFT_PX, 0],
                     // Always placed, and always in the collision index.
+                    // NOTE: inert against the base style's place names while
+                    // useMapInit sets crossSourceCollisions:false (smooth
+                    // panning, Shane 2026-07-14): Mapbox then collides each
+                    // source's symbols only with its own, so 'Gladstone' never
+                    // sees this box however the layers are ordered (UX
+                    // scorecard runs 8-10; layer raising was tried and backed
+                    // out). Clearing that label needs cross-source collisions
+                    // back on, which is Shane's call.
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': false,
                     // The marker turns and tilts with the map; so does its box.
@@ -318,46 +326,9 @@ export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] 
                     'icon-pitch-alignment': 'map',
                 },
             });
-            raiseOwnshipObstacle(map);
         }
     } catch {
         // Mid style swap: the next fix, or the staleness tick, puts it back.
-    }
-}
-
-/** The base style's own labels (Mapbox `composite`, MapTiler `openmaptiles`). */
-function isBasemapSymbolLayer(layer: { type?: string; source?: unknown }): boolean {
-    return layer.type === 'symbol' && (layer.source === 'composite' || layer.source === 'openmaptiles');
-}
-
-/**
- * Keep the obstacle directly above the base style's highest label layer.
- *
- * Mapbox places symbols top layer first, so the obstacle only takes its box
- * before a label that sits BELOW it. MapHub lifts the base style's town names
- * over the satellite imagery, to the very top of the stack when no ENC cells
- * are loaded, which put 'Gladstone' above the obstacle: placed first, drawn
- * straight through the dot and its chip ("Gla◯to Stopped", UX scorecard run 9,
- * still there after run 8's obstacle). App layers above it (AIS names, route
- * and waypoint labels) keep their priority; only the base style's labels step
- * aside. Conditional, like MapHub's own ordering pass: it moves nothing when
- * no base label is above the obstacle, so it cannot feed a styledata loop.
- */
-export function raiseOwnshipObstacle(map: mapboxgl.Map): void {
-    try {
-        if (typeof map.getStyle !== 'function' || typeof map.moveLayer !== 'function') return;
-        if (!map.getLayer(OBSTACLE_LAYER)) return;
-        const layers = map.getStyle()?.layers ?? [];
-        const own = layers.findIndex((layer) => layer.id === OBSTACLE_LAYER);
-        let topLabel = -1;
-        layers.forEach((layer, index) => {
-            if (isBasemapSymbolLayer(layer as { type?: string; source?: unknown })) topLabel = index;
-        });
-        if (own < 0 || topLabel < own) return;
-        // Just above that label; undefined (the top) when it is the last layer.
-        map.moveLayer(OBSTACLE_LAYER, layers[topLabel + 1]?.id);
-    } catch {
-        // Mid style swap: the next styledata pass tries again.
     }
 }
 
@@ -824,19 +795,6 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         const unsubShore = ShoreWatchAlarmService.subscribe(updateStatusBadge);
         paint();
 
-        // MapHub reorders the base labels on style changes (the satellite
-        // lift), so the obstacle is re-checked after them, coalesced: a burst
-        // of layer edits costs one style read, not one each.
-        let raiseTimer: number | null = null;
-        const onStyleData = () => {
-            if (raiseTimer !== null || !map) return;
-            raiseTimer = window.setTimeout(() => {
-                raiseTimer = null;
-                raiseOwnshipObstacle(map);
-            }, 250);
-        };
-        map?.on?.('styledata', onStyleData);
-
         // Staleness ticker — the only path that can grey the marker once
         // fixes STOP arriving (see lastFixAtRef comment). The badge update
         // applies the tier from the same fix state as its words.
@@ -852,8 +810,6 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
 
         return () => {
             window.clearInterval(staleTicker);
-            if (raiseTimer !== null) window.clearTimeout(raiseTimer);
-            map?.off?.('styledata', onStyleData);
             unsub?.();
             unsubNmea();
             unsubDirection();
