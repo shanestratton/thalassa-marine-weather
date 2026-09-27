@@ -123,9 +123,10 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         // no "Primary device" label stands in for a claim that does not exist.
         // Plain phone words, not "No primary device yet" (UX scorecard run 7).
         // No boat GPS here, so the row has room for the rule in full.
-        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^Any signed-in phone can post$/);
+        // Post WHAT, since UX scorecard run 8.
+        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^Signed-in phones post position$/);
         expect(screen.queryByText(/Claim one to make it the single source/i)).not.toBeInTheDocument();
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
         expect(screen.getByRole('button', { name: 'Make this phone primary' })).toHaveClass(
             'h-11',
             'whitespace-nowrap',
@@ -139,7 +140,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
         expect(screen.getByTestId('skipper-device-status')).toHaveTextContent('Primary: this phone');
         expect(screen.getByRole('button', { name: 'Release — stop being primary' })).toHaveClass(
             'h-11',
@@ -175,7 +176,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         expect(screen.queryByRole('button', { name: 'Make this phone primary' })).not.toBeInTheDocument();
         const signIn = screen.getByRole('button', { name: 'Sign in to make this phone primary' });
         expect(signIn).toHaveClass('h-11', 'whitespace-nowrap');
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
 
         fireEvent.click(signIn);
         expect(screen.getByRole('dialog', { name: 'Sign in to Thalassa' })).toBeInTheDocument();
@@ -199,9 +200,9 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         const vessel = screen.getByTestId('skipper-device-vessel');
         expect(vessel).toHaveTextContent('Serene Summer');
         expect(vessel).toHaveClass('truncate');
-        // Still shown alongside the claim badge, and still 120px tall.
-        expect(screen.getByText('This device')).toBeInTheDocument();
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        // Still shown alongside the claim badge, and still the same fixed height.
+        expect(screen.getByText('GPS: this phone')).toBeInTheDocument();
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
 
         rerender(
             <SkipperDeviceControl
@@ -211,11 +212,11 @@ describe('SkipperDeviceControl takeover confirmation', () => {
                 vesselName={'Extraordinarily Long Vessel Name That Would Wrap'}
             />,
         );
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
 
         // An unnamed vessel must not render an empty slot.
         rerender(<SkipperDeviceControl claim={null} authenticatedUserId="skipper-user" updateSettings={vi.fn()} />);
         expect(screen.queryByTestId('skipper-device-vessel')).not.toBeInTheDocument();
-        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
     });
 });

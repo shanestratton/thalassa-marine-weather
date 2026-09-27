@@ -466,7 +466,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         "iPhone GPS". A skipper with a receiver plugged in
                         needs to see whether the app is using it, and silence
                         is the one answer that helps nobody. */}
-                    <div className="shrink-0 mb-3 rounded-2xl border border-white/10 bg-white/3 p-4">
+                    {/* Tighter on short screens (max-height 700px): at 375x667
+                        the Connect button sat in the tab bar's fade and the
+                        Instrument Panel entry was wholly below the fold (UX
+                        scorecard run 8). Same for the connection card below. */}
+                    <div className="shrink-0 mb-3 rounded-2xl border border-white/10 bg-white/3 p-4 [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:p-3">
                         {/* h2: the page title is the h1, and each card here is a
                             section of it (UX referee A-heading-outline). */}
                         <h2 className="mb-2 text-xs font-black uppercase tracking-widest text-gray-400">
@@ -492,7 +496,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             </div>
                         </div>
                         {receiver.kind === 'phone' && (
-                            <p className="mt-2 text-xs leading-snug text-gray-400">
+                            <p className="mt-2 text-xs leading-snug text-gray-400 [@media(max-height:700px)]:mt-1.5">
                                 A plug-in or Bluetooth GPS made for iPhone (Bad Elf and similar) shows here once it
                                 supplies a fix. No setup needed.
                             </p>
@@ -501,7 +505,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
                     {/* ═══ CONNECTION CARD ═══ */}
                     <div
-                        className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
+                        className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:p-3 ${
                             isConnected
                                 ? 'bg-emerald-500/10 border-emerald-500/20'
                                 : piMode && storeLink.status === 'remote'
@@ -537,10 +541,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             </div>
                         )}
 
-                        {/* The next step, for the plain disconnected card. */}
+                        {/* The next step, for the plain disconnected card. One line
+                            at 375 pt: "check the gateway IP" wrapped "Connect."
+                            onto a second (UX scorecard run 8); the field below is
+                            the Host IP. */}
                         {!isConnected && !isConnecting && !hasFailed && !rolledUp && (
-                            <p className="mb-3 text-xs leading-snug text-gray-300">
-                                Join the boat&apos;s Wi-Fi, check the gateway IP, then Connect.
+                            <p className="mb-3 text-xs leading-snug text-gray-300 [@media(max-height:700px)]:mb-2">
+                                Join the boat&apos;s Wi-Fi, check the IP below, then Connect.
                             </p>
                         )}
 
@@ -617,7 +624,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         )}
 
                         {!isConnected && !isConnecting && !rolledUp && (
-                            <div className="space-y-3 mb-3">
+                            <div className="space-y-3 mb-3 [@media(max-height:700px)]:space-y-2 [@media(max-height:700px)]:mb-2">
                                 {/* Device preset selector */}
                                 <div>
                                     <label

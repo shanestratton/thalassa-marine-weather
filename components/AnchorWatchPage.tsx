@@ -36,17 +36,7 @@ import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
-import {
-    AnchorIcon,
-    AlertTriangleIcon,
-    CheckIcon,
-    DeviceIcon,
-    PhoneIcon,
-    PowerBoatIcon,
-    SunIcon,
-    WaveIcon,
-    WindIcon,
-} from './Icons';
+import { AnchorIcon, AlertTriangleIcon, CheckIcon, DeviceIcon, PhoneIcon, PowerBoatIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
@@ -97,6 +87,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // for a fix (UX scorecard run 7).
     const armWaitHint = fixWord === 'Ready' ? null : fixWord === 'Finding GPS…' ? 'Finding GPS…' : 'Waits for GPS';
     const armWaitHintId = useId();
+    const armTapHintId = useId();
     // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
     // tint that measured 4.55:1 (UX scorecard run 7).
     const fixTone =
@@ -789,12 +780,53 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // here would stack a second copy of the same critical portal.
     // ---- RENDER: SETUP (IDLE) — Instrument-Grade Dashboard ----
 
-    // Derived values for the scope quality indicator (used in context strip)
-    const scopeRatio = rodeLength / Math.max(waterDepth, 0.1);
-    const scopeQuality: 'excellent' | 'adequate' | 'poor' =
-        scopeRatio >= 7 ? 'excellent' : scopeRatio >= 5 ? 'adequate' : 'poor';
-
     if (viewMode === 'setup') {
+        // The wind advice, as the same one-tap target the strip under the
+        // sliders used to be, now set under the dial's verdict (UX scorecard
+        // run 8): that strip sat beneath the sticky arming bar on every phone,
+        // so ADEQUATE was on screen and the app's own advice was not. The
+        // dial already prints the ratio and its word, so the strip's second
+        // copy of them went with it.
+        const adviceSet = rodeLength === wxRecommendation.rode;
+        const windWords = wxRecommendation.windKnown ? `Wind ${wxRecommendation.wind.toFixed(0)} kts` : 'Wind -- kts';
+        const adviceText = adviceSet
+            ? `${windWords}: ${wxRecommendation.scope}:1 set`
+            : `${windWords}: ${wxRecommendation.rode} m for ${wxRecommendation.scope}:1`;
+        const rodeAdvice = (
+            <button
+                type="button"
+                aria-label={
+                    adviceSet
+                        ? `${adviceText}, rode ${wxRecommendation.rode} metres`
+                        : `${adviceText}, set rode to ${wxRecommendation.rode} metres`
+                }
+                onClick={() => setRodeLength(wxRecommendation.rode)}
+                title={adviceSet ? undefined : `Set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`}
+                // 28 px drawn, 44 px to the finger: the ::before reaches 8 px
+                // above and below (px, not rem, so the fluid root cannot
+                // shrink it), over the dial's padding, never onto the tackle
+                // row. Tinted by the wind, as the strip's icon was: red for storm
+                // scope, amber for strong wind; green once the rode is set.
+                className={`relative inline-flex min-h-[28px] max-w-full items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-center text-[12px] font-bold leading-tight transition-colors before:absolute before:inset-x-0 before:-inset-y-[8px] before:content-[''] ${
+                    adviceSet
+                        ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
+                        : wxRecommendation.severity === 'red'
+                          ? 'border-red-400/40 bg-red-500/10 text-red-200'
+                          : wxRecommendation.severity === 'amber'
+                            ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+                            : 'border-sky-400/30 bg-sky-500/10 text-sky-200'
+                }`}
+            >
+                {adviceSet && <CheckIcon className="h-3 w-3 shrink-0" />}
+                <span className="min-w-0">{adviceText}</span>
+                {!adviceSet && (
+                    <span aria-hidden="true" className="shrink-0">
+                        ›
+                    </span>
+                )}
+            </button>
+        );
+
         return (
             <div
                 ref={keyboardScrollRef}
@@ -804,6 +836,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <PageHeader
                     title="Anchor Watch"
                     onBack={onBack}
+                    breadcrumbs={['Vessel', 'Anchor Watch']}
                     // Under the title, not beside it: three things in the title row
                     // squeezed ANCHOR WATCH to a clipped column at 393 pt. The
                     // status slot, as MOB, Radio and NMEA use: as a subtitle the
@@ -872,13 +905,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         </div>
                     )}
 
-                    {/* ── Hero: Scope Radar ── */}
-                    <div className="anchor-setup-radar flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative">
+                    {/* ── Hero: Scope Radar, its verdict and the wind advice ──
+                        px-2 in the 200 px landscape column, so the advice
+                        fits on one line there. */}
+                    <div className="anchor-setup-radar flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative [@media(orientation:landscape)_and_(max-height:500px)]:px-2">
                         <ScopeRadar
                             rodeLength={rodeLength}
                             waterDepth={waterDepth}
                             rodeType={rodeType}
                             safetyMargin={safetyMargin}
+                            advice={rodeAdvice}
                         />
                     </div>
 
@@ -910,6 +946,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">
                                         Water depth
+                                        <span className="hidden [@media(orientation:portrait)_and_(max-height:700px)]:inline [@media(orientation:landscape)_and_(max-height:500px)]:inline font-mono font-semibold normal-case tracking-normal">
+                                            {' '}
+                                            1–30 m
+                                        </span>
                                     </label>
                                     {/* One value colour for both sliders, and '5 m'
                                         spaced like the track ends (UX run 6). */}
@@ -929,10 +969,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     style={{ touchAction: 'none' }}
                                 />
                                 {/* The track's ends, so a skipper can see how far a slide goes.
-                                    Must match min/max above. */}
+                                    Must match min/max above. On short phones and in
+                                    landscape the range rides in the label instead:
+                                    the row under each track put RODE DEPLOYED half
+                                    under the arming bar at 375x667, and the ends
+                                    never showed in landscape (UX scorecard run 8). */}
                                 <div
                                     aria-hidden="true"
-                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums"
+                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums [@media(orientation:portrait)_and_(max-height:700px)]:hidden [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
                                 >
                                     <span>1 m</span>
                                     <span>30 m</span>
@@ -944,6 +988,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">
                                         Rode deployed
+                                        <span className="hidden [@media(orientation:portrait)_and_(max-height:700px)]:inline [@media(orientation:landscape)_and_(max-height:500px)]:inline font-mono font-semibold normal-case tracking-normal">
+                                            {' '}
+                                            5–100 m
+                                        </span>
                                     </label>
                                     <span className="text-sm font-black text-white font-mono tabular-nums">
                                         {rodeLength} m
@@ -962,86 +1010,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 />
                                 <div
                                     aria-hidden="true"
-                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums"
+                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums [@media(orientation:portrait)_and_(max-height:700px)]:hidden [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
                                 >
                                     <span>5 m</span>
                                     <span>100 m</span>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* ── Context Strip — weather + safety ── */}
-                        <div className="flex items-center gap-2 bg-slate-800/30 border border-white/4 rounded-xl px-3 py-2">
-                            {/* Weather left */}
-                            <button
-                                aria-label={`Set rode to ${wxRecommendation.rode} metres for ${wxRecommendation.scope}:1 scope`}
-                                onClick={() => setRodeLength(wxRecommendation.rode)}
-                                className="flex-1 min-h-11 flex items-center gap-1.5 text-left group"
-                                title={`Tap to set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`}
-                            >
-                                {/* Stroke icons, not the emoji glyphs the util still carries. */}
-                                {wxRecommendation.severity === 'red' ? (
-                                    <WaveIcon className="h-4 w-4 shrink-0 text-red-300" />
-                                ) : wxRecommendation.severity === 'emerald' ? (
-                                    <SunIcon className="h-4 w-4 shrink-0 text-emerald-300" />
-                                ) : (
-                                    <WindIcon
-                                        className={`h-4 w-4 shrink-0 ${wxRecommendation.severity === 'amber' ? 'text-amber-300' : 'text-sky-300'}`}
-                                    />
-                                )}
-                                <div className="min-w-0">
-                                    <div className="text-xs text-slate-300 font-bold truncate group-hover:text-white transition-colors">
-                                        {wxRecommendation.windKnown
-                                            ? `${wxRecommendation.label} · ${wxRecommendation.wind.toFixed(0)} kts`
-                                            : 'Wind · -- kts'}
-                                    </div>
-                                    <div className="text-xs text-slate-400 group-hover:text-slate-400 transition-colors inline-flex items-center gap-1">
-                                        {rodeLength === wxRecommendation.rode ? (
-                                            <>
-                                                <CheckIcon className="w-3 h-3" />
-                                                <span>{`${wxRecommendation.scope}:1 set`}</span>
-                                            </>
-                                        ) : (
-                                            `Tap → ${wxRecommendation.rode} m`
-                                        )}
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* Divider */}
-                            <div className="w-px h-6 bg-white/6" />
-
-                            {/* Safety status right */}
-                            <div className="flex items-center gap-1.5">
-                                <span
-                                    className={`w-2 h-2 rounded-full ${
-                                        scopeQuality === 'excellent'
-                                            ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]'
-                                            : scopeQuality === 'adequate'
-                                              ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]'
-                                              : 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.5)] animate-pulse'
-                                    }`}
-                                />
-                                <span
-                                    className={`text-xs font-bold ${
-                                        scopeQuality === 'excellent'
-                                            ? 'text-emerald-400'
-                                            : scopeQuality === 'adequate'
-                                              ? 'text-amber-400'
-                                              : 'text-red-400'
-                                    }`}
-                                >
-                                    {/* The same word the scope dial prints (ScopeRadar) —
-                                        one 6:1 must not read ADEQUATE there and OK here. */}
-                                    {scopeQuality === 'excellent'
-                                        ? 'Excellent'
-                                        : scopeQuality === 'adequate'
-                                          ? 'Adequate'
-                                          : 'Poor'}{' '}
-                                    {/* One decimal, as the dial prints it: rounded, 4.6
-                                        read "Poor 5:1" (UX scorecard run 7). */}
-                                    {scopeRatio.toFixed(1)}:1
-                                </span>
                             </div>
                         </div>
 
@@ -1108,10 +1081,21 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     role="button"
                                     tabIndex={0}
                                     aria-label="Drop anchor and arm Anchor Watch"
-                                    aria-describedby={armWaitHint ? armWaitHintId : undefined}
+                                    aria-describedby={armWaitHint ? `${armWaitHintId} ${armTapHintId}` : armTapHintId}
                                     onKeyDown={(event) => {
                                         if (event.key !== 'Enter' && event.key !== ' ') return;
                                         event.preventDefault();
+                                        setShowSoundCheck(true);
+                                    }}
+                                    // VoiceOver's double-tap and Switch Control send a
+                                    // click with no pointer travel (detail 0), which the
+                                    // drag handlers spring back from, so a VoiceOver
+                                    // user could not arm at all (UX scorecard run 8).
+                                    // It takes the Enter path: the Sound Check still
+                                    // stands between the gesture and a set anchor. A
+                                    // finger's tap (detail 1) still has to slide.
+                                    onClick={(event) => {
+                                        if (event.detail !== 0) return;
                                         setShowSoundCheck(true);
                                     }}
                                 >
@@ -1161,6 +1145,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                                     {armWaitHint}
                                                 </span>
                                             )}
+                                            <span id={armTapHintId} className="sr-only">
+                                                Double-tap to arm. A sound check comes first.
+                                            </span>
                                         </span>
                                     </div>
 

@@ -18,10 +18,17 @@ interface ScopeRadarProps {
     waterDepth: number;
     rodeType: 'chain' | 'rope' | 'mixed';
     safetyMargin: number;
+    /**
+     * The wind-based rode advice, set directly under the verdict so the two
+     * are read together. It lived in a strip below the sliders, which the
+     * sticky arming bar covered on every phone, so a skipper could arm on
+     * ADEQUATE without ever seeing the app's own advice (UX scorecard run 8).
+     */
+    advice?: React.ReactNode;
 }
 
 export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
-    ({ rodeLength, waterDepth, rodeType, safetyMargin }) => {
+    ({ rodeLength, waterDepth, rodeType, safetyMargin, advice }) => {
         const scopeRatio = rodeLength / Math.max(waterDepth, 0.1);
         const swingRadiusPreview =
             Math.sqrt(Math.max(0, rodeLength * rodeLength - waterDepth * waterDepth)) *
@@ -68,13 +75,18 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
         const dangerR = outerR * 1.15;
         const cardinalR = outerR + 9 + cardinalSize / 2 + 2;
 
+        // Short portrait phones (667 pt) set the dial BESIDE its words: the
+        // radar box is a fixed 140 px there (index.css), and stacking the advice
+        // under the verdict would have shrunk the dial to ~85 px. Side by side
+        // the dial gets the whole height. Short landscape trims the dial by the
+        // advice line so both still end above the floating nav toggle.
         return (
-            <div className="flex h-full w-full min-h-0 flex-col items-center justify-center gap-1">
+            <div className="flex h-full w-full min-h-0 flex-col items-center justify-center gap-1 [@media(orientation:portrait)_and_(max-height:700px)]:flex-row [@media(orientation:portrait)_and_(max-height:700px)]:gap-3">
                 <svg
                     ref={svgRef}
                     viewBox="0 0 200 200"
                     overflow="visible"
-                    className="min-h-0 w-full flex-1 max-w-[320px] max-h-[320px]"
+                    className="min-h-0 w-full flex-1 max-w-[320px] max-h-[320px] [@media(orientation:portrait)_and_(max-height:700px)]:h-full [@media(orientation:portrait)_and_(max-height:700px)]:w-auto [@media(orientation:portrait)_and_(max-height:700px)]:flex-none [@media(orientation:portrait)_and_(max-height:700px)]:aspect-square [@media(orientation:landscape)_and_(max-height:500px)]:max-h-[112px]!"
                     style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.3))' }}
                     role="img"
                     aria-label={`Scope radar: ${scopeRatio.toFixed(1)} to 1 ratio, ${scopeQuality}, ${formatDistance(swingRadiusPreview)} swing radius`}
@@ -250,24 +262,31 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                         {scopeRatio.toFixed(1)}:1
                     </text>
                 </svg>
-                {/* Quality and swing radius in HTML so they stay 13 px at any dial size.
-                    One line, always: in the 200 px landscape column it wrapped
-                    and "radius" was painted under the floating nav toggle, so
-                    there it says "swing 35 m" (UX scorecard run 7). */}
-                <p className="shrink-0 whitespace-nowrap text-center text-[13px] leading-tight" aria-hidden="true">
-                    <span className="font-bold tracking-[0.08em]" style={{ color: qualityFill }}>
-                        {qualityWord}
-                    </span>
-                    <span className="text-slate-300">
-                        {' · '}
-                        <span className="[@media(orientation:landscape)_and_(max-height:500px)]:hidden">
-                            {formatDistance(swingRadiusPreview)} swing radius
+                <div className="flex min-w-0 shrink-0 flex-col items-center gap-1.5 [@media(orientation:portrait)_and_(max-height:700px)]:shrink [@media(orientation:portrait)_and_(max-height:700px)]:items-start">
+                    {/* Quality and swing radius in HTML so they stay 13 px at any dial size.
+                        One line, always: in the 200 px landscape column it wrapped
+                        and "radius" was painted under the floating nav toggle, so
+                        there it says "swing 35 m" (UX scorecard run 7), and so it
+                        does beside the dial on a 667 pt phone. */}
+                    <p
+                        className="shrink-0 whitespace-nowrap text-center text-[13px] leading-tight [@media(orientation:portrait)_and_(max-height:700px)]:text-left"
+                        aria-hidden="true"
+                    >
+                        <span className="font-bold tracking-[0.08em]" style={{ color: qualityFill }}>
+                            {qualityWord}
                         </span>
-                        <span className="hidden [@media(orientation:landscape)_and_(max-height:500px)]:inline">
-                            swing {formatDistance(swingRadiusPreview)}
+                        <span className="text-slate-300">
+                            {' · '}
+                            <span className="[@media(orientation:landscape)_and_(max-height:500px)]:hidden [@media(orientation:portrait)_and_(max-height:700px)]:hidden">
+                                {formatDistance(swingRadiusPreview)} swing radius
+                            </span>
+                            <span className="hidden [@media(orientation:landscape)_and_(max-height:500px)]:inline [@media(orientation:portrait)_and_(max-height:700px)]:inline">
+                                swing {formatDistance(swingRadiusPreview)}
+                            </span>
                         </span>
-                    </span>
-                </p>
+                    </p>
+                    {advice}
+                </div>
             </div>
         );
     },

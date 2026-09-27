@@ -160,11 +160,11 @@ const SparklineComponent: React.FC<SparklineProps> = ({
 
             {showAxes && (
                 <>
-                    <text x={2} y={padY + 9} fill="rgba(255,255,255,0.6)" fontSize="11" fontFamily="system-ui">
+                    <text x={2} y={padY + 10} fill="#94a3b8" fontSize="12" fontFamily="system-ui">
                         {Math.round(max)}
                         {axisUnit}
                     </text>
-                    <text x={2} y={padY + chartH} fill="rgba(255,255,255,0.6)" fontSize="11" fontFamily="system-ui">
+                    <text x={2} y={padY + chartH} fill="#94a3b8" fontSize="12" fontFamily="system-ui">
                         {Math.round(min)}
                         {axisUnit}
                     </text>
@@ -282,7 +282,7 @@ const FlankMetricComponent: React.FC<{
                 aria-hidden="true"
                 data-testid={`flank-${label.toLowerCase()}`}
                 style={sideTone ? { color: `var(--nmea-${shown! < 0 ? 'port' : 'stbd'}, ${sideTone})` } : undefined}
-                className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
+                className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-400'}`}
             >
                 {display}
                 {has && <span className="text-[8px] font-bold text-gray-500">{unit}</span>}
@@ -530,8 +530,8 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
                                     y={polarToCart(HERO_CX, HERO_CY, outerR + 6, angle).y}
                                     textAnchor="middle"
                                     dominantBaseline="central"
-                                    fill="rgba(148,163,184,0.7)"
-                                    fontSize="11"
+                                    fill="#94a3b8"
+                                    fontSize="12"
                                     fontWeight="600"
                                     fontFamily="system-ui, -apple-system, sans-serif"
                                 >
@@ -593,8 +593,8 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
                 x={HERO_CX}
                 y={HERO_CY + 55}
                 textAnchor="middle"
-                fill="rgba(148,163,184,0.85)"
-                fontSize="11"
+                fill="#94a3b8"
+                fontSize="12"
                 fontWeight="700"
                 fontFamily="system-ui, -apple-system, sans-serif"
                 style={{ letterSpacing: '2px' }}
@@ -1585,7 +1585,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         className={`font-mono text-[13px] font-black tabular-nums ${
                                             formatFix(latitude.value, longitude.value)
                                                 ? 'text-emerald-300'
-                                                : 'text-gray-600'
+                                                : 'text-gray-400'
                                         }`}
                                     >
                                         {formatFix(latitude.value, longitude.value) ?? '— no fix —'}
@@ -1793,7 +1793,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         )}
                                     </>
                                 ) : (
-                                    <p className="font-mono text-2xl font-black tabular-nums text-gray-600">
+                                    <p className="font-mono text-2xl font-black tabular-nums text-gray-400">
                                         — no fix —
                                     </p>
                                 )}
@@ -2181,7 +2181,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     </>
                                 ) : (
                                     <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
-                                        <p aria-hidden="true" className="text-4xl font-black text-gray-600">
+                                        <p aria-hidden="true" className="text-4xl font-black text-gray-400">
                                             --
                                         </p>
                                         <p className="mt-2 text-sm font-bold text-gray-300">No rudder sensor</p>

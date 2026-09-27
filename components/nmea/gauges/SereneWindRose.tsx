@@ -309,7 +309,9 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                 {ticks}
                 {PTS.map(([a, lab, rank]) => {
                     const [x, y] = pt(a, RL);
-                    const size = rank === 1 ? 19 : rank === 2 ? 13 : 10;
+                    // 12, not 10, for the intercardinals: the text floor
+                    // (UX scorecard run 8).
+                    const size = rank === 1 ? 19 : rank === 2 ? 13 : 12;
                     const fill =
                         rank === 1
                             ? lab === 'N'
@@ -352,7 +354,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                                 y={(y + 3.9).toFixed(1)}
                                 textAnchor="middle"
                                 fill="var(--ink-muted)"
-                                fontSize={11}
+                                fontSize={12}
                                 fontWeight={600}
                                 opacity={0.9}
                                 transform={`rotate(${hdg.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})`}

@@ -365,9 +365,18 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8 [@media(max-height:700px)]:gap-5">
                     <div className="text-center max-w-sm">
                         <h2 className="text-2xl font-black text-white mb-3">Mark MOB position</h2>
+                        {/* Says what the tap will actually mark (UX scorecard run 8):
+                            "snapshot the current GPS fix" sat under a NO FIX pill.
+                            With no live fix the tap takes the last position held,
+                            and with none held it waits a few seconds for a fix
+                            (MobService.activate), or says why it could not. It
+                            must never read as "nothing to mark, so don't tap". */}
                         <p className="text-[13px] text-slate-400 leading-relaxed">
-                            Tap to snapshot the current GPS fix. The app will keep a live bearing and distance back to
-                            the position so the helm can return to it.
+                            {fixWord === 'Ready'
+                                ? 'Tap to snapshot the current GPS fix.'
+                                : 'No live GPS fix yet: the tap marks the last position held, or waits briefly for a fix.'}{' '}
+                            The app will keep a live bearing and distance back to the position so the helm can return to
+                            it.
                         </p>
                         {activationError && (
                             <p
@@ -404,6 +413,9 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             turns text navy, and navy on this red measured ~4.6:1 — the
                             emergency control must look the same by day and by night. */}
                         <div className="flex flex-col items-center gap-1" style={{ color: '#ffffff' }}>
+                            {/* The lifebuoy the chart's MOB button and the Vessel
+                                tile wear: one glyph for the one emergency action.
+                                It was a sun (UX scorecard run 8). */}
                             <svg
                                 aria-hidden="true"
                                 width="48"
@@ -413,12 +425,9 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                                 stroke="currentColor"
                                 strokeWidth={2}
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
-                                />
-                                <circle cx="12" cy="12" r="3" />
+                                <circle cx="12" cy="12" r="9" />
+                                <circle cx="12" cy="12" r="4" />
+                                <path strokeLinecap="round" d="M12 3v5M12 16v5M3 12h5M16 12h5" />
                             </svg>
                             <span className="text-[22px] font-black tracking-widest uppercase">
                                 {activating ? 'Marking…' : 'MOB'}
