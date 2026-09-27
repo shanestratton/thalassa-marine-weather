@@ -177,8 +177,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // the widget grid). Portrait keeps the fixed stack exactly as shipped.
     const landscapeFlow = Boolean(props.isMobileLandscape);
     // The Glass footer (status badges + forecast credit) grows when the credit
-    // wraps, so the hero and the hour dots stand on its measured height, not
-    // on the 47 px it used to be: a two-line credit covered the tide card's
+    // wraps, so the hero stands on its measured height, not on the 47 px it
+    // used to be: a two-line credit covered the tide card's
     // hour axis (UX scorecard run 7). 74 px is the footer's own bottom offset;
     // 3 px keeps the old gap between the hero and the badges.
     const [glassFooterHeightPx, setGlassFooterHeightPx] = useState(47);
@@ -647,11 +647,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, []);
 
-    // The day on screen, as the carousel reports it: whether it has hours for
-    // the hour dots to page, and why its grid is empty past the model's range.
-    const [shownDay, setShownDay] = useState<ShownGlassDay>({ hasHours: true, rangeNote: null });
+    // Why the day on screen has an empty grid past the model's range, as the
+    // carousel reports it. The 24-dot hour row it once also gated is gone: the
+    // 12-dot day rail is the one page indicator, and the hero header already
+    // names the hour (UX scorecard run 8).
+    const [shownDayRangeNote, setShownDayRangeNote] = useState<string | null>(null);
     const handleShownDayChange = useCallback((day: ShownGlassDay) => {
-        setShownDay((prev) => (prev.hasHours === day.hasHours && prev.rangeNote === day.rangeNote ? prev : day));
+        setShownDayRangeNote(day.rangeNote);
     }, []);
 
     // One tap from a later day back to today's live card: the same reset a
@@ -1284,7 +1286,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         coordinates={data.coordinates}
                                         spreadMetric={spreadMetric}
                                         onSpreadHandled={handleSpreadHandled}
-                                        emptyDayNote={activeDay > 0 ? shownDay.rangeNote : null}
+                                        emptyDayNote={activeDay > 0 ? shownDayRangeNote : null}
                                     />
                                 </div>
 
@@ -1353,41 +1355,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         onShownDayChange={handleShownDayChange}
                                     />
                                 </div>
-
-                                {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only).
-                                    Not under a day with no hours to page: past the model's
-                                    range 24 dots sat under one caption (UX scorecard run 7). */}
-                                {isExpanded && shownDay.hasHours && (
-                                    <div
-                                        className={`${glassLayerPos} left-0 right-0 z-125 flex justify-center`}
-                                        style={
-                                            landscapeFlow
-                                                ? {
-                                                      top: glassSafeTopOffset(
-                                                          (isExpanded
-                                                              ? glassTopLayout.heroContainerExpandedTopPx
-                                                              : glassTopLayout.heroContainerCollapsedTopPx) +
-                                                              landscapeHeroHeightPx,
-                                                      ),
-                                                  }
-                                                : { bottom: glassHeroBottom }
-                                        }
-                                    >
-                                        <div className="flex gap-[3px] px-4 py-1">
-                                            {Array.from({ length: 24 }).map((_, i) => (
-                                                <div
-                                                    key={i}
-                                                    className={`w-1.5 h-1.5 rounded-full transition-all duration-150 ${
-                                                        i === activeHour
-                                                            ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)] [.display-light_&]:bg-sky-600'
-                                                            : // White on the pale day page is ~1.1:1.
-                                                              'bg-white/40 [.display-light_&]:bg-slate-400'
-                                                    }`}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
 
                                 {/* STALENESS BANNER — REMOVED 2026-04-28
                                     User feedback: "the layout stays exactly the
@@ -1466,17 +1433,25 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                 className="fixed inset-x-0 bottom-0 z-130 h-10 flex items-end justify-center pb-[max(4px,env(safe-area-inset-bottom))] bg-linear-to-t from-black/80 to-transparent pointer-events-none animate-in fade-in duration-300"
                                                 aria-hidden="true"
                                             >
-                                                <svg
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth="2.5"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    className="w-5 h-5 text-sky-300 animate-bounce-subtle"
-                                                >
-                                                    <polyline points="6 9 12 15 18 9" />
-                                                </svg>
+                                                {/* Words on a chip of its own: a bare chevron at
+                                                    the bottom centre sat in the BARO cell and read
+                                                    as a BARO control (UX scorecard run 8). Sky-200
+                                                    because daylight takes it to sky-700 (4.7:1 on
+                                                    the pale chip); sky-300 goes to sky-600, 3.4:1. */}
+                                                <span className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/90 py-0.5 pl-2.5 pr-2 text-xs font-bold text-sky-200 animate-bounce-subtle">
+                                                    More below
+                                                    <svg
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        strokeWidth="2.5"
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        className="h-4 w-4"
+                                                    >
+                                                        <polyline points="6 9 12 15 18 9" />
+                                                    </svg>
+                                                </span>
                                             </div>
                                         )}
                                     </>

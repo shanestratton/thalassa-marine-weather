@@ -139,7 +139,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                 run 7). The column's 44 px floor keeps a one-line title centred
                 on the 44 px controls. */}
             <div className="flex items-start gap-3">
-                {onBack && <BackButton onClick={onBack} label={chevronLabel} />}
+                {/* data-page-back: App's edge swipe presses this chevron, so the
+                    gesture and the button can never disagree on where back is.
+                    `contents` keeps the button itself the flex item. */}
+                {onBack && (
+                    <span data-page-back className="contents">
+                        <BackButton onClick={onBack} label={chevronLabel} />
+                    </span>
+                )}
 
                 <div className="flex min-h-11 min-w-0 flex-1 flex-col justify-center [container-type:inline-size]">
                     <h1

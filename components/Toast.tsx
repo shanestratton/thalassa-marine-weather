@@ -22,13 +22,18 @@ import { triggerHaptic } from '../utils/system';
 // ── Types ──────────────────────────────────────────────────────────
 export type ToastType = 'success' | 'error' | 'loading' | 'info';
 
-interface ToastItem {
+export interface ToastItem {
     id: number;
     message: string;
     type: ToastType;
     action?: { label: string; onClick: () => void };
     duration: number; // 0 = manual close
+    /** When it was raised, so a page change can tell old news from its own. */
+    createdAt: number;
 }
+
+/** How long success and info toasts stay when the caller does not say. */
+const TOAST_DEFAULT_MS = 3000;
 
 // ── Global Event Bus ───────────────────────────────────────────────
 type Listener = (item: ToastItem) => void;
@@ -60,7 +65,7 @@ function emit(
     action?: { label: string; onClick: () => void },
 ): number {
     const id = nextId++;
-    const item: ToastItem = { id, message, type, duration, action };
+    const item: ToastItem = { id, message, type, duration, action, createdAt: Date.now() };
     if (listeners.size === 0) {
         pendingItems = appendWithSafetyPriority(pendingItems, item);
     } else {
@@ -71,13 +76,14 @@ function emit(
 
 /** Global toast API — call from anywhere */
 export const toast = {
-    success: (msg: string, action?: { label: string; onClick: () => void }) => emit(msg, 'success', 3000, action),
+    success: (msg: string, action?: { label: string; onClick: () => void }) =>
+        emit(msg, 'success', TOAST_DEFAULT_MS, action),
     error: (msg: string, duration = 4000) => emit(msg, 'error', duration),
     persistentError: (
         msg: string,
         action: { label: string; onClick: () => void } = { label: 'Dismiss', onClick: () => undefined },
     ) => emit(msg, 'error', 0, action),
-    info: (msg: string, duration = 3000) => emit(msg, 'info', duration),
+    info: (msg: string, duration = TOAST_DEFAULT_MS) => emit(msg, 'info', duration),
     loading: (msg: string) => emit(msg, 'loading', 0),
     dismiss: (id: number) => {
         pendingItems = pendingItems.filter((item) => item.id !== id);
@@ -317,11 +323,48 @@ export function measureToastDock(): number | null {
     return top === null ? null : Math.round(top);
 }
 
+/**
+ * A toast raised this recently is about the page change itself ('Saved', then
+ * the app moves on), so it rides along to the new page. Anything older is the
+ * last page's news.
+ */
+export const TOAST_ROUTE_GRACE_MS = 1000;
+
+/**
+ * What survives a page change: the last page's passing news goes with it — a
+ * seed toast followed the skipper from Maintenance to Polars and sat on its
+ * empty state (UX scorecard run 8). Errors, loading states, anything that
+ * waits for a tap and anything with an action (an Undo) stay: they are not the
+ * last page's news, they are the app's. So does a toast its caller asked to
+ * hold longer than the default: the Apple Watch MOB line (8 s, 'confirm the
+ * active marker and use VHF/DSC') must not vanish when the skipper goes to
+ * the chart to do exactly that.
+ */
+export function keepAcrossRouteChange(item: ToastItem, now: number): boolean {
+    if (item.duration <= 0 || item.action || item.type === 'error' || item.type === 'loading') return true;
+    if (item.duration > TOAST_DEFAULT_MS) return true;
+    return now - item.createdAt < TOAST_ROUTE_GRACE_MS;
+}
+
 // ── Portal — Mount once in App.tsx ─────────────────────────────────
-export const ToastPortal: React.FC = () => {
+export const ToastPortal: React.FC<{
+    /** The current page. When it changes, the last page's passing toasts are cleared. */
+    routeKey?: string;
+}> = ({ routeKey }) => {
     const [toasts, setToasts] = useState<ToastItem[]>([]);
     const [anchorTop, setAnchorTop] = useState(0);
     const [dockTop, setDockTop] = useState<number | null>(null);
+
+    const shownRouteRef = useRef(routeKey);
+    useEffect(() => {
+        if (shownRouteRef.current === routeKey) return;
+        shownRouteRef.current = routeKey;
+        const now = Date.now();
+        setToasts((prev) => {
+            const kept = prev.filter((item) => keepAcrossRouteChange(item, now));
+            return kept.length === prev.length ? prev : kept;
+        });
+    }, [routeKey]);
 
     // Re-measured whenever the stack changes, before paint, so a toast never
     // flashes over the header first.

@@ -330,12 +330,24 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
             );
         }
 
+        // Every Back names where it goes (UX scorecard run 8). The root list
+        // leaves for the Vessel hub and wears the same VESSEL crumb as its twin
+        // tile, Diary, so the two headers line up. Sub-views name their parent
+        // on the chevron only: a crumb row there would cost the conversation
+        // its height above the keyboard.
+        const title = viewTitle(view, activeChannel, dmPartnerName);
+        const breadcrumbs = view === 'channels' ? ['Vessel', title] : undefined;
+        const backLabel =
+            view === 'channels' ? undefined : view === 'dm_thread' ? 'Back to Messages' : 'Back to Scuttlebutt';
+
         return (
             <PageHeader
-                title={viewTitle(view, activeChannel, dmPartnerName)}
+                title={title}
                 subtitle={subtitle}
                 onBack={onBack}
                 action={action}
+                breadcrumbs={breadcrumbs}
+                backLabel={backLabel}
             />
         );
     },

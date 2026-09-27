@@ -14,9 +14,9 @@ test.describe('System status', () => {
         const dialog = page.getByRole('dialog', { name: 'System status' });
         await expect(dialog).toBeVisible();
         // Named after the page it opens (UX scorecard run 7).
-        await expect(dialog.getByText('NMEA Gateway', { exact: true })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'View NMEA Gateway' })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Fix NMEA Gateway' })).toHaveCount(0);
+        await expect(dialog.getByText('NMEA gateway', { exact: true })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'View NMEA gateway' })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Fix NMEA gateway' })).toHaveCount(0);
         await expect(dialog.getByText('GPS sentences / sec')).toHaveCount(0);
 
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();

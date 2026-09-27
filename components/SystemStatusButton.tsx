@@ -293,7 +293,7 @@ const SystemStatusModal: React.FC<{
                             <ul role="list" className={SYSTEM_LIST_CLASS}>
                                 <SystemRow
                                     icon={<AnchorIcon className="w-4 h-4" />}
-                                    label="Shore Watch"
+                                    label="Shore watch"
                                     active
                                     detail={state.shoreWatch.label}
                                     dotColor={
@@ -418,9 +418,11 @@ const SystemStatusModal: React.FC<{
                         />
 
                         {/* ── Anchor Watch ── */}
+                        {/* Row titles in sentence case, like 'GPS tracking' and
+                            'Following route' beside them (UX scorecard run 8). */}
                         <SystemRow
                             icon={<AnchorIcon className="w-4 h-4" />}
-                            label="Anchor Watch"
+                            label="Anchor watch"
                             active={state.anchorWatch.active}
                             detail={
                                 state.anchorWatch.active
@@ -457,7 +459,7 @@ const SystemStatusModal: React.FC<{
                             }
                             // The page it opens is the NMEA Gateway; 'Backbone' was a
                             // second name for the same thing (UX scorecard run 7).
-                            label="NMEA Gateway"
+                            label="NMEA gateway"
                             active={state.nmea.active}
                             detail={state.nmea.detail}
                             dotColor={nmeaDot}
