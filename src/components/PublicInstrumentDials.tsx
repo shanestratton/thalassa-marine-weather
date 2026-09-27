@@ -35,29 +35,28 @@ const Bell: React.FC<{ zone: string | null | undefined }> = ({ zone }) => {
     const clock = publicShipClock(now, zone);
     if (!clock)
         return (
-            <p role="status" className="py-16 text-center text-sm text-slate-400">
+            <p role="status" className="pv-dial-note py-16">
                 Waiting for a recent vessel position to set local time.
             </p>
         );
     return (
         <>
             <ShipsBellClock hour={clock.hour} minute={clock.minute} second={clock.second} zoneLabel={clock.label} />
-            <p className="mt-2 text-center text-sm text-amber-200">Vessel local time · {zone?.replaceAll('_', ' ')}</p>
-            <details className="mt-3 border-t border-white/10">
-                <summary className="min-h-11 cursor-pointer content-center text-sm text-amber-200">
-                    Traditional bell watches
-                </summary>
-                <dl className="space-y-2 text-sm">
+            <p className="pv-dial-note pv-bell-zone">Vessel local time · {zone?.replaceAll('_', ' ')}</p>
+            <details className="pv-more-panel">
+                <summary className="pv-more min-h-11 cursor-pointer content-center">Traditional bell watches</summary>
+                <dl className="space-y-2">
                     {[0, 4, 8, 12, 16, 18, 20].map((hour) => {
                         const watch = watchAt(hour, 0);
                         const active = watch.name === watchAt(clock.hour, clock.minute).name;
                         return (
                             <div
                                 key={hour}
-                                className={`flex flex-wrap justify-between gap-1 ${active ? 'font-semibold text-amber-200' : 'text-slate-400'}`}
+                                className="pv-watch flex flex-wrap justify-between gap-1"
+                                data-active={active ? 'true' : undefined}
                             >
                                 <dt>{watch.name}</dt>
-                                <dd className="font-mono">
+                                <dd className="pv-num">
                                     {String(hour).padStart(2, '0')}:00–
                                     {String(hour + watch.lengthHours).padStart(2, '0')}:00
                                 </dd>
@@ -65,7 +64,7 @@ const Bell: React.FC<{ zone: string | null | undefined }> = ({ zone }) => {
                         );
                     })}
                 </dl>
-                <p className="mt-3 text-xs text-slate-400">
+                <p className="pv-disclaimer mt-3">
                     Royal Navy bell convention, including dog watches. Crew duty assignments remain private.
                 </p>
             </details>
@@ -96,21 +95,25 @@ export const PublicInstrumentDials: React.FC<{
               )
             : null;
     return (
-        <div className="my-4 rounded-2xl border border-white/10 bg-slate-950/75 p-3">
-            <div role="group" aria-label="Choose instrument" className="grid grid-cols-4 gap-1">
+        // A recessed well: the app's gauge reads as hardware set into the console.
+        <div className="pv-well flex flex-col gap-3">
+            {/* One segmented bezel, so every cell has a visible edge. On a
+                320 px phone a cell is ~65 px: a long name hyphenates onto a
+                second line instead of being clipped by the bezel. */}
+            <div role="group" aria-label="Choose instrument" className="pv-modes grid grid-cols-4">
                 {MODES.map((item) => (
                     <button
                         key={item}
                         type="button"
                         aria-pressed={mode === item}
                         onClick={() => setMode(item)}
-                        className={`min-h-11 rounded-lg px-1 py-2 text-sm leading-tight transition-colors focus-visible:outline-2 focus-visible:outline-teal-300 ${mode === item ? 'bg-teal-300/15 text-teal-200 ring-1 ring-teal-300/30' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                        className="pv-mode hyphens-auto"
                     >
                         {item}
                     </button>
                 ))}
             </div>
-            <h3 className="mb-2 mt-5 text-center text-sm font-bold uppercase tracking-[.2em] text-slate-300">
+            <h3 className="pv-dial-title mt-1">
                 {mode === 'COG'
                     ? 'Course over ground'
                     : mode === 'Heel'
@@ -128,7 +131,7 @@ export const PublicInstrumentDials: React.FC<{
                     unit="kts"
                     gaugeKey={`${id}-apparent`}
                     isLive
-                    className="mx-auto block h-auto w-full max-w-[300px]"
+                    className="mx-auto block h-auto w-full max-w-[360px]"
                 />
             )}
             {mode === 'True wind' && (
@@ -140,17 +143,15 @@ export const PublicInstrumentDials: React.FC<{
                         unit="kts"
                         gaugeKey={`${id}-true`}
                         isLive
-                        className="mx-auto block h-auto w-full max-w-[300px]"
+                        className="mx-auto block h-auto w-full max-w-[360px]"
                     />
-                    {t.twa === null && (
-                        <p className="mt-2 text-center text-sm text-slate-400">True wind angle not reported.</p>
-                    )}
+                    {t.twa === null && <p className="pv-dial-note">True wind angle not reported.</p>}
                 </>
             )}
             {mode === 'COG' && (
                 <>
                     <HeadingGauge value={valid(t.cog)} isLive label="Course over ground compass" />
-                    <p className="text-center text-sm text-slate-400">GPS course · not bow heading</p>
+                    <p className="pv-dial-note">GPS course · not bow heading</p>
                 </>
             )}
             {mode === 'Barometer' && (
@@ -163,32 +164,28 @@ export const PublicInstrumentDials: React.FC<{
                     />
                     {tendency ? (
                         <>
-                            <p className="mt-2 text-center text-sm text-slate-400">
-                                Onboard sensor · pale hand ≈ 3 h ago
-                            </p>
-                            <p
-                                className={`mt-3 text-center font-semibold ${tendency.severity === 'warn' ? 'text-rose-300' : tendency.severity === 'watch' ? 'text-amber-300' : 'text-teal-200'}`}
-                            >
+                            <p className="pv-dial-note">Onboard sensor · pale hand ≈ 3 h ago</p>
+                            <p className="pv-tendency" data-severity={tendency.severity}>
                                 {tendency.label}
                             </p>
-                            <div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm text-slate-300">
+                            <div className="grid grid-cols-2 gap-2 text-center pv-dial-note">
                                 <p>
                                     3 h change{' '}
-                                    <strong className="mt-1 block font-mono text-lg text-white">
+                                    <strong className="pv-dial-figure mt-1 block">
                                         {tendency.deltaHpa > 0 ? '+' : ''}
                                         {tendency.deltaHpa.toFixed(1)} hPa
                                     </strong>
                                 </p>
                                 <p>
                                     Average rate{' '}
-                                    <strong className="mt-1 block font-mono text-lg text-teal-200">
+                                    <strong className="pv-dial-figure mt-1 block" data-accent="">
                                         {tendency.perHour.toFixed(1)} hPa/h
                                     </strong>
                                 </p>
                             </div>
                         </>
                     ) : (
-                        <p className="mt-2 text-center text-sm text-slate-400">
+                        <p className="pv-dial-note">
                             {baro === null
                                 ? 'Waiting for onboard pressure.'
                                 : 'Onboard pressure · collecting 3 h history.'}

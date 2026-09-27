@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { readPublicDiaryComments, submitPublicDiaryComment, type PublicDiaryComment } from '../diaryCommentsApi';
 
 /** Guest comments never optimistically appear in the public thread. */
@@ -15,6 +15,7 @@ export function PublicDiaryComments({ handle, entryId }: { handle: string; entry
     const submission = useRef<{ text: string; id: string } | null>(null);
     const generation = useRef(0);
     const sendController = useRef<AbortController | null>(null);
+    const noteId = useId();
     useEffect(() => {
         generation.current++;
         setComments([]);
@@ -101,25 +102,26 @@ export function PublicDiaryComments({ handle, entryId }: { handle: string; entry
             }
         }
     };
+    const canSend = !!name.trim() && !!body.trim();
     return (
-        <section className="mt-6 border-t border-white/10 pt-5" aria-label="Guest comments">
-            <h3 className="text-base font-bold text-slate-100">Comments</h3>
-            <p className="mt-1 text-xs text-slate-400">
+        <section className="pv-comments flex flex-col gap-3" aria-label="Guest comments">
+            <h3 className="pv-comments__title">Comments</h3>
+            <p className="pv-comments__intro">
                 Leave the crew a message. The skipper approves comments before they appear here.
             </p>
             {loading && (
-                <p role="status" className="mt-3 text-sm text-slate-400">
+                <p role="status" className="pv-comments__intro">
                     Loading comments…
                 </p>
             )}
             {comments.map((comment) => (
-                <article key={comment.id} className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                    <strong className="break-words text-sm text-teal-200">{comment.guest_name}</strong>
-                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-200">{comment.body}</p>
+                <article key={comment.id} className="pv-comment">
+                    <strong>{comment.guest_name}</strong>
+                    <p className="mt-1">{comment.body}</p>
                 </article>
             ))}
-            <form onSubmit={(event) => void send(event)} className="mt-4 space-y-3">
-                <label className="block text-sm text-slate-300">
+            <form onSubmit={(event) => void send(event)} className="flex flex-col gap-3">
+                <label className="pv-field block">
                     Your name
                     <input
                         name="guest_name"
@@ -129,10 +131,10 @@ export function PublicDiaryComments({ handle, entryId }: { handle: string; entry
                         value={name}
                         disabled={busy}
                         onChange={(event) => setName(event.target.value)}
-                        className="mt-1 block min-h-11 w-full rounded-xl border border-white/15 bg-slate-900 px-3 text-base text-white"
+                        className="pv-input mt-1.5 block"
                     />
                 </label>
-                <label className="block text-sm text-slate-300">
+                <label className="pv-field block">
                     Your comment
                     <textarea
                         name="comment"
@@ -142,7 +144,7 @@ export function PublicDiaryComments({ handle, entryId }: { handle: string; entry
                         value={body}
                         disabled={busy}
                         onChange={(event) => setBody(event.target.value)}
-                        className="mt-1 block w-full resize-y rounded-xl border border-white/15 bg-slate-900 p-3 text-base text-white"
+                        className="pv-input mt-1.5 block"
                     />
                 </label>
                 <div
@@ -161,25 +163,33 @@ export function PublicDiaryComments({ handle, entryId }: { handle: string; entry
                     </label>
                 </div>
                 {error && (
-                    <p role="alert" className="text-sm text-amber-300">
+                    <p role="alert" className="pv-form-error">
                         {error}{' '}
-                        <button type="button" onClick={() => setReload((value) => value + 1)} className="underline">
+                        <button type="button" onClick={() => setReload((value) => value + 1)} className="pv-link">
                             Reload comments
                         </button>
                     </p>
                 )}
                 {sent && (
-                    <p role="status" className="text-sm text-teal-200">
+                    <p role="status" className="pv-form-ok">
                         Thanks! Your comment is waiting for the skipper’s approval.
                     </p>
                 )}
+                {/* Disabled is outlined by .pv-btn:disabled, not a faded teal slab;
+                    the note says why it cannot be pressed yet. */}
                 <button
                     type="submit"
-                    disabled={busy || !name.trim() || !body.trim()}
-                    className="min-h-11 rounded-xl bg-teal-600 px-4 text-sm font-bold text-white disabled:opacity-50"
+                    disabled={busy || !canSend}
+                    aria-describedby={!busy && !canSend ? noteId : undefined}
+                    className="pv-btn pv-btn--primary self-start"
                 >
                     {busy ? 'Sending…' : 'Send for approval'}
                 </button>
+                {!busy && !canSend && (
+                    <p id={noteId} className="pv-form-note">
+                        Add your name and a comment to send.
+                    </p>
+                )}
             </form>
         </section>
     );

@@ -216,7 +216,7 @@ describe('public destination exploration', () => {
             expect(camera.fitBounds).toHaveBeenLastCalledWith(
                 expect.anything(),
                 expect.objectContaining({
-                    padding: { top: 224, bottom: 100, left: 23.4, right: 92 },
+                    padding: { top: 224, bottom: 100, left: 39, right: 117 },
                 }),
             );
             header.getBoundingClientRect = () => ({ top: 0, bottom: 0, height: 0 }) as DOMRect;
@@ -224,7 +224,7 @@ describe('public destination exploration', () => {
             expect(camera.fitBounds).toHaveBeenLastCalledWith(
                 expect.anything(),
                 expect.objectContaining({
-                    padding: { top: 24, bottom: 100, left: 23.4, right: 92 },
+                    padding: { top: 24, bottom: 100, left: 39, right: 117 },
                 }),
             );
         } finally {

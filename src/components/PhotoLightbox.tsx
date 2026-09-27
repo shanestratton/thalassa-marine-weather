@@ -121,9 +121,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
         >
             {/* Top bar */}
             <div className="shrink-0 flex items-center justify-between px-5 py-4 text-white">
-                <span className="text-xs font-mono text-slate-400">
-                    {multi ? `${index + 1} / ${photos.length}` : ''}
-                </span>
+                <span className="pv-lightbox__count">{multi ? `${index + 1} / ${photos.length}` : ''}</span>
                 <button
                     ref={closeButtonRef}
                     onClick={(event) => {
@@ -196,15 +194,16 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
 
             {/* Caption + metadata + dots */}
             <div className="shrink-0 px-5 py-4 text-center space-y-1.5">
-                {caption && <p className="text-sm text-slate-300">{caption}</p>}
+                {caption && <p className="pv-lightbox__caption">{caption}</p>}
                 {(localTime || coordStr) && (
-                    <p className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5">
+                    <p className="pv-lightbox__meta flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5">
                         {localTime && <span>{localTime}</span>}
-                        {coordStr && <span className="text-slate-400">{coordStr}</span>}
+                        {/* Monospace is kept for the coordinates only. */}
+                        {coordStr && <span className="pv-lightbox__coords">{coordStr}</span>}
                     </p>
                 )}
                 {multi && (
-                    <div className="flex items-center justify-center pt-1">
+                    <div className="flex flex-wrap items-center justify-center pt-1">
                         {photos.map((_, i) => (
                             <button
                                 key={i}
@@ -214,14 +213,13 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                                 }}
                                 aria-label={`Go to photo ${i + 1}`}
                                 aria-current={i === index ? 'true' : undefined}
-                                className="flex items-center justify-center min-w-[24px] min-h-[44px] px-1"
+                                className="flex min-h-[44px] min-w-[44px] items-center justify-center"
                             >
-                                {/* The button is the hit area; the dot is just the mark. */}
+                                {/* The button is the 44 px hit area; the dot is just the mark.
+                                    Its width and colour come from the parent's aria-current. */}
                                 <span
                                     aria-hidden="true"
-                                    className={`block h-1.5 rounded-full transition-all ${
-                                        i === index ? 'w-6 bg-sky-400' : 'w-1.5 bg-white/30 hover:bg-white/50'
-                                    }`}
+                                    className="pv-lightbox__dot block h-1.5 rounded-full transition-all"
                                 />
                             </button>
                         ))}

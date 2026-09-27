@@ -20,15 +20,20 @@ const Reading: React.FC<{ label: string; value: number | null; unit: string; dig
     digits = 1,
     status,
 }) => (
-    <div className="min-w-0 rounded-xl border border-white/8 bg-slate-950/45 px-3 py-2.5">
-        <dt className="text-sm text-slate-400">{label}</dt>
-        <dd className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-xl font-semibold tabular-nums text-slate-100">
+    // A label that wraps ('Speed over ground') must not drop its value below
+    // the neighbouring tile's: values sit on the foot of the stretched tile.
+    <div className="pv-readout flex flex-col justify-between">
+        <dt className="pv-readout__label">{label}</dt>
+        <dd className="pv-readout__value pv-num">
             {status ? (
-                <span className="font-sans text-base font-medium">{status}</span>
+                <span className="pv-readout__status">{status}</span>
             ) : (
                 <>
                     {finite(value) ? value.toFixed(digits) : <span aria-label="Unavailable">—</span>}
-                    <span className="text-xs font-medium text-teal-200">{unit}</span>
+                    {/* The degree sign sits tight against its number (313°, 23.8°C). */}
+                    <span className="pv-readout__unit" data-tight={unit.startsWith('°') ? '' : undefined}>
+                        {unit}
+                    </span>
                 </>
             )}
         </dd>
@@ -37,13 +42,10 @@ const Reading: React.FC<{ label: string; value: number | null; unit: string; dig
 
 /** Public explanation only: no readings, inferred consent, or sharing controls. */
 export const InstrumentsNotShared: React.FC = () => (
-    <section
-        aria-label="Instrument sharing status"
-        className="shrink-0 border-b border-teal-200/15 bg-linear-to-br from-teal-950/60 via-slate-900 to-slate-950 p-4 sm:p-5"
-    >
-        <h2 className="text-xl font-semibold tracking-tight text-white">Onboard instruments</h2>
-        <p className="mt-2 text-sm text-slate-300">Instruments aren’t currently being shared.</p>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+    <section aria-label="Instrument sharing status" className="pv-console flex shrink-0 flex-col gap-2">
+        <h2 className="pv-console__title">Onboard instruments</h2>
+        <p className="pv-console__body">Instruments aren’t currently being shared.</p>
+        <p className="pv-console__body">
             Skipper: open the main Thalassa app → Settings → Voyage Log → Share my instruments.
         </p>
     </section>
@@ -91,36 +93,30 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
     const engineStatus = engineRpm === null ? 'No RPM signal' : engineRpm === 0 ? 'Engine off' : undefined;
 
     return (
-        <section
-            aria-label="Onboard instruments"
-            className="shrink-0 border-b border-teal-200/15 bg-linear-to-br from-teal-950/60 via-slate-900 to-slate-950 p-4 sm:p-5"
-        >
+        <section aria-label="Onboard instruments" className="pv-console flex shrink-0 flex-col gap-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-300">From the boat</p>
-                    <h2 className="mt-1 text-xl font-semibold tracking-tight text-white">Onboard instruments</h2>
+                    <p className="pv-eyebrow pv-eyebrow--sea">From the boat</p>
+                    <h2 className="pv-console__title mt-1">Onboard instruments</h2>
                 </div>
                 {fresh && !connectionLost && available && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-300/25 bg-teal-300/10 px-2.5 py-1 text-xs font-semibold text-teal-200">
-                        <span className="h-1.5 w-1.5 rounded-full bg-teal-300 motion-safe:animate-pulse" />
+                    <span className="pv-chip pv-chip--live">
+                        <span className="pv-dot" data-tone="live" aria-hidden="true" />
                         Live
                     </span>
                 )}
             </div>
             {connectionLost ? (
-                <div
-                    role="status"
-                    className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-200"
-                >
+                <div role="status" className="pv-notice pv-notice--warn">
                     <p className="font-semibold">Connection lost</p>
-                    <p className="mt-1">
+                    <p className="pv-notice__sub mt-1">
                         Last successful update {formatPublicAge(lastSuccessfulAt, nowMs)}. Readings paused.
                     </p>
                 </div>
             ) : !fresh || (!available && !publicShipClock(sensorNow, t?.ship_time_zone)) ? (
-                <div role="status" className="mt-3 text-sm leading-relaxed text-slate-400">
+                <div role="status" className="pv-notice">
                     <p>Waiting for the next report from the boat.</p>
-                    <p className="mt-1 text-xs">
+                    <p className="pv-notice__sub mt-1">
                         {t
                             ? 'Last report ' + formatPublicAge(t.updated_at, nowMs) + '.'
                             : 'Sharing is on; no recent instrument readings have arrived.'}
@@ -128,15 +124,17 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                 </div>
             ) : (
                 <>
-                    <p className="mt-2 text-xs text-slate-400">
-                        {t.source === 'pi' ? 'Pi instrument feed' : 'Device instrument feed'} ·{' '}
+                    {/* The answer first: who is reporting and how old it is, then
+                        what the boat is doing, then the numbers, then the dial. */}
+                    <p className="pv-console__source">
+                        {t.source === 'pi' ? 'Boat’s instruments' : 'Device aboard'} ·{' '}
                         {formatPublicAge(t.updated_at, nowMs)}
                     </p>
-                    <PublicInstrumentDials instruments={t} mode={instrumentMode} onModeChange={setInstrumentMode} />
                     {finite(t.sog) && t.sog < 0.5 && (
-                        <p className="mb-3 text-xs text-teal-200">No way on · Champagne &amp; good times 🥂</p>
+                        // Balanced lines keep the glass from wrapping onto a line of its own.
+                        <p className="pv-now-line text-balance">No way on · Champagne &amp; good times 🥂</p>
                     )}
-                    <dl className="grid grid-cols-2 gap-2">
+                    <dl className="pv-readouts grid grid-cols-2 gap-2">
                         <Reading label="Depth" value={t.depth} unit="m" />
                         <Reading label="Speed over ground" value={t.sog} unit="kt" />
                         <Reading label="House battery" value={t.house_battery_soc ?? null} unit="%" />
@@ -144,11 +142,10 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                         <Reading label="Heading" value={t.heading} unit="°" digits={0} />
                         <Reading label="Engine" value={engineRpm} unit="RPM" digits={0} status={engineStatus} />
                     </dl>
-                    <details className="mt-3 border-t border-white/10 pt-1">
-                        <summary className="min-h-11 cursor-pointer content-center text-sm font-medium text-teal-200 focus-visible:outline-2 focus-visible:outline-teal-300">
-                            More instruments
-                        </summary>
-                        <dl className="mt-1 grid grid-cols-2 gap-2">
+                    <PublicInstrumentDials instruments={t} mode={instrumentMode} onModeChange={setInstrumentMode} />
+                    <details className="pv-more-panel pt-1">
+                        <summary className="pv-more min-h-11 cursor-pointer content-center">More instruments</summary>
+                        <dl className="mt-2 grid grid-cols-2 gap-2">
                             {/* Fuel senders are not connected to this feed yet.
                                 Never turn their absence into an empty/full tank. */}
                             <Reading label="Port fuel" value={null} unit="%" status="Not connected" />
@@ -161,7 +158,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
                             <Reading label="Rudder" value={t.rudder} unit="°" />
                         </dl>
                     </details>
-                    <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                    <p className="pv-disclaimer">
                         Shared readings, not a navigation display. A dash means that sensor has not reported.
                     </p>
                 </>

@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { destinationBounds, publicMapDestination } from '../publicMapDestination';
 import { installMusgraveImagery } from '../publicSatelliteCoverage';
 import type { VoyageLogDestination } from '../voyageLogApi';
-import Map, { AttributionControl, Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
+import Map, { AttributionControl, Source, Layer, Marker, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import {
@@ -14,13 +14,19 @@ import {
     type VoyageLogWaypoint,
 } from '../voyageLogApi';
 import { nightPolygon, bearingDeg, haversineNm } from '../geo';
-import { CompassRose } from './CompassRose';
 import { WindBarb, windBarbColor } from './WindBarb';
 import { fetchWindGrid, type WindSample } from '../windField';
-import { classifyNearbyVesselFreshness, formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
+import { classifyNearbyVesselFreshness, formatPublicAge } from '../publicVoyageFreshness';
 import { shipTypeLabel, vesselColor } from '../aisShipType';
 import { publicVoyageWaypoints } from '../publicVoyageWaypoints';
 import { publicTrackSegments } from '../publicTrackSegments';
+import {
+    labelSide,
+    latestPublicTrackPoint,
+    publicLastKnownLabel,
+    splitWaypointName,
+    type LabelSide,
+} from './voyageStory';
 
 // Wind barbs are a skipper's tool, not a viewer's — the public page is for
 // following a boat, and the control was competing with the base-map switcher in
@@ -65,6 +71,13 @@ interface MapContainerProps {
     resizeSignal?: number;
     /** Whole-yacht history: frame every shared track and positioned story. */
     allTrips?: boolean;
+    /** The boat's name, flown on the own-ship flag so followers know which
+     *  mark is her. A primitive, so React.memo still skips clock ticks. */
+    vesselName?: string;
+    /** One-line passage summary for the map key on phones, e.g.
+     *  '17.2 nm · 2 h 33 m'. Built by passageKeySummary, which never reads
+     *  the clock, so it stays stable across the dashboard's 30 s tick. */
+    keySummary?: string | null;
 }
 
 const STYLES = {
@@ -75,6 +88,82 @@ type StyleMode = keyof typeof STYLES;
 
 const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number; longitude: number } =>
     e.latitude != null && e.longitude != null;
+
+/** A box in map-container pixels: left, top, right, bottom. */
+interface ScreenRect {
+    x: number;
+    y: number;
+    r: number;
+    b: number;
+}
+
+/** The map's box and zoom at the last settled camera, plus where the page's
+ *  own chrome (control cluster, map notes, floating header) sits over it. */
+interface LabelFrame {
+    width: number;
+    height: number;
+    zoom: number;
+    chrome: ScreenRect[];
+}
+
+/** How a marker's label hangs off it, mirroring public-voyage.css: the
+ *  marker's half-size, the gap above/below and beside it, and an estimate of
+ *  the label's size (it is never measured, so the estimate errs large). */
+interface LabelGeometry {
+    half: number;
+    gapV: number;
+    gapH: number;
+    w: number;
+    h: number;
+}
+
+/** Bottom band kept clear for the provider credits (--pv-credit-clear). */
+const CREDIT_CLEAR_PX = 40;
+
+const overlaps = (a: ScreenRect, b: ScreenRect): boolean => a.x < b.r && b.x < a.r && a.y < b.b && b.y < a.b;
+
+function labelRect(side: LabelSide, p: { x: number; y: number }, g: LabelGeometry): ScreenRect {
+    switch (side) {
+        case 'above':
+            return { x: p.x - g.w / 2, y: p.y - g.half - g.gapV - g.h, r: p.x + g.w / 2, b: p.y - g.half - g.gapV };
+        case 'right':
+            return { x: p.x + g.half + g.gapH, y: p.y - g.h / 2, r: p.x + g.half + g.gapH + g.w, b: p.y + g.h / 2 };
+        case 'left':
+            return { x: p.x - g.half - g.gapH - g.w, y: p.y - g.h / 2, r: p.x - g.half - g.gapH, b: p.y + g.h / 2 };
+        default:
+            return { x: p.x - g.w / 2, y: p.y + g.half + g.gapV, r: p.x + g.w / 2, b: p.y + g.half + g.gapV + g.h };
+    }
+}
+
+/**
+ * labelSide keeps a label inside the frame; this also keeps it off the page's
+ * chrome. The frame padding is pinned by tests, so a mark can settle right
+ * beside the control cluster, where a 'below' label would slide under Expand
+ * and Satellite. labelSide's choice stands whenever it lands clear; otherwise
+ * the first side that is clear of the chrome, the credits band and the frame
+ * edges wins, and with no clear side at all labelSide's choice stands.
+ */
+function clearLabelSide(
+    p: { x: number; y: number } | null,
+    frame: LabelFrame | null,
+    g: LabelGeometry,
+    avoid: ScreenRect[] = [],
+): { side: LabelSide; rect: ScreenRect | null } {
+    const base = labelSide(p, frame);
+    if (!p || !frame) return { side: base, rect: null };
+    const obstacles = [...frame.chrome, ...avoid];
+    const clear = (rect: ScreenRect): boolean =>
+        rect.x >= 0 &&
+        rect.y >= 0 &&
+        rect.r <= frame.width &&
+        rect.b <= frame.height - CREDIT_CLEAR_PX &&
+        !obstacles.some((o) => overlaps(rect, o));
+    for (const side of [base, ...(['above', 'left', 'right', 'below'] as LabelSide[]).filter((s) => s !== base)]) {
+        const rect = labelRect(side, p, g);
+        if (clear(rect)) return { side, rect };
+    }
+    return { side: base, rect: labelRect(base, p, g) };
+}
 
 /**
  * Douglas-Peucker simplification, ~20 m tolerance. GPS capture runs at
@@ -138,6 +227,8 @@ function MapContainer({
     focusKey,
     resizeSignal,
     allTrips = false,
+    vesselName,
+    keySummary,
 }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
     const [destinationDetail, setDestinationDetail] = useState(false);
@@ -163,8 +254,14 @@ function MapContainer({
                 bounds.height * 0.55,
             ),
             bottom: Math.min(100, bounds.height * 0.22),
-            left: Math.min(28, bounds.width * 0.06),
-            right: Math.min(92, bounds.width * 0.24),
+            // Keep the boat off the left edge (its flag turns inward), and the
+            // track clear of the bottom-right control cluster: 2 x 44 px
+            // controls + 8 px gap + 12 px edge = 108 px, plus room for the end
+            // marker and its half-width (a 1024 px tablet touched at 124). The old
+            // 92 px dated from the single-column rail, and the end of the
+            // track landed under the basemap capsule.
+            left: Math.min(48, bounds.width * 0.1),
+            right: Math.min(140, bounds.width * 0.3),
         };
     }, []);
     const exploreDestination = () => {
@@ -187,6 +284,46 @@ function MapContainer({
             clearTimeout(t2);
         };
     }, [resizeSignal]);
+
+    // The map's box and zoom as of the last settled camera. Labels read it to
+    // flip toward the middle near an edge (the frame padding is pinned, so
+    // labels move instead) and to stand down when they would crowd the boat.
+    // Read on load, move end and resize only, never per animation frame.
+    // The chrome boxes let labels step out from under the controls.
+    const railRef = useRef<HTMLDivElement | null>(null);
+    const notesRef = useRef<HTMLDivElement | null>(null);
+    const [labelFrame, setLabelFrame] = useState<LabelFrame | null>(null);
+    const readLabelFrame = useCallback(() => {
+        const map = mapRef.current;
+        const box = map?.getContainer?.();
+        if (!map || !box || typeof map.getZoom !== 'function') return;
+        const origin = box.getBoundingClientRect();
+        const header = document.querySelector('[data-testid="public-voyage-header"][data-overlay="true"]');
+        const chrome: ScreenRect[] = [];
+        for (const el of [railRef.current, notesRef.current, header]) {
+            const b = el?.getBoundingClientRect();
+            if (!b || b.width <= 0 || b.height <= 0) continue;
+            chrome.push({
+                x: b.left - origin.left,
+                y: b.top - origin.top,
+                r: b.right - origin.left,
+                b: b.bottom - origin.top,
+            });
+        }
+        setLabelFrame({ width: box.clientWidth, height: box.clientHeight, zoom: map.getZoom(), chrome });
+    }, []);
+    // Where a coordinate sits on screen, or null before the first settled
+    // frame (and in tests, whose mock map cannot project).
+    const screenPoint = (lon: number, lat: number): { x: number; y: number } | null => {
+        const map = mapRef.current;
+        if (!labelFrame || !map || typeof map.project !== 'function') return null;
+        try {
+            const { x, y } = map.project([lon, lat]);
+            return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+        } catch {
+            return null;
+        }
+    };
     const [selectedVessel, setSelectedVessel] = useState<NearbyVessel | null>(null);
     // Wind-barb overlay — off by default; fetched from Open-Meteo around the
     // boat the first time it's switched on.
@@ -275,23 +412,9 @@ function MapContainer({
     );
 
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
-    const latestTrackPoint = useMemo(() => {
-        let latest: VoyageLogTrackPoint | undefined;
-        for (const point of track) {
-            if (
-                point.voyage_id?.startsWith('planned_') ||
-                !Number.isFinite(point.lat) ||
-                !Number.isFinite(point.lon) ||
-                Math.abs(point.lat) > 90 ||
-                Math.abs(point.lon) > 180 ||
-                (point.lat === 0 && point.lon === 0) ||
-                !Number.isFinite(Date.parse(point.timestamp))
-            )
-                continue;
-            if (!latest || Date.parse(point.timestamp) >= Date.parse(latest.timestamp)) latest = point;
-        }
-        return latest;
-    }, [track]);
+    // Shared with the page header (voyageStory), so the flag on the map and
+    // the status line above it can never disagree about the boat's last fix.
+    const latestTrackPoint = useMemo(() => latestPublicTrackPoint(track), [track]);
 
     // Major course changes along the SAILED track (owner ask 2026-08-03):
     // one dot wherever the boat altered course ≥30° with a solid leg
@@ -485,17 +608,24 @@ function MapContainer({
             return;
 
         let cancelled = false;
-        let retriedForMapRef = false;
+        let mapRefRetries = 0;
         let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const applyFocus = (): void => {
             if (cancelled || exploredFocusKey.current === focusKey) return;
             const map = mapRef.current;
             if (!map) {
-                // A selector can resolve on the same commit as map creation.
-                // One short retry is enough to let react-map-gl attach its ref.
-                if (!retriedForMapRef) {
-                    retriedForMapRef = true;
-                    retryTimer = setTimeout(applyFocus, 80);
+                // A selector can resolve on the same commit as map creation,
+                // and react-map-gl attaches its ref only once mapbox-gl has
+                // loaded. On a cold cache or a busy phone that is well past one
+                // short retry, and a missed frame here is never retried: the
+                // camera would stay on the mount-time view, which knows
+                // nothing of the floating header and leaves the boat under
+                // it. So keep asking, every 100 ms for up to 10 s. Nothing
+                // can be explored before the map exists, so this never
+                // overrides a viewer.
+                if (mapRefRetries < 100) {
+                    mapRefRetries += 1;
+                    retryTimer = setTimeout(applyFocus, 100);
                 }
                 return;
             }
@@ -541,19 +671,50 @@ function MapContainer({
 
     const nowMs = now.getTime();
     const lastFix = latestTrackPoint ? [latestTrackPoint.lon, latestTrackPoint.lat] : telemetryFix;
-    const lastFixUpdatedAt = telemetry?.updated_at ?? latestTrackPoint?.timestamp ?? null;
-    const positionIsLive =
-        lastFix !== undefined &&
-        !connectionLost &&
-        telemetry !== null &&
-        telemetry !== undefined &&
-        !telemetry.is_last_known &&
-        isPublicPositionFresh(telemetry.updated_at, nowMs);
     // Keep the point for spatial context, but remove current/live styling as
     // soon as transport or timestamp freshness fails. This is deliberately
     // independent of the frozen `is_last_known` bit in the last payload.
-    const lastKnownAgeLabel =
-        lastFix && !positionIsLive ? `Last known · ${formatPublicAge(lastFixUpdatedAt, nowMs)}` : null;
+    // publicLastKnownLabel reads only the position fields (lat, lon,
+    // updated_at, is_last_known), which is all this prop carries.
+    const lastKnownAgeLabel = publicLastKnownLabel({
+        latest: latestTrackPoint,
+        telemetry,
+        connectionLost,
+        nowMs,
+    });
+    const positionIsLive = lastFix !== undefined && lastKnownAgeLabel === null;
+    const boatPoint = lastFix ? screenPoint(lastFix[0], lastFix[1]) : null;
+    // The boat's flag: 22 px ring, 8 px / 10 px off it (pv-ownship, pv-flag).
+    const hasFlag = !!(vesselName || lastKnownAgeLabel);
+    const boatFlag = clearLabelSide(boatPoint, labelFrame, {
+        half: 11,
+        gapV: 8,
+        gapH: 10,
+        w: Math.min(200, Math.max((vesselName?.length ?? 0) * 8.5, (lastKnownAgeLabel?.length ?? 0) * 6.5) + 22),
+        h: 12 + (vesselName ? 18 : 0) + (lastKnownAgeLabel ? 16 : 0) + (vesselName && lastKnownAgeLabel ? 1 : 0),
+    });
+
+    // Lifecycle waypoint labels: place on line one, the server's qualifier
+    // quiet on line two. A label within 40 px of the boat stands down so it
+    // never overprints her flag, and the whole-journey view hides them all
+    // until the viewer zooms in past 9. The rest keep clear of the chrome
+    // and of the flag. Until the camera first settles there is no frame to
+    // measure against (and the opening flight moves every mark), so the
+    // labels wait for it rather than flash over the flag.
+    const waypointLabels = shownWaypoints.map((w) => {
+        const { place, role } = splitWaypointName(w.name);
+        const p = screenPoint(w.lon, w.lat);
+        const nearBoat = !!p && !!boatPoint && Math.hypot(p.x - boatPoint.x, p.y - boatPoint.y) < 40;
+        const quiet = labelFrame === null || nearBoat || (allTrips && labelFrame.zoom < 9);
+        // 12 px diamond box, 6 px / 8 px off it (pv-wp, pv-wp__label).
+        const { side } = clearLabelSide(
+            p,
+            labelFrame,
+            { half: 6, gapV: 6, gapH: 8, w: Math.max(place.length, role?.length ?? 0) * 7 + 18, h: role ? 40 : 24 },
+            hasFlag && boatFlag.rect ? [boatFlag.rect] : [],
+        );
+        return { place, role, side, quiet };
+    });
 
     // Automatically display contacts authorized by the skipper and scoped to
     // the boat by the API. Old browser declutter preferences no longer hide them.
@@ -600,7 +761,7 @@ function MapContainer({
 
     if (!MAPBOX_TOKEN) {
         return (
-            <div className="w-full h-full flex items-center justify-center bg-slate-900 text-slate-500 text-sm">
+            <div className="pv-map-empty flex h-full w-full items-center justify-center px-6 text-center">
                 Map unavailable — Mapbox token not configured for this build.
             </div>
         );
@@ -608,7 +769,7 @@ function MapContainer({
 
     return (
         <div
-            className={`public-voyage-map w-full h-full relative bg-slate-900 ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
+            className={`public-voyage-map pv-map relative h-full w-full ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
         >
             <Map
                 ref={mapRef}
@@ -619,6 +780,9 @@ function MapContainer({
                     const map = mapRef.current?.getMap();
                     if (map) installMusgraveImagery(map);
                 }}
+                onLoad={readLabelFrame}
+                onMoveEnd={readLabelFrame}
+                onResize={readLabelFrame}
                 /* Flat, by request (Shane 2026-09-02: "i prefer flat earth
                    claude, you know like it really is"). The globe was tried
                    here for one afternoon; a chart is a chart. Its atmosphere
@@ -628,11 +792,6 @@ function MapContainer({
                 maxZoom={20}
                 attributionControl={false}
             >
-                <NavigationControl
-                    position="top-right"
-                    showCompass={false}
-                    style={{ marginTop: 168, marginRight: 20 }}
-                />
                 {/* The default strip, plus the AIS credit. AISHub gave written
                     permission for public display on 2026-09-02 ("we will
                     appreciate it if you credit AISHub but that's not mandatory")
@@ -715,7 +874,7 @@ function MapContainer({
                     2026-07-23: "change the route from a dashed line to something
                     more hip"), matching the in-app tracer line so the public
                     page reads as the same product. Violet keeps it distinct
-                    from the sky-blue sailed track. */}
+                    from the teal sailed track. */}
                 {passageGeojson && (
                     <Source id="passage-route" type="geojson" data={passageGeojson}>
                         <Layer
@@ -783,17 +942,20 @@ function MapContainer({
 
                 {/* Course-change marks — a dot at each major alteration
                     (≥30°) on the sailed line, so the story of the passage
-                    reads at a glance: where the tacks and turns happened. */}
+                    reads at a glance: where the tacks and turns happened.
+                    Ink-filled with a teal rim, so the turns read as part of
+                    the track itself (the map key draws the same dot on the
+                    track swatch). */}
                 {courseChangeGeojson && (
                     <Source id="course-changes" type="geojson" data={courseChangeGeojson}>
                         <Layer
                             id="course-change-dots"
                             type="circle"
                             paint={{
-                                'circle-radius': 4,
-                                'circle-color': '#0ea5e9',
-                                'circle-stroke-color': '#e0f2fe',
-                                'circle-stroke-width': 1.5,
+                                'circle-radius': 3.5,
+                                'circle-color': '#0b1220',
+                                'circle-stroke-color': '#5eead4',
+                                'circle-stroke-width': 2,
                                 'circle-opacity': 0.95,
                             }}
                         />
@@ -823,9 +985,7 @@ function MapContainer({
                     beside it. Emerald to match the start dot it sits on. */}
                 {hasPlanLine && passageLine && (
                     <Marker longitude={passageLine[0][0]} latitude={passageLine[0][1]} anchor="top">
-                        <div className="pointer-events-none mt-1 select-none whitespace-nowrap rounded-sm bg-slate-900/80 px-1 text-[9px] font-bold leading-tight text-emerald-200">
-                            Voyage Start
-                        </div>
+                        <div className="pv-plan-start">Voyage Start</div>
                     </Marker>
                 )}
 
@@ -839,7 +999,7 @@ function MapContainer({
                             type="button"
                             onClick={exploreDestination}
                             aria-label={'Explore destination ' + destinationTarget.name + ' in satellite detail'}
-                            className="mb-2 flex h-11 min-h-[44px] w-11 min-w-[44px] items-center justify-center rounded-xl border border-teal-200/50 bg-slate-950/90 text-teal-200 shadow-lg shadow-black/40 backdrop-blur-md focus-visible:outline-2 focus-visible:outline-teal-200 lg:h-auto lg:w-auto lg:max-w-56 lg:flex-col lg:items-start lg:px-3 lg:py-2 lg:text-left"
+                            className="pv-dest pv-glass mb-2 flex h-11 min-h-[44px] w-11 min-w-[44px] items-center justify-center lg:h-auto lg:w-auto lg:max-w-56 lg:flex-col lg:items-start lg:px-3 lg:py-2 lg:text-left"
                         >
                             <svg
                                 aria-hidden="true"
@@ -853,58 +1013,41 @@ function MapContainer({
                             >
                                 <path d="M5 21V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0" />
                             </svg>
-                            <span className="hidden max-w-full truncate text-sm font-semibold text-white lg:block">
+                            <span className="pv-dest__name hidden max-w-full truncate lg:block">
                                 {destinationTarget.name}
                             </span>
-                            <span className="hidden text-xs text-teal-200 lg:block">Explore coast &amp; reef ↗</span>
+                            <span className="pv-dest__sub hidden lg:block">Explore coast &amp; reef ↗</span>
                         </button>
                     </Marker>
                 )}
 
                 {/* Named waypoints — the marks the skipper dropped under way.
                     A small diamond with the name label; the auto breadcrumb
-                    dots are intentionally gone (owner ask 2026-07-04). */}
+                    dots are intentionally gone (owner ask 2026-07-04). The
+                    label is positioned off the diamond, so the diamond sits
+                    exactly on the coordinate and the label flips inward near
+                    the map's edges. */}
                 {shownWaypoints.map((w, i) => (
                     <Marker key={`wp-${i}`} longitude={w.lon} latitude={w.lat} anchor="center">
-                        <div className="flex flex-col items-center pointer-events-none select-none">
-                            <span className="w-2.5 h-2.5 rotate-45 bg-amber-300 border border-amber-100 shadow-[0_0_6px_rgba(251,191,36,0.7)]" />
-                            <span className="mt-0.5 px-1 rounded-sm bg-slate-900/80 text-amber-200 text-[9px] font-bold leading-tight whitespace-nowrap">
-                                {w.name}
+                        <div
+                            className="pv-wp"
+                            data-side={waypointLabels[i].side}
+                            data-quiet={waypointLabels[i].quiet ? 'true' : undefined}
+                        >
+                            <span className="pv-wp__diamond" aria-hidden="true" />
+                            <span className="pv-wp__label">
+                                <span className="pv-wp__place">{waypointLabels[i].place}</span>
+                                {waypointLabels[i].role && (
+                                    <span className="pv-wp__role">{waypointLabels[i].role}</span>
+                                )}
                             </span>
                         </div>
                     </Marker>
                 ))}
 
-                {/* Latest known position — pulses only while independently fresh. */}
-                {lastFix && (
-                    <Marker longitude={lastFix[0]} latitude={lastFix[1]} anchor="center">
-                        <div className="flex flex-col items-center">
-                            <span className="relative flex h-4 w-4">
-                                <span
-                                    className={`absolute inline-flex h-full w-full rounded-full opacity-60 ${
-                                        lastKnownAgeLabel ? 'bg-slate-400' : 'bg-sky-400 animate-ping'
-                                    }`}
-                                />
-                                <span
-                                    className={`relative inline-flex h-4 w-4 rounded-full border-2 border-white shadow-lg ${
-                                        lastKnownAgeLabel ? 'bg-slate-400' : 'bg-sky-400'
-                                    }`}
-                                />
-                            </span>
-                            {/* Not pinging, and captioned: a stale fix should not
-                                animate like a boat under way. */}
-                            {lastKnownAgeLabel && (
-                                <span className="mt-1 whitespace-nowrap rounded-sm bg-slate-900/85 px-1.5 py-0.5 text-[10px] font-bold text-slate-300 shadow-sm">
-                                    {lastKnownAgeLabel}
-                                </span>
-                            )}
-                        </div>
-                    </Marker>
-                )}
-
                 {/* Diary entry pins — camera badge if it carries photos.
                     When the entry is the one selected in the sidebar, the
-                    pin gets a pulsing mood-coloured halo (camera badge
+                    pin gets a pulsing halo and a lit rim (camera badge
                     variant) or an intensified drop-shadow-sm (emoji variant)
                     so the viewer can quickly spot where on the route the
                     story happened. */}
@@ -918,33 +1061,38 @@ function MapContainer({
                                 type="button"
                                 onClick={() => onEntryClick(entry)}
                                 aria-label={`Voyage log entry: ${entry.title || 'Untitled'}`}
-                                className={`relative flex min-h-[44px] min-w-[44px] items-center justify-center cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95 ${
+                                className={`pv-pin-btn relative flex min-h-[44px] min-w-[44px] items-center justify-center cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95 ${
                                     isSelected ? 'scale-125' : ''
                                 }`}
                             >
                                 {/* Halo — only renders for the selected pin. Sits
-                                    behind the badge/emoji, mood-coloured, pulses
-                                    to draw the eye. */}
-                                {isSelected && (
-                                    <span
-                                        aria-hidden="true"
-                                        className="absolute inset-0 -m-2 rounded-full animate-ping"
-                                        style={{ backgroundColor: `${moodHex}66` }}
-                                    />
-                                )}
+                                    behind the badge/emoji and pulses to draw the
+                                    eye. */}
+                                {isSelected && <span aria-hidden="true" className="pv-pin-halo" />}
                                 {hasPhotos ? (
                                     <span
-                                        className="relative flex items-center justify-center w-7 h-7 rounded-full bg-slate-900/90 border-2 text-sm shadow-lg"
-                                        style={{
-                                            borderColor: moodHex,
-                                            boxShadow: isSelected ? `0 0 16px ${moodHex}` : undefined,
-                                        }}
+                                        className="pv-pin relative flex items-center justify-center"
+                                        data-selected={isSelected ? 'true' : undefined}
+                                        style={{ '--pv-pin-ring': moodHex } as React.CSSProperties}
                                     >
-                                        📷
+                                        <svg
+                                            aria-hidden="true"
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        >
+                                            <path d="M4 8h3l1.6-2.4h6.8L17 8h3v11H4z" />
+                                            <circle cx="12" cy="13.5" r="3.3" />
+                                        </svg>
                                     </span>
                                 ) : (
                                     <span
-                                        className="relative text-2xl"
+                                        className="pv-pin-emoji relative"
                                         style={{
                                             filter: isSelected
                                                 ? `drop-shadow(0 0 10px ${moodHex}) drop-shadow(0 0 6px ${moodHex})`
@@ -996,6 +1144,31 @@ function MapContainer({
                     );
                 })}
 
+                {/* Latest known position — pulses only while independently fresh.
+                    Rendered after every other marker, and lifted, so the boat
+                    always sits on top. Live: a teal ring that pings. Last
+                    known: a still grey ring, captioned with its age, because a
+                    stale fix should not animate like a boat under way. */}
+                {lastFix && (
+                    <Marker longitude={lastFix[0]} latitude={lastFix[1]} anchor="center" style={{ zIndex: 1 }}>
+                        <div
+                            className="pv-ownship"
+                            data-state={positionIsLive ? 'live' : 'last-known'}
+                            data-side={boatFlag.side}
+                        >
+                            <span className="pv-ownship__ring" aria-hidden="true" />
+                            {(vesselName || lastKnownAgeLabel) && (
+                                <span className="pv-flag pv-glass">
+                                    {vesselName && <span className="pv-flag__name">{vesselName}</span>}
+                                    {lastKnownAgeLabel && (
+                                        <span className="pv-flag__age pv-num">{lastKnownAgeLabel}</span>
+                                    )}
+                                </span>
+                            )}
+                        </div>
+                    </Marker>
+                )}
+
                 {/* AIS detail popup */}
                 {popupVessel && selectedVesselDisplay && (
                     <Popup
@@ -1008,35 +1181,34 @@ function MapContainer({
                         onClose={() => setSelectedVessel(null)}
                         className="voyage-log-ais-popup"
                     >
-                        <div className="min-w-[190px] max-w-[240px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-slate-100 shadow-2xl">
-                            <div className="flex items-center gap-2 mb-1.5">
+                        <div className="pv-popup">
+                            <div className="mb-1.5 flex items-center gap-2">
                                 {popupVessel.thumbnail_url ? (
                                     <img
                                         src={popupVessel.thumbnail_url}
                                         alt=""
-                                        className="w-8 h-8 rounded-sm object-cover shrink-0 border border-white/10"
+                                        className="h-8 w-8 shrink-0 rounded-sm border border-white/10 object-cover"
                                     />
                                 ) : (
                                     <span
-                                        className="w-2 h-2 rounded-full shrink-0"
+                                        className="h-2 w-2 shrink-0 rounded-full"
                                         style={{ backgroundColor: vesselColor(popupVessel.ship_type) }}
                                     />
                                 )}
-                                <p className="text-sm font-bold truncate">
+                                <p className="pv-popup__name truncate">
                                     {popupVessel.flag_emoji ? `${popupVessel.flag_emoji} ` : ''}
                                     {popupVessel.name || `MMSI ${popupVessel.mmsi}`}
                                 </p>
                             </div>
                             <p
-                                className={`mb-1.5 text-[10px] font-bold uppercase tracking-wider ${
-                                    selectedVesselDisplay.freshness === 'fresh' ? 'text-emerald-400' : 'text-slate-400'
-                                }`}
+                                className="pv-popup__fresh mb-1.5"
+                                data-fresh={selectedVesselDisplay.freshness === 'fresh' ? 'true' : undefined}
                             >
                                 {selectedVesselDisplay.freshness === 'fresh' ? 'Updated' : 'Last known'} ·{' '}
                                 {selectedVesselDisplay.ageLabel}
                             </p>
                             {(shipTypeLabel(popupVessel.ship_type) || popupVessel.loa || popupVessel.flag_country) && (
-                                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 truncate">
+                                <p className="pv-popup__type mb-1.5 truncate">
                                     {[
                                         /* A word, never the raw AIS code — "36" tells a punter nothing. */
                                         shipTypeLabel(popupVessel.ship_type),
@@ -1047,101 +1219,211 @@ function MapContainer({
                                         .join(' · ')}
                                 </p>
                             )}
-                            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] font-mono">
+                            <dl className="pv-popup__grid grid grid-cols-2 gap-x-3 gap-y-0.5">
                                 {popupVessel.sog != null && (
                                     <>
-                                        <span className="text-slate-500">SOG</span>
-                                        <span className="text-emerald-400 text-right">
-                                            {popupVessel.sog.toFixed(1)} kt
-                                        </span>
+                                        <dt>SOG</dt>
+                                        <dd>{popupVessel.sog.toFixed(1)} kt</dd>
                                     </>
                                 )}
                                 {popupVessel.cog != null && (
                                     <>
-                                        <span className="text-slate-500">COG</span>
-                                        <span className="text-amber-400 text-right">
-                                            {Math.round(popupVessel.cog)}°
-                                        </span>
+                                        <dt>COG</dt>
+                                        <dd>{Math.round(popupVessel.cog)}°</dd>
                                     </>
                                 )}
                                 {popupVessel.destination && (
                                     <>
-                                        <span className="text-slate-500">To</span>
-                                        <span className="text-slate-200 text-right truncate">
-                                            {popupVessel.destination}
-                                        </span>
+                                        <dt>To</dt>
+                                        <dd className="truncate">{popupVessel.destination}</dd>
                                     </>
                                 )}
                                 {popupVessel.call_sign && (
                                     <>
-                                        <span className="text-slate-500">Call</span>
-                                        <span className="text-slate-200 text-right">{popupVessel.call_sign}</span>
+                                        <dt>Call</dt>
+                                        <dd>{popupVessel.call_sign}</dd>
                                     </>
                                 )}
-                            </div>
+                            </dl>
                         </div>
                     </Popup>
                 )}
             </Map>
 
-            {destinationTarget && (
-                <button
-                    type="button"
-                    onClick={exploreDestination}
-                    aria-label={'Satellite close-up of ' + destinationTarget.name}
-                    className="absolute bottom-9 right-[72px] flex min-h-12 max-w-[calc(100%-100px)] items-center gap-2 rounded-full border border-teal-200/40 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-teal-200 shadow-lg backdrop-blur-md transition-colors hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-teal-200"
-                >
-                    <span aria-hidden="true">⌕</span>
-                    <span className="truncate">Explore {destinationTarget.name}</span>
-                </button>
+            {/* Bottom-left notes: the destination close-up and the map key.
+                Both sit above the reserved credits band and step up with the
+                rest of the chrome when the (i) credits are opened. */}
+            {(destinationTarget || trackCoords.length >= 2 || passageGeojson) && (
+                <div ref={notesRef} className="pv-map-notes absolute flex">
+                    {destinationTarget && (
+                        <button
+                            type="button"
+                            onClick={exploreDestination}
+                            aria-label={'Satellite close-up of ' + destinationTarget.name}
+                            className="pv-pill pv-glass flex min-h-12 max-w-full items-center gap-2"
+                        >
+                            <span aria-hidden="true">⌕</span>
+                            <span className="truncate">Explore {destinationTarget.name}</span>
+                        </button>
+                    )}
+                    {/* Map key — what the lines mean (owner ask 2026-08-03).
+                        Rows render only for layers actually on the map. The
+                        course-change dot is drawn into the track swatch, and
+                        on phones the track row carries the passage summary
+                        (the desktop hero shows it as tiles instead). */}
+                    {(passageGeojson || trackCoords.length >= 2) && (
+                        <div className="pv-key pv-glass" role="group" aria-label="Map key">
+                            {passageGeojson && (
+                                <div className="pv-key__row">
+                                    <span className="pv-swatch pv-swatch--route" aria-hidden="true" />
+                                    <span>Planned route</span>
+                                </div>
+                            )}
+                            {trackCoords.length >= 2 && (
+                                <div className="pv-key__row">
+                                    <span className="pv-swatch pv-swatch--track" aria-hidden="true" />
+                                    <span>{allTrips ? 'Trips sailed' : 'Track sailed'}</span>
+                                    {keySummary && (
+                                        <span className="pv-key__stats pv-num lg:hidden">
+                                            <span className="pv-key__sep">· </span>
+                                            {keySummary}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             )}
 
-            {/* Locate FAB — one tap frames the whole voyage: the complete
-                route, the track sailed so far, and the boat's last known
-                position. Sits ABOVE the Mapbox attribution strip, which is
-                bottom-right and must never be covered. */}
-            {(allCoords.length > 0 || telemetryFix) && (
-                <button
-                    type="button"
-                    onClick={frameWholeVoyage}
-                    aria-label={
-                        allTrips
-                            ? 'Show all trips and diary locations'
-                            : "Show the whole voyage — centre on the boat's last known position with the full route in view"
-                    }
-                    title={allTrips ? 'Show all trips and diary locations' : 'Show the whole voyage'}
-                    className="absolute bottom-9 right-3 flex h-12 w-12 items-center justify-center rounded-full border border-teal-300/30 bg-slate-900/80 text-teal-300 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:bg-slate-800/90 hover:text-teal-200 active:scale-95"
+            {/* Map controls — one smoked-glass cluster, bottom-right, above the
+                reserved credits band so the Mapbox attribution strip is never
+                covered: [Map|Sat] and [+|−] on top, then [Expand][Locate].
+                Expand/Restore belongs to ThalassaDashboard and takes the empty
+                lower-left cell. Custom zoom buttons replace Mapbox's white
+                NavigationControl so every control shares one mould. */}
+            <div ref={railRef} className="pv-rail absolute grid" role="group" aria-label="Map controls">
+                <div
+                    className="pv-capsule pv-capsule--basemap pv-glass flex flex-col"
+                    role="group"
+                    aria-label="Basemap"
                 >
-                    <svg
-                        className="h-6 w-6"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={1.8}
-                        aria-hidden="true"
-                    >
-                        <circle cx="12" cy="12" r="3.2" />
-                        <circle cx="12" cy="12" r="7.2" opacity="0.45" />
-                        <path strokeLinecap="round" d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6" />
-                    </svg>
-                </button>
-            )}
-
-            {/* Basemap toggle */}
-            <div className="absolute top-3 right-3 flex w-16 flex-col rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[10px] font-bold uppercase tracking-wide">
-                {(['dark', 'satellite'] as StyleMode[]).map((m) => (
+                    {(['dark', 'satellite'] as StyleMode[]).map((m) => (
+                        <button
+                            key={m}
+                            type="button"
+                            onClick={() => setStyleMode(m)}
+                            aria-label={`${m === 'dark' ? 'Map' : 'Satellite'} basemap`}
+                            aria-pressed={styleMode === m}
+                            title={m === 'dark' ? 'Map' : 'Satellite'}
+                            className="pv-ctrl flex flex-col items-center justify-center gap-0.5"
+                        >
+                            {m === 'dark' ? (
+                                <svg
+                                    aria-hidden="true"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Z" />
+                                    <path d="M9 3v16M15 5v16" />
+                                </svg>
+                            ) : (
+                                <svg
+                                    aria-hidden="true"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <circle cx="12" cy="12" r="8" />
+                                    <ellipse cx="12" cy="12" rx="11" ry="4" transform="rotate(-25 12 12)" />
+                                </svg>
+                            )}
+                            <span className="pv-ctrl__label">{m === 'dark' ? 'Map' : 'Sat'}</span>
+                        </button>
+                    ))}
+                </div>
+                <div className="pv-capsule pv-capsule--zoom pv-glass flex flex-col" role="group" aria-label="Zoom">
                     <button
-                        key={m}
-                        onClick={() => setStyleMode(m)}
-                        aria-label={`${m === 'dark' ? 'Map' : 'Satellite'} basemap`}
-                        aria-pressed={styleMode === m}
-                        className={`min-h-[44px] px-1 py-1.5 transition-colors ${
-                            styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
-                        }`}
+                        type="button"
+                        onClick={() => mapRef.current?.zoomIn({ duration: 250 })}
+                        aria-label="Zoom in"
+                        title="Zoom in"
+                        className="pv-ctrl flex items-center justify-center"
                     >
-                        {m === 'dark' ? 'Map' : 'Satellite'}
+                        <svg
+                            aria-hidden="true"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                        >
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
                     </button>
-                ))}
+                    <button
+                        type="button"
+                        onClick={() => mapRef.current?.zoomOut({ duration: 250 })}
+                        aria-label="Zoom out"
+                        title="Zoom out"
+                        className="pv-ctrl flex items-center justify-center"
+                    >
+                        <svg
+                            aria-hidden="true"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                        >
+                            <path d="M5 12h14" />
+                        </svg>
+                    </button>
+                </div>
+                {/* Locate — one tap frames the whole voyage: the complete
+                    route, the track sailed so far, and the boat's last known
+                    position. */}
+                {(allCoords.length > 0 || telemetryFix) && (
+                    <button
+                        type="button"
+                        onClick={frameWholeVoyage}
+                        aria-label={
+                            allTrips
+                                ? 'Show all trips and diary locations'
+                                : "Show the whole voyage — centre on the boat's last known position with the full route in view"
+                        }
+                        title={allTrips ? 'Show all trips and diary locations' : 'Show the whole voyage'}
+                        className="pv-ctrl pv-ctrl--solo pv-glass pv-locate flex items-center justify-center"
+                    >
+                        <svg
+                            className="h-6 w-6"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.8}
+                            aria-hidden="true"
+                        >
+                            <circle cx="12" cy="12" r="3.2" />
+                            <circle cx="12" cy="12" r="7.2" opacity="0.45" />
+                            <path strokeLinecap="round" d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6" />
+                        </svg>
+                    </button>
+                )}
             </div>
 
             {/* Wind-barb toggle PARKED (Shane 2026-07-19: "can we remove the wind
@@ -1164,40 +1446,6 @@ function MapContainer({
                     Wind
                 </button>
             )}
-
-            {/* Legend — what the lines mean (owner ask 2026-08-03). Rows
-                render only for layers actually on the map. Sits above the
-                compass rose in the bottom-left stack. */}
-            {(trackCoords.length >= 2 || passageGeojson) && (
-                <div className="absolute bottom-24 left-3 right-3 z-10 flex flex-wrap gap-x-3 gap-y-1 pointer-events-none select-none rounded-lg border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg px-2 py-1 text-[10px] font-semibold text-slate-200 lg:bottom-[116px] lg:left-4 lg:right-auto lg:block lg:space-y-1.5 lg:px-3 lg:py-2 lg:tracking-wide">
-                    {passageGeojson && (
-                        <div className="flex items-center gap-2">
-                            <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#c4b5fd' }} />
-                            <span>Planned route</span>
-                        </div>
-                    )}
-                    {trackCoords.length >= 2 && (
-                        <div className="flex items-center gap-2">
-                            <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#5eead4' }} />
-                            <span>{allTrips ? 'Trips sailed' : 'Track sailed'}</span>
-                        </div>
-                    )}
-                    {courseChangeGeojson && (
-                        <div className="flex items-center gap-2">
-                            <span
-                                className="inline-block w-2.5 h-2.5 rounded-full border"
-                                style={{ background: '#0ea5e9', borderColor: '#e0f2fe' }}
-                            />
-                            <span>Course change</span>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Compass rose — chart-style decoration, bottom-left */}
-            <div className="absolute bottom-4 left-4 z-10 hidden lg:block pointer-events-none">
-                <CompassRose />
-            </div>
         </div>
     );
 }

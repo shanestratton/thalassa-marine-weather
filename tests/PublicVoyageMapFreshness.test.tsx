@@ -137,14 +137,18 @@ describe('public voyage map freshness', () => {
             />,
         );
 
-        expect(container.querySelector('.animate-ping')).toBeInTheDocument();
+        // The own-ship ring pings only in its live state (CSS keyed on
+        // data-state since the Night-Watch redesign; the ping is no longer a
+        // Tailwind animate-ping class).
+        expect(container.querySelector('.pv-ownship[data-state="live"]')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'AIS contact Nearby, updated just now' })).toBeInTheDocument();
 
         await act(async () => {
             await vi.advanceTimersByTimeAsync(10 * 60_000);
         });
 
-        expect(container.querySelector('.animate-ping')).not.toBeInTheDocument();
+        expect(container.querySelector('.pv-ownship[data-state="live"]')).not.toBeInTheDocument();
+        expect(container.querySelector('.pv-ownship[data-state="last-known"]')).toBeInTheDocument();
         expect(screen.getByText('Last known · 10 min ago')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'AIS contact Nearby, last known 10 min ago' })).toHaveClass(
             'opacity-45',

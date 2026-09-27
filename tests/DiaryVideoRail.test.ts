@@ -188,8 +188,10 @@ describe('video reaches the row and the public page', () => {
     });
 
     it('the public page plays it, and video-only entries advertise in the list', () => {
-        expect(sidebar).toContain('entry.video_url && (');
+        // Redesign 2026-09-27: the video leads the entry detail, and the list
+        // badge reads '▶ Video' (it was '🎥 video' before the Night-Watch pass).
+        expect(sidebar).toContain('<EntryVideo url={entry.video_url} />');
         expect(sidebar).toContain('preload="metadata"');
-        expect(sidebar).toContain('🎥 video');
+        expect(sidebar).toContain('videoOnly && <span className="pv-badge">▶ Video</span>');
     });
 });
