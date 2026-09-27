@@ -43,6 +43,7 @@ const DEAD_ALLOWLIST = new Set([
 const PHANTOM_ALLOWLIST = new Set([
     '@turf/turf', // scripts/build_channel_walls.js — manual data pipeline
     'playwright', // scripts/linz-msi-scrape — runs with its own install
+    'better-sqlite3', // scripts/audit-sept23-pi-voyage.mjs — inside a `node -e` string run ON THE PI over ssh, not a local import
 ]);
 
 /** Non-package import prefixes that are never phantoms. */
