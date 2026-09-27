@@ -280,15 +280,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     }
                     onBack={onBack}
                 />
-                {/* A static note, so plain grey caption text (UX scorecard run 6):
-                    as an amber chip it read as a warning or as the live offline
-                    badge. It names what works offline — the recipes — because a
-                    bare 'Works offline' in the status slot read as a connection
-                    state, over an empty state that says meals need an account
-                    (run 8). It sits under the header, aligned to the title column
-                    (16 px gutter + 44 px back button + 12 px gap), so the back
-                    chevron stays level with its sibling pages. */}
-                <p className="-mt-1.5 pb-3 pl-[72px] pr-4 text-xs text-gray-400">Saved recipes open offline</p>
+                {/* 'Saved recipes open offline' no longer sits here: under the
+                    header it floated over the Active meals tab it says nothing
+                    about (UX scorecard run 9). The Saved recipes tab says it,
+                    under Your recipe library. */}
             </div>
 
             {/* Tab bar */}
@@ -360,7 +355,8 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 <EmptyState
                                     icon={<FoodIcon className="h-8 w-8 [stroke-width:1.5]" />}
                                     title="No active meals"
-                                    subtitle="Plan meals in a passage's Departure Brief and they appear here, ready to cook."
+                                    // Says where the Departure Brief lives (UX scorecard run 9).
+                                    subtitle="Plan meals in the Departure Brief on Crew & Float Plan and they appear here, ready to cook."
                                     actionLabel="Plan meals in Departure Brief"
                                     onAction={() => {
                                         triggerHaptic('light');
@@ -390,8 +386,8 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                 Sign in to plan meals
                                             </h2>
                                             <p className="mt-1 text-xs text-gray-400">
-                                                No active meals yet. Meals are planned in a passage's Departure Brief,
-                                                which needs an account.
+                                                No active meals yet. Meals are planned in the Departure Brief on Crew
+                                                &amp; Float Plan, which needs an account.
                                             </p>
                                         </div>
                                     </div>
@@ -548,7 +544,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         <div className="flex items-center justify-between gap-3 pb-1">
                             <div className="min-w-0">
                                 <p className="text-xs font-bold text-white">Your recipe library</p>
-                                <p className="text-[11px] text-gray-500">Available offline in your galley</p>
+                                <p className="text-xs text-gray-400">Saved recipes open offline</p>
                             </div>
                             <Button
                                 variant="secondary"
@@ -647,7 +643,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             <SignInScreen
                 isOpen={showSignIn}
                 onClose={() => setShowSignIn(false)}
-                prompt="Sign in to plan meals in a passage's Departure Brief."
+                prompt="Sign in to plan meals in the Departure Brief on Crew & Float Plan."
             />
 
             {identityOwnsRenderedData && editorRecipe && (

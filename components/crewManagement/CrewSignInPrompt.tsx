@@ -1,5 +1,5 @@
 /**
- * CrewSignInPrompt — the "Sign in required" view of Crew & Float Plan.
+ * CrewSignInPrompt — the signed-out view of Crew & Float Plan.
  *
  * Moved verbatim out of components/CrewManagement.tsx's `!isAuthed` early
  * return. It holds no state of its own; the early return itself (and the
@@ -8,13 +8,20 @@
  * UX scorecard run 7: the wall sat vertically centred ~250 pt under the header
  * with its Sign in button left-aligned under centred copy, led with "save
  * routes" on a crew page, and gave no preview of what signing in unlocks. It
- * now uses the sibling notice recipe (UnavailableNotice: a tinted card at the
- * top, icon chip, heading, body, centred action) and lists what is behind it.
+ * now lists what is behind it.
+ *
+ * UX scorecard run 9: it wore the centred notice (chip, centred heading, a
+ * compact button) while Galley's sign-in, one tap away, wore the sign-in card
+ * — two looks for one "needs an account" state. It now uses the one sign-in
+ * card recipe (settings/SettingsPrimitives SignInCard, as on Account & Cloud,
+ * Voyage Log and Galley): an icon tile and a left-aligned heading and reason,
+ * then the full-width SignInButton. The list of what signing in unlocks sits
+ * between the reason and the button. The heading says the benefit, not the
+ * barrier ("Sign in to plan with your crew", not "Sign in required").
  */
 import React from 'react';
 import { t } from '../../theme';
 import { PageHeader } from '../ui/PageHeader';
-import { UnavailableNotice } from '../ui/UnavailableNotice';
 import { SignInButton } from '../ui/SignInButton';
 import { SignInScreen } from '../SignInScreen';
 import { CheckCircleIcon, LifeBuoyIcon, UsersIcon } from '../Icons';
@@ -49,26 +56,38 @@ export const CrewSignInPrompt: React.FC<CrewSignInPromptProps> = ({ onBack, show
                 breadcrumbs={['Vessel', 'Crew & Float Plan']}
             />
             <div className="flex-1 min-h-0 overflow-y-auto">
-                <UnavailableNotice
-                    icon={<UsersIcon className="h-6 w-6" />}
-                    title="Sign in required"
-                    actions={<SignInButton onClick={() => setShowAuth(true)} />}
-                >
-                    <p>Sign in to check readiness with your crew and share a private float plan.</p>
-                    {/* What is behind the wall, so it is not a blind sign-in.
-                        role="list": Safari drops list semantics under
-                        Tailwind's list-style: none. */}
-                    <ul role="list" className="inline-flex flex-col gap-2 text-left">
-                        {UNLOCKS.map((item) => (
-                            <li key={item.text} className="flex items-start gap-2.5">
-                                <span aria-hidden="true" className="mt-0.5 shrink-0 text-sky-300">
-                                    {item.icon}
-                                </span>
-                                <span>{item.text}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </UnavailableNotice>
+                <div className="mx-auto w-full max-w-2xl p-4">
+                    <section
+                        aria-labelledby="crew-sign-in-title"
+                        className="space-y-4 rounded-2xl border border-white/10 bg-white/3 p-4 shadow-lg shadow-black/10"
+                    >
+                        <div className="flex items-start gap-3">
+                            <div className="shrink-0 rounded-xl bg-white/5 p-2.5 text-gray-300" aria-hidden="true">
+                                <UsersIcon className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h2 id="crew-sign-in-title" className="text-sm font-bold text-white">
+                                    Sign in to plan with your crew
+                                </h2>
+                                <p className="mt-1 text-xs text-gray-400">An account unlocks:</p>
+                            </div>
+                        </div>
+                        {/* What is behind the wall, so it is not a blind sign-in.
+                            role="list": Safari drops list semantics under
+                            Tailwind's list-style: none. */}
+                        <ul role="list" className="flex flex-col gap-2 text-sm text-gray-300">
+                            {UNLOCKS.map((item) => (
+                                <li key={item.text} className="flex items-start gap-2.5">
+                                    <span aria-hidden="true" className="mt-0.5 shrink-0 text-sky-300">
+                                        {item.icon}
+                                    </span>
+                                    <span>{item.text}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <SignInButton fullWidth onClick={() => setShowAuth(true)} />
+                    </section>
+                </div>
             </div>
             <SignInScreen
                 isOpen={showAuth}

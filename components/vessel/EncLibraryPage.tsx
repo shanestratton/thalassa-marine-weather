@@ -17,9 +17,49 @@ import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 import { PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../../services/piPublicBetaBoundary';
 import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { triggerHaptic } from '../../utils/system';
+import { createLogger } from '../../utils/createLogger';
 import { Button } from '../ui/Button';
 import { ModalSheet } from '../ui/ModalSheet';
 import { PageHeader } from '../ui/PageHeader';
+
+const log = createLogger('EncLibraryPage');
+
+/**
+ * Sentences the pack importer writes for people: size and count limits, the
+ * HTTPS rules, a kept newer or trusted chart, a raw chart file, a timeout.
+ * These pass through as written; nothing else does.
+ */
+const PLAIN_IMPORT_MESSAGE =
+    /^(?:ENC pack (?:is |contains |download timed out|download failed\. Use|URLs must)|The ENC pack size|The selected file is not valid JSON|Enter a valid direct HTTPS URL|.+ is (?:a raw or encrypted chart file|not a Thalassa ENC pack|already installed as trusted navigation coverage)|.+ edition \d+ is older than installed edition)/;
+
+/**
+ * What the skipper reads when an import or removal fails. Raw error text
+ * (an HTTP status, a WebKit 'Load failed', a validator's field path such as
+ * cells[0].layers) used to reach the screen as is (UX scorecard run 9); it
+ * is logged here and replaced by a plain sentence. `saved` is how many
+ * cells were already written when a multi-cell import failed: those stay on
+ * the device, so the sentence must not say nothing was imported.
+ */
+function describeEncError(caught: unknown, action: 'import' | { remove: string }, saved = 0): string {
+    const raw = caught instanceof Error ? caught.message : String(caught);
+    log.warn(`ENC ${action === 'import' ? 'import' : 'remove'} failed:`, raw);
+    if (action !== 'import') return `Could not remove ${action.remove} from this device. Try again.`;
+    if (PLAIN_IMPORT_MESSAGE.test(raw)) return raw;
+    const status = /\bHTTP (\d{3})\b/.exec(raw)?.[1];
+    if (status) {
+        if (status === '404' || status === '410') return 'No pack was found at that link. Check the address.';
+        if (status === '401' || status === '403')
+            return 'That server refused the download. Use a public direct link to the pack.';
+        if (status.startsWith('5')) return 'The server holding the pack had a problem. Try again later.';
+        return 'The pack could not be downloaded from that link. Check the address and try again.';
+    }
+    if (caught instanceof TypeError || /load failed|failed to fetch|network/i.test(raw))
+        return 'The pack could not be downloaded. Check the connection and the link, then try again.';
+    if (caught instanceof SyntaxError) return 'The file is not valid JSON; nothing was imported.';
+    if (saved > 0)
+        return `Import stopped part-way: ${saved} cell${saved === 1 ? '' : 's'} saved to this device, the rest not imported. Try the pack again.`;
+    return "This pack is not in Thalassa's converted ENC format, or it is damaged. Nothing was imported.";
+}
 
 interface EncLibraryPageProps {
     onBack: () => void;
@@ -200,15 +240,22 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
     const handleFile = useCallback(async () => {
         const file = await pickLocalEncPackFile();
         if (!file || !begin()) return;
+        let saved = 0;
         try {
-            const result = await importLocalEncPackFile(file, setProgress);
+            const result = await importLocalEncPackFile(file, (next) => {
+                if (next.phase === 'storing') saved = next.cellsDone ?? 0;
+                setProgress(next);
+            });
             setSkipped(result.skipped);
             setSuccess(
                 `${result.cells.length} unverified reference ENC cell${result.cells.length === 1 ? '' : 's'} imported to this device.`,
             );
             refresh();
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught));
+            // A failed import must not leave 'Reading… 5%' on screen as if it
+            // were still running.
+            setProgress(null);
+            setError(describeEncError(caught, 'import', saved));
         } finally {
             finish();
         }
@@ -216,9 +263,13 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
 
     const handleUrl = useCallback(async () => {
         if (!begin()) return;
+        let saved = 0;
         try {
             validateLocalEncPackUrl(url);
-            const result = await importLocalEncPackUrl(url, setProgress);
+            const result = await importLocalEncPackUrl(url, (next) => {
+                if (next.phase === 'storing') saved = next.cellsDone ?? 0;
+                setProgress(next);
+            });
             setSkipped(result.skipped);
             setSuccess(
                 `${result.cells.length} unverified reference ENC cell${result.cells.length === 1 ? '' : 's'} imported to this device.`,
@@ -227,8 +278,10 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
             setUrl('');
             refresh();
         } catch (caught) {
-            const message = caught instanceof Error ? caught.message : String(caught);
-            setUrlError(message);
+            // Nor 'Downloading… 5%' under the error (seen while checking the
+            // run-9 raw-error fix).
+            setProgress(null);
+            setUrlError(describeEncError(caught, 'import', saved));
         } finally {
             finish();
         }
@@ -242,7 +295,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                 setSuccess(`${cellId} removed from this device.`);
                 refresh();
             } catch (caught) {
-                setError(`Could not remove ${cellId}: ${caught instanceof Error ? caught.message : String(caught)}`);
+                setError(describeEncError(caught, { remove: cellId }));
             } finally {
                 finish();
             }

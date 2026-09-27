@@ -9,6 +9,7 @@ import type { TaskWithStatus, TrafficLight } from '../../../services/Maintenance
 import type { MaintenanceTriggerType } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { formatDisplayDate } from '../../../utils/displayDate';
 
 /** Map period triggers to their interval in days */
 export const PERIOD_DAYS: Partial<Record<MaintenanceTriggerType, number>> = {
@@ -161,9 +162,11 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                                 @ {task.next_due_hours?.toLocaleString()} hrs
                             </span>
                         )}
+                        {/* The app's one day form, 'Sun 28 Sep 2026': bare
+                            toLocaleDateString() gave '28/9/2026' (UX scorecard run 9). */}
                         {task.next_due_date && (
                             <span className="text-label text-slate-400 font-mono">
-                                {new Date(task.next_due_date).toLocaleDateString()}
+                                {formatDisplayDate(task.next_due_date)}
                             </span>
                         )}
                     </div>
@@ -172,7 +175,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                 {/* Row 3: Last serviced */}
                 {task.last_completed && (
                     <p className="text-label text-slate-400 mt-1">
-                        Last serviced: {new Date(task.last_completed).toLocaleDateString()}
+                        Last serviced: {formatDisplayDate(task.last_completed)}
                     </p>
                 )}
             </div>

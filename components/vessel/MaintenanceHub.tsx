@@ -50,6 +50,8 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
 import { toLocalDateString } from '../../utils/localDate';
+// 'Sun 28 Sep 2026', shared with the task cards (UX scorecard run 9).
+import { formatDisplayDate } from '../../utils/displayDate';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -210,6 +212,16 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         setIsEditingHours(false);
         setEngineHoursEditIdentity(null);
     }, [engineHoursInput, engineHours, engineHoursEditIdentity]);
+
+    const startEditingHours = useCallback(() => {
+        const identity = getAuthIdentityScope();
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        setEngineHoursEditIdentity(identity);
+        setIsEditingHours(true);
+        setTimeout(() => {
+            if (isAuthIdentityScopeCurrent(identity)) hoursInputRef.current?.focus();
+        }, 100);
+    }, []);
 
     const tasksWithStatus = useMemo(() => {
         const withStatus = tasks.map((t) => {
@@ -593,10 +605,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <>
                             <OfflineBadge />
                             {countsSummary && <span className="sr-only">{countsSummary}</span>}
+                            {/* 12 px chips on 6 px sides, so '3 due soon · 36 ok · 1 needs
+                                hours' is one row at 393 pt instead of two (UX scorecard
+                                run 9: the chips were half of what pushed the first task
+                                to mid-screen). */}
                             {counts.red > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black"
+                                    className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
                                     title="Overdue"
                                 >
                                     {counts.red} overdue
@@ -605,7 +621,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {counts.yellow > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black"
+                                    className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
                                     title="Due soon"
                                 >
                                     {/* 'due soon', as the rows and the spoken summary
@@ -617,7 +633,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {tasksWithStatus.length > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black"
+                                    className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
                                     title="Up to date"
                                 >
                                     {counts.green} ok
@@ -626,7 +642,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {counts.needsHours > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
                                     title="Due by engine hours — enter current engine hours"
                                 >
                                     {counts.needsHours} need{counts.needsHours === 1 ? 's' : ''} hours
@@ -635,7 +651,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {counts.unscheduled > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
                                     title="No due date or engine hours set"
                                 >
                                     {counts.unscheduled} unscheduled
@@ -644,7 +660,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {counts.paused > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-label font-black"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
                                     title="Paused"
                                 >
                                     {counts.paused} paused
@@ -738,77 +754,43 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     }
                 />
 
-                {/* ═══ ENGINE HOURS CARD ═══ */}
+                {/* ═══ ENGINE HOURS CARD ═══
+                    Unset, it is one 56 pt row: a 110 pt card holding a dash
+                    pushed the first task past half the screen at 393 and two
+                    thirds at 375 (UX scorecard run 9). Tapping it opens the
+                    full card with the entry field; a figure keeps the full card. */}
                 <div className="shrink-0 px-4 pb-3">
-                    <button
-                        aria-label={
-                            engineHours === null
-                                ? 'Engine hours not set — enter engine hours'
-                                : `Edit engine hours, currently ${engineHours.toLocaleString()}`
-                        }
-                        onClick={() => {
-                            const identity = getAuthIdentityScope();
-                            if (!isAuthIdentityScopeCurrent(identity)) return;
-                            setEngineHoursEditIdentity(identity);
-                            setIsEditingHours(true);
-                            setTimeout(() => {
-                                if (isAuthIdentityScopeCurrent(identity)) hoursInputRef.current?.focus();
-                            }, 100);
-                        }}
-                        className="w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
-                    >
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 rounded-xl bg-sky-500/20">
-                                    <svg
-                                        className="w-6 h-6 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-label text-sky-400/70 font-bold uppercase tracking-widest">
-                                        Current engine hours
-                                    </p>
-                                    {isEditingHours ? (
-                                        <input
-                                            ref={hoursInputRef}
-                                            type="text"
-                                            inputMode="numeric"
-                                            value={engineHoursInput}
-                                            onChange={(e) => setEngineHoursInput(e.target.value)}
-                                            onBlur={saveEngineHours}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') saveEngineHours();
-                                            }}
-                                            onClick={(e) => e.stopPropagation()}
-                                            placeholder="—"
-                                            className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
-                                            autoFocus
-                                        />
-                                    ) : engineHours === null ? (
-                                        <>
-                                            <p className="text-3xl font-black text-gray-400 tracking-wider">—</p>
-                                            <p className="text-xs font-bold text-sky-400">Tap to enter hours</p>
-                                        </>
-                                    ) : (
-                                        <p className="text-3xl font-black text-white tracking-wider">
-                                            {engineHours.toLocaleString()}
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                            {!isEditingHours && (
+                    {engineHours === null && !isEditingHours ? (
+                        <button
+                            type="button"
+                            aria-label="Engine hours not set — enter engine hours"
+                            onClick={startEditingHours}
+                            className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-2 text-left transition-all hover:bg-sky-500/15 active:scale-[0.98]"
+                        >
+                            <span aria-hidden="true" className="rounded-lg bg-sky-500/20 p-1.5">
                                 <svg
-                                    className="w-5 h-5 text-sky-400/50"
+                                    className="h-5 w-5 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
+                                </svg>
+                            </span>
+                            <span className="min-w-0 flex-1 text-sm">
+                                <span className="font-bold text-white">Engine hours</span>
+                                <span className="text-gray-400"> · not set</span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-1.5 text-sm font-bold text-sky-400">
+                                Enter
+                                <svg
+                                    aria-hidden="true"
+                                    className="h-4 w-4"
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
@@ -820,9 +802,83 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
                                     />
                                 </svg>
-                            )}
-                        </div>
-                    </button>
+                            </span>
+                        </button>
+                    ) : (
+                        <button
+                            aria-label={
+                                engineHours === null
+                                    ? 'Engine hours not set — enter engine hours'
+                                    : `Edit engine hours, currently ${engineHours.toLocaleString()}`
+                            }
+                            onClick={startEditingHours}
+                            className="w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 rounded-xl bg-sky-500/20">
+                                        <svg
+                                            className="w-6 h-6 text-sky-400"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p className="text-label text-sky-400/70 font-bold uppercase tracking-widest">
+                                            Current engine hours
+                                        </p>
+                                        {isEditingHours ? (
+                                            <input
+                                                ref={hoursInputRef}
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={engineHoursInput}
+                                                onChange={(e) => setEngineHoursInput(e.target.value)}
+                                                onBlur={saveEngineHours}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') saveEngineHours();
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                aria-label="Current engine hours"
+                                                placeholder="--"
+                                                className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            // Unset hours never reach here: they are the one-row
+                                            // button above until the field opens.
+                                            <p className="text-3xl font-black text-white tracking-wider">
+                                                {engineHours?.toLocaleString() ?? '--'}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                                {!isEditingHours && (
+                                    <svg
+                                        className="w-5 h-5 text-sky-400/50"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={1.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                        />
+                                    </svg>
+                                )}
+                            </div>
+                        </button>
+                    )}
                 </div>
 
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
@@ -857,9 +913,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     ) : (
                         <>
                             {showSuggestedNote && (
+                                // Two lines, not three (UX scorecard run 9); the caveat
+                                // itself is unchanged.
                                 <p className="text-xs text-gray-400 px-1">
-                                    Suggested schedule — due dates count from the day it was added, not from your last
-                                    service. Tap a task to adjust it or log a service.
+                                    Suggested schedule: due dates count from the day it was added, not your last
+                                    service. Tap a task to adjust it.
                                 </p>
                             )}
                             {groupedTasks.map((group) => {
@@ -981,11 +1039,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* HISTORY OVERLAY */}
                 {/* ═══════════════════════════════════════════ */}
                 {showHistory && (
+                    // Opened from the service sheet (OverlayPortal 'modal',
+                    // z-1100), so it takes the 'nested' band: at z-1000 it
+                    // opened underneath and History looked like it did nothing.
                     <ModalSheet
                         isOpen={true}
                         onClose={() => setShowHistory(false)}
                         title="Service history"
-                        zIndex="z-1000"
+                        zIndex="z-1200"
                     >
                         {historyItems.length === 0 ? (
                             <EmptyState
@@ -1014,7 +1075,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <div key={h.id} className="bg-white/3 border border-white/6 rounded-xl p-4">
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="text-sm font-bold text-white">
-                                                {new Date(h.completed_at).toLocaleDateString()}
+                                                {formatDisplayDate(h.completed_at)}
                                             </p>
                                             {h.engine_hours_at_service !== null && (
                                                 <span className="text-label text-sky-400 font-bold">

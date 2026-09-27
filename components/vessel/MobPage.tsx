@@ -22,6 +22,11 @@ import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 interface MobPageProps {
     onBack: () => void;
     onNavigate?: (page: string) => void;
+    /** Built by viewRegistry from where MOB was opened ('Back to Obs',
+     *  ['Obs', 'Man Overboard']), so the chevron and crumb name the page Back
+     *  really returns to (UX scorecard run 9). */
+    backLabel?: string;
+    breadcrumbs?: string[];
 }
 
 type EmergencyVesselType = 'sail' | 'power' | 'observer' | undefined;
@@ -103,7 +108,7 @@ function buildMaydayText(
     return out;
 }
 
-export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
+export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel, breadcrumbs }) => {
     const { settings } = useSettings();
     // Shane 2026-09-26: the idle word must say what the fix is doing, like
     // Radio and NMEA do — 'READY' with no position was a promise the mark
@@ -352,6 +357,8 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     title="Man Overboard"
                     subtitle="Mark & track"
                     onBack={onBack}
+                    backLabel={backLabel}
+                    breadcrumbs={breadcrumbs}
                     status={
                         <span
                             role="status"
@@ -370,13 +377,13 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             With no live fix the tap takes the last position held,
                             and with none held it waits a few seconds for a fix
                             (MobService.activate), or says why it could not. It
-                            must never read as "nothing to mark, so don't tap". */}
+                            must never read as "nothing to mark, so don't tap".
+                            One line above the button, the first thing read in an
+                            emergency; the rest sits under the button (run 9). */}
                         <p className="text-[13px] text-slate-400 leading-relaxed">
                             {fixWord === 'Ready'
                                 ? 'Tap to snapshot the current GPS fix.'
-                                : 'No live GPS fix yet: the tap marks the last position held, or waits briefly for a fix.'}{' '}
-                            The app will keep a live bearing and distance back to the position so the helm can return to
-                            it.
+                                : 'No live fix: marks the last position held.'}
                         </p>
                         {activationError && (
                             <p
@@ -450,12 +457,21 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         </div>
                     </button>
 
-                    {/* A two-sentence procedure, so it is set as prose: uppercase and
-                        letter-spacing are for labels, not for instructions someone has
-                        to follow with a person in the water. */}
-                    <div className="text-center text-sm font-bold leading-relaxed text-slate-300 max-w-xs">
-                        Also immediately: throw a flotation device, shout &ldquo;Man Overboard,&rdquo; assign a spotter,
-                        and hit the MOB button on your chartplotter if fitted.
+                    <div className="max-w-xs text-center">
+                        {/* What happens after the tap, moved from above the button
+                            (UX scorecard run 9) and kept whole: the wait for a fix
+                            when none is held, then the bearing and distance back. */}
+                        <p className="mb-3 text-[13px] leading-relaxed text-slate-400">
+                            {fixWord === 'Ready' ? '' : 'With none held, it waits briefly for a fix. '}
+                            The app then keeps a live bearing and distance back to the mark.
+                        </p>
+                        {/* A two-sentence procedure, so it is set as prose: uppercase and
+                            letter-spacing are for labels, not for instructions someone has
+                            to follow with a person in the water. */}
+                        <p className="text-sm font-bold leading-relaxed text-slate-300">
+                            Also immediately: throw a flotation device, shout &ldquo;Man Overboard,&rdquo; assign a
+                            spotter, and hit the MOB button on your chartplotter if fitted.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -480,6 +496,8 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 title="MOB ACTIVE"
                 subtitle={approximateFix ? 'Approximate search area' : 'Return to fix'}
                 onBack={onBack}
+                backLabel={backLabel}
+                breadcrumbs={breadcrumbs ? [breadcrumbs[0], 'MOB ACTIVE'] : undefined}
                 action={
                     <div
                         role="status"

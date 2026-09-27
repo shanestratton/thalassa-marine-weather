@@ -462,8 +462,11 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     Compatible software
                                 </h2>
                                 {/* role="list": WebKit drops list semantics from a
-                                    ul whose markers are reset, as Tailwind's are. */}
-                                <ul role="list" className="divide-y divide-white/5">
+                                    ul whose markers are reset, as Tailwind's are.
+                                    The dividers take slate-200 by day: white/5 on
+                                    the light card measured rgb 247 on 246 and
+                                    vanished (UX scorecard run 9). */}
+                                <ul role="list" className="divide-y divide-white/5 [.display-light_&]:divide-slate-200">
                                     {COMPATIBLE_APPS.map((app) => (
                                         <li key={app.name} className="flex items-baseline justify-between gap-3 py-2">
                                             <span className="text-[12px] font-bold text-white/80">{app.name}</span>

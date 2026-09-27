@@ -160,7 +160,8 @@ describe('Vessel hub accessible structure', () => {
         const gateway = screen.getByRole('button', { name: 'NMEA Gateway' });
         const network = screen.getByRole('button', { name: 'Boat Network' });
         expect(gateway).toHaveAccessibleDescription(/AIS/);
-        expect(network).toHaveAccessibleDescription('The Pi, charts & boat devices');
+        // "Boat computer", not the hobbyist "The Pi" (UX scorecard run 9).
+        expect(network).toHaveAccessibleDescription('Boat computer, charts & devices');
         expect(network).not.toHaveAccessibleDescription(/instruments/i);
     });
 });

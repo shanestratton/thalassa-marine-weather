@@ -66,7 +66,7 @@ function readScript(mode?: RegExp, confirmReceiver = true): string {
     if (screen.queryByRole('dialog', { name: 'Voice transcript' })) {
         fireEvent.click(transcript().getByRole('button', { name: 'VHF instructions' }));
     }
-    if (mode) fireEvent.click(instructions().getByRole('button', { name: mode }));
+    if (mode) fireEvent.click(instructions().getByRole('radio', { name: mode }));
     const confirmation = instructions().queryByRole('button', {
         name: 'Confirm position receiver is aboard this vessel',
     });
@@ -126,7 +126,7 @@ describe('RadioConsole emergency transcript honesty', () => {
     it('keeps preparation to three actions and folds away reference material', () => {
         render(<RadioConsolePage onBack={vi.fn()} />);
         for (const mode of [/Routine Position/i, /Urgency Pan-Pan/i, /Distress Mayday/i]) {
-            fireEvent.click(instructions().getByRole('button', { name: mode }));
+            fireEvent.click(instructions().getByRole('radio', { name: mode }));
             expect(instructions().getAllByRole('listitem')).toHaveLength(3);
             expect(instructions().getByText(/Ch 70: DSC only, never voice. This app does not transmit./)).toBeVisible();
             expect(instructions().getByText('Radio help & channels').closest('details')).not.toHaveAttribute('open');
@@ -138,38 +138,32 @@ describe('RadioConsole emergency transcript honesty', () => {
     it('keeps call selectors one tap away during readback and returns mode changes to preparation', () => {
         const onBack = vi.fn();
         render(<RadioConsolePage onBack={onBack} />);
-        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
-        expect(instructions().getByRole('group', { name: 'Call type' })).toBeVisible();
+        expect(screen.getAllByRole('radiogroup', { name: 'Call type' })).toHaveLength(1);
+        expect(instructions().getByRole('radiogroup', { name: 'Call type' })).toBeVisible();
         expect(instructions().getByTestId('radio-instructions-body')).not.toContainElement(
-            instructions().getByRole('group', { name: 'Call type' }),
+            instructions().getByRole('radiogroup', { name: 'Call type' }),
         );
         readScript();
-        expect(screen.queryByRole('group', { name: 'Call type' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('radiogroup', { name: 'Call type' })).not.toBeInTheDocument();
         const changeCall = transcript().getByRole('button', { name: 'Change call' });
         expect(changeCall).toHaveAttribute('aria-expanded', 'false');
         fireEvent.click(changeCall);
-        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
-        expect(transcript().getByRole('button', { name: /Routine Position/i })).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getAllByRole('radiogroup', { name: 'Call type' })).toHaveLength(1);
+        expect(transcript().getByRole('radio', { name: /Routine Position/i })).toHaveAttribute('aria-checked', 'true');
         expect(transcript().getByTestId('radio-transcript-body')).not.toContainElement(
-            transcript().getByRole('group', { name: 'Call type' }),
+            transcript().getByRole('radiogroup', { name: 'Call type' }),
         );
-        fireEvent.click(transcript().getByRole('button', { name: /Distress Mayday/i }));
+        fireEvent.click(transcript().getByRole('radio', { name: /Distress Mayday/i }));
         expect(screen.queryByRole('dialog', { name: 'Voice transcript' })).not.toBeInTheDocument();
         expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
-        expect(instructions().getByRole('button', { name: /Distress Mayday/i })).toHaveAttribute(
-            'aria-pressed',
-            'true',
-        );
+        expect(instructions().getByRole('radio', { name: /Distress Mayday/i })).toHaveAttribute('aria-checked', 'true');
         expect(instructions().getByText(/MAYDAY · grave & imminent danger/)).toBeVisible();
         expect(readScript()).toContain('Mayday, Mayday, Mayday');
         fireEvent.click(transcript().getByRole('button', { name: 'Close voice transcript' }));
-        expect(screen.getAllByRole('group', { name: 'Call type' })).toHaveLength(1);
-        expect(screen.getByRole('button', { name: /Distress Mayday/i })).toHaveAttribute('aria-pressed', 'true');
-        fireEvent.click(screen.getByRole('button', { name: /Urgency Pan-Pan/i }));
-        expect(instructions().getByRole('button', { name: /Urgency Pan-Pan/i })).toHaveAttribute(
-            'aria-pressed',
-            'true',
-        );
+        expect(screen.getAllByRole('radiogroup', { name: 'Call type' })).toHaveLength(1);
+        expect(screen.getByRole('radio', { name: /Distress Mayday/i })).toHaveAttribute('aria-checked', 'true');
+        fireEvent.click(screen.getByRole('radio', { name: /Urgency Pan-Pan/i }));
+        expect(instructions().getByRole('radio', { name: /Urgency Pan-Pan/i })).toHaveAttribute('aria-checked', 'true');
         expect(screen.queryByTestId('dsc-transcript')).not.toBeInTheDocument();
         fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
