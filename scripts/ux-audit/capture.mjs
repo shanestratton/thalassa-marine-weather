@@ -97,7 +97,10 @@ const context = await browser.newContext({
     deviceScaleFactor: 2,
     isMobile: true,
     hasTouch: true,
-    geolocation: { latitude: -23.7, longitude: 151.6 },
+    // Gladstone Marina, matching the seeded home port: now that fixes are
+    // accepted (the timestamp fix), an offshore point switched the Glass to
+    // its offshore model and a coordinate name.
+    geolocation: { latitude: -23.8434, longitude: 151.2553 },
     permissions: ['geolocation'],
     colorScheme: MODE === 'light' ? 'light' : 'dark',
     storageState: {
