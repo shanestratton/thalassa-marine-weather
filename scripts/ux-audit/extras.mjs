@@ -92,7 +92,10 @@ const ctx = async (ls, viewport) => {
         deviceScaleFactor: 2,
         isMobile: true,
         hasTouch: true,
-        geolocation: { latitude: -23.7, longitude: 151.6 },
+        // Gladstone Marina, matching the seeded home port: now that fixes are
+        // accepted (the timestamp fix), an offshore point switched the Glass to
+        // its offshore model and a coordinate name.
+        geolocation: { latitude: -23.8434, longitude: 151.2553 },
         permissions: ['geolocation'],
         colorScheme: MODE === 'light' ? 'light' : 'dark',
         storageState: {
@@ -181,7 +184,8 @@ if (SECTIONS.includes('A')) {
         await capture(p, 'glass-pin-sheet');
         await dismiss(p);
     }
-    const model = p.getByText(/^ICON$/).first();
+    // The model pill by its name, whichever model the Glass opens on.
+    const model = p.getByRole('button', { name: /forecast model/i }).first();
     if (await model.count()) {
         await model.click({ timeout: 2000 }).catch(() => {});
         await p.waitForTimeout(1200);
@@ -291,13 +295,7 @@ if (SECTIONS.includes('C')) {
         await capture(p, `onboarding-${i}`);
         summary[`onboarding-${i}`].clicked = label;
         // Onboarding is over once the tab bar is up.
-        if (
-            await p
-                .getByRole('tab', { name: /Navigate to/ })
-                .first()
-                .count()
-        )
-            break;
+        if (await p.getByRole('navigation', { name: 'Main', exact: true }).first().count()) break;
     }
     await c.close();
 }
