@@ -3,8 +3,7 @@
  * Extracted from SettingsModal to reduce component size.
  */
 import React, { useState, useEffect } from 'react';
-import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
-import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { Section, Row, RowChevron, SatelliteModeGlyph, SignInCard, type SettingsTabProps } from './SettingsPrimitives';
 import { CheckIcon, CloudIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
 import { useAuth } from '../../context/AuthContext';
@@ -13,7 +12,6 @@ import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { Button } from '../ui/Button';
-import { SignInButton } from '../ui/SignInButton';
 import {
     ACCOUNT_DELETION_PRIVACY_EMAIL,
     ACCOUNT_DELETION_PRIVACY_MAILTO,
@@ -50,23 +48,31 @@ const isOpenMeteoConfigured = () => isSupabaseConfigured();
 // A STATE, never an instruction, and never more than is known. Nothing on this
 // page probes a service: checkStormglassStatus() returns OK without a request
 // (it will not spend paid quota to paint Settings), and the rest only read
-// whether a key or URL is present. So a set-up service says exactly that —
-// "Set up", with a neutral tick — never "Ready"/"Working", which read as live
-// checks (UX scorecard run 6). "Configured" plus a footnote explaining it was
+// whether a key or URL is present. "Set up" beside a tick read as an
+// instruction ("go and set it up"), so a service this app has what it needs
+// for says "Ready" (UX scorecard run 8). "Configured" plus a footnote was
 // developer's wording, and a bare "Paused" gave no reason (run 7).
 type ServiceState = 'setUp' | 'missing' | 'free' | 'checking' | 'error' | 'paused' | 'signedOut';
 
 const SERVICE_STATE: Record<ServiceState, { dot: string; text: string; word: string }> = {
-    setUp: { dot: '', text: 'text-gray-300', word: 'Set up' },
-    missing: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Not set up' },
+    setUp: { dot: '', text: 'text-gray-300 font-medium', word: 'Ready' },
+    missing: { dot: 'border border-slate-500', text: 'text-gray-400 font-medium', word: 'Not set up' },
     // The marine forecast without its key runs on the free sources.
-    free: { dot: 'bg-sky-500', text: 'text-sky-300', word: 'Free mode' },
-    checking: { dot: 'bg-yellow-500 animate-pulse', text: 'text-yellow-400', word: 'Checking…' },
-    error: { dot: 'bg-red-500', text: 'text-red-400', word: 'Not working' },
-    // The assistant (Calypso) is parked for the public beta
-    // (FEATURE_VISIBILITY.calypsoConsole), whatever key is present.
-    paused: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Paused for the beta' },
-    signedOut: { dot: 'border border-slate-500', text: 'text-gray-400', word: 'Needs sign-in' },
+    free: { dot: 'bg-sky-500', text: 'text-sky-300 font-medium', word: 'Free mode' },
+    checking: { dot: 'bg-yellow-500 animate-pulse', text: 'text-yellow-400 font-medium', word: 'Checking…' },
+    error: { dot: 'bg-red-500', text: 'text-red-400 font-medium', word: 'Not working' },
+    // Calypso is parked for the public beta (FEATURE_VISIBILITY.calypsoConsole),
+    // whatever key is present.
+    paused: { dot: 'border border-slate-500', text: 'text-gray-400 font-medium', word: 'Paused for the beta' },
+    // The one row that asks something of the skipper stands out from the
+    // ready ones: amber ring and amber words, not grey on grey (run 8).
+    // Daylight: the ring darkens to amber-700 (3:1 on the white card); the
+    // words already remap to amber-800 there (styles/daylight.css).
+    signedOut: {
+        dot: 'border-2 border-amber-400 [.display-light_&]:border-amber-700',
+        text: 'text-amber-300 font-semibold',
+        word: 'Needs sign-in',
+    },
 };
 
 /** One flat row in the Services list: plain sentence-case name, state on the right. */
@@ -82,7 +88,7 @@ const StatusRow = ({ label, state, details }: { label: string; state: ServiceSta
                 )}
                 <span className="text-sm font-bold text-white">{label}</span>
             </div>
-            <span className={`text-right text-sm font-medium ${look.text}`}>{details || look.word}</span>
+            <span className={`text-right text-sm ${look.text}`}>{details || look.word}</span>
         </li>
     );
 };
@@ -92,9 +98,32 @@ interface AccountTabProps extends SettingsTabProps {
     onSignInOpened?: () => void;
     /** The sheet closed (dismissed, or done). */
     onSignInClosed?: () => void;
+    /** Opens Settings → Preferences, where the Satellite mode switch lives. */
+    onOpenPreferences?: () => void;
 }
 
-export const AccountTab: React.FC<AccountTabProps> = ({ settings, onSave, onSignInOpened, onSignInClosed }) => {
+/** Satellite mode's state in one line, pointing at its switch in Preferences. */
+const SatellitePointer: React.FC<{ on: boolean }> = ({ on }) => (
+    <div className="flex flex-1 min-w-0 items-center gap-3">
+        <div
+            className={`shrink-0 rounded-xl p-2.5 ${on ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}
+            aria-hidden="true"
+        >
+            <SatelliteModeGlyph className="w-5 h-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-white">Satellite mode</p>
+            <p className="text-xs text-gray-400">{on ? 'On, forecast only' : 'Off'} · switch in Preferences</p>
+        </div>
+    </div>
+);
+
+export const AccountTab: React.FC<AccountTabProps> = ({
+    settings,
+    onSignInOpened,
+    onSignInClosed,
+    onOpenPreferences,
+}) => {
     const { user, logout } = useAuth();
     const [authOpen, setAuthOpen] = useState(false);
     const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
@@ -176,45 +205,48 @@ export const AccountTab: React.FC<AccountTabProps> = ({ settings, onSave, onSign
                 </div>
             )}
 
-            {/* Account Connection Hero */}
-            <div className="bg-linear-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-6 mb-8 shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-32 bg-sky-500/10 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
-                <div className="flex flex-col items-center gap-4 relative z-10 text-center">
-                    <div
-                        className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl ${user ? 'bg-linear-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/30' : 'bg-linear-to-br from-slate-600 to-slate-700'}`}
-                    >
-                        <CloudIcon className={`w-8 h-8 ${user ? 'text-white' : 'text-gray-400'}`} />
-                    </div>
-                    <div>
-                        {/* h2, like every section heading below it — as an h3 it
-                            sat under the Network Mode / Services h2s in the outline. */}
-                        <h2 className="text-lg font-bold text-white">
-                            {user ? 'Connected to the cloud' : 'Cloud connection'}
-                        </h2>
-                        <p className="text-sm text-gray-400 max-w-md mt-1">
-                            {user
-                                ? 'Your data is synced securely to the cloud.'
-                                : 'Sign in to sync your settings and voyage data across your devices.'}
-                        </p>
-                    </div>
-                    {!user ? (
-                        <SignInButton
-                            onClick={() => {
-                                setAuthOpen(true);
-                                onSignInOpened?.();
-                            }}
-                        />
-                    ) : (
-                        <div className="flex flex-col gap-3 items-center w-full">
-                            <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
-                                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse"></div>
-                                <span className="text-sm text-emerald-300 font-mono font-bold">
-                                    {user.email || user.phone}
-                                </span>
+            {/* Account card. Signed out, it is the one sign-in card (left-aligned
+                title and reason, full-width Sign in under them) that Voyage Log
+                uses too; the centred hero was a third sign-in layout (UX
+                scorecard run 8). Its heading is an h2, like every section
+                heading below it. */}
+            <div className="mb-8 rounded-2xl border border-white/10 bg-white/3 p-4 shadow-lg shadow-black/10">
+                {!user ? (
+                    <SignInCard
+                        headingLevel="h2"
+                        icon={<CloudIcon className="w-5 h-5" />}
+                        title="Sign in to sync across your devices"
+                        reason="Your settings, vessel records and voyage data sync privately to your account."
+                        onSignIn={() => {
+                            setAuthOpen(true);
+                            onSignInOpened?.();
+                        }}
+                    />
+                ) : (
+                    <div className="space-y-4">
+                        <div className="flex items-start gap-3">
+                            <div
+                                className="shrink-0 rounded-xl bg-emerald-500/20 p-2.5 text-emerald-300"
+                                aria-hidden="true"
+                            >
+                                <CloudIcon className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h2 className="text-sm font-bold text-white">Connected to the cloud</h2>
+                                <p className="mt-1 text-xs text-gray-400">Your data syncs privately to your account.</p>
                             </div>
                         </div>
-                    )}
-                </div>
+                        <div className="flex min-h-11 items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2">
+                            <div
+                                className="w-2 h-2 shrink-0 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"
+                                aria-hidden="true"
+                            ></div>
+                            <span className="min-w-0 truncate text-sm font-bold text-emerald-300">
+                                {user.email || user.phone}
+                            </span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Sync Status */}
@@ -250,106 +282,31 @@ export const AccountTab: React.FC<AccountTabProps> = ({ settings, onSave, onSign
                         <div
                             className={`px-3 py-1 rounded-full text-xs font-bold ${isSupabaseConfigured() ? 'bg-white/5 border border-white/10 text-gray-300' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}
                         >
-                            {isSupabaseConfigured() ? 'Set up' : 'Not set up'}
+                            {isSupabaseConfigured() ? 'Ready' : 'Not set up'}
                         </div>
                     </Row>
                 </Section>
             )}
 
-            {/* Satellite Mode */}
-            {/* The switch sits straight in the section card, like every other
-                settings row — it used to be a bordered card inside the section
-                card. The amber wash still marks the mode as on. */}
+            {/* Satellite mode lives in Preferences, the home for switches (Shane
+                2026-09-09; UX scorecard run 8). Same setting (satelliteMode),
+                same effect; this one line keeps its state visible here and
+                goes to the switch. */}
             <Section title="Network Mode">
-                <div
-                    className={`p-4 transition-colors duration-500 ${settings.satelliteMode ? 'bg-linear-to-br from-amber-500/15 to-orange-500/10' : ''}`}
-                >
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div
-                                className={`p-2.5 rounded-xl transition-all duration-500 ${settings.satelliteMode ? 'bg-amber-500/20 text-amber-400 shadow-lg shadow-amber-500/20 scale-110' : 'bg-white/5 text-gray-400'}`}
-                            >
-                                <svg
-                                    aria-hidden="true"
-                                    className="w-5 h-5"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M8.288 15.038a5.25 5.25 0 017.424-7.424m-5.303 5.303a2.25 2.25 0 013.182-3.182M12 21a9 9 0 100-18 9 9 0 000 18z"
-                                    />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 7.5l16.5 9" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="text-white font-bold text-sm">Satellite mode</p>
-                                <p
-                                    className={`text-xs mt-0.5 transition-colors ${settings.satelliteMode ? 'text-amber-300/70' : 'text-gray-400'}`}
-                                >
-                                    {settings.satelliteMode
-                                        ? 'Forecast only • grids, radar, AIS & uploads paused'
-                                        : 'For Iridium GO! & metered connections'}
-                                </p>
-                            </div>
-                        </div>
-                        <Toggle
-                            label="Satellite mode"
-                            checked={!!settings.satelliteMode}
-                            onChange={(v) => onSave({ satelliteMode: v })}
-                        />
-                    </div>
-                    {settings.satelliteMode && (
-                        <div className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
-                            {/* The forecast still runs every source it normally
-                                does — five small JSON calls every three hours.
-                                "StormGlass only" was never true; the cadence is
-                                the saving, and the cadence is what is promised. */}
-                            <div className="flex items-center gap-2 text-xs">
-                                <div
-                                    className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
-                                    aria-hidden="true"
-                                ></div>
-                                <span className="text-amber-200/70">Weather updates every 3 hours</span>
-                            </div>
-                            {/* Rendered FROM the policy module, so what this list
-                                says and what the fetchers enforce are one thing.
-                                Until 2026-09-05 the toggle promised "~200 KB/day •
-                                Weather only" while GRIBs, radar, AIS and video
-                                uploads ran exactly as on WiFi. */}
-                            {SATELLITE_MODE_ENFORCED.map((entry) => (
-                                <div key={entry.kind} className="flex items-center gap-2 text-xs">
-                                    <div
-                                        className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
-                                        aria-hidden="true"
-                                    ></div>
-                                    <span className="text-amber-200/70">{entry.label}</span>
-                                </div>
-                            ))}
-                            <div className="flex items-center gap-2 text-xs">
-                                <div
-                                    className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
-                                    aria-hidden="true"
-                                ></div>
-                                <span className="text-amber-200/70">
-                                    Log entries stored on-device until back on land
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs">
-                                <div
-                                    className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
-                                    aria-hidden="true"
-                                ></div>
-                                <span className="text-amber-200/70">
-                                    Diary relay uploads pause until normal network mode resumes
-                                </span>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                {onOpenPreferences ? (
+                    <Row
+                        onClick={onOpenPreferences}
+                        label={`Satellite mode, ${settings.satelliteMode ? 'on' : 'off'}. Change it in Preferences`}
+                        className="min-h-[44px]"
+                    >
+                        <SatellitePointer on={!!settings.satelliteMode} />
+                        <RowChevron />
+                    </Row>
+                ) : (
+                    <Row>
+                        <SatellitePointer on={!!settings.satelliteMode} />
+                    </Row>
+                )}
             </Section>
 
             {/* Cloud data behaviour — sync is automatic while signed in. */}
@@ -409,11 +366,12 @@ export const AccountTab: React.FC<AccountTabProps> = ({ settings, onSave, onSign
                         }
                         details={sgStatus?.status === 'ERROR' ? sgStatus.message : undefined}
                     />
-                    {/* The assistant is Calypso, whose console is parked
-                        (FEATURE_VISIBILITY.calypsoConsole): a configured key does
-                        not make him available. */}
+                    {/* Calypso, the voice assistant, by the one name the app uses
+                        for him ('Assistant' was a second name; UX scorecard run
+                        8). His console is parked (FEATURE_VISIBILITY.calypsoConsole):
+                        a configured key does not make him available. */}
                     <StatusRow
-                        label="Assistant"
+                        label="Calypso (voice)"
                         state={
                             !FEATURE_VISIBILITY.calypsoConsole ? 'paused' : isGeminiConfigured() ? 'setUp' : 'missing'
                         }

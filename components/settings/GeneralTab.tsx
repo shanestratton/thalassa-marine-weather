@@ -3,15 +3,32 @@
  * Extracted from SettingsModal to reduce component size.
  */
 import React from 'react';
-import { Section, Row, RowChevron, type SettingsTabProps } from './SettingsPrimitives';
+import {
+    FIELD_LABEL_CLASS,
+    Section,
+    Row,
+    RowChevron,
+    SatelliteModeGlyph,
+    Toggle,
+    type SettingsTabProps,
+} from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
 import { AestheticsSections } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
+import { SmartPolarsSetting } from './SmartPolarsSetting';
 import { CompassIcon, TrashIcon } from '../Icons';
 import { Button } from '../ui/Button';
 import type { LengthUnit, OffshoreModel } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
 import { canAccess } from '../../services/SubscriptionService';
+import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
+
+/** The saved home that follows the phone (or the boat) rather than a port. */
+const FOLLOWS_YOU = 'Current Location';
+
+/** One field's select, the same recipe for every unit. */
+const SELECT_CLASS =
+    'thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -42,34 +59,46 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
     const updateUnit = (type: keyof typeof settings.units, value: string) => {
         onSave({ units: { ...settings.units, [type]: value } });
     };
+    const followsYou = settings.defaultLocation === FOLLOWS_YOU;
+    const satellite = !!settings.satelliteMode;
 
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-            <Section title="Location & Time">
-                <Row>
-                    <div className="flex-1">
-                        <label className="text-sm text-white font-medium block">Default port</label>
-                    </div>
+            {/* The home the Glass opens on. Its label is the one Settings form
+                label (FIELD_LABEL_CLASS) over a full-width field, and it is
+                called what the menu row calls it, 'Home port'. The saved value
+                that follows you ('Current Location') is not shown as if typed
+                into the box: the box stays empty and says what it does (UX
+                scorecard run 8). Typing a port replaces it, as before. */}
+            <Section title="Location & time">
+                <div className="p-4">
+                    <label htmlFor="settings-home-port" className={FIELD_LABEL_CLASS}>
+                        Home port
+                    </label>
                     <div className="flex gap-2">
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={settings.defaultLocation || ''}
-                                onChange={(e) => onSave({ defaultLocation: e.target.value })}
-                                aria-label="Default port"
-                                className="min-h-11 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm w-48"
-                                placeholder="City, Country"
-                            />
-                        </div>
+                        <input
+                            id="settings-home-port"
+                            type="text"
+                            value={followsYou ? '' : settings.defaultLocation || ''}
+                            onChange={(e) => onSave({ defaultLocation: e.target.value })}
+                            aria-describedby={followsYou ? 'settings-home-port-follows' : undefined}
+                            className="min-h-11 min-w-0 flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            placeholder={followsYou ? 'Follows you' : 'City, Country'}
+                        />
                         <button
                             onClick={onDetectLocation}
-                            className="hit-target-44 p-2 bg-sky-500/20 text-sky-400 rounded-lg"
+                            className="hit-target-44 shrink-0 p-2 bg-sky-500/20 text-sky-400 rounded-lg"
                             aria-label="Detect current location"
                         >
                             <CompassIcon rotation={0} className="w-4 h-4" />
                         </button>
                     </div>
-                </Row>
+                    {followsYou && (
+                        <p id="settings-home-port-follows" className="mt-1.5 text-xs text-gray-400">
+                            The Glass opens on your current position. Type a port to use that instead.
+                        </p>
+                    )}
+                </div>
             </Section>
 
             {/* Ship's bells, test, clock zone — out of the Instrument Panel's
@@ -77,17 +106,19 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <ShipClockSection />
 
             {/* Australian spelling, as the rest of the app ('Centre', 'Centreboard')
-                — the options said 'Meters' and 'Liters' (UX scorecard run 7). */}
+                — the options said 'Meters' and 'Liters' (UX scorecard run 7).
+                Sentence case and the one field label (UX scorecard run 8). */}
             <Section title="Units">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
-                    {/* Speed */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Wind Speed</label>
+                        <label htmlFor="settings-unit-speed" className={FIELD_LABEL_CLASS}>
+                            Wind speed
+                        </label>
                         <select
-                            aria-label="Wind Speed unit"
+                            id="settings-unit-speed"
                             value={settings.units.speed}
                             onChange={(e) => updateUnit('speed', e.target.value)}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             <option value="kts">Knots</option>
                             <option value="mph">mph</option>
@@ -95,40 +126,41 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             <option value="mps">m/s</option>
                         </select>
                     </div>
-                    {/* Distance */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Distance</label>
+                        <label htmlFor="settings-unit-distance" className={FIELD_LABEL_CLASS}>
+                            Distance
+                        </label>
                         <select
-                            aria-label="Distance unit"
+                            id="settings-unit-distance"
                             value={settings.units.distance}
                             onChange={(e) => updateUnit('distance', e.target.value)}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             <option value="nm">Nautical miles</option>
                             <option value="mi">Miles</option>
                             <option value="km">Kilometres</option>
                         </select>
                     </div>
-                    {/* Seas (Wave Height) */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">
-                            Seas (Wave Height)
+                        <label htmlFor="settings-unit-seas" className={FIELD_LABEL_CLASS}>
+                            Seas (wave height)
                         </label>
                         <select
-                            aria-label="Seas (Wave Height) unit"
+                            id="settings-unit-seas"
                             value={settings.units.waveHeight || 'm'}
                             onChange={(e) => updateUnit('waveHeight', e.target.value)}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             <option value="m">Metres</option>
                             <option value="ft">Feet</option>
                         </select>
                     </div>
-                    {/* Tides / Length */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Tides / Length</label>
+                        <label htmlFor="settings-unit-length" className={FIELD_LABEL_CLASS}>
+                            Tides / length
+                        </label>
                         <select
-                            aria-label="Tides / Length unit"
+                            id="settings-unit-length"
                             value={settings.units.length}
                             onChange={(e) => {
                                 const val = e.target.value;
@@ -140,47 +172,50 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                     },
                                 });
                             }}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             <option value="ft">Feet</option>
                             <option value="m">Metres</option>
                         </select>
                     </div>
-                    {/* Temperature */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Temperature</label>
+                        <label htmlFor="settings-unit-temp" className={FIELD_LABEL_CLASS}>
+                            Temperature
+                        </label>
                         <select
-                            aria-label="Temperature unit"
+                            id="settings-unit-temp"
                             value={settings.units.temp}
                             onChange={(e) => updateUnit('temp', e.target.value)}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             <option value="C">Celsius</option>
                             <option value="F">Fahrenheit</option>
                         </select>
                     </div>
-                    {/* Visibility */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Visibility</label>
+                        <label htmlFor="settings-unit-visibility" className={FIELD_LABEL_CLASS}>
+                            Visibility
+                        </label>
                         <select
-                            aria-label="Visibility unit"
+                            id="settings-unit-visibility"
                             value={settings.units.visibility || 'nm'}
                             onChange={(e) => updateUnit('visibility', e.target.value)}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             <option value="nm">Nautical miles</option>
                             <option value="mi">Miles</option>
                             <option value="km">Kilometres</option>
                         </select>
                     </div>
-                    {/* Volume */}
                     <div>
-                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Liquid Volume</label>
+                        <label htmlFor="settings-unit-volume" className={FIELD_LABEL_CLASS}>
+                            Liquid volume
+                        </label>
                         <select
-                            aria-label="Liquid Volume unit"
+                            id="settings-unit-volume"
                             value={settings.units.volume || 'gal'}
                             onChange={(e) => updateUnit('volume', e.target.value)}
-                            className="thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm"
+                            className={SELECT_CLASS}
                         >
                             {/* US gallons: what 'gal' converts as (3.785 L), not the imperial 4.546. */}
                             <option value="gal">US gallons</option>
@@ -198,9 +233,88 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Share what you hear">
                 <FleetSharingSection />
             </Section>
+
+            {/* Satellite mode, moved here from Account & Cloud, which keeps a
+                line that points here (UX scorecard run 8; Shane 2026-09-09:
+                switches live in Preferences). Same setting, same effect. The
+                amber wash still marks the mode as on. */}
+            <Section title="Network mode">
+                <div
+                    className={`p-4 transition-colors duration-500 ${satellite ? 'bg-linear-to-br from-amber-500/15 to-orange-500/10' : ''}`}
+                >
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <div
+                                className={`shrink-0 p-2.5 rounded-xl transition-colors duration-500 ${satellite ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}
+                                aria-hidden="true"
+                            >
+                                <SatelliteModeGlyph className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-white font-medium text-sm">Satellite mode</p>
+                                <p className="text-xs text-gray-400">
+                                    {satellite
+                                        ? 'Forecast only • grids, radar, AIS & uploads paused'
+                                        : 'For Iridium GO! & metered connections'}
+                                </p>
+                            </div>
+                        </div>
+                        <Toggle
+                            label="Satellite mode"
+                            checked={satellite}
+                            onChange={(v) => onSave({ satelliteMode: v })}
+                        />
+                    </div>
+                    {satellite && (
+                        <ul
+                            role="list"
+                            className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300"
+                        >
+                            {/* The forecast still runs every source it normally
+                                does — five small JSON calls every three hours.
+                                "StormGlass only" was never true; the cadence is
+                                the saving, and the cadence is what is promised.
+                                The middle of the list is rendered FROM the policy
+                                module, so what it says and what the fetchers
+                                enforce are one thing. */}
+                            <li className="flex items-center gap-2 text-xs">
+                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                                <span className="text-amber-200/70">Weather updates every 3 hours</span>
+                            </li>
+                            {SATELLITE_MODE_ENFORCED.map((entry) => (
+                                <li key={entry.kind} className="flex items-center gap-2 text-xs">
+                                    <span
+                                        className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="text-amber-200/70">{entry.label}</span>
+                                </li>
+                            ))}
+                            <li className="flex items-center gap-2 text-xs">
+                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                                <span className="text-amber-200/70">
+                                    Log entries stored on-device until back on land
+                                </span>
+                            </li>
+                            <li className="flex items-center gap-2 text-xs">
+                                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                                <span className="text-amber-200/70">
+                                    Diary relay uploads pause until normal network mode resumes
+                                </span>
+                            </li>
+                        </ul>
+                    )}
+                </div>
+            </Section>
+
+            {/* Smart Polars, moved here from the Polars page, which keeps its
+                state and a link here (UX scorecard run 8). */}
+            <Section title="Polars">
+                <SmartPolarsSetting settings={settings} onSave={onSave} />
+            </Section>
             {/* Offshore model — unlocked during the public beta. */}
             {canAccess(settings.subscriptionTier, 'weatherFull') && (
-                <Section title="Offshore Weather Model">
+                <Section title="Offshore weather model">
                     <div className="p-4">
                         <p className="text-xs text-gray-400 mb-4 leading-relaxed">
                             Forecast model used when you&apos;re more than 20 nm offshore.
@@ -315,7 +429,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <RowChevron />
                 </Row>
             </Section>
-            <Section title="Beta Support">
+            <Section title="Beta support">
                 <Row
                     onClick={() => void openFeedbackDestination()}
                     label="Report a bug or request a feature"
@@ -342,11 +456,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <RowChevron />
                 </Row>
             </Section>
-            <Section title="Danger Zone" tone="danger">
+            <Section title="Danger zone" tone="danger">
                 <div className="p-4">
                     <Button
                         variant="danger"
-                        aria-label="Factory reset all settings and data"
+                        aria-label="Factory reset: erase the vessel profile, saved ports, alerts and preferences on this phone"
                         onClick={onShowFactoryReset}
                         className="w-full"
                     >

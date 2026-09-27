@@ -8,6 +8,21 @@ import React, { useCallback } from 'react';
 import { PolarManagerTab } from '../settings/PolarManagerTab';
 import { useSettings } from '../../context/SettingsContext';
 import { PageHeader } from '../ui/PageHeader';
+import { authScopedStorageKey } from '../../services/authIdentityScope';
+
+/**
+ * Settings → Preferences, where the Smart Polars switch lives (UX scorecard
+ * run 8). The same deep link the Vessel hub uses for Vessel Profile: Settings
+ * reads the tab once when it opens, then clears it.
+ */
+const openPreferences = () => {
+    try {
+        localStorage.setItem(authScopedStorageKey('thalassa_settings_initial_tab'), 'general');
+    } catch {
+        /* private mode / quota — Settings opens on its menu instead */
+    }
+    window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'settings' } }));
+};
 
 interface PolarPageProps {
     onBack: () => void;
@@ -46,6 +61,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea, 
                         onSave={handleSave}
                         onNavigateToNmea={onNavigateToNmea}
                         onOpenVesselProfile={onOpenVesselProfile}
+                        onOpenPreferences={openPreferences}
                     />
                 </div>
             </div>

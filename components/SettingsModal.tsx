@@ -3,7 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
-import { BellIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
+import { BellIcon, SailBoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { useSettings } from '../context/SettingsContext';
 import { GpsService } from '../services/GpsService';
@@ -17,7 +17,13 @@ import { VoyageLogTab } from './settings/VoyageLogTab';
 import { RowChevron } from './settings/SettingsPrimitives';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { PageHeader } from './ui/PageHeader';
-import { authScopedStorageKey, getAuthIdentityScope, subscribeAuthIdentityScope } from '../services/authIdentityScope';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../services/authIdentityScope';
+import { VoyageLogService } from '../services/VoyageLogService';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 interface SettingsViewProps {
@@ -116,7 +122,9 @@ const MENU_ITEMS: {
         label: 'Preferences',
         // Leads with the home port the page opens on (UX scorecard run 7).
         description: 'Home port, units, clock & display',
-        keywords: 'default port location time bells zone appearance ais sharing offshore model legal feedback reset',
+        // Satellite mode and Smart Polars live here now (UX scorecard run 8).
+        keywords:
+            'default port location time bells zone appearance ais sharing satellite iridium metered network smart polars offshore model legal feedback reset',
         icon: (c) => <GearIcon className={c} />,
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
@@ -128,7 +136,9 @@ const MENU_ITEMS: {
         // Names the comfort limits and crew the page also holds (UX scorecard run 7).
         description: 'Boat, safety, comfort limits & crew',
         keywords: 'specs rig hull keel dimensions performance mmsi epirb liferaft routing currents tanks capacity',
-        icon: (c) => <BoatIcon className={c} />,
+        // The sailboat the Vessel tab and hub card wear; the hatched box read
+        // as a hazard or 'closed' sign (UX scorecard run 8).
+        icon: (c) => <SailBoatIcon className={c} />,
         iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10',
         iconHoverBg: 'group-hover:bg-amber-500/25',
         group: 'essentials',
@@ -151,7 +161,7 @@ const MENU_ITEMS: {
         // keeps its height now that it also carries the live alert count; the
         // rest of the list is in the search keywords (run 7).
         description: 'Wind, sea & weather alerts',
-        keywords: 'gusts swell visibility uv temperature heat freeze rain precipitation thresholds',
+        keywords: 'gusts swell visibility uv temperature heat cold freeze rain precipitation thresholds',
         icon: (c) => <BellIcon className={c} />,
         iconBg: 'bg-red-500/15 text-red-400 shadow-red-500/10',
         iconHoverBg: 'group-hover:bg-red-500/25',
@@ -162,8 +172,9 @@ const MENU_ITEMS: {
     {
         id: 'account',
         label: 'Account & Cloud',
-        description: 'Sign-in, satellite mode & service status',
-        keywords: 'sync sign out delete iridium metered services',
+        // Satellite mode's switch moved to Preferences (UX scorecard run 8).
+        description: 'Sign-in, sync & service status',
+        keywords: 'sync sign out delete services calypso',
         icon: (c) => <ServerIcon className={c} />,
         iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10',
         iconHoverBg: 'group-hover:bg-purple-500/25',
@@ -289,23 +300,52 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         }, [tabQuery]);
         const searchIsActive = tabQuery.trim().length > 0;
 
-        // Live state on the menu rows, only from what Settings already holds —
-        // nothing is fetched to paint it (UX scorecard run 7: the rows only
-        // described their pages, so every alert being off, or the skipper being
-        // signed out, was invisible from here).
-        const signedIn = Boolean(
-            useSyncExternalStore(subscribeAuthIdentityScope, getAuthIdentityScope, getAuthIdentityScope).userId,
-        );
+        // Live state on the menu rows, from what Settings already holds; Voyage
+        // Log aside (below), nothing is fetched to paint it (UX scorecard run
+        // 7: the rows only described their pages, so every alert being off, or
+        // the skipper being signed out, was invisible from here).
+        const identity = useSyncExternalStore(subscribeAuthIdentityScope, getAuthIdentityScope, getAuthIdentityScope);
+        const signedIn = Boolean(identity.userId);
+        // Voyage Log is the one row whose state Settings does not already hold,
+        // and the one that most needs it (it needs sign-in). Signed out, that is
+        // known without asking. Signed in, its config is read once each time the
+        // menu shows, for this account only; until it first answers, or when a
+        // read finds no config or fails, the row shows no state rather than a
+        // guess or an older answer (UX scorecard run 8). In Satellite mode the
+        // read is skipped (a menu row is not worth a round of cloud calls on a
+        // metered link) and the row keeps this session's last answer, if any.
+        const satelliteMode = settings?.satelliteMode === true;
+        const [voyageLogLive, setVoyageLogLive] = useState<{ generation: number; live: boolean } | null>(null);
+        React.useEffect(() => {
+            if (!identity.userId || activeTab !== null || satelliteMode) return;
+            let cancelled = false;
+            void VoyageLogService.getConfig()
+                .then((config) => {
+                    if (cancelled || !isAuthIdentityScopeCurrent(identity)) return;
+                    setVoyageLogLive(
+                        config ? { generation: identity.generation, live: config.enabled === true } : null,
+                    );
+                })
+                .catch(() => {
+                    if (!cancelled) setVoyageLogLive(null);
+                });
+            return () => {
+                cancelled = true;
+            };
+        }, [identity, activeTab, satelliteMode]);
         const menuStatus = (id: SettingsTab): string | null => {
             switch (id) {
                 case 'general': {
-                    // The town the Glass opens on, without its state: 'Gladstone'.
-                    // A GPS fix saved as 'WP -27.2104, 153.0893' keeps both halves;
+                    // What the home port IS, not a bare place: 'Current Location'
+                    // read as a place or a link (UX scorecard run 8). The town the
+                    // Glass opens on, without its state: 'Home: Gladstone'. A GPS
+                    // fix saved as 'WP -27.2104, 153.0893' keeps both halves;
                     // cutting at the comma left a bare latitude.
                     const home = settings?.defaultLocation?.trim();
                     if (!home) return null;
-                    if (/^(WP\s|[-+]?\d)/.test(home)) return home;
-                    return home.split(',')[0].trim() || home;
+                    if (home === 'Current Location') return 'Home: follows you';
+                    if (/^(WP\s|[-+]?\d)/.test(home)) return `Home: ${home}`;
+                    return `Home: ${home.split(',')[0].trim() || home}`;
                 }
                 case 'vessel': {
                     const name = settings?.vessel?.name?.trim();
@@ -323,6 +363,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     const saved = settings?.savedLocations?.length ?? 0;
                     return saved === 0 ? 'None saved' : `${saved} saved`;
                 }
+                case 'voyageLog':
+                    if (!signedIn) return 'Needs sign-in';
+                    if (!voyageLogLive || voyageLogLive.generation !== identity.generation) return null;
+                    return voyageLogLive.live ? 'Live' : 'Off';
                 default:
                     return null;
             }
@@ -335,16 +379,17 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
         /** One mobile menu row: icon tile, name with its live state set right
          *  (the iOS Settings pattern, so the row stays ~64 pt), and what the
-         *  page holds. The name stays 'Open X settings'; the description and
-         *  state are read after it. */
+         *  page holds. The name carries the state ('Open Notifications
+         *  settings, All alerts off'): as a description after the name,
+         *  VoiceOver never reached it (UX scorecard run 8). The description is
+         *  read after. */
         const renderMenuRow = (item: (typeof MENU_ITEMS)[number]) => {
             const status = menuStatus(item.id);
             const descId = `${menuIdBase}-${item.id}-desc`;
-            const statusId = `${menuIdBase}-${item.id}-status`;
             return (
                 <button
-                    aria-label={`Open ${item.label} settings`}
-                    aria-describedby={status ? `${descId} ${statusId}` : descId}
+                    aria-label={`Open ${item.label} settings${status ? `, ${status}` : ''}`}
+                    aria-describedby={descId}
                     key={item.id}
                     onClick={() => handleSelectTab(item.id)}
                     className="group w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
@@ -358,11 +403,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         <div className="flex items-baseline justify-between gap-2">
                             <p className="shrink-0 text-white font-bold text-sm tracking-wide">{item.label}</p>
                             {/* A long port or boat name ellipsises; the label never does. */}
-                            {status && (
-                                <p id={statusId} className="min-w-0 truncate text-xs font-semibold text-sky-300">
-                                    {status}
-                                </p>
-                            )}
+                            {status && <p className="min-w-0 truncate text-xs font-semibold text-sky-300">{status}</p>}
                         </div>
                         <p id={descId} className="text-gray-300 text-xs mt-0.5">
                             {item.id === 'vessel' && isObserver
@@ -578,14 +619,19 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     // sat sliced at the bar's edge. Its own box ends where the root's
                     // padding stops, at the bar, and .thalassa-scroll-fade fades the
                     // last 14px there instead of cutting a row in half.
-                    <div className="md:hidden flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain thalassa-scroll-fade">
+                    <div className="md:hidden flex-1 min-h-0 flex flex-col">
                         {/* The shared page header (title, grey caption, back), the
                             same chrome as every other page. Back goes where it
                             always went. The caption names where Settings lives, as
                             each sub-page's caption names Settings; 'Control Centre'
-                            said nothing (UX scorecard run 7). */}
-                        <PageHeader title="Settings" subtitle="Vessel" onBack={onBack} />
-                        {/* Mobile menu — same grouping as the desktop
+                            said nothing (UX scorecard run 7). Pinned above the list
+                            with the hairline every sub-page's title bar has; it
+                            used to scroll away with no divider (UX scorecard run 8). */}
+                        <div className="relative z-20 shrink-0 bg-slate-950/90 border-b border-white/5">
+                            <PageHeader title="Settings" subtitle="Vessel" onBack={onBack} />
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain thalassa-scroll-fade">
+                            {/* Mobile menu — same grouping as the desktop
                             sidebar (single source of truth in MENU_ITEMS
                             + SETTINGS_GROUPS).
                             When search is active, sections collapse and
@@ -594,77 +640,78 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             pb-20 clears the floating now-playing bar (56px,
                             parked 4px above the tab bar), as the tab scroller
                             below does. */}
-                        <div className="flex-1 px-4 pb-20 space-y-3">
-                            {/* Search input — same component shape as desktop,
+                            <div className="px-4 pt-4 pb-20 space-y-3">
+                                {/* Search input — same component shape as desktop,
                                 slightly taller (h-11 for thumb-friendly tap). */}
-                            <div className="relative pt-1">
-                                <svg
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                    aria-hidden="true"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M21 21l-4.34-4.34m0 0A8 8 0 103.32 12.32a8 8 0 0013.34 4.34z"
-                                    />
-                                </svg>
-                                <input
-                                    type="search"
-                                    value={tabQuery}
-                                    onChange={(e) => setTabQuery(e.target.value)}
-                                    placeholder="Search settings…"
-                                    className="w-full h-11 pl-9 pr-9 rounded-xl bg-white/4 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500/40 focus:bg-white/6 transition-colors"
-                                    aria-label="Search settings"
-                                />
-                                {tabQuery && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setTabQuery('')}
-                                        aria-label="Clear search"
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 min-w-[44px] min-h-[44px] rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
+                                <div className="relative">
+                                    <svg
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                        aria-hidden="true"
                                     >
-                                        <svg
-                                            className="w-3.5 h-3.5"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2.5}
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M21 21l-4.34-4.34m0 0A8 8 0 103.32 12.32a8 8 0 0013.34 4.34z"
+                                        />
+                                    </svg>
+                                    <input
+                                        type="search"
+                                        value={tabQuery}
+                                        onChange={(e) => setTabQuery(e.target.value)}
+                                        placeholder="Search settings…"
+                                        className="w-full h-11 pl-9 pr-9 rounded-xl bg-white/4 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500/40 focus:bg-white/6 transition-colors"
+                                        aria-label="Search settings"
+                                    />
+                                    {tabQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setTabQuery('')}
+                                            aria-label="Clear search"
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 min-w-[44px] min-h-[44px] rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
                                         >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
-                                    </button>
-                                )}
-                            </div>
+                                            <svg
+                                                className="w-3.5 h-3.5"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={2.5}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M6 18L18 6M6 6l12 12"
+                                                />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </div>
 
-                            {searchIsActive && filteredMenuItems.length === 0 && (
-                                <p className="text-sm text-slate-400 px-2 py-4 leading-relaxed">
-                                    No settings match <strong className="text-white/80">"{tabQuery}"</strong>.
-                                </p>
-                            )}
-                            {searchIsActive && filteredMenuItems.map(renderMenuRow)}
-                            {/* Rows are ~64 pt (a 40 pt icon tile in 12 pt padding), not
+                                {searchIsActive && filteredMenuItems.length === 0 && (
+                                    <p className="text-sm text-slate-400 px-2 py-4 leading-relaxed">
+                                        No settings match <strong className="text-white/80">"{tabQuery}"</strong>.
+                                    </p>
+                                )}
+                                {searchIsActive && filteredMenuItems.map(renderMenuRow)}
+                                {/* Rows are ~64 pt (a 40 pt icon tile in 12 pt padding), not
                                 80: at 80 the sixth row, Voyage Log, sat wholly below the
                                 fold at 393 pt, so Account & Sharing read as a one-row
                                 section (UX scorecard run 6). */}
-                            {!searchIsActive &&
-                                SETTINGS_GROUPS.map((group) => {
-                                    const items = MENU_ITEMS.filter((m) => m.group === group.id);
-                                    if (items.length === 0) return null;
-                                    return (
-                                        <div key={group.id} className="space-y-2">
-                                            <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
-                                            {items.map(renderMenuRow)}
-                                        </div>
-                                    );
-                                })}
+                                {!searchIsActive &&
+                                    SETTINGS_GROUPS.map((group) => {
+                                        const items = MENU_ITEMS.filter((m) => m.group === group.id);
+                                        if (items.length === 0) return null;
+                                        return (
+                                            <div key={group.id} className="space-y-2">
+                                                <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
+                                                {items.map(renderMenuRow)}
+                                            </div>
+                                        );
+                                    })}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -685,6 +732,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 title={MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
                                 subtitle="Settings"
                                 onBack={() => setActiveTab(null)}
+                                backLabel="Back to Settings"
                             />
                         </div>
                     )}
@@ -721,6 +769,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     onSave={onSave}
                                     onSignInOpened={() => armSignInReturn('account')}
                                     onSignInClosed={disarmSignInReturn}
+                                    onOpenPreferences={() => handleSelectTab('general')}
                                 />
                             )}
 
@@ -759,11 +808,14 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     </div>
                 </div>
 
-                {/* Factory Reset confirmation dialog */}
+                {/* Factory Reset confirmation dialog. It names what goes: the
+                    reset writes the default settings over the vessel profile,
+                    saved ports and alert thresholds too, not only preferences
+                    (UX scorecard run 8). */}
                 <ConfirmDialog
                     isOpen={showFactoryReset}
                     title="Factory reset"
-                    message="Restore all settings to default? This cannot be undone."
+                    message="Resets your vessel profile (MMSI, EPIRB, crew), saved ports, alert thresholds and preferences on this phone. Signed in, anything saved to your account syncs back; signed out, this can’t be undone."
                     confirmLabel="Reset everything"
                     cancelLabel="Cancel"
                     destructive

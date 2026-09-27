@@ -4,6 +4,48 @@
  */
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { SignInButton } from '../ui/SignInButton';
+
+// ── Field label ──────────────────────────────────────────────────
+/** The one label for a form field in Settings: small grey capitals above the
+ *  field. Preferences had three (white sentence case 'Default port', grey caps
+ *  with no tracking 'WIND SPEED', grey caps at the widest tracking 'VESSEL
+ *  NAME'); every form label now wears this one (UX scorecard run 8). A row
+ *  title beside a switch stays 14 px white — that is a title, not a label. */
+export const FIELD_LABEL_CLASS = 'block mb-1.5 text-xs font-bold uppercase tracking-wider text-gray-400';
+
+// ── SignInCard ───────────────────────────────────────────────────
+/** The one sign-in card in Settings: a left-aligned title and the reason,
+ *  then a full-width 44 pt SignInButton under them. Account & Cloud had a
+ *  centred hero and Voyage Log a button squeezed beside its title, which
+ *  orphaned 'Log' on a line of its own (UX scorecard run 8). The caller
+ *  supplies the card chrome, so it sits in a Section row or a card alike. */
+export const SignInCard: React.FC<{
+    title: string;
+    reason: React.ReactNode;
+    onSignIn: () => void;
+    icon?: React.ReactNode;
+    /** h2 where the card leads the page, h3 inside a Section. */
+    headingLevel?: 'h2' | 'h3';
+}> = ({ title, reason, onSignIn, icon, headingLevel = 'h3' }) => {
+    const Heading = headingLevel;
+    return (
+        <div className="space-y-4">
+            <div className="flex items-start gap-3">
+                {icon && (
+                    <div className="shrink-0 rounded-xl bg-white/5 p-2.5 text-gray-300" aria-hidden="true">
+                        {icon}
+                    </div>
+                )}
+                <div className="min-w-0 flex-1">
+                    <Heading className="text-sm font-bold text-white">{title}</Heading>
+                    <p className="mt-1 text-xs text-gray-400">{reason}</p>
+                </div>
+            </div>
+            <SignInButton fullWidth onClick={onSignIn} />
+        </div>
+    );
+};
 
 // ── Section ──────────────────────────────────────────────────
 // `tone="danger"` gives a destructive section (Factory Reset) the red-bar
@@ -71,6 +113,27 @@ export const SubSection: React.FC<{
         )}
         {children}
     </div>
+);
+
+// ── SatelliteModeGlyph ───────────────────────────────────────────
+/** Satellite mode's dish, shared by its switch (Preferences) and the line
+ *  that points to it (Account & Cloud). */
+export const SatelliteModeGlyph: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+    <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+    >
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M8.288 15.038a5.25 5.25 0 017.424-7.424m-5.303 5.303a2.25 2.25 0 013.182-3.182M12 21a9 9 0 100-18 9 9 0 000 18z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 7.5l16.5 9" />
+    </svg>
 );
 
 // ── RowChevron ───────────────────────────────────────────────────

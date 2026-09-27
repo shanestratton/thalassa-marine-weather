@@ -124,16 +124,21 @@ describe('every heavy fetcher consults the policy (audit item 12)', () => {
         }
     });
 
-    it('the Account screen renders the enforced list and no longer makes the old promise', () => {
+    it('the switch (Preferences since UX scorecard run 8) renders the enforced list and no longer makes the old promise', () => {
         // Strip comments first — the history of the old promise is recorded in
         // a JSX comment, and prose must never trip a source contract.
-        const tab = readFileSync('components/settings/AccountTab.tsx', 'utf8')
-            .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-            .replace(/\/\*[\s\S]*?\*\//g, '')
-            .replace(/^\s*\/\/.*$/gm, '');
-        expect(tab).toContain('SATELLITE_MODE_ENFORCED.map(');
-        expect(tab).not.toContain('~200 KB/day');
-        expect(tab).not.toContain('StormGlass only');
+        const strip = (src: string) =>
+            src
+                .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/^\s*\/\/.*$/gm, '');
+        const prefs = strip(readFileSync('components/settings/GeneralTab.tsx', 'utf8'));
+        expect(prefs).toContain('SATELLITE_MODE_ENFORCED.map(');
+        expect(prefs).toContain('onChange={(v) => onSave({ satelliteMode: v })}');
+        for (const tab of [prefs, strip(readFileSync('components/settings/AccountTab.tsx', 'utf8'))]) {
+            expect(tab).not.toContain('~200 KB/day');
+            expect(tab).not.toContain('StormGlass only');
+        }
     });
 });
 
