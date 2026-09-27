@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { ConfirmDialog, confirmProgressLabel } from '../components/ui/ConfirmDialog';
 
 describe('ConfirmDialog', () => {
     const baseProps = {
@@ -106,5 +106,27 @@ describe('ConfirmDialog', () => {
             </>,
         );
         expect(opener).toHaveFocus();
+    });
+
+    it('keeps a verb beside the spinner while onConfirm runs (UX scorecard run 9)', async () => {
+        let finish!: () => void;
+        const onConfirm = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+        render(<ConfirmDialog {...baseProps} confirmLabel="Delete profile" onConfirm={onConfirm} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Delete profile' }));
+        const busy = screen.getByRole('button', { name: 'Delete profile' });
+        expect(busy).toBeDisabled();
+        expect(busy).toHaveTextContent('Deleting…');
+        await act(async () => finish());
+        expect(screen.getByRole('button', { name: 'Delete profile' })).toHaveTextContent('Delete profile');
+    });
+
+    it('takes the busy verb from the label, or says Working…', () => {
+        expect(confirmProgressLabel('Delete Anyway')).toBe('Deleting…');
+        expect(confirmProgressLabel('Take over')).toBe('Taking over…');
+        expect(confirmProgressLabel('Sign in')).toBe('Signing in…');
+        // The Log's 'Replace' dialog.
+        expect(confirmProgressLabel('Replace')).toBe('Replacing…');
+        expect(confirmProgressLabel('Deleting...')).toBe('Deleting…');
+        expect(confirmProgressLabel('Confirm')).toBe('Working…');
     });
 });

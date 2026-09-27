@@ -9,7 +9,7 @@ test.describe('System status', () => {
         page.on('pageerror', (error) => errors.push(error.message));
         await page.goto('/');
         await expect(page.getByRole('heading', { name: 'Welcome aboard' })).toBeVisible();
-        await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
+        await page.getByRole('button', { name: /^System status/ }).click();
 
         const dialog = page.getByRole('dialog', { name: 'System status' });
         await expect(dialog).toBeVisible();

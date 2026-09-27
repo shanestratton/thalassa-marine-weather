@@ -264,11 +264,14 @@ export const GpsSourceRow: React.FC<{
             >
                 <GlyphArt glyph={state.glyph} tone={state.tone} />
             </span>
+            {/* One heading style in the card: sentence-case semibold, the same
+                as 'Phone location' below it, over a regular-weight sentence.
+                It was a tracked-caps eyebrow over an all-bold paragraph, then a
+                sentence-case bold heading, three looks in one card (UX
+                scorecard run 9). */}
             <div className="min-w-0 flex-1">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">
-                    {compact ? 'Weather position' : 'Position'}
-                </h3>
-                <p className={`${compact ? 'text-xs' : 'text-sm'} font-semibold text-white`}>{detail}</p>
+                <h3 className="text-xs font-semibold text-white">{compact ? 'Weather position' : 'Position'}</h3>
+                <p className={`${compact ? 'text-xs' : 'text-sm'} mt-0.5 leading-snug text-slate-300`}>{detail}</p>
             </div>
         </div>
     );

@@ -39,12 +39,14 @@ export const StatBox: React.FC<{ label: string; value: string | number }> = Reac
 //
 // A plain button, not role="menuitem": the Log kebab opens the same titled
 // dialog as the Route Planner's (UX audit run 5). Disabled rows keep a legible
-// label (slate-400, no opacity fade — the old slate-500 at 40% measured
-// ~2.95:1 and read as "broken") against the enabled rows' brighter slate-200,
-// and only their decorative icon dims. The reason line above the rows says
-// why they wait. The trailing clock went: it read as "history" or
-// "scheduled", not "not yet" (UX scorecard run 7). Not a lock either: the
-// app's lock means "pay to unlock" (run 6).
+// label (no opacity fade — the old slate-500 at 40% measured ~2.95:1 and read
+// as "broken") that is still visibly dimmer than an enabled row. The ink is
+// the `ui-disabled-ink` token (styles/legibility.css), not slate-400: the
+// app-wide caption lift turns slate-400 into the same ink as the enabled
+// rows' slate-200, so four waiting rows looked tappable and did nothing (UX
+// scorecard run 9). The reason line above the rows says why they wait. The
+// trailing clock went: it read as "history" or "scheduled", not "not yet"
+// (run 7). Not a lock either: the app's lock means "pay to unlock" (run 6).
 
 export const MenuBtn: React.FC<{
     /** Glyph shown before the label — the app's stroke SVG icons, not emoji. */
@@ -65,7 +67,7 @@ export const MenuBtn: React.FC<{
         aria-describedby={describedBy}
         className={`w-full min-h-[44px] rounded-xl px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
             disabled
-                ? 'text-slate-400 cursor-not-allowed'
+                ? 'ui-disabled-ink cursor-not-allowed'
                 : danger
                   ? 'text-red-400 hover:bg-red-500/10'
                   : accent

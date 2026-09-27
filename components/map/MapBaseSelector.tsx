@@ -15,13 +15,17 @@ export function mapBaseVisibility(value: MapBaseKind): {
     };
 }
 
+/* The descriptions say what each base really shows. Satellite is not "clean":
+   MapHub lifts the base style's town names over the raw imagery on purpose,
+   so the difference from Hybrid is Hybrid's roads and points of interest,
+   not the names (UX scorecard run 9). */
 const MAP_BASE_OPTIONS: ReadonlyArray<{
     id: MapBaseKind;
     label: string;
     description: string;
 }> = [
-    { id: 'hybrid', label: 'Hybrid', description: 'Imagery with place names' },
-    { id: 'satellite', label: 'Satellite', description: 'Clean aerial imagery' },
+    { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
+    { id: 'satellite', label: 'Satellite', description: 'Imagery with town names' },
     { id: 'ocean', label: 'Ocean', description: 'Bathymetry background' },
 ];
 
@@ -59,6 +63,11 @@ export function MapBaseSelector({
        the one item they cannot reach without a mouse. */
     const itemCount = MAP_BASE_OPTIONS.length + 1;
     const noCharts = encCellCount === 0;
+    const encDetail = noCharts
+        ? 'None installed yet'
+        : encVisible
+          ? 'Safety layers above the base'
+          : 'Hidden — base map only';
 
     useEffect(() => {
         if (!visible) setOpen(false);
@@ -198,6 +207,11 @@ export function MapBaseSelector({
                         (Shane 2026-09-27). */}
                     <>
                         <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
+                        {/* Named for the layer and its state, not for the tap:
+                            'Turn ENC charts on' with aria-checked=false read as
+                            "Turn ENC charts on, unchecked" and dropped 'None
+                            installed yet' (UX scorecard run 9). aria-checked
+                            carries on/off. */}
                         <button
                             ref={(element) => {
                                 optionRefs.current[MAP_BASE_OPTIONS.length] = element;
@@ -205,7 +219,7 @@ export function MapBaseSelector({
                             type="button"
                             role="menuitemcheckbox"
                             aria-checked={encVisible}
-                            aria-label={encVisible ? 'Turn ENC charts off' : 'Turn ENC charts on'}
+                            aria-label={`ENC charts, ${encDetail.toLowerCase()}`}
                             onClick={() => {
                                 triggerHaptic('light');
                                 onToggleEnc();
@@ -220,13 +234,7 @@ export function MapBaseSelector({
                         >
                             <span>
                                 <span className="block text-xs font-black">ENC charts</span>
-                                <span className="block text-[10px] font-medium text-slate-400">
-                                    {noCharts
-                                        ? 'None installed yet'
-                                        : encVisible
-                                          ? 'Safety layers above the base'
-                                          : 'Hidden — base map only'}
-                                </span>
+                                <span className="block text-[10px] font-medium text-slate-400">{encDetail}</span>
                             </span>
                             {/* The state, not just what tapping does. */}
                             <span

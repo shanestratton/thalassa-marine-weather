@@ -162,14 +162,16 @@ if (SECTIONS.includes('A')) {
         'Locations',
         'Notifications',
         'Account & Cloud',
-        'Voyage Log',
+        // 'Voyage Log' until run 9; the slug stays settings-voyage-log so the
+        // runs compare screen for screen.
+        'Public voyage page',
     ]) {
         await go(p, 'settings', 1500);
         // Rows append their live state to the name since run 8
         // ('Open Vessel Profile settings, Serene Summer'): match the start.
         const rowName = new RegExp('^Open ' + row.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' settings');
         if (await tap(p, rowName, 1500)) {
-            const slug = row.toLowerCase().replace(/[^a-z]+/g, '-');
+            const slug = row === 'Public voyage page' ? 'voyage-log' : row.toLowerCase().replace(/[^a-z]+/g, '-');
             await capture(p, `settings-${slug}`);
             // Long pages: a second shot scrolled to the bottom shows the tail.
             await scrollEnd(p);
@@ -198,7 +200,8 @@ if (SECTIONS.includes('A')) {
         await capture(p, 'glass-model-picker');
         await dismiss(p);
     }
-    if (await tap(p, 'Systems and GPS source')) {
+    // Named 'System status' since run 9 (was 'Systems and GPS source').
+    if (await tap(p, /^System status/)) {
         await capture(p, 'glass-system-status');
         await dismiss(p);
     }
@@ -220,7 +223,8 @@ if (SECTIONS.includes('A')) {
     }
     // Log + Plan menus
     await go(p, 'details', 2500);
-    if (await tap(p, 'Page actions')) {
+    // The Log kebab is named after its page since run 9 ('Log actions').
+    if ((await tap(p, /^Log actions$/)) || (await tap(p, 'Page actions'))) {
         await capture(p, 'log-menu');
         await dismiss(p);
     }

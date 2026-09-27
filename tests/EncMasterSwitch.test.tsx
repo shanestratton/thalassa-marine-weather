@@ -85,15 +85,15 @@ describe('the ENC master switch', () => {
     it('renders and toggles', () => {
         render(<Harness />);
         openMenu();
-        fireEvent.click(screen.getByLabelText('Turn ENC charts off'));
+        fireEvent.click(screen.getByLabelText('ENC charts, safety layers above the base'));
         openMenu();
-        expect(screen.getByLabelText('Turn ENC charts on')).toBeInTheDocument();
+        expect(screen.getByLabelText('ENC charts, hidden — base map only')).toBeInTheDocument();
     });
 
     it('is STILL offered once the charts are off — or it would be a one-way door', () => {
         render(<Harness startOn={false} />);
         openMenu();
-        expect(screen.getByLabelText('Turn ENC charts on')).toBeInTheDocument();
+        expect(screen.getByLabelText('ENC charts, hidden — base map only')).toBeInTheDocument();
     });
 
     it('says which state it is in, rather than only what tapping does', () => {
@@ -101,7 +101,7 @@ describe('the ENC master switch', () => {
         openMenu();
         expect(screen.getByRole('menuitemcheckbox')).toHaveTextContent('ON');
         expect(screen.getByRole('menuitemcheckbox')).toHaveAttribute('aria-checked', 'true');
-        fireEvent.click(screen.getByLabelText('Turn ENC charts off'));
+        fireEvent.click(screen.getByLabelText('ENC charts, safety layers above the base'));
         openMenu();
         expect(screen.getByRole('menuitemcheckbox')).toHaveTextContent('OFF');
         expect(screen.getByRole('menuitemcheckbox')).toHaveAttribute('aria-checked', 'false');
@@ -137,7 +137,9 @@ describe('the ENC master switch', () => {
         // inventory too (Shane 2026-09-27).
         render(<Harness encCellCount={0} startOn={false} />);
         openMenu();
-        const row = screen.getByRole('menuitemcheckbox', { name: 'Turn ENC charts on' });
+        // Named for the layer and its state, which aria-checked carries: not
+        // 'Turn ENC charts on, unchecked' (UX scorecard run 9).
+        const row = screen.getByRole('menuitemcheckbox', { name: 'ENC charts, none installed yet' });
         expect(row).toHaveAttribute('aria-checked', 'false');
         expect(row).toHaveTextContent('None installed yet');
     });

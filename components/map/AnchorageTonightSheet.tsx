@@ -13,7 +13,8 @@
  * and the data attribution (OSM ODbL / GBRMPA CC BY / Open-Meteo) — the
  * licences require it and the skipper deserves it.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { AnchorageService } from '../../services/anchorages/AnchorageService';
 import { cachedPlaceConditions, loadPlaceConditions } from '../../services/anchorages/PlaceConditionsService';
 import {
@@ -42,6 +43,16 @@ export const AnchorageTonightSheet: React.FC<{
     const [rows, setRows] = useState<RankedRow[] | null>(null);
     const [state, setState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
     const [revision, setRevision] = useState(0);
+    const titleId = useId();
+    const closeRef = useRef<HTMLButtonElement>(null);
+    const close = useCallback(() => setOpen(false), []);
+    // The shared dialog trap every other sheet has (UX scorecard run 9: this
+    // was the one role=dialog without it): focus moves in to Close, Tab stays
+    // inside, and Escape closes it.
+    const dialogRef = useFocusTrap<HTMLDivElement>(open && visible && !!centre, {
+        initialFocusRef: closeRef,
+        onEscape: close,
+    });
     useEffect(() => {
         if (!open) return;
         const refresh = () => setRevision((r) => r + 1);
@@ -132,20 +143,24 @@ export const AnchorageTonightSheet: React.FC<{
             )}
             {open && (
                 <div
+                    ref={dialogRef}
                     className="fixed inset-0 z-730 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                     role="dialog"
-                    aria-label="Anchorages tonight"
+                    aria-modal="true"
+                    aria-labelledby={titleId}
                 >
-                    <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
+                    <div className="absolute inset-0 bg-black/50" onClick={close} />
                     {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div className="relative w-full max-w-md bg-slate-900 border border-cyan-500/20 rounded-2xl shadow-2xl max-h-full flex flex-col">
                         <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                            <div className="text-sm font-bold text-white">
+                            <h2 id={titleId} className="text-sm font-bold text-white">
                                 <span aria-hidden>⚓ </span>Where to stop · next 12 hours
-                            </div>
+                            </h2>
                             <button
-                                onClick={() => setOpen(false)}
-                                className="min-h-[44px] px-3 py-1 text-gray-400 text-xs font-black uppercase tracking-widest active:scale-95"
+                                ref={closeRef}
+                                type="button"
+                                onClick={close}
+                                className="min-h-[44px] min-w-[44px] px-3 py-1 text-slate-300 text-sm font-bold active:scale-95"
                             >
                                 Close
                             </button>
@@ -194,7 +209,7 @@ export const AnchorageTonightSheet: React.FC<{
                                                 ›
                                             </span>
                                         </div>
-                                        <div className="pl-6 mt-1 text-[11px] text-gray-400 leading-snug">
+                                        <div className="pl-6 mt-1 text-xs text-gray-400 leading-snug">
                                             <span className="text-gray-500">{r.distanceNM.toFixed(1)} NM · </span>
                                             {r.reasons.slice(0, 2).join(' · ')}
                                         </div>

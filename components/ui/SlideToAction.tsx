@@ -268,7 +268,11 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 style={{ opacity: labelOpacity }}
             >
-                <span className={`text-sm font-bold ${colors.labelColor} tracking-wider uppercase`}>{label}</span>
+                {/* The label as written, in the tap bar's weight (theme.ts
+                    button.ctaShape: 16 px bold): widely tracked caps made the
+                    Log's slide the one shouting CTA beside Plan's sentence-case
+                    'Start plotting' (UX scorecard run 9). */}
+                <span className={`text-base font-bold ${colors.labelColor}`}>{label}</span>
             </div>
 
             {/* Draggable thumb */}

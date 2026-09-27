@@ -42,7 +42,7 @@ describe('MapBaseSelector', () => {
         // header is gone (Shane 2026-09-05). The ENC row below says the same
         // thing by being switchable, which is more use than a caption.
         expect(screen.getByRole('menu', { name: 'Map base' })).not.toHaveTextContent('Visual background only');
-        fireEvent.click(screen.getByRole('menuitemradio', { name: /Satellite Clean aerial imagery/ }));
+        fireEvent.click(screen.getByRole('menuitemradio', { name: /Satellite Imagery with town names/ }));
         expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Map base: Satellite' }).parentElement).toHaveClass('z-700');
 
@@ -62,7 +62,7 @@ describe('MapBaseSelector', () => {
         render(<Harness />);
         const trigger = screen.getByRole('button', { name: 'Map base: Hybrid' });
         fireEvent.click(trigger);
-        fireEvent.keyDown(screen.getByRole('menuitemradio', { name: /Hybrid Imagery with place names/ }), {
+        fireEvent.keyDown(screen.getByRole('menuitemradio', { name: /Hybrid Imagery with roads and names/ }), {
             key: 'Escape',
         });
 

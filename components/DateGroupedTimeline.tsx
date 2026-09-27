@@ -524,8 +524,11 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                     )}
                                 </div>
 
-                                {/* Weather Details */}
-                                {(entry.windSpeed || entry.waveHeight || entry.pressure) && (
+                                {/* Weather Details. Each field is tested for presence, not
+                                    truth: a reported calm (0 kn) is a reading, and a
+                                    truthy test hid the row for it and could print a
+                                    stray '0' for an all-zero entry (UX scorecard run 9). */}
+                                {(entry.windSpeed != null || entry.waveHeight != null || entry.pressure != null) && (
                                     <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
                                         {entry.windSpeed != null && (
                                             <span className="flex items-center gap-1">

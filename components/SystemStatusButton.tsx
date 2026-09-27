@@ -166,8 +166,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /**
  * The version line in plain words: "Version 1.2.0 (106)" in the iPhone app,
- * "Version 1.2.0 · 26 Sep, 18:55" on the web build, whose build is a bundle
- * stamp. appBuildLabel says "1.2.0 (2026-09-26 08:55Z) · web", which read as a
+ * "Version 1.2.0 · built 26 Sep, 18:55" on the web build, whose build is a
+ * bundle stamp — 'built', as Settings says it, so the time is not read as a
+ * last-checked or last-synced time (UX scorecard run 9). appBuildLabel says "1.2.0 (2026-09-26 08:55Z) · web", which read as a
  * developer string (UX scorecard run 7: 'Z' and '· browser'). The build stays
  * on screen because it is what tells two builds of one version apart (Shane
  * 2026-08-28); the raw label still goes, untouched, to the feedback link.
@@ -181,7 +182,7 @@ export function plainBuildLabel(label: string): string {
         const when = new Date(`${stamp[1]}T${stamp[2]}:00Z`);
         if (!Number.isNaN(when.getTime())) {
             const time = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
-            return `Version ${version} · ${when.getDate()} ${MONTHS[when.getMonth()]}, ${time}`;
+            return `Version ${version} · built ${when.getDate()} ${MONTHS[when.getMonth()]}, ${time}`;
         }
     }
     return !build || build === 'unknown' ? `Version ${version}` : `Version ${version} (${build})`;
@@ -1059,7 +1060,9 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
         <>
             <button
                 onClick={() => setShowModal(true)}
-                aria-label={`Systems and GPS source${activeCount > 0 ? `: ${activeCount} active` : ''}${systemState.shoreWatch.active ? ` · Shore Watch: ${systemState.shoreWatch.label}` : ''}`}
+                // Named for the dialog it opens, one name for both (UX scorecard
+                // run 9: 'Systems and GPS source' opened 'System status').
+                aria-label={`System status${activeCount > 0 ? `: ${activeCount} active` : ''}${systemState.shoreWatch.active ? ` · Shore Watch: ${systemState.shoreWatch.label}` : ''}`}
                 aria-haspopup="dialog"
                 aria-expanded={showModal}
                 data-shore-status={systemState.shoreWatch.active ? systemState.shoreWatch.tone : undefined}

@@ -14,8 +14,9 @@
  *
  * The shape is theme.ts `button.ctaShape`, the one bottom call to action, and
  * the label is sentence case like every other button (UX scorecard run 7:
- * ADD TASK sat beside 'Prepare voice call'). Caps stay on the slide bars,
- * whose label is a gesture instruction rather than a button name.
+ * ADD TASK sat beside 'Prepare voice call'). The slide bars now use the
+ * same sentence-case 16 px bold label (UX scorecard run 9): their tracked
+ * capitals made the slide the one shouting call to action on the page.
  *
  * `data-toast-dock` tells the toast stack to sit just above this bar instead
  * of over the page's first card (components/Toast.tsx).

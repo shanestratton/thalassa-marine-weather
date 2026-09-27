@@ -273,7 +273,7 @@ describe('retained-weather location bar wiring', () => {
         expect(title).toContain('locationName: weatherData?.locationName');
         expect(title).toContain('status: positionSource?.status');
         expect(title).toContain('retainedWeather: retainedLocationWeather');
-        expect(title).toContain('if (retainedLocationWeather) displayTitle = `Last · ${displayTitle}`');
+        expect(title).toContain('if (retainedLocationWeather) displayTitle = `Last fix · ${displayTitle}`');
         expect(app).toContain("value={displayTitle === 'Select Location' ? '' : displayTitle}");
     });
 

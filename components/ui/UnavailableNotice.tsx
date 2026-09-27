@@ -71,18 +71,21 @@ export const UnavailableNotice: React.FC<UnavailableNoticeProps> = ({
                         and centres, a longer one fills the column and runs from
                         the left. Centred three-line bodies on Boat Network and
                         Music broke the house rule Calypso keeps (UX scorecard
-                        run 8). */}
+                        run 8). No text-pretty: it pulled lines in to even out
+                        the last one, so Calypso's first paragraph wrapped at
+                        237 of 305 pt and sat lopsided under the heading (run 9). */}
                     {children && (
                         <div
-                            className={`mx-auto mt-2 max-w-lg space-y-3 text-sm leading-relaxed text-pretty ${t.body} [&>p]:mx-auto [&>p]:w-fit [&>p]:text-left`}
+                            className={`mx-auto mt-2 max-w-lg space-y-3 text-sm leading-relaxed ${t.body} [&>p]:mx-auto [&>p]:w-fit [&>p]:text-left`}
                         >
                             {children}
                         </div>
                     )}
+                    {/* The note runs from the body's left edge, not centred on
+                        its own: Boat Network stacked three alignments in one
+                        card (run 9). */}
                     {note && (
-                        <p className="mx-auto mt-3 w-fit max-w-lg text-left text-xs leading-relaxed text-white/60 text-pretty">
-                            {note}
-                        </p>
+                        <p className="mx-auto mt-3 max-w-lg text-left text-xs leading-relaxed text-white/60">{note}</p>
                     )}
                 </div>
                 {actions && <div className="mt-5 flex flex-wrap items-center justify-center gap-2">{actions}</div>}
