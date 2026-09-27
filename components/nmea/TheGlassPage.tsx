@@ -1656,11 +1656,16 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         }
                                         readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
                                     />
-                                    <p className="text-[10px] font-bold text-gray-500">
-                                        {baro.source === 'boat' && 'Boat sensor'}
-                                        {baro.source === 'phone' && 'This device'}
-                                        {baroSetHand !== null && ' · pale hand = 3 h ago'}
-                                    </p>
+                                    {/* Not rendered empty: with no source and no set hand
+                                        it was a blank paragraph under the dial for
+                                        VoiceOver to stop on (UX scorecard run 9). */}
+                                    {(baro.source === 'boat' || baro.source === 'phone' || baroSetHand !== null) && (
+                                        <p className="text-[10px] font-bold text-gray-500">
+                                            {baro.source === 'boat' && 'Boat sensor'}
+                                            {baro.source === 'phone' && 'This device'}
+                                            {baroSetHand !== null && ' · pale hand = 3 h ago'}
+                                        </p>
+                                    )}
                                     {baroTendency && (
                                         <div
                                             className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
@@ -1873,11 +1878,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         Rolling Chart
                                     </p>
                                     <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/6 pt-1.5">
+                                        {/* Named in words: VoiceOver read a bare '-- V'
+                                            with nothing to say what it was (UX scorecard run 9). */}
+                                        <span className="sr-only">
+                                            {spokenReading('Battery voltage', fmt(voltage.value), 'volts')}
+                                        </span>
                                         <LightningBoltIcon className="h-3.5 w-3.5 text-gray-400" />
-                                        <span className="font-mono text-xs font-black tabular-nums text-white">
+                                        <span
+                                            aria-hidden="true"
+                                            className="font-mono text-xs font-black tabular-nums text-white"
+                                        >
                                             {fmt(voltage.value)}
                                         </span>
-                                        <span className="text-[10px] font-bold text-gray-500">V</span>
+                                        <span aria-hidden="true" className="text-[10px] font-bold text-gray-500">
+                                            V
+                                        </span>
                                     </div>
                                 </div>
                             </div>

@@ -322,6 +322,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                               : 'var(--ink-muted)';
                     return (
                         <text
+                            aria-hidden="true"
                             key={`pt-${a}-${lab}`}
                             x={x.toFixed(1)}
                             y={(y + size * 0.35).toFixed(1)}
@@ -349,6 +350,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                         const [x, y] = pt(a, RD);
                         return (
                             <text
+                                aria-hidden="true"
                                 key={`deg-${a}`}
                                 x={x.toFixed(1)}
                                 y={(y + 3.9).toFixed(1)}
@@ -395,6 +397,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                 at cy-22 — a clear eleven pixels under the angle's baseline at
                 cy-34. */}
             <text
+                aria-hidden="true"
                 x={CX}
                 y={CY + 11}
                 textAnchor="middle"
@@ -405,10 +408,11 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
             >
                 {speed !== null && speed !== undefined && Number.isFinite(speed) ? fmt(speed, 1) : '--'}
             </text>
-            <text x={CX} y={CY + 31} textAnchor="middle" fill="var(--ink-2)" fontSize={14}>
+            <text aria-hidden="true" x={CX} y={CY + 31} textAnchor="middle" fill="var(--ink-2)" fontSize={14}>
                 {unit}
             </text>
             <text
+                aria-hidden="true"
                 x={CX}
                 y={CY - 34}
                 textAnchor="middle"
@@ -426,6 +430,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                 cabin without reading either. */}
             {has && hdg !== null ? (
                 <text
+                    aria-hidden="true"
                     x={CX}
                     y={CY + 50}
                     textAnchor="middle"
@@ -437,7 +442,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
                     {`${fmt(((((ang as number) + hdg) % 360) + 360) % 360, 0).padStart(3, '0')}° ${compassPoint(((((ang as number) + hdg) % 360) + 360) % 360)}`}
                 </text>
             ) : has ? (
-                <text x={CX} y={CY + 50} textAnchor="middle" fill="var(--ink-muted)" fontSize={12}>
+                <text aria-hidden="true" x={CX} y={CY + 50} textAnchor="middle" fill="var(--ink-muted)" fontSize={12}>
                     no heading
                 </text>
             ) : null}

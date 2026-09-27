@@ -22,6 +22,7 @@ import React, { useMemo } from 'react';
 import '../instrumentDaylight.css';
 import { polarToCart } from './gaugeGeometry';
 import { useUnwrappedAngle } from './useUnwrappedAngle';
+import { expandCompassDirection } from '../../../utils/format';
 
 interface HeadingGaugeProps {
     /** Degrees true/magnetic as the instrument reports them. Null = no data. */
@@ -63,6 +64,13 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
     const rotation = useUnwrappedAngle(value === null ? null : -value);
     const dead = value === null;
     const opacity = dead ? 0.25 : isLive ? 1 : 0.45;
+    const headingText = dead ? '--' : (((Math.round(value as number) % 360) + 360) % 360).toString().padStart(3, '0');
+    // The image's name carries the reading, so the card's letters and ticks
+    // can be hidden: they were read out one by one ('N E S W 3 6 12 … --
+    // NO DATA', UX scorecard run 9).
+    const spokenLabel = dead
+        ? `${label}, no data`
+        : `${label}, ${headingText} degrees, ${expandCompassDirection(compassPoint(value as number)).toLowerCase()}`;
 
     // Geometry lives in the memo with the tick, not in the render body: the
     // card is 72 ticks and the endpoints never move, so recomputing 144 trig
@@ -88,7 +96,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
 
     return (
         <div className="nmea-instrument relative mx-auto w-full" style={{ maxWidth: 300, aspectRatio: '1' }}>
-            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={label}>
+            <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label={spokenLabel}>
                 <defs>
                     <radialGradient id="heading-face" cx="50%" cy="42%" r="72%">
                         <stop offset="0%" stopColor="#1e293b" />
@@ -143,6 +151,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
                         const p = polarToCart(CX, CY, RADIUS - 42, deg);
                         return (
                             <text
+                                aria-hidden="true"
                                 key={letter}
                                 x={p.x}
                                 y={p.y}
@@ -163,6 +172,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
                         const p = polarToCart(CX, CY, RADIUS - 40, deg);
                         return (
                             <text
+                                aria-hidden="true"
                                 key={text}
                                 x={p.x}
                                 y={p.y}
@@ -195,6 +205,7 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
 
                 {/* Reading. Three digits always — 007 is a heading, 7 is a typo. */}
                 <text
+                    aria-hidden="true"
                     x={CX}
                     y={CY + 4}
                     textAnchor="middle"
@@ -205,9 +216,10 @@ export const HeadingGauge: React.FC<HeadingGaugeProps> = ({
                     fontFamily="ui-monospace, monospace"
                     opacity={dead ? 0.35 : 1}
                 >
-                    {dead ? '--' : (((Math.round(value as number) % 360) + 360) % 360).toString().padStart(3, '0')}
+                    {headingText}
                 </text>
                 <text
+                    aria-hidden="true"
                     x={CX}
                     y={CY + 34}
                     textAnchor="middle"
