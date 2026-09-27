@@ -4,7 +4,8 @@ import { webkit } from '/Users/shanestratton/Projects/thalassa-marine-weather/no
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ORIGIN = 'http://127.0.0.1:4173';
+// UX_ORIGIN points a one-off check at a dev server (the scored runs use the preview build).
+const ORIGIN = process.env.UX_ORIGIN || 'http://127.0.0.1:4173';
 const OUT = process.argv[2];
 const MODE = process.argv[3] || 'dark'; // dark | light
 const W = Number(process.argv[4] || 393),

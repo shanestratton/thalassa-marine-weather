@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SCAN } from './scan.mjs';
 
-const ORIGIN = 'http://127.0.0.1:4173';
+// UX_ORIGIN points a one-off check at a dev server (the scored runs use the preview build).
+const ORIGIN = process.env.UX_ORIGIN || 'http://127.0.0.1:4173';
 // Playwright WebKit stamps geolocation fixes in microseconds, so the app read
 // every fix as decades in the future and fell back to its no-fix states (UX
 // scorecard run 7: the chart opened on the whole continent). A device stamps
