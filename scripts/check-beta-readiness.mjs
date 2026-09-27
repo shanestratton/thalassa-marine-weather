@@ -2954,6 +2954,9 @@ check(
 const publicVoyageFreshness = read('src/publicVoyageFreshness.ts');
 const publicVoyageDashboard = read('src/ThalassaDashboard.tsx');
 const publicVoyageMap = read('src/components/MapContainer.tsx');
+// The own-ship 'Last known' rule moved into a shared helper with the
+// 2026-09-27 public page redesign; the map must still route through it.
+const publicVoyageStory = read('src/components/voyageStory.ts');
 check(
     'public voyage logs age frozen telemetry and map contacts independently of polling',
     includesAll(publicVoyageFreshness, [
@@ -2967,7 +2970,8 @@ check(
             'setPollFailed(true)',
             'connectionLost={connectionLost}',
         ]) &&
-        includesAll(publicVoyageMap, ['isPublicPositionFresh', "item.freshness !== 'expired'", 'Last known ·']),
+        includesAll(publicVoyageMap, ['publicLastKnownLabel(', "item.freshness !== 'expired'"]) &&
+        includesAll(publicVoyageStory, ['isPublicPositionFresh', 'Last known ·']),
 );
 
 // Chart/map licence and beta entitlement boundaries.
