@@ -186,6 +186,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                         }`}
                     >
                         <div
+                            aria-hidden="true"
                             className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
                                 currentMetric === 'temp' ? 'bg-sky-500/20 text-sky-300' : 'bg-white/4 text-slate-400'
                             }`}
@@ -231,7 +232,10 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                                         : 'bg-white/3 border-white/6 hover:bg-white/6'
                                 }`}
                             >
+                                {/* Decoration: the RAIN row's animated icon surfaced as
+                                    an unnamed img inside the button (UX scorecard run 8). */}
                                 <div
+                                    aria-hidden="true"
                                     className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
                                         isActive ? 'bg-sky-500/20 text-sky-300' : 'bg-white/4 text-slate-400'
                                     }`}

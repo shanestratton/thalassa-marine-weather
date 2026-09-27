@@ -477,9 +477,13 @@ export const TideGraphOriginal = ({
                     rightInsetPx={reserveRightPx}
                 />
                 {/* Station name — bottom left, lifted clear of the 14 px hour
-                    axis band TideCanvas draws along the bottom edge. */}
+                    axis band TideCanvas draws along the bottom edge. On the
+                    heights' backing pill: bare, it sat on the curve with
+                    nothing behind it (UX scorecard run 8). */}
                 {(guiDetails?.stationName || stationName) && (
-                    <span className="absolute bottom-4 left-2 text-xs leading-4 font-semibold text-white/60 tracking-wide pointer-events-none select-none">
+                    <span
+                        className={`absolute bottom-4 left-2 text-xs leading-4 font-semibold text-white/60 tracking-wide pointer-events-none select-none ${scrimClass}`}
+                    >
                         {guiDetails?.stationName || stationName}
                     </span>
                 )}

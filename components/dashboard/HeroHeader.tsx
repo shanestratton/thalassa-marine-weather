@@ -148,9 +148,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     }, [updateSettings]);
 
     return (
-        // Not overflow-hidden: the first-run coach mark hangs below this card
-        // rather than sitting on the temperature (UX scorecard run 7).
-        <div className="relative w-full rounded-2xl border bg-white/8 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/15">
+        // Not overflow-hidden: the first-run coach mark reaches out of the pin
+        // partition into the centre column. group/hero: while it shows (its
+        // role=status is in the card only then) the condition steps aside.
+        <div className="group/hero relative w-full rounded-2xl border bg-white/8 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/15">
             {/* Keyframes moved to index.css */}
 
             <div className="flex flex-row w-full items-center min-h-[70px] in-data-[glass-rhythm]:min-h-[54px]">
@@ -161,10 +162,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     target generous on iOS. */}
                 <div
                     ref={setDroppableRef}
-                    // @container/pin: the coach mark sits beside the digits where the
-                    // partition has room for it (landscape, tablets), below the card
-                    // where it does not (phones held upright).
-                    className={`@container/pin flex-1 px-3 py-2 in-data-[glass-rhythm]:py-1 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
+                    // self-stretch + min-h-11: the whole row height is the pin
+                    // target. Content-high, landscape's trimmed row left it
+                    // 218 x 38 pt, under the 44 pt floor (UX scorecard run 8).
+                    className={`flex-1 self-stretch min-h-11 px-3 py-2 in-data-[glass-rhythm]:py-1 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
                         isOver ? 'bg-sky-500/20 ring-2 ring-sky-400/60 ring-inset rounded-l-[15px] rounded-r-lg' : ''
                     }`}
                     onClick={handleHeroLeftTap}
@@ -279,22 +280,22 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
 
                                             Never on the number (UX scorecard run 7: it hid the
                                             foot of '21', and all but the ° at 375 pt and in
-                                            landscape). Upright on a phone it hangs below the
-                                            card, its arrow on the digits — the card no longer
-                                            clips it and Dashboard lifts this layer over the
-                                            grid. Where the partition is wide enough it sits
-                                            beside the digits, pointing back at them. */}
+                                            landscape), and never on the grid (run 8: hung below
+                                            the card it covered the WIND label for its 6 s, and
+                                            part of DIR at 375 pt). It sits inside the card,
+                                            beside the digits and pointing back at them, in the
+                                            centre column's place: the condition text steps
+                                            aside while it shows (group-has on the card). */}
                                         {isLive && (
                                             <CoachMark
                                                 seenKey="thalassa_hero_pin_coach_v1"
                                                 visibleWhen={heroMetric === 'temp'}
                                                 anchor="custom"
-                                                arrow="up"
+                                                arrow="left"
                                                 message="Tap to pin"
                                                 initialDelayMs={1500}
                                                 ttlMs={6000}
-                                                className="top-full mt-0.5 left-0 items-start whitespace-nowrap @min-[9rem]/pin:top-1/2 @min-[9rem]/pin:mt-0 @min-[9rem]/pin:-translate-y-1/2 @min-[9rem]/pin:left-full @min-[9rem]/pin:ml-2 @min-[9rem]/pin:flex-row @min-[9rem]/pin:items-center"
-                                                arrowClassName="@min-[9rem]/pin:-rotate-90"
+                                                className="top-1/2 -translate-y-1/2 left-full ml-2 items-center whitespace-nowrap"
                                             />
                                         )}
                                     </div>
@@ -314,7 +315,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     key={`${isLive ? 'live' : dateLabel}-${displayCondition}`}
                     // py-0 in the trimmed rhythms: date, condition and hour stack to
                     // 52 px, and with py-2 they stretched a 56 px slot to 70.
-                    className="flex-2 flex items-center justify-center min-w-0 py-2 in-data-[glass-rhythm]:py-0 px-1"
+                    // Invisible (space kept) while the first-run coach mark is
+                    // standing in its place.
+                    className="flex-2 flex items-center justify-center min-w-0 py-2 in-data-[glass-rhythm]:py-0 px-1 group-has-[[role=status]]/hero:invisible"
                 >
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
@@ -340,7 +343,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     one swipe per day (UX scorecard run 7). The span
                                     gives the 14 px pill a 44 pt target that hangs
                                     down over the condition text, not up out of the
-                                    card into the warnings row. */}
+                                    card into the warnings row. A return arrow leads
+                                    the word: a bare 'Today' beside 'WED 7 OCT' read
+                                    as a tag saying that day was today (run 8), and
+                                    'Back to today' does not fit the 375 pt column. */}
                                 {onReturnToToday && (
                                     <button
                                         type="button"
@@ -350,12 +356,25 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                         }}
                                         // Starts with the visible word, for voice control.
                                         aria-label="Today, back to now"
-                                        className="relative shrink-0 rounded-full border border-sky-400/40 bg-sky-500/10 px-1.5 text-xs font-semibold leading-none text-sky-300 glass-tide-caption active:bg-sky-500/25"
+                                        className="relative shrink-0 inline-flex items-center gap-0.5 rounded-full border border-sky-400/40 bg-sky-500/10 px-1.5 text-xs font-semibold leading-none text-sky-300 glass-tide-caption active:bg-sky-500/25"
                                     >
                                         <span
                                             className="absolute left-1/2 top-[-6px] h-11 w-full min-w-11 -translate-x-1/2"
                                             aria-hidden="true"
                                         />
+                                        <svg
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2.5"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className="w-2.5 h-2.5 shrink-0"
+                                            aria-hidden="true"
+                                        >
+                                            <path d="M9 14 4 9l5-5" />
+                                            <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+                                        </svg>
                                         Today
                                     </button>
                                 )}

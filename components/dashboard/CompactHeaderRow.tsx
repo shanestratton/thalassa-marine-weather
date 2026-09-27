@@ -60,7 +60,10 @@ export const CompactHeaderRow = ({
     const activeAlerts = (alerts || []).filter((a) => isCritical(a) || !dismissed.has(a));
     const hasWarnings = activeAlerts.length > 0;
 
-    const goldenHour = Boolean(sunrise && sunset && isGoldenHour(sunrise, sunset));
+    // A time is known when it has a digit: '', '--' and '--:--' are pending.
+    const riseKnown = !!sunrise && /\d/.test(sunrise);
+    const setKnown = !!sunset && /\d/.test(sunset);
+    const goldenHour = Boolean(riseKnown && setKnown && sunrise && sunset && isGoldenHour(sunrise, sunset));
 
     return (
         <div className="w-full flex items-center gap-2">
@@ -123,31 +126,56 @@ export const CompactHeaderRow = ({
                     </div>
                 ) : (
                     <>
-                        {/* Sunrise */}
-                        {sunrise && (
-                            <div className="flex items-center gap-1.5">
-                                <SunriseIcon className="w-3.5 h-3.5 text-amber-400" />
-                                <span className="text-white font-bold text-sm font-mono tracking-tight">
-                                    <span className="sr-only">Sunrise </span>
-                                    {sunrise}
-                                </span>
-                            </div>
-                        )}
+                        {/* Sunrise and sunset keep their slots while they load:
+                            the chip used to drop both and show the moon alone,
+                            with no sign anything was pending (UX scorecard run 8).
+                            '--:--' is the muted placeholder, read as words. */}
+                        <div className="flex items-center gap-1.5">
+                            <SunriseIcon className="w-3.5 h-3.5 text-amber-400" />
+                            <span
+                                className={`font-bold text-sm font-mono tracking-tight ${riseKnown ? 'text-white' : 'text-slate-500'}`}
+                            >
+                                {riseKnown ? (
+                                    <>
+                                        <span className="sr-only">Sunrise </span>
+                                        {sunrise}
+                                    </>
+                                ) : (
+                                    <>
+                                        <span aria-hidden="true">--:--</span>
+                                        <span className="sr-only">
+                                            {setKnown ? 'Sunrise not yet known' : 'Sunrise and sunset not yet known'}
+                                        </span>
+                                    </>
+                                )}
+                            </span>
+                        </div>
 
-                        {/* Sunset */}
-                        {sunset && (
-                            <div className="flex items-center gap-1.5">
-                                <SunsetIcon className="w-3.5 h-3.5 text-purple-400" />
-                                <span className="text-white font-bold text-sm font-mono tracking-tight">
-                                    <span className="sr-only">, sunset </span>
-                                    {sunset}
-                                </span>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                            <SunsetIcon className="w-3.5 h-3.5 text-purple-400" />
+                            <span
+                                className={`font-bold text-sm font-mono tracking-tight ${setKnown ? 'text-white' : 'text-slate-500'}`}
+                            >
+                                {setKnown ? (
+                                    <>
+                                        <span className="sr-only">, sunset </span>
+                                        {sunset}
+                                    </>
+                                ) : (
+                                    <>
+                                        <span aria-hidden="true">--:--</span>
+                                        {/* Said once with the sunrise when both are pending. */}
+                                        {riseKnown && <span className="sr-only">, sunset not yet known</span>}
+                                    </>
+                                )}
+                            </span>
+                        </div>
                     </>
                 )}
 
-                {/* Moon phase: the glyph is the picture, the words are what is read. */}
+                {/* Moon phase: the glyph is the picture, the words are what is
+                    read. Something always precedes it now, so the comma joins
+                    two parts rather than starting the chip's text. */}
                 {moonPhase && (
                     <span className="text-base leading-none">
                         <span aria-hidden="true">{moonPhase}</span>

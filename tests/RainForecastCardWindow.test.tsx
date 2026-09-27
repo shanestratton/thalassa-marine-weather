@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { RainForecastCard } from '../components/dashboard/RainForecastCard';
 
@@ -184,6 +184,49 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         for (const tick of ['Now', '15 min', '30 min', '45 min', '1 h']) {
             expect(within(dialog).getByText(tick)).toBeInTheDocument();
         }
+    });
+
+    it('light rain is one 44 pt line naming the nowcast; the chart waits for moderate rain (UX scorecard run 8)', () => {
+        const drizzle = dryFeed(240).map((f, i) => ({ ...f, intensity: i >= 88 ? 0.4 : 0 }));
+        render(<RainForecastCard data={drizzle} source="rainbow" />);
+        const strip = screen.getByRole('button', { name: 'Open rain forecast detail' });
+        expect(strip.className).toContain('min-h-[44px]');
+        expect(strip.className).not.toContain('min-h-[76px]');
+        expect(within(strip).queryByText(/Tap for detail/)).toBeNull();
+        expect(
+            within(strip)
+                .getAllByText('Nowcast')
+                .filter((el) => !el.classList.contains('sr-only')),
+        ).toHaveLength(1);
+        expect(strip).toHaveAccessibleDescription(/Rain in \d+ min.*Nowcast/);
+
+        cleanup();
+        const moderate = dryFeed(240).map((f, i) => ({ ...f, intensity: i >= 30 && i < 90 ? 3.2 : 0 }));
+        render(<RainForecastCard data={moderate} source="rainbow" />);
+        const full = screen.getByRole('button', { name: 'Open rain forecast detail' });
+        expect(full.className).toContain('min-h-[76px]');
+        expect(within(full).getByText('Nowcast · Tap for detail')).toBeInTheDocument();
+        expect(within(full).getByText('Now')).toBeInTheDocument();
+        expect(within(full).getByText('4 h')).toBeInTheDocument();
+    });
+
+    it('the detail stands its peak marker on the peak bar and says when the peak comes', () => {
+        const drizzle = dryFeed(240).map((f, i) => ({ ...f, intensity: i >= 90 && i < 150 ? 0.3 : 0 }));
+        drizzle[104] = { ...drizzle[104], intensity: 0.5 };
+        render(<RainForecastCard data={drizzle} source="rainbow" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open rain forecast detail' }));
+        const dialog = screen.getByRole('dialog', { name: 'Rain forecast' });
+        // Two 'Peak's: the chart's marker and the stat's label.
+        const peaks = within(dialog).getAllByText('Peak');
+        expect(peaks).toHaveLength(2);
+        const marker = peaks.find((el) => el.style.bottom !== '');
+        // 0.5 mm/hr on the 2.5 floor is a 20 % bar: the marker sits 4 px above it.
+        expect(marker?.style.bottom).toBe('calc(20% + 4px)');
+        // The stat reads 'Peak in 1 h 44 min', not 'Peak at in …'.
+        const when = within(dialog).getByText(/^in 1 h 4[3-5] min$/);
+        expect(when.previousElementSibling).toHaveTextContent(/^Peak$/);
+        // The peak's size is said once, by the gauge.
+        expect(within(dialog).getAllByText(/mm\/hr/)).toHaveLength(1);
     });
 
     it('a fully-elapsed feed is out of date, not a forecast', () => {

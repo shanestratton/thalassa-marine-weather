@@ -85,16 +85,30 @@ const byTime = <T extends { time: string; height: number }>(points: T[] | undefi
         .sort((a, b) => a.t - b.t);
 
 /**
+ * Opens the Glass footer's own model picker, by pressing its model pill:
+ * one way into the picker, not a second picker with its own copy of the
+ * coverage and refresh wiring.
+ */
+const openGlassModelPicker = () => {
+    document
+        .querySelector<HTMLButtonElement>('[data-testid="glass-status-strip"] button[aria-haspopup="dialog"]')
+        ?.click();
+};
+
+/**
  * A forecast day past the pinned model's reach: not one weather number in
  * the day or its hours, and no wave or tide to show instead. It used to
  * render the overview's grid of bare dashes — the same picture as a broken
  * feed — so it says what it is instead.
  */
-const ForecastHorizonCard: React.FC<{ dateLabel: string; caption: string; showDateHeading: boolean }> = ({
-    dateLabel,
-    caption,
-    showDateHeading,
-}) => (
+const ForecastHorizonCard: React.FC<{
+    dateLabel: string;
+    caption: string;
+    showDateHeading: boolean;
+    /** Set when the caption names a model: 'try another model' gets the
+     *  control that does it (UX scorecard run 8). */
+    onChooseModel?: () => void;
+}> = ({ dateLabel, caption, showDateHeading, onChooseModel }) => (
     <div
         data-testid="forecast-horizon"
         role="group"
@@ -105,6 +119,19 @@ const ForecastHorizonCard: React.FC<{ dateLabel: string; caption: string; showDa
     >
         {showDateHeading ? <span className="text-base font-bold tracking-wide text-white/90">{dateLabel}</span> : null}
         <p className="glass-forecast-caption text-sm font-medium">{caption}</p>
+        {onChooseModel ? (
+            <button
+                type="button"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onChooseModel();
+                }}
+                aria-haspopup="dialog"
+                className="mt-1 min-h-11 rounded-xl border border-sky-400/40 bg-sky-500/10 px-4 text-sm font-semibold text-sky-300 active:bg-sky-500/25"
+            >
+                Choose model
+            </button>
+        ) : null}
     </div>
 );
 
@@ -696,6 +723,9 @@ const HeroSlideComponent = ({
                                                 dateLabel={rowDateLabel}
                                                 caption={caption}
                                                 showDateHeading={!showDayLabel}
+                                                onChooseModel={
+                                                    forecastRange?.modelLabel ? openGlassModelPicker : undefined
+                                                }
                                             />
                                         ) : (
                                             <DailySummaryCard
