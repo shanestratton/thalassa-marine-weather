@@ -46,7 +46,8 @@ describe('public native instrument faces', () => {
     it('uses actual COG, never substitutes heading, and rounds north to 000', () => {
         const { rerender } = render(<PublicInstrumentDials instruments={instruments()} />);
         fireEvent.click(screen.getByRole('button', { name: 'COG' }));
-        const compass = screen.getByRole('img', { name: 'Course over ground compass' });
+        // The name carries the reading since UX scorecard run 9 ('…, 091 degrees, east').
+        const compass = screen.getByRole('img', { name: /^Course over ground compass, 091 degrees/ });
         expect(within(compass).getByText('091')).toBeTruthy();
         rerender(<PublicInstrumentDials instruments={instruments({ cog: null })} />);
         expect(within(compass).getByText('--')).toBeTruthy(); // the Instrument Panel's one no-data glyph

@@ -18,11 +18,17 @@ const nmea = read('components/vessel/NmeaPage.tsx');
 afterEach(cleanup);
 
 describe('ship’s bell clock', () => {
-    it('sets its legends at the 12 px floor and repeats the zone where no hand can cover it', () => {
+    it('sets its legend at the 12 px floor and names the zone where no hand can cover it', () => {
         const { container } = render(<ShipsBellClock hour={18} minute={57} second={0} zoneLabel="GMT+10" />);
         const legends = [...container.querySelectorAll('text.bell-legend')];
-        expect(legends).toHaveLength(2);
+        // One legend, below the pivot (CY 150) and above the bell dots (CY + 60):
+        // in the upper half the hands swept through it, and the zone left the
+        // face for the same reason (UX scorecard run 9).
+        expect(legends).toHaveLength(1);
+        expect(legends[0].textContent).toBe("SHIP'S BELL");
+        expect(Number(legends[0].getAttribute('y'))).toBe(190);
         for (const legend of legends) expect(Number(legend.getAttribute('font-size'))).toBeGreaterThanOrEqual(12);
+        expect(container.querySelector('svg')!.textContent).not.toContain('GMT+10');
         // The HTML caption under the dial names the watch and the zone.
         expect(container.querySelector('p')!.textContent).toMatch(/watch · GMT\+10$/i);
     });

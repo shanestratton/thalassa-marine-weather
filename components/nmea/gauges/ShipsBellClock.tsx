@@ -229,13 +229,16 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                     })}
 
                     {/* fontSize 12, the floor itself: 11 still scanned as 11 px
-                    (UX scorecard run 7). Tracking eased to 2 so it stays
-                    inside the 10 and the 2. */}
+                    (UX scorecard run 7). Below the pivot, above the bell dots
+                    (CY + 60), clear of the 8 and the 4: in the upper half the
+                    hands swept through it ('SI IP'S BELL' at 23:54). The zone
+                    left the face for the same reason; the caption under the
+                    dial and the spoken label keep it (UX scorecard run 9). */}
                     <text
                         className="bell-legend"
                         aria-hidden="true"
                         x={CX}
-                        y={CY - 52}
+                        y={CY + 40}
                         textAnchor="middle"
                         fill={BRASS_DARK}
                         fontSize="12"
@@ -245,26 +248,6 @@ export const ShipsBellClock: React.FC<ShipsBellClockProps> = ({
                     >
                         SHIP&apos;S BELL
                     </text>
-
-                    {/* The zone this face is keeping. Lost in a layout edit and put
-                    back: a clock showing a time without saying WHICH time is
-                    the one thing a clock must never do. The caption under the
-                    dial repeats it, where no hand can cover it. */}
-                    {zoneLabel && (
-                        <text
-                            className="bell-legend"
-                            aria-hidden="true"
-                            x={CX}
-                            y={CY - 35}
-                            textAnchor="middle"
-                            fill={BRASS_DARK}
-                            fontSize="12"
-                            fontWeight="700"
-                            letterSpacing="1.2"
-                        >
-                            {zoneLabel}
-                        </text>
-                    )}
 
                     {/* The bell row, filled to the current count. At CY + 60, not
                         + 72: there the first dot touched the 7 and the last
