@@ -11,7 +11,7 @@
  * fallback until she reports.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Row, Section, Toggle } from './SettingsPrimitives';
+import { FIELD_LABEL_CLASS, Row, Section, Toggle } from './SettingsPrimitives';
 import { ShipsBellChime } from '../../services/ShipsBellChime';
 import { bellsAt, bellsSpoken } from '../../utils/shipsBells';
 import { clockInZone, deviceTimeZone, displayZoneId, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
@@ -220,22 +220,18 @@ export const ShipClockSection: React.FC = () => {
                 {/* Full width UNDER its label: beside it, at 55% of the row, the
                     select clipped its own value to "Ship's position · Bı". */}
                 <div className="min-w-0 flex-1">
-                    <label htmlFor="ship-clock-zone" className="text-sm text-white font-medium block">
+                    {/* A select, so the Settings form label over it, as Home
+                        port and the Units selects have; row titles stay on the
+                        switch rows (UX scorecard run 9). */}
+                    <label htmlFor="ship-clock-zone" className={FIELD_LABEL_CLASS}>
                         Clock zone
                     </label>
-                    {/* Plain words: 'a picked zone always wins' was cryptic (UX
-                        scorecard run 8). */}
-                    <p className="text-xs text-gray-400">
-                        {shipZone
-                            ? 'Follows the boat’s position unless you pick a zone.'
-                            : 'Follows the boat’s position unless you pick a zone. Until she reports, it keeps this phone’s zone.'}
-                    </p>
                     <select
                         id="ship-clock-zone"
                         value={prefs.zone}
                         onChange={(e) => update({ zone: e.target.value })}
                         aria-label="Clock time zone"
-                        className="thalassa-select mt-3 w-full min-w-0 min-h-[44px] appearance-none rounded-xl border border-white/10 bg-black/40 pl-3 pr-9 text-sm text-white"
+                        className="thalassa-select w-full min-w-0 min-h-[44px] appearance-none rounded-xl border border-white/10 bg-black/40 pl-3 pr-9 text-sm text-white"
                     >
                         <option value={SHIP_ZONE_AUTO} className="bg-slate-900">
                             {autoZoneOptionLabel(shipZone ?? deviceTimeZone(), new Date())}
@@ -257,6 +253,13 @@ export const ShipClockSection: React.FC = () => {
                             </optgroup>
                         ))}
                     </select>
+                    {/* Plain words: 'a picked zone always wins' was cryptic (UX
+                        scorecard run 8). */}
+                    <p className="mt-1.5 text-xs text-gray-400">
+                        {shipZone
+                            ? 'Follows the boat’s position unless you pick a zone.'
+                            : 'Follows the boat’s position unless you pick a zone. Until she reports, it keeps this phone’s zone.'}
+                    </p>
                 </div>
             </Row>
         </Section>

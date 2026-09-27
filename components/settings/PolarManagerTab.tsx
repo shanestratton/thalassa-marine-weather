@@ -26,8 +26,44 @@ import { OverlayPortal } from '../ui/OverlayPortal';
 import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon, XIcon, MinusIcon } from '../Icons';
 import { RowChevron } from './SettingsPrimitives';
 import { Button } from '../ui/Button';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('PolarManagerTab');
+
+/** polarParser's own reasons: they say what is wrong with the file. */
+const POLAR_PARSER_REASON = /^(Polar file must have|No valid wind (speeds|angle rows))/;
+
+/**
+ * What a failed polar import says. The parser's reasons pass through; any
+ * other failure (the file could not be read) is logged and said plainly, so
+ * raw error text never reaches the screen (UX scorecard run 9).
+ */
+function describePolarImportError(caught: unknown): string {
+    const raw = caught instanceof Error ? caught.message : String(caught);
+    if (POLAR_PARSER_REASON.test(raw)) return raw.endsWith('.') ? raw : `${raw}.`;
+    log.warn('Polar import failed:', raw);
+    return 'This file could not be read as a polar table. Choose a polar file (.pol, .csv or .txt) and try again.';
+}
 
 type InputTab = 'import' | 'manual';
+
+/** One look for every link that leaves this page — underlined sky text and a
+ *  trailing chevron — so a skipper can tell them from the bordered in-page
+ *  button (three treatments before; UX scorecard run 9). */
+const OFF_PAGE_LINK_CLASS = 'inline-flex items-center text-xs font-bold text-sky-300';
+
+/** Stretches a 16 px line to a 44 px hit area without growing its row: the
+ *  app's hit-target-44 ::before (44 px tall, centred), widened from a 44 px
+ *  square to the link's full width. For links in a line of text or a card
+ *  head, where a 44 px flow box pushed the layout apart. */
+const HIT_AREA_44_CLASS = 'hit-target-44 before:w-[max(100%,44px)]!';
+
+const OffPageLinkText: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <span className="inline-flex items-center gap-1">
+        <span className="underline underline-offset-2">{children}</span>
+        <RowChevron className="w-3.5 h-3.5 text-sky-300" />
+    </span>
+);
 
 interface PolarManagerTabProps {
     settings?: {
@@ -224,9 +260,9 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                 <button
                                     type="button"
                                     onClick={onOpenVesselProfile}
-                                    className="inline-flex min-h-11 items-center text-xs font-bold text-sky-300 underline underline-offset-2"
+                                    className={`${OFF_PAGE_LINK_CLASS} min-h-11`}
                                 >
-                                    Choose one in Settings, under Vessel profile
+                                    <OffPageLinkText>Choose one in Settings, under Vessel profile</OffPageLinkText>
                                 </button>
                             ) : (
                                 <p className="text-xs text-gray-400">Choose one in Settings, under Vessel profile</p>
@@ -428,10 +464,12 @@ const SmartPolarsCard: React.FC<{
                     : 'bg-linear-to-br from-emerald-500/5 to-sky-500/5 border border-emerald-500/20'
             }`}
         >
-            {/* gap-3 + wrap: at 375 pt the heading ran into its caption
+            {/* gap-x-3 + wrap: at 375 pt the heading ran into its caption
                 ('SMART POLARSNeeds NMEA gateway'). One card-heading style with
-                the Polar diagram card below (UX scorecard run 7). */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                the Polar diagram card below (UX scorecard run 7). A 4 px row
+                gap keeps a wrapped status line tight under the heading (UX
+                scorecard run 9). */}
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Smart Polars</h2>
                     {!hasRpmData && smartEnabled && (
@@ -443,12 +481,18 @@ const SmartPolarsCard: React.FC<{
                 </div>
                 {/* The switch lives in Settings → Preferences, the home for
                     switches (UX scorecard run 8). Here, its state and the way
-                    there, in one line. */}
+                    there, in one line. The ::before stretches the 16 px line to
+                    a 44 px hit area without growing the row, so this heading
+                    sits as high in its card as Polar diagram does in the next
+                    (a 44 px flow box pushed it 14 pt lower; UX scorecard run 9).
+                    Named as a sentence: 'Off Change in Preferences' had no
+                    subject. */}
                 {onOpenPreferences ? (
                     <button
                         type="button"
                         onClick={onOpenPreferences}
-                        className="inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-sky-300"
+                        aria-label={`Smart Polars is ${smartEnabled ? 'on' : 'off'}. Change in Preferences`}
+                        className={`${OFF_PAGE_LINK_CLASS} ${HIT_AREA_44_CLASS} gap-1.5`}
                     >
                         <span className={smartEnabled ? 'text-emerald-400' : 'text-gray-300'}>
                             {smartEnabled ? 'On' : 'Off'}
@@ -456,8 +500,7 @@ const SmartPolarsCard: React.FC<{
                         <span aria-hidden="true" className="text-gray-400">
                             ·
                         </span>
-                        <span className="underline underline-offset-2">Change in Preferences</span>
-                        <RowChevron className="w-3.5 h-3.5 text-sky-300" />
+                        <OffPageLinkText>Change in Preferences</OffPageLinkText>
                     </button>
                 ) : (
                     <span className={`text-xs font-bold ${smartEnabled ? 'text-emerald-400' : 'text-gray-300'}`}>
@@ -476,7 +519,7 @@ const SmartPolarsCard: React.FC<{
                         by recording speed data from your onboard instruments via the{' '}
                         <span className="text-white font-bold">NMEA 2000 backbone</span>.
                     </p>
-                    <p className="text-xs text-gray-400 mt-1.5">
+                    <p className="text-xs text-gray-400 mt-2">
                         {nmeaStatus === 'disconnected' ? (
                             <>
                                 {/* Amber on the glyph only: amber text measured under AA
@@ -486,18 +529,20 @@ const SmartPolarsCard: React.FC<{
                                     <span>Not connected</span>
                                 </span>{' '}
                                 —{' '}
+                                {/* The page's one off-page link look; its hit area
+                                    reaches past the line instead of a 44 px box
+                                    that doubled the line's height. */}
                                 {onNavigateToNmea ? (
                                     <button
                                         type="button"
                                         onClick={onNavigateToNmea}
-                                        className="inline-flex min-h-11 items-center text-sky-300 underline underline-offset-2 font-bold"
+                                        className={`${OFF_PAGE_LINK_CLASS} ${HIT_AREA_44_CLASS}`}
                                     >
-                                        Set up NMEA gateway
+                                        <OffPageLinkText>Set up NMEA gateway</OffPageLinkText>
                                     </button>
                                 ) : (
-                                    'configure your NMEA gateway first'
+                                    'configure your NMEA gateway first.'
                                 )}
-                                .
                             </>
                         ) : (
                             <>
@@ -662,7 +707,7 @@ const ImportTab: React.FC<{
             setFileName(file.name);
             onImport(data, file.name.replace(/\.(pol|csv)$/i, ''));
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to parse file');
+            setError(describePolarImportError(e));
         }
     };
 

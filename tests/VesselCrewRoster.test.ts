@@ -57,9 +57,14 @@ describe('Vessel tab — one row per person under Crew Aboard', () => {
     it('renders crewCount rows of name / age / rank and saves them on the profile', () => {
         expect(tab).toContain('Array.from({ length: vesselCrewAboard(vessel) }');
         expect(tab).toContain('data-testid="vessel-crew-roster"');
-        expect(tab).toContain('aria-label={`Person ${index + 1} name`}');
-        expect(tab).toContain('aria-label={`Person ${index + 1} age`}');
-        expect(tab).toContain('aria-label={`Person ${index + 1} rank`}');
+        // Each field is named after the heading the skipper sees ('Skipper name',
+        // 'Crew 2 age'), not 'Person 1 name' (UX scorecard run 9).
+        expect(tab).toContain(
+            "const crewHeading = (index: number) => (index === 0 ? 'Skipper' : `Crew ${index + 1}`);",
+        );
+        expect(tab).toContain('aria-label={`${crewHeading(index)} name`}');
+        expect(tab).toContain('aria-label={`${crewHeading(index)} age`}');
+        expect(tab).toContain('aria-label={`${crewHeading(index)} rank`}');
         expect(tab).toContain('FLOAT_PLAN_ROLES.map((role) =>');
         expect(tab).toContain('const patch = { crewRoster: next } as Partial<VesselProfile>;');
         expect(tab).toContain('These names carry across to the Float Plan.');

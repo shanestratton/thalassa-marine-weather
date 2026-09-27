@@ -407,7 +407,7 @@ describe('advanced boat details stay optional (source tripwires)', () => {
         const { readFileSync } = require('node:fs') as typeof import('node:fs');
         const { resolve } = require('node:path') as typeof import('node:path');
         const tab = readFileSync(resolve(process.cwd(), 'components/settings/VesselTab.tsx'), 'utf8');
-        const detailsAt = tab.indexOf('Advanced Boat Details');
+        const detailsAt = tab.indexOf('Advanced boat details');
         expect(detailsAt).toBeGreaterThan(-1);
         // Inside a <details> WITHOUT an `open` attribute, and labelled optional.
         const block = tab.slice(tab.lastIndexOf('<details', detailsAt), detailsAt);

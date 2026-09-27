@@ -16,12 +16,14 @@ import { FleetSharingSection } from './FleetSharingSection';
 import { AestheticsSections } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
-import { CompassIcon, TrashIcon } from '../Icons';
+import { MapPinIcon, TrashIcon } from '../Icons';
 import { Button } from '../ui/Button';
-import type { LengthUnit, OffshoreModel } from '../../types';
+import type { LengthUnit } from '../../types';
 import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
 import { canAccess } from '../../services/SubscriptionService';
 import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
+import { OFFSHORE_MODELS } from '../../services/weather/forecastModels';
+import { offshoreModelHelper } from '../dashboard/ModelPickerSheet';
 
 /** The saved home that follows the phone (or the boat) rather than a port. */
 const FOLLOWS_YOU = 'Current Location';
@@ -51,7 +53,8 @@ function formatVersionLine(version: string | undefined, stamp: string): string {
 
 interface GeneralTabProps extends SettingsTabProps {
     onLocationSelect: (location: string) => void;
-    onDetectLocation: () => void;
+    /** Pins the home port at this phone's position; resolves false when no fix came back. */
+    onDetectLocation: () => Promise<boolean> | void;
     onShowFactoryReset: () => void;
 }
 
@@ -61,15 +64,42 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
     };
     const followsYou = settings.defaultLocation === FOLLOWS_YOU;
     const satellite = !!settings.satelliteMode;
+    // 'Pin here' asks for a fix that can take up to 15 s and can fail: it used
+    // to show nothing while it looked, and nothing when no fix came back (UX
+    // scorecard run 9). On success the field shows the pinned name. The
+    // button's minimum width fits 'Locating…' (min-w-29 did not: the field
+    // shifted ~3 px at 375), so nothing moves while it looks.
+    const [pin, setPin] = React.useState<'idle' | 'locating' | 'failed'>('idle');
+    const pinHere = async () => {
+        if (pin === 'locating') return;
+        setPin('locating');
+        let pinned: boolean | void = false;
+        try {
+            pinned = await onDetectLocation();
+        } catch {
+            pinned = false;
+        }
+        setPin(pinned === false ? 'failed' : 'idle');
+    };
+    const helpId =
+        pin === 'failed' ? 'settings-home-port-nofix' : followsYou ? 'settings-home-port-follows' : undefined;
 
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
+            {/* Display mode (the night red tint) and Visual preferences lead:
+                they are what a skipper reaches for at night, and sat fourth
+                below seven Units selects set once (UX scorecard run 9). Legal,
+                Beta and Reset this phone stay last. */}
+            <AestheticsSections settings={settings} onSave={onSave} />
+
             {/* The home the Glass opens on. Its label is the one Settings form
                 label (FIELD_LABEL_CLASS) over a full-width field, and it is
                 called what the menu row calls it, 'Home port'. The saved value
                 that follows you ('Current Location') is not shown as if typed
                 into the box: the box stays empty and says what it does (UX
-                scorecard run 8). Typing a port replaces it, as before. */}
+                scorecard run 8). Typing a port replaces it, as before. The
+                button beside it says what it does, 'Pin here' (run 9): icon
+                only, beside 'Follows you', it read as a no-op. */}
             <Section title="Location & time">
                 <div className="p-4">
                     <label htmlFor="settings-home-port" className={FIELD_LABEL_CLASS}>
@@ -80,23 +110,47 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             id="settings-home-port"
                             type="text"
                             value={followsYou ? '' : settings.defaultLocation || ''}
-                            onChange={(e) => onSave({ defaultLocation: e.target.value })}
-                            aria-describedby={followsYou ? 'settings-home-port-follows' : undefined}
+                            onChange={(e) => {
+                                setPin('idle');
+                                onSave({ defaultLocation: e.target.value });
+                            }}
+                            aria-describedby={helpId}
                             className="min-h-11 min-w-0 flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                             placeholder={followsYou ? 'Follows you' : 'City, Country'}
                         />
                         <button
-                            onClick={onDetectLocation}
-                            className="hit-target-44 shrink-0 p-2 bg-sky-500/20 text-sky-400 rounded-lg"
-                            aria-label="Detect current location"
+                            type="button"
+                            onClick={() => void pinHere()}
+                            aria-busy={pin === 'locating' || undefined}
+                            className="min-h-11 min-w-32 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-sky-500/20 px-3 text-sm font-bold text-sky-300"
+                            aria-label={
+                                pin === 'locating'
+                                    ? 'Locating where you are now'
+                                    : 'Pin here: set home port to where you are now'
+                            }
                         >
-                            <CompassIcon rotation={0} className="w-4 h-4" />
+                            {pin === 'locating' ? (
+                                <span
+                                    aria-hidden="true"
+                                    className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+                                />
+                            ) : (
+                                <MapPinIcon className="h-4 w-4 shrink-0" />
+                            )}
+                            <span aria-hidden="true">{pin === 'locating' ? 'Locating…' : 'Pin here'}</span>
                         </button>
                     </div>
-                    {followsYou && (
-                        <p id="settings-home-port-follows" className="mt-1.5 text-xs text-gray-400">
-                            The Glass opens on your current position. Type a port to use that instead.
+                    {pin === 'failed' ? (
+                        <p id="settings-home-port-nofix" role="status" className="mt-1.5 text-xs text-amber-300">
+                            No GPS fix came back. Try again, or type a port.
                         </p>
+                    ) : (
+                        followsYou && (
+                            <p id="settings-home-port-follows" className="mt-1.5 text-xs text-gray-400">
+                                The Glass opens on your current position. Type a port, or Pin here to fix it at this
+                                spot.
+                            </p>
+                        )
                     )}
                 </div>
             </Section>
@@ -224,9 +278,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </div>
             </Section>
-            {/* Appearance — Display Mode, Visual Preferences, Display Orientation.
-                The Aesthetics tab folded in here (Shane 2026-09-09). */}
-            <AestheticsSections settings={settings} onSave={onSave} />
+            {/* Appearance — Display Mode, Visual Preferences, Display Orientation
+                (the Aesthetics tab, folded in here by Shane 2026-09-09) — now
+                leads the page, above. */}
 
             {/* AIS crowd-feed consent — moved here from the NMEA Gateway page
                 (Shane 2026-09-09: "i want to move most toggles there"). */}
@@ -312,42 +366,23 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Polars">
                 <SmartPolarsSetting settings={settings} onSave={onSave} />
             </Section>
-            {/* Offshore model — unlocked during the public beta. */}
+            {/* Offshore model — unlocked during the public beta. Named for
+                when it applies, and described from the same table as the
+                Glass's model sheet, with no claims nothing here backs ('best
+                overall accuracy', 'professional-grade': UX scorecard run 9). */}
             {canAccess(settings.subscriptionTier, 'weatherFull') && (
-                <Section title="Offshore weather model">
+                <Section title="Model used beyond 20 nm">
                     <div className="p-4">
                         <p className="text-xs text-gray-400 mb-4 leading-relaxed">
                             Forecast model used when you&apos;re more than 20 nm offshore.
                         </p>
                         <div className="space-y-2">
-                            {(
-                                [
-                                    {
-                                        value: 'sg',
-                                        label: 'Stormglass AI',
-                                        tag: 'Recommended',
-                                        desc: 'AI-blended ensemble — best overall accuracy',
-                                    },
-                                    {
-                                        value: 'ecmwf',
-                                        label: 'ECMWF',
-                                        tag: 'European',
-                                        desc: '9 km global, professional-grade',
-                                    },
-                                    {
-                                        value: 'gfs',
-                                        label: 'GFS / NOAA',
-                                        tag: 'American',
-                                        desc: '25 km global, updates every 6 hours',
-                                    },
-                                    {
-                                        value: 'icon',
-                                        label: 'ICON',
-                                        tag: undefined,
-                                        desc: '13 km global hi-res (DWD)',
-                                    },
-                                ] as { value: OffshoreModel; label: string; tag?: string; desc: string }[]
-                            ).map((opt) => {
+                            {OFFSHORE_MODELS.map((m) => ({
+                                value: m.id,
+                                label: m.label,
+                                tag: m.id === 'sg' ? 'Default' : undefined,
+                                desc: offshoreModelHelper(m.id),
+                            })).map((opt) => {
                                 const isActive = (settings.offshoreModel || 'sg') === opt.value;
                                 return (
                                     <button
@@ -394,6 +429,27 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Section>
             )}
 
+            {/* High-fidelity ocean currents, moved here from Vessel Profile,
+                which keeps a line that points here (UX scorecard run 9). Same
+                setting (currentNrtEnabled), same effect. Not behind the
+                weatherFull gate: the switch was never gated. */}
+            <Section title="Ocean currents">
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">High-fidelity ocean currents</p>
+                        <p className="text-xs text-gray-400">
+                            Use recent ocean currents (about 5 days old) instead of monthly averages. Helps where a
+                            strong current decides your timing.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="High-fidelity ocean currents"
+                        checked={settings.currentNrtEnabled === true}
+                        onChange={(on) => onSave({ currentNrtEnabled: on })}
+                    />
+                </Row>
+            </Section>
+
             {/* Legal and Beta Support are plain rows in their section card, like
                 every section above — each used to sit in a bordered card of its
                 own inside the section card (UX scorecard run 6). */}
@@ -404,9 +460,12 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     className="min-h-[44px]"
                 >
                     <div className="flex flex-1 min-w-0 items-center gap-3">
-                        <div className="shrink-0 p-2 bg-white/5 rounded-lg" aria-hidden="true">
+                        {/* The same sky tile as Send beta feedback, the link row
+                            under it: grey here read as a second recipe (UX
+                            scorecard run 9). */}
+                        <div className="shrink-0 rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
                             <svg
-                                className="w-4 h-4 text-gray-400"
+                                className="h-4 w-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -456,7 +515,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <RowChevron />
                 </Row>
             </Section>
-            <Section title="Danger zone" tone="danger">
+            {/* It holds only the factory reset, so it says so (UX scorecard run 9). */}
+            <Section title="Reset this phone" tone="danger">
                 <div className="p-4">
                     <Button
                         variant="danger"
