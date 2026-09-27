@@ -102,13 +102,21 @@ describe('MapActionFabs zoom', () => {
         release();
     });
 
-    it('is a named group with 48 px buttons on the right rail', () => {
+    it('is a named group with 48 px buttons, never under 44 px, on the right rail', () => {
         const { release } = renderBesideMap();
         const group = screen.getByRole('group', { name: 'Map zoom' });
-        // Up the rail above the credits in portrait; in the Locate row in landscape.
-        expect(group.className).toContain('bottom-[162px] right-0');
-        expect(group.className).toContain('[@media(orientation:landscape)_and_(max-height:500px)]:static');
-        for (const button of within(group).getAllByRole('button')) expect(button.className).toContain('h-12 w-12');
+        // Up the right rail above the credits in portrait; the middle-left rail
+        // in short landscape, which the ENC notice reserves (UX scorecard run 7).
+        expect(group.className).toContain('right-[max(16px,env(safe-area-inset-right))]');
+        expect(group.className).toContain('bottom-[calc(242px+env(safe-area-inset-bottom))]');
+        expect(group.className).toContain(
+            '[@media(orientation:landscape)_and_(max-height:600px)]:left-[max(16px,env(safe-area-inset-left))]',
+        );
+        expect(group.className).toContain('[@media(orientation:landscape)_and_(max-height:600px)]:top-1/2');
+        // 3rem is 48 px at the usual root font but 39 px on a 320 pt phone
+        // (13 px root), so each button is floored at 44 px.
+        for (const button of within(group).getAllByRole('button'))
+            expect(button.className).toContain('h-[max(44px,3rem)] w-[max(44px,3rem)]');
         release();
     });
 });

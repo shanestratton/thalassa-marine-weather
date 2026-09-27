@@ -3789,7 +3789,8 @@ body,
 }
 
 /* In short landscape (including a short iPad split pane), reserve both the
-   middle-left Back control and the right-hand map rail. Tide status stays
+   middle-left rail (the zoom buttons since UX scorecard run 7; the Back
+   chevron before Release 118) and the right-hand map rail. Tide status stays
    above the notice and beside, rather than over, the emergency control. */
 @media (orientation: landscape) and (max-height: 600px) {
     .thalassa-enc-coverage-notice {
@@ -3820,7 +3821,9 @@ body,
 }
 
 /* Narrow portrait needs a wrapped station label. Keep both tide controls
-   left of MOB, and reserve the Back rail beside the longer warning. */
+   left of MOB, and keep the longer warning clear of the right-hand rail: the
+   chart's Back chevron went in Release 118, and the one-handed zoom buttons
+   now sit on the right at this height (UX scorecard run 7). */
 @media (orientation: portrait) and (max-width: 360px) {
     .thalassa-enc-tide-badge {
         left: 12px;
@@ -3837,7 +3840,7 @@ body,
     }
     .thalassa-enc-coverage-notice {
         top: calc(4rem + 200px);
-        left: 64px;
+        left: 12px;
         width: calc(100% - 76px);
         /* Give the sentence the whole row. Beside a nonshrinking button it
            can outgrow the space above scale/credits even at the same font
@@ -4238,8 +4241,12 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     /* 60 px: clear of the landscape nav toggle (bottom-left) and the Locate
        FAB (bottom-right), so the Mapbox credit and the scale bar are never
        covered (a covered credit is a licence problem, not a nit). */
-    .thalassa-chart-map .mapboxgl-ctrl-bottom-left,
-    .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
+    /* Only while the landscape nav is closed: opened, the tab bar is back
+       (its toggle's nav is then labelled 'Navigation toggle'), and these
+       lowered positions put Locate under it and the scale into the ENC
+       notice's band (UX scorecard run 7). The defaults already clear it. */
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-chart-map .mapboxgl-ctrl-bottom-left,
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
         bottom: calc(env(safe-area-inset-bottom) + 60px);
     }
     /* …and clear of a landscape notch: the containers sat at the map's edge,
@@ -4250,7 +4257,7 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
         right: env(safe-area-inset-right);
     }
-    .thalassa-map-action-fabs {
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-action-fabs {
         bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
     }
 

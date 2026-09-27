@@ -124,52 +124,112 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
     }, [onLocateMe]);
 
     return (
-        <div
-            ref={rootRef}
-            // 16px aligns with the right-rail FAB column and the
-            // ConnectivityChip so every right-edge element on the chart screen
-            // sits on the same vertical gridline. max() with the inset keeps it
-            // clear of a landscape notch (~59 pt), where a flat 16px landed the
-            // button inside the sensor housing (UX scorecard run 5).
-            className="thalassa-map-action-fabs absolute z-500 flex flex-row items-center gap-2"
-            style={{
-                right: 'max(16px, env(safe-area-inset-right))',
-                bottom: 'calc(80px + env(safe-area-inset-bottom))',
-            }}
-        >
-            {/* Locate's outcome, for VoiceOver (UX scorecard run 7). */}
-            <span role="status" aria-live="polite" className="sr-only">
-                {announcement}
-            </span>
-
-            {/* Grows leftwards from the right-anchored row: Locate never moves. */}
-            {locate === 'no-fix' && (
-                <span
-                    aria-hidden="true"
-                    className="flex h-12 items-center whitespace-nowrap rounded-2xl border border-amber-400/40 bg-slate-900/90 px-3 text-[13px] font-bold text-amber-300 shadow-2xl backdrop-blur-xl"
-                >
-                    No position fix
+        <>
+            <div
+                ref={rootRef}
+                // 16px aligns with the right-rail FAB column and the
+                // ConnectivityChip so every right-edge element on the chart screen
+                // sits on the same vertical gridline. max() with the inset keeps it
+                // clear of a landscape notch (~59 pt), where a flat 16px landed the
+                // button inside the sensor housing (UX scorecard run 5).
+                className="thalassa-map-action-fabs absolute z-500 flex flex-row items-center gap-2"
+                style={{
+                    right: 'max(16px, env(safe-area-inset-right))',
+                    bottom: 'calc(80px + env(safe-area-inset-bottom))',
+                }}
+            >
+                {/* Locate's outcome, for VoiceOver (UX scorecard run 7). */}
+                <span role="status" aria-live="polite" className="sr-only">
+                    {announcement}
                 </span>
-            )}
 
+                {/* Grows leftwards from the right-anchored row: Locate never moves. */}
+                {locate === 'no-fix' && (
+                    <span
+                        aria-hidden="true"
+                        className="flex h-12 items-center whitespace-nowrap rounded-2xl border border-amber-400/40 bg-slate-900/90 px-3 text-[13px] font-bold text-amber-300 shadow-2xl backdrop-blur-xl"
+                    >
+                        No position fix
+                    </span>
+                )}
+
+                {/* GPS Locate Me — fly to device position */}
+                <button
+                    type="button"
+                    aria-label="Locate me"
+                    aria-busy={locate === 'finding'}
+                    onClick={handleLocate}
+                    className="relative w-[max(44px,3rem)] h-[max(44px,3rem)] bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                >
+                    {/* Acquiring: the tap is answered at once, not after the fix. */}
+                    {locate === 'finding' && (
+                        <span
+                            aria-hidden="true"
+                            className="absolute inset-0 rounded-2xl border-2 border-sky-400/80 animate-pulse motion-reduce:animate-none"
+                        />
+                    )}
+                    {/* White like the layers glyph beside it: one glyph colour on the rail. */}
+                    <svg
+                        className="w-5 h-5 text-white"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        aria-hidden="true"
+                    >
+                        <circle cx="12" cy="12" r="3" />
+                        <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                    </svg>
+                </button>
+
+                {/* Recenter on weather location — parked, see RECENTER_FAB_VISIBLE */}
+                {RECENTER_FAB_VISIBLE && (
+                    <button
+                        aria-label="Recenter on weather location"
+                        onClick={onRecenter}
+                        disabled={recenterDisabled}
+                        className="w-12 h-12 bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                    >
+                        <svg
+                            className="w-5 h-5 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                            />
+                        </svg>
+                    </button>
+                )}
+            </div>
             {/* One-handed zoom (UX scorecard run 7): pinching takes two hands,
-                and on a moving boat one is holding on. Portrait: up the right
-                rail, in thumb reach — 162 px above this row puts its foot at
+                and on a moving boat one is holding on. A sibling of the Locate
+                row, not a child, so each can be placed on its own.
+                Portrait: up the right rail, in thumb reach — its foot at
                 242 px + inset, clear of the scale and credits (4rem + 73 px +
                 inset, ~74 px tall) and the ENC credit chip (inset + 204 px,
-                ~26 px tall). Short landscape has no rail to spare, so it joins
-                this row beside Locate. */}
+                ~26 px tall). Short landscape (up to 600 px tall, the same line the
+                ENC notice uses, so a 1024x520 split pane counts): the
+                middle-left rail, where the
+                chart's Back chevron sat until Release 118 and which the ENC
+                notice still reserves — beside the Locate row it ran into the
+                notice, and above it into the scale and credits. */}
             <div
                 role="group"
                 aria-label="Map zoom"
-                className="absolute bottom-[162px] right-0 flex flex-col overflow-hidden rounded-2xl border border-white/8 bg-slate-900/90 shadow-2xl backdrop-blur-xl [@media(orientation:landscape)_and_(max-height:500px)]:static [@media(orientation:landscape)_and_(max-height:500px)]:flex-row"
+                className="thalassa-map-zoom absolute right-[max(16px,env(safe-area-inset-right))] bottom-[calc(242px+env(safe-area-inset-bottom))] z-500 flex flex-col overflow-hidden rounded-2xl border border-white/8 bg-slate-900/90 shadow-2xl backdrop-blur-xl [@media(orientation:landscape)_and_(max-height:600px)]:right-auto [@media(orientation:landscape)_and_(max-height:600px)]:bottom-auto [@media(orientation:landscape)_and_(max-height:600px)]:left-[max(16px,env(safe-area-inset-left))] [@media(orientation:landscape)_and_(max-height:600px)]:top-1/2 [@media(orientation:landscape)_and_(max-height:600px)]:-translate-y-1/2"
             >
                 <button
                     type="button"
                     aria-label="Zoom in"
                     disabled={zoomLimits.atMax}
                     onClick={(event) => zoom('in', event)}
-                    className="flex h-12 w-12 items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
+                    className="flex h-[max(44px,3rem)] w-[max(44px,3rem)] items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
                 >
                     <svg
                         className="h-5 w-5"
@@ -182,16 +242,13 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                         <path strokeLinecap="round" d="M12 5v14M5 12h14" />
                     </svg>
                 </button>
-                <span
-                    aria-hidden="true"
-                    className="mx-2 h-px bg-white/10 [@media(orientation:landscape)_and_(max-height:500px)]:mx-0 [@media(orientation:landscape)_and_(max-height:500px)]:my-2 [@media(orientation:landscape)_and_(max-height:500px)]:h-auto [@media(orientation:landscape)_and_(max-height:500px)]:w-px"
-                />
+                <span aria-hidden="true" className="mx-2 h-px bg-white/10" />
                 <button
                     type="button"
                     aria-label="Zoom out"
                     disabled={zoomLimits.atMin}
                     onClick={(event) => zoom('out', event)}
-                    className="flex h-12 w-12 items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
+                    className="flex h-[max(44px,3rem)] w-[max(44px,3rem)] items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
                 >
                     <svg
                         className="h-5 w-5"
@@ -205,60 +262,6 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                     </svg>
                 </button>
             </div>
-
-            {/* GPS Locate Me — fly to device position */}
-            <button
-                type="button"
-                aria-label="Locate me"
-                aria-busy={locate === 'finding'}
-                onClick={handleLocate}
-                className="relative w-12 h-12 bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-            >
-                {/* Acquiring: the tap is answered at once, not after the fix. */}
-                {locate === 'finding' && (
-                    <span
-                        aria-hidden="true"
-                        className="absolute inset-0 rounded-2xl border-2 border-sky-400/80 animate-pulse motion-reduce:animate-none"
-                    />
-                )}
-                {/* White like the layers glyph beside it: one glyph colour on the rail. */}
-                <svg
-                    className="w-5 h-5 text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                >
-                    <circle cx="12" cy="12" r="3" />
-                    <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
-                </svg>
-            </button>
-
-            {/* Recenter on weather location — parked, see RECENTER_FAB_VISIBLE */}
-            {RECENTER_FAB_VISIBLE && (
-                <button
-                    aria-label="Recenter on weather location"
-                    onClick={onRecenter}
-                    disabled={recenterDisabled}
-                    className="w-12 h-12 bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                >
-                    <svg
-                        className="w-5 h-5 text-white"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                        />
-                    </svg>
-                </button>
-            )}
-        </div>
+        </>
     );
 };
