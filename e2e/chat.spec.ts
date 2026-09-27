@@ -282,11 +282,14 @@ test.describe('Chat — Scuttlebutt production layout', () => {
     test('Back returns through channels to Vessel and the composer reopens in place', async ({ page }) => {
         const { input } = await openChannel(page);
         await expectComposeTarget(input);
-        await page.locator('[data-chat-page]').getByRole('button', { name: 'Go back', exact: true }).click();
+        await page
+            .locator('[data-chat-page]')
+            .getByRole('button', { name: 'Back to Scuttlebutt', exact: true })
+            .click();
         await expect(page.getByRole('heading', { name: 'Scuttlebutt', exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: CHANNEL_NAME, exact: true })).toBeVisible();
         await expect(input).toHaveCount(0);
-        await page.locator('[data-chat-page]').getByRole('button', { name: 'Go back', exact: true }).click();
+        await page.locator('[data-chat-page]').getByRole('button', { name: 'Back to Vessel', exact: true }).click();
         await expect(page.getByRole('button', { name: 'Open Scuttlebutt', exact: true })).toBeVisible();
         await expect(
             page

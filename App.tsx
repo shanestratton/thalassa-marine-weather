@@ -621,7 +621,14 @@ const App: React.FC = () => {
     const positionRetryLabel = retainedLocationWeather
         ? `${positionSource?.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Showing forecast for last location: ${displayTitle}. Retrying automatically; tap to retry now. ${positionSource?.target === 'boat' ? 'Check the boat’s GPS connection' : 'Check location access'} if this continues.`
         : undefined;
-    if (retainedLocationWeather) displayTitle = `Last location · ${displayTitle}`;
+    // 'Last location · ' cost the name its tail: 'Gladstone Central, QLD, AU'
+    // was cut at 'QL' with no ellipsis, and inputs are held at 16 px (iOS focus
+    // zoom), so the type cannot shrink (UX scorecard run 8). 'Last · ' beside
+    // the amber retry glyph says the same, the retry button's name still says
+    // 'last location' in full, and the country code goes before the state does;
+    // a name with no region keeps its country.
+    if (retainedLocationWeather) displayTitle = displayTitle.replace(/^(.+,[^,]+),\s*[A-Z]{2}$/, '$1');
+    if (retainedLocationWeather) displayTitle = `Last · ${displayTitle}`;
 
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     // Every page but the chart wears the THALASSA banner. Active Warnings used
@@ -746,8 +753,11 @@ const App: React.FC = () => {
                             </Button>
                         </div>
                         <p className="text-xs text-center text-slate-400 mt-4 leading-relaxed">
+                            {/* Who gets the position, in skipper words: 'the service that
+                                answers each request' read as developer phrasing (UX
+                                scorecard run 8). */}
                             GPS works offline. When you&apos;re connected, forecasts and place names update, and your
-                            position is sent to the service that answers each request.
+                            position is shared with the weather and map services that supply them.
                         </p>
                     </div>
                 </div>
@@ -838,6 +848,20 @@ const App: React.FC = () => {
         transition: 'opacity 0.2s ease',
     });
 
+    // The edge swipe goes where the page's own Back chevron goes: a Settings
+    // sub-page back to the Settings list, the list back to wherever Settings
+    // was opened from. Pressing that chevron (PageHeader marks it
+    // data-page-back) keeps one definition of 'back' instead of a second copy
+    // of the stack here. A swipe that began inside an open dialog is not a
+    // page gesture, so nothing happens while one is up.
+    const swipeBackToParent = () => {
+        const shown = (el: Element) => el.getClientRects().length > 0;
+        const dialogs = document.querySelectorAll('[aria-modal="true"], [role="dialog"], [role="alertdialog"]');
+        if (Array.from(dialogs).some(shown)) return;
+        const chevrons = document.querySelectorAll<HTMLElement>('#main-content [data-page-back] button');
+        Array.from(chevrons).find(shown)?.click();
+    };
+
     // The landscape navigation toggle. Its own <nav> keeps a navigation
     // landmark while the bar is folded away. `docked` puts it in the Glass's
     // header row beside the status button: bottom-left it sat over the
@@ -855,12 +879,17 @@ const App: React.FC = () => {
                 // The chart buttons' own glass (MapActionFabs, the layers FAB):
                 // rounded-2xl, white/8 edge, slate-900/90, white glyph. Not a
                 // sky-outlined one-off beside them (UX scorecard run 7).
-                className={`press flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-2xl border border-white/8 bg-slate-900/90 text-white shadow-2xl backdrop-blur-xl ${docked ? '' : 'fixed bottom-2 z-901'} ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
+                // Undocked, it keeps the chart furniture's 16 px left edge (the
+                // ZOOM readout above it) and the bottom rail's 12 px floor (+/-,
+                // Locate). At 8 px it sat out of line with both (UX scorecard
+                // run 8). Still under the 60 px the landscape Mapbox credit
+                // clears, so the credit stays uncovered.
+                className={`press flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-2xl border border-white/8 bg-slate-900/90 text-white shadow-2xl backdrop-blur-xl ${docked ? '' : 'fixed bottom-3 z-901'} ${landscapeNavOpen ? '' : 'pl-2.5 pr-3'}`}
                 style={
                     docked
                         ? undefined
                         : {
-                              left: 'max(0.5rem, env(safe-area-inset-left))',
+                              left: 'max(1rem, env(safe-area-inset-left))',
                               marginBottom: 'env(safe-area-inset-bottom)',
                           }
                 }
@@ -967,8 +996,9 @@ const App: React.FC = () => {
                     matching tiny chip on the map page. The map's floating
                     equivalent was removed at the same time. */}
 
-                {/* GLOBAL TOAST PORTAL */}
-                <ToastPortal />
+                {/* GLOBAL TOAST PORTAL — told the page, so the last page's
+                    passing news does not follow the skipper onto the next. */}
+                <ToastPortal routeKey={currentView} />
 
                 {/* ANCHOR ALARM — app-level gate so a drag/GPS-lost alarm
                     covers WHATEVER page is up, not just the anchor-watch
@@ -1203,7 +1233,9 @@ const App: React.FC = () => {
                                             // invisible). The offline state is communicated via
                                             // the amber wifi-off chip on the left, so the bar
                                             // itself doesn't need to shout.
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold ${retainedLocationWeather ? 'text-base' : 'text-xl'} tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
+                                            // A long name ends in an ellipsis, never a
+                                            // letter cut in half (UX scorecard run 8).
+                                            className={`w-full h-full text-ellipsis text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold ${retainedLocationWeather ? 'text-base' : 'text-xl'} tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
                                         />
                                         {/* Reuse the left icon slot for GPS retry without adding
                                             another header row or overlapping the saved-location star.
@@ -1398,11 +1430,15 @@ const App: React.FC = () => {
                                                             : { height: '100%' }
                                                     }
                                                 >
+                                                    {/* Settings takes the edge swipe back: its
+                                                        Back chevron sat in the hardest one-handed
+                                                        reach on every one of its 13 pages (UX
+                                                        scorecard run 8). */}
                                                     <PageTransition
                                                         pageKey={currentView}
                                                         direction={transitionDirection}
-                                                        canSwipeBack={false}
-                                                        onSwipeBack={() => setPage('vessel')}
+                                                        canSwipeBack={currentView === 'settings'}
+                                                        onSwipeBack={swipeBackToParent}
                                                     >
                                                         {/* Chat owns its message scroller and keyboard-sized
                                                             composer. Scrolling this outer wrapper would move
@@ -1750,8 +1786,11 @@ const App: React.FC = () => {
                                 }
                                 // Shown in capitals like every tab label; the name is the
                                 // word itself, so Voice Control's "Tap OBS" resolves. The
-                                // chart's h1 carries the "charts and observations" gloss.
+                                // chart's h1 carries the "charts and observations" gloss,
+                                // and so does the tab itself, as its description (UX
+                                // scorecard run 8: 'Obs' alone blurred where you are).
                                 label="Obs"
+                                hint="Charts and observations"
                                 // Plotting lives on the map surface but BELONGS to
                                 // Plan: "Slide to Start Plotting" does setPage('map'),
                                 // which lit OBS and made the tab bar contradict the

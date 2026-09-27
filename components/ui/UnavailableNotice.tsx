@@ -65,15 +65,22 @@ export const UnavailableNotice: React.FC<UnavailableNoticeProps> = ({
                 )}
                 <div role="status">
                     <h2 className="text-lg font-bold text-white text-balance">{title}</h2>
+                    {/* A paragraph that wraps reads left-aligned; one that fits
+                        on a line stays centred under the heading. `w-fit` with
+                        auto margins does both: a one-liner shrinks to its words
+                        and centres, a longer one fills the column and runs from
+                        the left. Centred three-line bodies on Boat Network and
+                        Music broke the house rule Calypso keeps (UX scorecard
+                        run 8). */}
                     {children && (
                         <div
-                            className={`mx-auto mt-2 max-w-lg space-y-3 text-sm leading-relaxed text-pretty ${t.body}`}
+                            className={`mx-auto mt-2 max-w-lg space-y-3 text-sm leading-relaxed text-pretty ${t.body} [&>p]:mx-auto [&>p]:w-fit [&>p]:text-left`}
                         >
                             {children}
                         </div>
                     )}
                     {note && (
-                        <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-white/60 text-pretty">
+                        <p className="mx-auto mt-3 w-fit max-w-lg text-left text-xs leading-relaxed text-white/60 text-pretty">
                             {note}
                         </p>
                     )}
@@ -112,12 +119,30 @@ export const NeedsIPhoneAppNotice: React.FC<Omit<UnavailableNoticeProps, 'tone' 
     <UnavailableNotice tone="sky" icon={<IPhoneGlyph />} {...props} />
 );
 
-/** A whole routed page that is closed here: the house header plus the notice. */
+/**
+ * A whole routed page that is closed here: the house header plus the notice.
+ * `breadcrumbs` and `backLabel` go straight to PageHeader, so a closed page
+ * names its parent the way its open sibling does ('VESSEL' over the title,
+ * 'Back to Vessel' on the chevron) instead of a bare 'Go back' (UX scorecard
+ * run 8). Pass them only when Back really goes there.
+ */
 export const UnavailablePage: React.FC<
-    UnavailableNoticeProps & { pageTitle: string; pageSubtitle?: string; onBack: () => void }
-> = ({ pageTitle, pageSubtitle, onBack, ...notice }) => (
+    UnavailableNoticeProps & {
+        pageTitle: string;
+        pageSubtitle?: string;
+        onBack: () => void;
+        breadcrumbs?: string[];
+        backLabel?: string;
+    }
+> = ({ pageTitle, pageSubtitle, onBack, breadcrumbs, backLabel, ...notice }) => (
     <div className="flex h-full flex-col">
-        <PageHeader title={pageTitle} subtitle={pageSubtitle} onBack={onBack} />
+        <PageHeader
+            title={pageTitle}
+            subtitle={pageSubtitle}
+            onBack={onBack}
+            breadcrumbs={breadcrumbs}
+            backLabel={backLabel}
+        />
         <div className="flex-1 overflow-y-auto">
             <UnavailableNotice {...notice} />
         </div>

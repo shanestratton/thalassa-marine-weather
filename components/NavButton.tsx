@@ -5,7 +5,7 @@
  * 44px min touch targets · embedded SVG icons · GPU-optimized glow
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useId, useRef } from 'react';
 import { triggerHaptic } from '../utils/system';
 
 interface NavButtonProps {
@@ -15,6 +15,12 @@ interface NavButtonProps {
     label: string;
     /** Only when the name must differ from the visible label; it should still start with it. */
     ariaLabel?: string;
+    /**
+     * A plain gloss for a short tab word ('Obs' → 'Charts and observations'),
+     * read as the button's description and shown as its pointer tooltip. The
+     * name stays the visible word, so Voice Control's "Tap Obs" still works.
+     */
+    hint?: string;
     /** Whether this tab is the current page (announced as aria-current="page") */
     active: boolean;
     /** Click handler */
@@ -41,11 +47,13 @@ export const NavButton: React.FC<NavButtonProps> = ({
     icon,
     label,
     ariaLabel,
+    hint,
     active,
     onClick,
     badge,
     onLongPress,
 }) => {
+    const hintId = useId();
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const held = useRef(false);
     const origin = useRef<{ x: number; y: number } | null>(null);
@@ -105,6 +113,8 @@ export const NavButton: React.FC<NavButtonProps> = ({
             // name is the visible label (no "Navigate to …"), and the current
             // page is aria-current. The unread badge stays out of the name.
             aria-label={ariaLabel ?? label}
+            aria-describedby={hint ? hintId : undefined}
+            title={hint}
             aria-current={active ? 'page' : undefined}
             // The bottom padding keeps the label at least 8 pt off the bar's
             // edge where there is no home-indicator inset; with one, the nav's
@@ -181,6 +191,11 @@ export const NavButton: React.FC<NavButtonProps> = ({
                 >
                     {label}
                 </span>
+                {hint && (
+                    <span id={hintId} className="sr-only">
+                        {hint}
+                    </span>
+                )}
                 {active && (
                     // White indicator dot, 3 px under the label box. Pinned to
                     // the button's bottom edge it sat on the label's baseline

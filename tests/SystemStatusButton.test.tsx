@@ -318,7 +318,7 @@ describe('SystemStatusButton', () => {
         const panel = within(screen.getByRole('region', { name: 'Shore Watch status' }));
         expect(panel.getByText('Receiving vessel data')).toBeInTheDocument();
         expect(panel.getByText(/Sound still depends on phone settings and delivery/)).toBeInTheDocument();
-        fireEvent.click(panel.getByRole('button', { name: 'View Shore Watch' }));
+        fireEvent.click(panel.getByRole('button', { name: 'View Shore watch' }));
         expect(navigate).toHaveBeenCalledOnce();
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
@@ -566,7 +566,7 @@ describe('SystemStatusButton', () => {
         // The inactive NMEA row offers View (not an invented fault); the route row
         // offers Stop. Two buttons, two names — a screen reader can tell them
         // apart, and so can a query.
-        expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View NMEA gateway' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Stop Following route' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'View signal propagation forecast' })).not.toBeInTheDocument();
     });
@@ -602,8 +602,8 @@ describe('SystemStatusButton', () => {
             expect(
                 screen.getByText(via === 'lan' ? 'Connected via the Pi' : 'Receiving instruments via the Pi · cloud'),
             ).toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'View NMEA Gateway' })).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'View NMEA gateway' })).not.toBeInTheDocument();
             expect(screen.queryByText('GPS sentences / sec')).not.toBeInTheDocument();
             expect(screen.queryByText('All NMEA / sec')).not.toBeInTheDocument();
         },
@@ -614,27 +614,27 @@ describe('SystemStatusButton', () => {
         instruments.viaRemoteAccess = true;
         openStatus();
         expect(screen.getByText(/Connected via the Pi.*tailnet/i)).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
     });
 
     it('ages a stalled feed without new samples, then recovers from a store notification', async () => {
         vi.useFakeTimers();
         seedPi('cloud');
         openStatus();
-        expect(screen.queryByRole('button', { name: 'View NMEA Gateway' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'View NMEA gateway' })).not.toBeInTheDocument();
 
         await act(async () => {
             await vi.advanceTimersByTimeAsync(65_000);
         });
-        expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View NMEA gateway' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
 
         act(() => {
             seedPi('cloud');
             instruments.storeListeners.forEach((cb) => cb(instruments.store));
         });
         expect(screen.getByText('Receiving instruments via the Pi · cloud')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'View NMEA Gateway' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'View NMEA gateway' })).not.toBeInTheDocument();
     });
 
     it.each(['quiet', 'phone', 'health-only'])('does not claim a backbone connection from %s evidence', (kind) => {
@@ -643,9 +643,9 @@ describe('SystemStatusButton', () => {
         if (kind === 'phone') instruments.store.remote!.source = 'device';
         instruments.piReachable = true;
         openStatus();
-        expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View NMEA gateway' })).toBeInTheDocument();
         expect(screen.queryByText(/Receiving instruments via the Pi/)).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
     });
 
     it('keeps Fix for a real direct gateway fault and updates immediately when it connects', () => {
@@ -656,7 +656,7 @@ describe('SystemStatusButton', () => {
         const navigate = vi.fn();
         window.addEventListener('thalassa:navigate', navigate);
         try {
-            fireEvent.click(screen.getByRole('button', { name: 'Fix NMEA Gateway' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Fix NMEA gateway' }));
             expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ detail: { tab: 'nmea' } }));
         } finally {
             window.removeEventListener('thalassa:navigate', navigate);
@@ -666,7 +666,7 @@ describe('SystemStatusButton', () => {
             instruments.store.connectionStatus = 'connected';
             instruments.socketListeners.forEach((cb) => cb());
         });
-        expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
         expect(screen.getByText(/waiting for instrument/i)).toBeInTheDocument();
         expect(screen.getByText('GPS sentences / sec')).toBeInTheDocument();
     });
@@ -703,8 +703,8 @@ describe('SystemStatusButton', () => {
             vi.setSystemTime(Date.now() + 65_000);
             hidden.mockReturnValue(false);
             fireEvent(document, new Event('visibilitychange'));
-            expect(screen.getByRole('button', { name: 'View NMEA Gateway' })).toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'Fix NMEA Gateway' })).not.toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'View NMEA gateway' })).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
         } finally {
             hidden.mockRestore();
         }

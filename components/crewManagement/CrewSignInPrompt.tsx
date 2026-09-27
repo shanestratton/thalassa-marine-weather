@@ -37,7 +37,17 @@ interface CrewSignInPromptProps {
 export const CrewSignInPrompt: React.FC<CrewSignInPromptProps> = ({ onBack, showAuth, setShowAuth }) => {
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-            <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
+            {/* Back goes to the Vessel hub and the chevron says so ('Back to
+                Vessel', from the parent crumb; UX scorecard run 8). The signed-in
+                Crew page (CrewManagement) carries the same VESSEL crumb, so the
+                header keeps its height on sign-in. The crumb goes on both
+                together or neither. */}
+            <PageHeader
+                title="Crew & Float Plan"
+                subtitle={CREW_PAGE_SUBTITLE}
+                onBack={onBack}
+                breadcrumbs={['Vessel', 'Crew & Float Plan']}
+            />
             <div className="flex-1 min-h-0 overflow-y-auto">
                 <UnavailableNotice
                     icon={<UsersIcon className="h-6 w-6" />}

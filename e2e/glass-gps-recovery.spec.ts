@@ -213,7 +213,9 @@ for (const outcome of ['live', 'timeout'] as const) {
         await page.getByRole('button', { name: /^Systems and GPS source/ }).click();
         await expect(source).toHaveAttribute('data-glyph', 'phone');
         await expect(source).toHaveAttribute('data-tone', outcome === 'live' ? 'phone' : 'none');
-        await expect(source).toContainText(outcome === 'live' ? 'This phone’s GPS' : 'This phone’s GPS unavailable');
+        await expect(source).toContainText(
+            outcome === 'live' ? 'This phone’s GPS' : 'This phone isn’t giving a position',
+        );
         await expect(source).not.toContainText(/finding|boat/);
     });
 }
@@ -342,7 +344,7 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
     await expect
         .poll(() => page.evaluate(() => (window as unknown as { __glassGps: ControlledGps }).__glassGps.successes))
         .toBeGreaterThan(0);
-    await expect(location).not.toHaveValue(/^Last location/);
+    await expect(location).not.toHaveValue(/^Last · /);
     await expect(retry).toHaveCount(0);
     const locationBefore = await location.inputValue();
     const metricsBefore = await metrics.textContent();
@@ -351,7 +353,7 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
     await page.evaluate(() => {
         (window as unknown as { __glassGps: ControlledGps }).__glassGps.phase = 'timeout';
     });
-    await expect(location).toHaveValue(`Last location · ${locationBefore}`);
+    await expect(location).toHaveValue(`Last · ${locationBefore}`);
     await expect(retry).toBeVisible();
     await expect(retry).toHaveAccessibleName(
         /Phone GPS unavailable.*Showing forecast for last location.*Retrying automatically/,
@@ -373,7 +375,7 @@ test('Glass keeps same-location weather and layout through GPS timeout, then rec
     await expect
         .poll(() => page.evaluate(() => (window as unknown as { __glassGps: ControlledGps }).__glassGps.timeouts))
         .toBeGreaterThan(failuresBefore);
-    await expect(location).toHaveValue(`Last location · ${locationBefore}`);
+    await expect(location).toHaveValue(`Last · ${locationBefore}`);
     await expect(metrics).toHaveText(metricsBefore!);
     await expect(fullScreenFailure).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('retained-weather.png'), fullPage: true });

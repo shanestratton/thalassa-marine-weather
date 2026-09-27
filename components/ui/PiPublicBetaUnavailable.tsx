@@ -21,9 +21,12 @@ import { NeedsIPhoneAppNotice } from './UnavailableNotice';
  * the wrong device (UX scorecard run 7).
  */
 export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }> = ({ onOpenEncLibrary }) => (
+    // The one step the skipper can take leads the body; the why follows it.
+    // 'What still works here' sits directly over the chart library button, so
+    // the button reads as that, not as the pairing step (UX scorecard run 8).
     <NeedsIPhoneAppNotice
         title="Boat network needs the Thalassa iPhone app"
-        note={<>Open Thalassa on your iPhone, on the boat&rsquo;s Wi-Fi, to pair with the Pi.</>}
+        note="Weather, charts and the diary still work here."
         actions={
             onOpenEncLibrary && (
                 <Button variant="secondary" onClick={onOpenEncLibrary} className="text-white">
@@ -33,8 +36,8 @@ export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }
         }
     >
         <p>
-            Only the iPhone app can check that it is talking to your own boat&rsquo;s Pi. Weather, charts and the diary
-            still work here.
+            Open Thalassa on your iPhone, on the boat&rsquo;s Wi-Fi, to pair with the Pi. Only the iPhone app can check
+            that it is talking to your own boat&rsquo;s Pi.
         </p>
     </NeedsIPhoneAppNotice>
 );

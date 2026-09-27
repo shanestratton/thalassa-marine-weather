@@ -82,10 +82,15 @@ const ArrowGlyph: React.FC<{ direction: 'up' | 'down' | 'left' | 'right' }> = ({
             height="16"
             viewBox="0 0 24 24"
             fill="currentColor"
+            // A navy edge: whatever the arrow sits on (ocean imagery, a white
+            // Glass card), its outline holds the 3:1 a pointer needs.
+            stroke="#0c4a6e"
+            strokeWidth={2}
+            strokeLinejoin="round"
             style={{ transform: `rotate(${rotation}deg)` }}
             aria-hidden="true"
         >
-            <path d="M12 2 L22 16 L2 16 Z" />
+            <path d="M12 3 L21 16 L3 16 Z" />
         </svg>
     );
 };
@@ -174,8 +179,11 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
             role="status"
             aria-live="polite"
         >
+            {/* sky-300 by literal value, not the .text-sky-300 class: daylight
+                remaps that class to sky-600 (index.css), and over the chart's
+                dark ocean imagery the arrow fell to ~1.5:1 (UX scorecard run 8). */}
             <span
-                className={`text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] animate-bounce-subtle ${arrowClassName}`}
+                className={`text-[#7dd3fc] drop-shadow-[0_0_6px_rgba(56,189,248,0.6)] animate-bounce-subtle ${arrowClassName}`}
             >
                 <ArrowGlyph direction={arrowDir} />
             </span>
@@ -183,7 +191,9 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
                 white by day): at /95 the word it sat on read through the
                 bubble (UX scorecard run 6). */}
             <div
-                className="thalassa-popover-solid px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center"
+                // text-balance: two even lines, never one word left alone on the
+                // second ('chart.' under the map's coach, UX scorecard run 8).
+                className="thalassa-popover-solid px-2.5 py-1.5 rounded-lg bg-slate-900/95 border border-sky-400/40 text-[12px] font-semibold text-sky-200 shadow-lg max-w-[240px] leading-snug text-center text-balance"
                 style={{
                     boxShadow: '0 0 20px -4px rgba(56,189,248,0.4), 0 4px 12px rgba(0,0,0,0.4)',
                 }}
