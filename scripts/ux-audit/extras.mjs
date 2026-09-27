@@ -137,7 +137,8 @@ const tap = async (p, name, ms = 1200) => {
 const scrollEnd = async (p) => {
     await p.evaluate(() => {
         for (const el of document.querySelectorAll('*')) {
-            const cs = getComputedStyle(el);
+            // Runs in the page; reached through the element so the Node lint env needs no browser global.
+            const cs = el.ownerDocument.defaultView.getComputedStyle(el);
             if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 20)
                 el.scrollTop = el.scrollHeight;
         }
