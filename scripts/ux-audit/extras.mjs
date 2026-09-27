@@ -164,7 +164,10 @@ if (SECTIONS.includes('A')) {
         'Voyage Log',
     ]) {
         await go(p, 'settings', 1500);
-        if (await tap(p, `Open ${row} settings`, 1500)) {
+        // Rows append their live state to the name since run 8
+        // ('Open Vessel Profile settings, Serene Summer'): match the start.
+        const rowName = new RegExp('^Open ' + row.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' settings');
+        if (await tap(p, rowName, 1500)) {
             const slug = row.toLowerCase().replace(/[^a-z]+/g, '-');
             await capture(p, `settings-${slug}`);
             // Long pages: a second shot scrolled to the bottom shows the tail.
@@ -172,7 +175,8 @@ if (SECTIONS.includes('A')) {
             await capture(p, `settings-${slug}-end`);
             // The tab screens use PageHeader: the 'Go back' chevron. The old
             // 'Back to Settings' crumb is now the title caption, not a button.
-            await tap(p, 'Go back', 900);
+            // Since run 8 the chevron is named after its parent ('Back to Settings').
+            await tap(p, /^(Back to Settings|Go back)$/, 900);
         }
     }
     // The Glass's sheets
