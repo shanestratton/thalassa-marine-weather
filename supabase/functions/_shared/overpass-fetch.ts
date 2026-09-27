@@ -30,8 +30,9 @@ export function parseOverpassDocument(text: string): OverpassDocument {
         value.elements.length > OVERPASS_MAX_ELEMENTS ||
         (value.remark !== undefined && value.remark !== '') ||
         value.elements.some((el) => !el || typeof el !== 'object' || !['way', 'relation'].includes(el.type))
-    )
+    ) {
         throw new Error('incomplete or invalid response');
+    }
     return { elements: value.elements };
 }
 
@@ -97,10 +98,8 @@ export async function fetchOverpassDocument(
             const reason = timedOut
                 ? 'timeout'
                 : response
-                  ? response.ok
-                      ? 'incomplete or invalid response'
-                      : `HTTP ${response.status}`
-                  : 'network error';
+                ? response.ok ? 'incomplete or invalid response' : `HTTP ${response.status}`
+                : 'network error';
             failures.push(reason);
             console.warn(`[osm-overlay] ${new URL(endpoint).hostname}: ${reason}`);
             // A malformed query will be malformed on the other instance too.

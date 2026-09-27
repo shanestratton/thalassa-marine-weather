@@ -47,8 +47,7 @@ async function createApnsJwt(environment: ApnsEnvironment = 'production'): Promi
     // key. Production fallback, however, requires dedicated sandbox secrets.
     const dedicatedSandbox = environment === 'sandbox' && sandboxCredentialsConfigured();
     const keyId = (Deno.env.get(dedicatedSandbox ? 'APNS_SANDBOX_KEY_ID' : 'APNS_KEY_ID') ?? '').trim();
-    const teamId =
-        (dedicatedSandbox ? Deno.env.get('APNS_SANDBOX_TEAM_ID')?.trim() : undefined) ||
+    const teamId = (dedicatedSandbox ? Deno.env.get('APNS_SANDBOX_TEAM_ID')?.trim() : undefined) ||
         (Deno.env.get('APNS_TEAM_ID') ?? '').trim();
     const p8Key = Deno.env.get(dedicatedSandbox ? 'APNS_SANDBOX_KEY_P8' : 'APNS_KEY_P8') ?? '';
     if (!/^[A-Za-z0-9]{10}$/.test(keyId) || !/^[A-Za-z0-9]{10}$/.test(teamId) || !p8Key.trim()) {
@@ -164,8 +163,9 @@ async function sendApnsPush(
         const deliver = async (environment: ApnsEnvironment) => {
             stage = `${environment} signing`;
             const jwt = await createApnsJwt(environment);
-            const host =
-                environment === 'production' ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
+            const host = environment === 'production'
+                ? 'https://api.push.apple.com'
+                : 'https://api.sandbox.push.apple.com';
             stage = `${environment} transport`;
             const response = await fetch(`${host}/3/device/${deviceToken}`, {
                 method: 'POST',
@@ -186,10 +186,9 @@ async function sendApnsPush(
             if (response.ok) return { ok: true, status: response.status, reason: '' };
             const errorBody = await response.json().catch(() => ({}));
             // Store only Apple's short reason code, never tokens or credentials.
-            const reason =
-                typeof errorBody.reason === 'string' && /^[A-Za-z]{1,80}$/.test(errorBody.reason)
-                    ? errorBody.reason
-                    : 'Rejected';
+            const reason = typeof errorBody.reason === 'string' && /^[A-Za-z]{1,80}$/.test(errorBody.reason)
+                ? errorBody.reason
+                : 'Rejected';
             return { ok: false, status: response.status, reason };
         };
         const environment: ApnsEnvironment = useProduction ? 'production' : 'sandbox';
@@ -350,19 +349,17 @@ serve(async (req: Request) => {
         let observedAt = record.created_at;
         let stillRelevant = !record.pi_relay_id && Date.now() - Date.parse(record.created_at) <= 120_000;
         if (binding && relayEnabled && Date.parse(binding.expires_at) > Date.now()) {
-            stillRelevant =
-                kind === 'drag'
-                    ? !!fresh && binding.gps_available && binding.is_dragging
-                    : kind === 'gps_lost'
-                      ? !!fresh && !binding.gps_available
-                      : kind === 'contact_lost'
-                        ? Date.now() - heartbeat > 60_000
-                        : Date.parse(session.expires_at) - Date.now() <= 15 * 60_000;
+            stillRelevant = kind === 'drag'
+                ? !!fresh && binding.gps_available && binding.is_dragging
+                : kind === 'gps_lost'
+                ? !!fresh && !binding.gps_available
+                : kind === 'contact_lost'
+                ? Date.now() - heartbeat > 60_000
+                : Date.parse(session.expires_at) - Date.now() <= 15 * 60_000;
             observedAt = kind === 'drag' || kind === 'gps_lost' ? binding.last_heartbeat_at : new Date().toISOString();
         }
         if (!stillRelevant) {
-            const knownEndedOrRecovered =
-                !record.pi_relay_id ||
+            const knownEndedOrRecovered = !record.pi_relay_id ||
                 !binding ||
                 !relayEnabled ||
                 Date.parse(binding.expires_at) <= Date.now() ||
@@ -393,15 +390,14 @@ serve(async (req: Request) => {
         // The original event's metre/coordinate values are not a fresh fix.
         // Reminder validity is current, but do not describe old measurements
         // as if the latest heartbeat had supplied them to this function.
-        const messageBody =
-            reminder && kind === 'drag'
-                ? 'The boat still reports an anchor drag alarm. Check the boat immediately.'
-                : body;
+        const messageBody = reminder && kind === 'drag'
+            ? 'The boat still reports an anchor drag alarm. Check the boat immediately.'
+            : body;
         const timedBody = kind === 'session_expiring' ? messageBody : `${messageBody} Reported ${reportedTime} UTC.`;
         const alreadySent = new Set<string>(record.notified_device_tokens ?? []);
         type ShoreToken = { id: string; device_token: string; platform: string; supports_reminders?: boolean };
         const pending = tokens.filter((t: ShoreToken) =>
-            reminder ? t.supports_reminders === true && !!record.incident_id : !alreadySent.has(t.device_token),
+            reminder ? t.supports_reminders === true && !!record.incident_id : !alreadySent.has(t.device_token)
         );
         const failures: string[] = [];
 
@@ -456,8 +452,12 @@ serve(async (req: Request) => {
                         return { ok: !current.error, accepted: false };
                     }
                 }
-                const accepted = await sendApnsPush(t.device_token, title, timedBody, data, (reason) =>
-                    failures.push(reason),
+                const accepted = await sendApnsPush(
+                    t.device_token,
+                    title,
+                    timedBody,
+                    data,
+                    (reason) => failures.push(reason),
                 );
                 if (delivery) {
                     const finish = await supabase.rpc('finish_anchor_alarm_delivery', {

@@ -5,31 +5,32 @@ export function anchorAlarmMessage(record: Record<string, unknown>): { title: st
         return {
             kind,
             title: '⚓ SHORE WATCH — CONTACT LOST',
-            body: 'The boat has stopped reporting. Its anchor position cannot be confirmed. Check the boat and its connection immediately.',
+            body:
+                'The boat has stopped reporting. Its anchor position cannot be confirmed. Check the boat and its connection immediately.',
         };
     }
     if (kind === 'gps_lost') {
         return {
             kind,
             title: '⚓ SHORE WATCH — GPS LOST',
-            body: 'The boat is connected but has no fresh GPS position. Anchor dragging cannot be checked. Check the boat and its GPS immediately.',
+            body:
+                'The boat is connected but has no fresh GPS position. Anchor dragging cannot be checked. Check the boat and its GPS immediately.',
         };
     }
     if (kind === 'session_expiring') {
         return {
             kind,
             title: '⚓ SHORE WATCH — EXPIRING',
-            body: 'This Shore Watch session expires in 15 minutes or less. Reopen Thalassa and start a new watch before protection ends.',
+            body:
+                'This Shore Watch session expires in 15 minutes or less. Reopen Thalassa and start a new watch before protection ends.',
         };
     }
-    const distance =
-        typeof record.distance_m === 'number' && Number.isFinite(record.distance_m)
-            ? `${Math.round(record.distance_m)}m`
-            : 'an unknown distance';
-    const radius =
-        typeof record.swing_radius_m === 'number' && Number.isFinite(record.swing_radius_m)
-            ? `${Math.round(record.swing_radius_m)}m`
-            : 'unknown';
+    const distance = typeof record.distance_m === 'number' && Number.isFinite(record.distance_m)
+        ? `${Math.round(record.distance_m)}m`
+        : 'an unknown distance';
+    const radius = typeof record.swing_radius_m === 'number' && Number.isFinite(record.swing_radius_m)
+        ? `${Math.round(record.swing_radius_m)}m`
+        : 'unknown';
     return {
         kind: 'drag',
         title: '⚓ ANCHOR DRAG ALARM',

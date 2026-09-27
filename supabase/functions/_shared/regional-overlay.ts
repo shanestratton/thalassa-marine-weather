@@ -49,8 +49,9 @@ function validateFeature(f: Feature): void {
             !p.every(Number.isFinite) ||
             Math.abs(p[0]) > 180 ||
             Math.abs(p[1]) > 90
-        )
+        ) {
             throw new Error('Regional coordinates invalid');
+        }
         if (++points > 100_000) throw new Error('Regional geometry exceeds budget');
         bounds[0] = Math.min(bounds[0], p[0]);
         bounds[1] = Math.min(bounds[1], p[1]);
@@ -103,8 +104,9 @@ export async function loadRegionalOverlay(raw: unknown): Promise<RegionalOverlay
         !b.attribution.includes('OpenStreetMap') ||
         b.licenseUrl !== 'https://www.openstreetmap.org/copyright' ||
         typeof b.limitations !== 'string'
-    )
+    ) {
         throw new Error('Regional manifest invalid');
+    }
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(b.overlayJson)))]
         .map((v) => v.toString(16).padStart(2, '0'))
         .join('');
@@ -114,12 +116,14 @@ export async function loadRegionalOverlay(raw: unknown): Promise<RegionalOverlay
     const counts = b.counts as Record<string, number>;
     let total = 0;
     for (const k of OVERLAY_FIELDS) {
-        if (!counts || counts[k] !== overlay[k].features.length || (total += counts[k]) > 10_000)
+        if (!counts || counts[k] !== overlay[k].features.length || (total += counts[k]) > 10_000) {
             throw new Error('Regional inventory mismatch');
+        }
         overlay[k].features.forEach(validateFeature);
     }
-    if (counts.berths < 100 || counts.water < 5 || counts.canalLines < 5)
+    if (counts.berths < 100 || counts.water < 5 || counts.canalLines < 5) {
         throw new Error('Regional inventory incomplete');
+    }
     const { overlayJson: _json, ...manifest } = b;
     return { ...manifest, overlay } as RegionalOverlay;
 }
@@ -130,8 +134,9 @@ export function selectRegionalOverlay(data: RegionalOverlay, bbox: Bbox, now = D
     if (!validBbox(bbox) || bbox[0] === bbox[2] || bbox[1] === bbox[3]) throw new Error('Invalid regional query');
     if (!contains(data.coverage, bbox)) return null;
     const age = now - Date.parse(data.sourceAsOf);
-    if (age < 0 || age >= REGIONAL_MAX_AGE_MS || Date.parse(data.generatedAt) > now + 300_000)
+    if (age < 0 || age >= REGIONAL_MAX_AGE_MS || Date.parse(data.generatedAt) > now + 300_000) {
         throw new Error('Newport regional obstacle data requires refresh');
+    }
     const result = Object.fromEntries(
         OVERLAY_FIELDS.map((k) => [
             k,
