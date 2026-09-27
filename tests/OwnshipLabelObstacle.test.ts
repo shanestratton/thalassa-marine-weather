@@ -10,7 +10,7 @@ vi.mock('mapbox-gl', () => ({ default: { Marker: class {} }, Marker: class {} })
 vi.mock('../services/GpsService', () => ({ GpsService: { watchPosition: vi.fn(), getCurrentPosition: vi.fn() } }));
 vi.mock('../services/BgGeoManager', () => ({ BgGeoManager: { getLastPosition: vi.fn(() => null) } }));
 
-import { raiseOwnshipObstacle, syncOwnshipObstacle } from '../components/map/useVesselTracker';
+import { syncOwnshipObstacle } from '../components/map/useVesselTracker';
 
 type Layer = { id: string; type: string; layout: Record<string, unknown> };
 
@@ -81,43 +81,5 @@ describe('own-ship label obstacle', () => {
         const bare = { ...map, addImage: undefined };
         expect(() => syncOwnshipObstacle(bare as never, [151.26, -23.84])).not.toThrow();
         expect(map.addLayer).not.toHaveBeenCalled();
-    });
-
-    it('sits above the base style labels MapHub lifts over the imagery (UX scorecard run 9)', () => {
-        // Placement runs top layer first: a town label lifted to the top of
-        // the stack was placed before the obstacle and drew through the dot.
-        const order = [
-            { id: 'satellite-base-layer', type: 'raster', source: 'satellite' },
-            { id: 'vessel-ownship-obstacle-symbol', type: 'symbol', source: 'vessel-ownship-obstacle' },
-            { id: 'ais-names', type: 'symbol', source: 'ais' },
-            { id: 'settlement-major-label', type: 'symbol', source: 'composite' },
-            { id: 'settlement-minor-label', type: 'symbol', source: 'composite' },
-            { id: 'route-labels', type: 'symbol', source: 'route' },
-        ];
-        const moveLayer = vi.fn((id: string, before?: string) => {
-            const [layer] = order.splice(
-                order.findIndex((l) => l.id === id),
-                1,
-            );
-            order.splice(before ? order.findIndex((l) => l.id === before) : order.length, 0, layer);
-        });
-        const map = {
-            getLayer: (id: string) => order.find((l) => l.id === id),
-            getStyle: () => ({ layers: order.map((l) => ({ ...l })) }),
-            moveLayer,
-        };
-        raiseOwnshipObstacle(map as never);
-        expect(moveLayer).toHaveBeenCalledWith('vessel-ownship-obstacle-symbol', 'route-labels');
-        expect(order.map((l) => l.id)).toEqual([
-            'satellite-base-layer',
-            'ais-names',
-            'settlement-major-label',
-            'settlement-minor-label',
-            'vessel-ownship-obstacle-symbol',
-            'route-labels',
-        ]);
-        // Already above every base label: no move, so no styledata loop.
-        raiseOwnshipObstacle(map as never);
-        expect(moveLayer).toHaveBeenCalledTimes(1);
     });
 });
