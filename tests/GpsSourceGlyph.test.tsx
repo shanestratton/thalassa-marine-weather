@@ -82,7 +82,7 @@ describe('resolveGpsSourceState', () => {
         ).toMatchObject({
             glyph: 'boat',
             tone: 'none',
-            label: 'Position: the boat’s GPS unavailable',
+            label: 'Position: the boat isn’t giving a position.',
         });
     });
 
@@ -113,42 +113,52 @@ describe('resolveGpsSourceState', () => {
         ).toMatchObject({
             glyph: 'phone',
             tone: 'held',
-            label: 'Position: this phone’s last fix · 5m ago',
+            label: 'Position: this phone’s last fix · 5 min ago',
         });
     });
 
+    // UX referee run 8 (gps-one-truth): 'GPS unavailable — showing forecast
+    // for the last location · fix just now' had no verb, and its 'fix just
+    // now' read as a fresh fix. The row now says the receiver isn't giving a
+    // position and dates the FORECAST; the fix's age is the card's line.
     it.each(['phone', 'boat'] as const)(
-        'retained %s weather is still unavailable, with the original fix age',
+        'retained %s weather says the receiver is not giving a position and dates the forecast, not a fix',
         (target) => {
+            const now = Date.now();
             const result = resolveGpsSourceState({
                 weatherKind: target === 'phone' ? 'phone' : 'pi',
                 target,
                 status: 'unavailable',
                 retainedWeather: true,
-                timestamp: Date.now() - 300_000,
+                timestamp: now - 300_000,
+                forecastUpdatedAt: now - 20_000,
                 storeStatus: 'remote',
                 remoteVia: 'lan',
+                now,
             });
             expect(result).toMatchObject({ glyph: target, tone: 'none', canChoose: false });
-            expect(result.label).toContain('GPS unavailable — showing forecast for the last location · fix 5m ago');
-            expect(result.label).not.toContain('live');
+            expect(result.label).toBe(
+                `Position: ${target === 'phone' ? 'this phone' : 'the boat'} isn’t giving a position. Showing the forecast for your last location (updated just now).`,
+            );
+            expect(result.label).not.toMatch(/live|fix/);
         },
     );
 
-    it.each([undefined, 0, Number.NaN, Number.POSITIVE_INFINITY, Date.now() + 60_000])(
-        'does not invent an age for an invalid retained timestamp (%s)',
-        (timestamp) => {
+    it.each([undefined, null, 0, Number.NaN, Number.POSITIVE_INFINITY, Date.now() + 60_000])(
+        'does not invent an update time for an invalid forecast time (%s)',
+        (forecastUpdatedAt) => {
             expect(
                 resolveGpsSourceState({
                     weatherKind: 'phone',
                     target: 'phone',
                     status: 'unavailable',
                     retainedWeather: true,
-                    timestamp,
+                    timestamp: Date.now() - 300_000,
+                    forecastUpdatedAt,
                     storeStatus: 'connected',
                     remoteVia: null,
                 }).label,
-            ).toContain('GPS unavailable — showing forecast for the last location · fix age unavailable');
+            ).toBe('Position: this phone isn’t giving a position. Showing the forecast for your last location.');
         },
     );
 });
@@ -207,14 +217,19 @@ describe('<GpsSourceRow /> — the System Status panel row', () => {
                 timestamp: Date.now() - 300_000,
             },
             positionChoice: null,
-        };
+            weatherData: { generatedAt: new Date(Date.now() - 300_000).toISOString() },
+        } as unknown as typeof world.weather;
         world.link = { status: 'remote', remote: { via: 'lan' } };
         render(<GpsSourceRow />);
         const row = screen.getByTestId('gps-source-row');
         expect(row.getAttribute('data-glyph')).toBe('phone');
         expect(row.getAttribute('data-tone')).toBe('none');
+        // The referee's wording: a verb, and the forecast's update time in
+        // the forecast-age pill's words ('5m ago'), never 'fix just now'.
         expect(
-            screen.getByText('This phone’s GPS unavailable — showing forecast for the last location · fix 5m ago'),
+            screen.getByText(
+                'This phone isn’t giving a position. Showing the forecast for your last location (updated 5m ago).',
+            ),
         ).toBeInTheDocument();
     });
 });

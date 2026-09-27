@@ -16,6 +16,7 @@ import { useWeatherOptional } from '../context/WeatherContext';
 import { useNmeaConnectionStatus } from './nmea/useNmeaStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatFixAge, type WeatherFixKind, type WeatherFollowTarget } from '../services/weatherPosition';
+import { fixAgeText, followedFix, validFixTime, type GpsBoxFixes } from './gpsFixState';
 
 export type GpsGlyph = 'boat' | 'phone' | 'none';
 export type GpsTone = 'live' | 'cloud' | 'held' | 'phone' | 'none';
@@ -27,6 +28,11 @@ export interface GpsSourceState {
     label: string;
     /** A held last fix can be changed: the glyph becomes a button. */
     canChoose: boolean;
+}
+
+/** '(updated just now)' for a retained forecast, in the forecast-age pill's words; nothing when undated. */
+function forecastUpdated(at: number | null | undefined, now: number): string {
+    return validFixTime(at, now) ? ` (updated ${formatFixAge(now - at)})` : '';
 }
 
 /** Pure: the shape and tone from what the weather chain and the instrument store say. */
@@ -41,54 +47,92 @@ export function resolveGpsSourceState(input: {
     hasWeatherContext?: boolean;
     /** The place the Glass is showing when the skipper picked one (not GPS-follow). */
     chosenPlace?: string | null;
+    /**
+     * The fix state of each receiver in the System status box, from the one
+     * timestamp its card's position line reads (gpsFixState). When given,
+     * every fix claim in this row reads it too, so the row and the cards
+     * below it cannot disagree (UX referee run 8, gps-one-truth).
+     */
+    fixes?: GpsBoxFixes | null;
+    /** When the forecast on the Glass was made: the '(updated …)' of a retained forecast. */
+    forecastUpdatedAt?: number | null;
+    now?: number;
 }): GpsSourceState {
     const { weatherKind, storeStatus, remoteVia, target, status, timestamp } = input;
+    const now = input.now ?? Date.now();
+    const fix = input.fixes ? followedFix(input.fixes, weatherKind, target) : null;
+    // The followed receiver's age from the box's one fix state; the bare
+    // glyph (no box) falls back to the weather's own copy of the fix. One age
+    // wording either way: the one the cards use.
+    const fixAge = (): string | null =>
+        fix && fix.kind !== 'none'
+            ? fixAgeText(fix.ageMs)
+            : validFixTime(timestamp, now)
+              ? fixAgeText(Math.max(0, now - timestamp))
+              : null;
+    const lastFix = (who: string): string => {
+        const age = fixAge();
+        return `Position: ${who} last fix${age ? ` · ${age}` : ''}`;
+    };
+    const finding = `Position: finding ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS location`;
     if (status === 'resolving') {
-        return {
-            glyph: target ?? 'none',
-            tone: 'none',
-            label: `Position: finding ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS location`,
-            canChoose: false,
-        };
+        return { glyph: target ?? 'none', tone: 'none', label: finding, canChoose: false };
     }
     if (status === 'unavailable') {
-        const now = Date.now();
-        const fixAge =
-            typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0 && timestamp <= now
-                ? formatFixAge(now - timestamp)
-                : 'age unavailable';
+        // The weather could not read the receiver, yet the card below has a
+        // live fix from it: the follower has not caught up. Saying the
+        // receiver "isn't giving a position" would contradict the card.
+        if (fix?.kind === 'live') {
+            return {
+                glyph: target ?? 'none',
+                tone: 'none',
+                label: input.retainedWeather
+                    ? `Position: showing the forecast for your last location${forecastUpdated(input.forecastUpdatedAt, now)}.`
+                    : finding,
+                canChoose: false,
+            };
+        }
+        // A sentence with a verb, and no fix age: the retained tail dates the
+        // FORECAST ('fix just now' read as a fresh fix). The fix's own age is
+        // the card's position line, once.
         return {
             glyph: target ?? 'none',
             tone: 'none',
-            label: `Position: ${target === 'boat' ? 'the boat’s' : 'this phone’s'} GPS unavailable${input.retainedWeather ? ` — showing forecast for the last location · fix ${fixAge}` : ''}`,
+            label: `Position: ${target === 'boat' ? 'the boat' : 'this phone'} isn’t giving a position.${
+                input.retainedWeather
+                    ? ` Showing the forecast for your last location${forecastUpdated(input.forecastUpdatedAt, now)}.`
+                    : ''
+            }`,
             canChoose: false,
         };
     }
     if (weatherKind === 'phone') {
-        return status === 'last-known'
-            ? {
-                  glyph: 'phone',
-                  tone: 'held',
-                  label: `Position: this phone’s last fix · ${formatFixAge(Date.now() - (timestamp ?? 0))}`,
-                  canChoose: false,
-              }
+        const notLive = fix ? fix.kind !== 'live' : status === 'last-known';
+        return notLive
+            ? { glyph: 'phone', tone: 'held', label: lastFix('this phone’s'), canChoose: false }
             : { glyph: 'phone', tone: 'phone', label: 'Position: this phone’s GPS', canChoose: false };
     }
+    // The weather's boat fix has aged past the boat card's live gate (or its
+    // own, with no card): her last fix, never "live".
+    const boatNotLive = weatherKind !== null && (fix ? fix.kind !== 'live' : status === 'last-known');
+    const boatLastFix: GpsSourceState = { glyph: 'boat', tone: 'held', label: lastFix('the boat’s'), canChoose: false };
     // Instrument connectivity cannot override which receiver weather follows.
     const fallbackToInstruments = input.hasWeatherContext === false;
     const busLive =
         fallbackToInstruments && (storeStatus === 'connected' || (storeStatus === 'remote' && remoteVia === 'lan'));
     if (busLive || weatherKind === 'bus' || weatherKind === 'pi') {
+        if (boatNotLive) return boatLastFix;
         return { glyph: 'boat', tone: 'live', label: 'Position: the boat’s GPS, live', canChoose: false };
     }
     if (weatherKind === 'cloud' || (fallbackToInstruments && storeStatus === 'remote' && remoteVia === 'cloud')) {
+        if (boatNotLive) return boatLastFix;
         return { glyph: 'boat', tone: 'cloud', label: 'Position: the boat’s GPS, through the cloud', canChoose: false };
     }
     if (weatherKind === 'held') {
         return {
             glyph: 'boat',
             tone: 'held',
-            label: `Position: the boat’s last fix${timestamp ? ` · ${formatFixAge(Date.now() - timestamp)}` : ''} — tap to choose the boat or this phone`,
+            label: `${lastFix('the boat’s')} — tap to choose the boat or this phone`,
             canChoose: true,
         };
     }
@@ -160,7 +204,10 @@ const GlyphArt: React.FC<{ glyph: GpsGlyph; tone: GpsTone }> = ({ glyph, tone })
 );
 
 /** Shared by the chip and the status-panel row: what the app is reading right now. */
-function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => void } | null | undefined } {
+function useGpsSourceState(fixes?: GpsBoxFixes | null): {
+    state: GpsSourceState;
+    choice: { open: () => void } | null | undefined;
+} {
     const weather = useWeatherOptional();
     const link = useNmeaConnectionStatus();
     const defaultLocation = useSettingsStore((s) => s.settings?.defaultLocation);
@@ -171,6 +218,7 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
         weather && !weather.positionSource && defaultLocation && defaultLocation !== 'Current Location' && shownName
             ? shownName
             : null;
+    const generatedAt = weather?.weatherData?.generatedAt;
     const state = resolveGpsSourceState({
         weatherKind: weather?.positionSource?.kind ?? null,
         storeStatus: link.status,
@@ -181,6 +229,8 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
         timestamp: weather?.positionSource?.timestamp,
         hasWeatherContext: weather != null,
         chosenPlace,
+        fixes,
+        forecastUpdatedAt: generatedAt ? Date.parse(String(generatedAt)) : null,
     });
     return { state, choice: weather?.positionChoice };
 }
@@ -191,8 +241,12 @@ function useGpsSourceState(): { state: GpsSourceState; choice: { open: () => voi
  * another fab on the already jam packed screen"). Glyph plus the sentence —
  * this is the one place the words are welcome.
  */
-export const GpsSourceRow: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
-    const { state } = useGpsSourceState();
+export const GpsSourceRow: React.FC<{
+    compact?: boolean;
+    /** The box's per-receiver fix states (presentWeatherPositionBox), so this row reads the cards' one timestamp. */
+    fixes?: GpsBoxFixes | null;
+}> = ({ compact = false, fixes = null }) => {
+    const { state } = useGpsSourceState(fixes);
     const detail = rowDetail(state.label);
     return (
         <div

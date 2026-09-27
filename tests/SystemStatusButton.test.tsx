@@ -239,7 +239,12 @@ describe('SystemStatusButton', () => {
         openStatus();
         const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
         expect(screen.getAllByRole('heading', { name: 'Boat GPS · Pi LAN' })).toHaveLength(1);
-        expect(boat.getByText('Live via the Pi')).toBeVisible();
+        // The receiver row keeps the link; the card has satellites but no
+        // position, and 'Live via the Pi' beside that was a second clock
+        // (UX referee run 8, gps-one-truth).
+        expect(boat.getByText('Connected via the Pi')).toBeVisible();
+        expect(boat.getByText('No position yet')).toBeVisible();
+        expect(boat.queryByText(/^Live/)).toBeNull();
         expect(boat.getByText('32')).toBeVisible();
         expect(screen.queryByText('On-board GPS')).not.toBeInTheDocument();
         expect(screen.queryByText('32 sats')).not.toBeInTheDocument();

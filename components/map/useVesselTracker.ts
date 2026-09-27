@@ -23,8 +23,14 @@ import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
-import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../../services/shiplog/PositionResolver';
-import { formatAge } from '../../services/GpsReceiverStatusService';
+import { GPS_VERY_STALE_MS } from '../../services/shiplog/PositionResolver';
+import {
+    boatLiveFixMaxAgeMs,
+    gpsFixState,
+    ownshipFixLabel,
+    PHONE_LIVE_FIX_MAX_AGE_MS,
+    type GpsFixState,
+} from '../gpsFixState';
 import { createLogger } from '../../utils/createLogger';
 import { calculateDistance } from '../../utils/navigationCalculations';
 import { convexHull, hullRing, type LonLat } from '../../utils/convexHull';
@@ -89,6 +95,9 @@ const STATUS_TONE_CLASS = {
     live: 'text-sky-400',
     anchored: 'text-emerald-400',
     alarm: 'text-red-500',
+    /** 'Last fix 46 s': amber, then red once the position is history (5 min). */
+    stale: 'text-amber-400',
+    lost: 'text-red-500',
 } as const;
 
 /**
@@ -170,9 +179,11 @@ export function createVesselElement(): HTMLDivElement {
     badge.textContent = '0.0 kts';
     el.appendChild(badge);
 
-    // GPS-age chip (top) — hidden while the fix is fresh. Surfaces the
-    // audit's "own-ship marker freezes silently on GPS loss" finding:
-    // a stale position must never be indistinguishable from a live one.
+    // GPS-age chip (top) — hidden while the fix is live, and while the badge
+    // itself says 'Last fix …'. It carries the fix age only when an anchor
+    // label holds the badge. Surfaces the audit's "own-ship marker freezes
+    // silently on GPS loss" finding: a stale position must never be
+    // indistinguishable from a live one.
     const ageChip = document.createElement('div');
     ageChip.className = 'vessel-age-chip';
     ageChip.style.cssText = `
@@ -195,17 +206,30 @@ export function createVesselElement(): HTMLDivElement {
     return el;
 }
 
+type GpsAgeTier = 'locked' | 'stale' | 'lost';
+
+/**
+ * The marker's tier from its one fix state — the same state the badge's
+ * words come from, so the dot and the label cannot disagree (UX referee run
+ * 8, gps-one-truth: a live-looking 'Stopped' off a 46 s old fix).
+ *
+ *   locked (live):          normal cyan
+ *   stale (past the gate):  greyed arrow/ring, amber 'Last fix 46 s'
+ *   lost (>5min):           greyed, red — position is history, not truth
+ */
+function gpsAgeTier(fix: GpsFixState): GpsAgeTier {
+    if (fix.kind === 'live') return 'locked';
+    return fix.kind === 'none' || fix.ageMs >= GPS_VERY_STALE_MS ? 'lost' : 'stale';
+}
+
 /**
  * Apply the GPS-age tier to the marker element. Styles are mutated
  * directly (the element is built with inline cssText, so CSS classes
- * would lose the specificity fight without !important).
- *
- *   locked (<60s): normal cyan, chip hidden
- *   stale (60s–5min): greyed arrow/ring, amber "GPS 2m" chip
- *   lost (>5min): greyed, red chip — position is history, not truth
+ * would lose the specificity fight without !important). `chipText` is the
+ * fix age for the top chip, given only when the badge is busy with an anchor
+ * label — otherwise the badge already says it, once.
  */
-function applyGpsAgeTier(el: HTMLDivElement, ageMs: number): void {
-    const tier = ageMs >= GPS_VERY_STALE_MS ? 'lost' : ageMs >= GPS_STALE_LIMIT_MS ? 'stale' : 'locked';
+function applyGpsAgeTier(el: HTMLDivElement, tier: GpsAgeTier, chipText: string | null): void {
     const arrow = el.querySelector('.vessel-arrow') as HTMLElement | null;
     const ring = el.querySelector('.vessel-accuracy-ring') as HTMLElement | null;
     const chip = el.querySelector('.vessel-age-chip') as HTMLElement | null;
@@ -222,8 +246,12 @@ function applyGpsAgeTier(el: HTMLDivElement, ageMs: number): void {
     arrow.style.filter = 'grayscale(1) brightness(0.85)';
     ring.style.borderColor = 'rgba(148, 163, 184, 0.3)';
     ring.style.background = 'rgba(148, 163, 184, 0.08)';
+    if (!chipText) {
+        chip.style.display = 'none';
+        return;
+    }
     chip.style.display = 'block';
-    chip.textContent = `GPS ${formatAge(ageMs)}`;
+    chip.textContent = chipText;
     const colour = tier === 'lost' ? '#ef4444' : '#f59e0b';
     chip.style.color = colour;
     chip.style.borderColor = tier === 'lost' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(245, 158, 11, 0.5)';
@@ -397,10 +425,14 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     const lastSourceRef = useRef<'vessel' | 'phone' | null>(null);
     /** True once the boat's own receivers have painted in this session. */
     const vesselSpokeRef = useRef(false);
-    // receivedAt of the newest fix — read by the staleness ticker. A ref,
-    // not state: a frozen GPS means the watch callback stops firing
-    // entirely, so staleness MUST come from an interval, not callbacks.
-    const lastFixAtRef = useRef<number | null>(null);
+    // The newest fix time of EACH receiver — read by the staleness ticker. A
+    // ref, not state: a frozen GPS means the watch callback stops firing
+    // entirely, so staleness MUST come from an interval, not callbacks. One
+    // clock per receiver: when the boat goes quiet and the phone replays an
+    // older cached fix, the marker moves to the phone's position and must be
+    // dated by the phone's fix, never by the boat's newer one (a 20-min-old
+    // phone position must not borrow the boat's 'Stopped').
+    const lastFixAtRef = useRef<Record<'vessel' | 'phone', number | null>>({ vessel: null, phone: null });
     const lastMarkerPositionRef = useRef<{ position: TrackerPosition; viaVessel: boolean } | null>(null);
 
     const updateDirection = useCallback(() => {
@@ -426,25 +458,42 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         dot.style.display = direction.degrees === null ? '' : 'none';
     }, []);
 
+    // The badge's words, its colour and the marker's grey all come from ONE
+    // fix state: lastFixAtRef through the receiver's live gate — the gates the
+    // System status box uses (components/gpsFixState.ts). A fix past its gate
+    // is 'Last fix 46 s' on a grey marker, never a live-looking 'Stopped'.
     const updateStatusBadge = useCallback(() => {
         const last = lastMarkerPositionRef.current;
-        const badge = elementRef.current?.querySelector('.vessel-sog-badge') as HTMLElement | null;
-        if (!last || !badge) return;
+        const el = elementRef.current;
+        const badge = el?.querySelector('.vessel-sog-badge') as HTMLElement | null;
+        if (!last || !el || !badge) return;
+        const now = Date.now();
+        const fix = gpsFixState(
+            lastFixAtRef.current[last.viaVessel ? 'vessel' : 'phone'],
+            last.viaVessel ? boatLiveFixMaxAgeMs(NmeaStore.getState()) : PHONE_LIVE_FIX_MAX_AGE_MS,
+            now,
+        );
         const label = ownshipStatusLabel(
             last.position,
             last.viaVessel,
             AnchorWatchService.getSnapshot(),
             AnchorWatchSyncService.getState(),
             ShoreWatchAlarmService.getSnapshot(),
+            now,
+            fix,
         );
         badge.textContent = label;
-        const tone = label === 'Anchor alarm' ? 'alarm' : label === 'Anchored' ? 'anchored' : 'live';
+        const tier = gpsAgeTier(fix);
+        const anchorLabel = label === 'Anchor alarm' || label === 'Anchored';
+        const tone =
+            label === 'Anchor alarm' ? 'alarm' : label === 'Anchored' ? 'anchored' : tier === 'locked' ? 'live' : tier;
         badge.classList.remove(...Object.values(STATUS_TONE_CLASS));
         badge.classList.add(STATUS_TONE_CLASS[tone]);
+        applyGpsAgeTier(el, tier, anchorLabel ? ownshipFixLabel(fix) : null);
     }, []);
 
     const updateMarker = useCallback(
-        (pos: TrackerPosition, viaVessel = false) => {
+        (pos: TrackerPosition, viaVessel = false, fixAt: number | null = pos.timestamp) => {
             const map = mapRef.current;
             if (!map || !visible) return;
 
@@ -457,8 +506,15 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             // receivedAt, because GpsService replays the cached last
             // position on every (re)subscribe — a 30-min-old fix arriving
             // "now" must not reset the staleness clock and re-present a
-            // stale position as live. Min() clamps device clock skew.
-            lastFixAtRef.current = Math.max(lastFixAtRef.current ?? 0, Math.min(pos.timestamp, Date.now()));
+            // stale position as live. Min() clamps device clock skew. Per
+            // receiver (see lastFixAtRef), and an undated fix (null, or a NaN
+            // that would poison Math.max for the rest of the session) leaves
+            // the clock alone: the badge then keeps counting from the last
+            // fix that WAS dated, or says 'No fix'.
+            const clock = viaVessel ? 'vessel' : 'phone';
+            if (fixAt !== null && Number.isFinite(fixAt) && fixAt > 0) {
+                lastFixAtRef.current[clock] = Math.max(lastFixAtRef.current[clock] ?? 0, Math.min(fixAt, Date.now()));
+            }
 
             // ── Marker ──
             if (!markerRef.current) {
@@ -595,8 +651,29 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             speed?: number | null;
             timestamp?: number | null;
         }) => {
-            const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+            const store = NmeaStore.getState();
+            const own = resolveOwnshipPosition(store, LocationStore.getState());
             if (own && own.source === 'nmea') {
+                // The Pi's lanes stamp lat/lon with the time THIS PHONE read
+                // them; only the snapshot's position sample dates the
+                // coordinates. The System status boat card dates them by it
+                // (boatGpsDiagnosticSource) and Radio's vessel fix does too
+                // (radioTelemetryPosition), so the badge does — or a Pi
+                // republishing old coordinates reads 'Stopped' here while the
+                // card says 'No live fix' and Radio says NO FIX. The Pi sends
+                // that sample time whenever it can prove the fix's age, so a
+                // Pi row without one is undated, exactly as Radio treats it.
+                // Another device's shared row keeps its receipt time. The
+                // arbiter's own gates, and the direction's, are untouched.
+                const remote = store.connectionStatus === 'remote' ? store.remote : null;
+                const sampleAt = remote?.positionSampleAt;
+                const fixAt = !remote
+                    ? own.timestamp
+                    : typeof sampleAt === 'number' && Number.isFinite(sampleAt)
+                      ? Math.min(sampleAt, own.timestamp)
+                      : remote.source === 'pi'
+                        ? null
+                        : own.timestamp;
                 updateMarker(
                     {
                         latitude: own.lat,
@@ -612,6 +689,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                         receivedAt: Date.now(),
                     },
                     true,
+                    fixAt,
                 );
                 return;
             }
@@ -640,12 +718,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         paint();
 
         // Staleness ticker — the only path that can grey the marker once
-        // fixes STOP arriving (see lastFixAtRef comment).
+        // fixes STOP arriving (see lastFixAtRef comment). The badge update
+        // applies the tier from the same fix state as its words.
         const staleTicker = window.setInterval(() => {
-            const el = elementRef.current;
-            const last = lastFixAtRef.current;
-            if (!el || last == null) return;
-            applyGpsAgeTier(el, Date.now() - last);
+            if (!elementRef.current || !lastMarkerPositionRef.current) return;
             updateStatusBadge();
             updateDirection();
         }, 1000);

@@ -20,13 +20,18 @@ export const GpsDiagnosticsCards: React.FC<{
                 receiver && (phone ? receiver.kind !== 'vessel-nmea' : receiver.kind === 'vessel-nmea');
             // With no fix at all the card says so once (NO_GPS_FIX_LINE)
             // instead of a position line and three tiles that each word
-            // "nothing" differently. The phone's own receiver line would only
-            // repeat it, so it goes. An external or boat receiver's line is
-            // news about the link ("connected · Waiting for GPS position",
-            // "Through the cloud · 2 min ago"), not about the fix, so it stays
-            // and the no-fix line still shows under it: a connected link must
-            // never read as a position the card does not have.
-            const showReceiver = matchesReceiver && !(source.noFix && receiver?.kind === 'phone');
+            // "nothing" differently. The phone's own receiver line never
+            // shows: all it ever says is whether the phone has a position
+            // ('iPhone GPS in use' / 'No position yet — nothing is supplying
+            // a fix'), read off the native location cache — a second clock
+            // that said 'No position yet' under 'Last position 46 s ago'
+            // (UX referee run 8, gps-one-truth). The position line, from the
+            // card's one fix timestamp, says it. An external or boat
+            // receiver's line is news about the link ("connected · Waiting
+            // for GPS position", "Through the cloud"), not about the fix, so
+            // it stays and the no-fix line still shows under it: a connected
+            // link must never read as a position the card does not have.
+            const showReceiver = matchesReceiver && receiver?.kind !== 'phone';
             return (
                 <section
                     key={source.label}

@@ -6,9 +6,18 @@
  * 1 Hz staleness ticker, and the marker DOM the hook builds is the
  * observable surface.
  *
- *   locked (<60s):    chip hidden, arrow live
- *   stale (60s–5min): greyed arrow/ring, amber "GPS 2m" chip
- *   lost (>5min):     greyed, red chip — position is history, not truth
+ * The marker's tier and its badge's words come from ONE fix state
+ * (components/gpsFixState.ts), through the same live gates the System status
+ * box uses — 30 s for the phone, the boat's lane gate for her feed. UX
+ * referee run 8 (gps-one-truth): the chart drew a live-looking 'Stopped' off
+ * a 46 s old fix while MOB, Radio and Anchor Watch said NO FIX.
+ *
+ *   locked (live):              chip hidden, arrow live, badge 'Stopped'/SOG
+ *   stale (past the live gate): greyed arrow/ring, amber 'Last fix 46 s' badge
+ *   lost (>5min):               greyed, red badge — position is history
+ *
+ * The top chip carries the same 'Last fix …' only while an anchor label
+ * holds the badge, so the age is always shown, and only once.
  *
  * THE BLOCKER (verify-pass finding): GpsService replays the cached last
  * position on every (re)subscribe. A 30-min-old fix arriving "now" must
@@ -20,6 +29,9 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVesselTracker } from '../components/map/useVesselTracker';
 import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../services/shiplog/PositionResolver';
+import { PHONE_LIVE_FIX_MAX_AGE_MS } from '../components/gpsFixState';
+import { boatGpsDiagnosticSource, presentGpsDiagnostics } from '../components/gpsDiagnosticsPresentation';
+import { NMEA_USABLE_MAX_AGE_MS } from '../services/nmea/nmeaCadence';
 
 interface MockMarker {
     element: HTMLElement;
@@ -140,17 +152,6 @@ vi.mock('../services/NmeaStore', () => ({
     },
 }));
 
-// The real GpsReceiverStatusService drags in the NMEA/native-receiver
-// stack. formatAge below mirrors the real export byte-for-byte
-// (services/GpsReceiverStatusService.ts) so the chip text stays honest.
-vi.mock('../services/GpsReceiverStatusService', () => ({
-    formatAge: (ageMs: number): string => {
-        if (ageMs < 60_000) return `${Math.max(1, Math.round(ageMs / 1000))}s`;
-        if (ageMs < 3_600_000) return `${Math.round(ageMs / 60_000)}m`;
-        return `${Math.round(ageMs / 3_600_000)}h`;
-    },
-}));
-
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => mocks.logger,
 }));
@@ -237,18 +238,22 @@ function expectLocked(t: ReturnType<typeof mountTracker>) {
     expect(t.arrow().style.filter).toBe('');
 }
 
+// The badge says the fix age, once: the chip stays hidden unless an anchor
+// label holds the badge.
 function expectStale(t: ReturnType<typeof mountTracker>, ageText: string) {
-    expect(t.chip().style.display).toBe('block');
-    expect(t.chip().style.color).toBe(AMBER);
-    expect(t.chip().textContent).toBe(`GPS ${ageText}`);
+    expect(t.status().textContent).toBe(`Last fix ${ageText}`);
+    expect(t.status().classList.contains('text-amber-400')).toBe(true);
+    expect(t.status().classList.contains('text-sky-400')).toBe(false);
+    expect(t.chip().style.display).toBe('none');
     expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
     expect(t.ring().style.borderColor).toBe(GREY_RING);
 }
 
 function expectLost(t: ReturnType<typeof mountTracker>, ageText: string) {
-    expect(t.chip().style.display).toBe('block');
-    expect(t.chip().style.color).toBe(RED);
-    expect(t.chip().textContent).toBe(`GPS ${ageText}`);
+    expect(t.status().textContent).toBe(`Last fix ${ageText}`);
+    expect(t.status().classList.contains('text-red-500')).toBe(true);
+    expect(t.status().classList.contains('text-amber-400')).toBe(false);
+    expect(t.chip().style.display).toBe('none');
     expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
 }
 
@@ -435,35 +440,89 @@ describe('useVesselTracker GPS-staleness clock', () => {
         expect(t.status().textContent).toBe('SOG —');
     });
 
-    it('sanity: the pinned thresholds are the app-wide 60s / 5min tiers', () => {
-        expect(GPS_STALE_LIMIT_MS).toBe(60_000);
+    it('sanity: the pinned thresholds are the 30 s phone live gate and the 5 min lost tier', () => {
+        expect(PHONE_LIVE_FIX_MAX_AGE_MS).toBe(30_000);
         expect(GPS_VERY_STALE_MS).toBe(300_000);
+        // The shiplog's own 60 s stale limit is unchanged; it no longer
+        // decides whether the chart may call a position live.
+        expect(GPS_STALE_LIMIT_MS).toBe(60_000);
     });
 
-    it('keeps the chip hidden and the vessel live while fixes are under 60s old (locked)', () => {
+    it('keeps the chip hidden and the vessel live while the phone fix is inside its 30 s gate (locked)', () => {
         const t = mountTracker();
         // Restoring the map is passive: consume an existing foreground grant,
         // but never start background/motion tracking merely to paint a marker.
         expect(mocks.watchPosition).toHaveBeenCalledWith(expect.any(Function));
 
-        t.emit();
+        t.emit({ speed: 0 });
         expectLocked(t);
 
-        // One second shy of the stale boundary: still locked.
-        tick(GPS_STALE_LIMIT_MS - 1000);
+        // On the gate itself: still live, still 'Stopped'.
+        tick(PHONE_LIVE_FIX_MAX_AGE_MS);
         expectLocked(t);
+        expect(t.status().textContent).toBe('Stopped');
     });
 
-    it('greys the vessel with an amber chip at 60s and a red chip at 5min once fixes stop', () => {
+    it("says 'Last fix 46 s' on a grey marker instead of a live-looking 'Stopped' (referee run 8)", () => {
+        const t = mountTracker();
+        t.emit({ speed: 0 });
+        expect(t.status().textContent).toBe('Stopped');
+
+        tick(46_000);
+        expectStale(t, '46 s');
+        expect(t.status().textContent).not.toBe('Stopped');
+    });
+
+    it('greys the vessel with an amber badge past the gate and a red one at 5min once fixes stop', () => {
         const t = mountTracker();
         t.emit();
 
-        tick(GPS_STALE_LIMIT_MS); // exactly 60s of silence → stale (>= boundary)
-        expectStale(t, '1m');
+        tick(PHONE_LIVE_FIX_MAX_AGE_MS + 1000); // one second past the gate → stale
+        expectStale(t, '31 s');
+
+        tick(GPS_STALE_LIMIT_MS - PHONE_LIVE_FIX_MAX_AGE_MS - 1000);
+        expectStale(t, '1 min');
 
         tick(GPS_VERY_STALE_MS - GPS_STALE_LIMIT_MS); // 5min total → lost
-        expectLost(t, '5m');
+        expectLost(t, '5 min');
+    });
+
+    it('keeps an anchor label on the badge and moves the fix age to the chip, in the same words', () => {
+        const t = mountTracker();
+        t.emit({ speed: 0 });
+        act(() => {
+            mocks.anchorState = 'watching';
+            mocks.anchorCallbacks.forEach((callback) => callback());
+        });
+        expect(t.status().textContent).toBe('Anchored');
+        expectLocked(t);
+
+        tick(46_000);
+        // The watch owns the badge (its own GPS watchdog gates it); the stale
+        // fix is still shown, once, and the marker still greys.
+        expect(t.status().textContent).toBe('Anchored');
+        expect(t.chip().style.display).toBe('block');
+        expect(t.chip().textContent).toBe('Last fix 46 s');
+        expect(t.chip().style.color).toBe(AMBER);
+        expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
+
+        tick(GPS_VERY_STALE_MS - 46_000);
+        expect(t.chip().textContent).toBe('Last fix 5 min');
+        expect(t.chip().style.color).toBe(RED);
         expect(t.chip().style.borderColor).toBe('rgba(239, 68, 68, 0.6)');
+    });
+
+    it("reads the boat's own lane gate for a vessel-fed marker, not the phone's", () => {
+        const metric = (value: number, at = Date.now()) => ({ value, lastUpdated: at, freshness: 'live' });
+        mocks.nmeaState = { latitude: metric(-20.26), longitude: metric(148.82), sog: metric(0) };
+        const t = mountTracker();
+        expect(t.marker().element.dataset.source).toBe('vessel');
+        expect(t.status().textContent).toBe('Stopped');
+
+        tick(NMEA_USABLE_MAX_AGE_MS);
+        expectLocked(t);
+        tick(1000);
+        expectStale(t, '14 s');
     });
 
     it('BLOCKER: a replayed cached fix arriving "now" does not reset the staleness clock', () => {
@@ -471,7 +530,7 @@ describe('useVesselTracker GPS-staleness clock', () => {
         t.emit({ timestamp: T0 });
 
         tick(120_000);
-        expectStale(t, '2m');
+        expectStale(t, '2 min');
 
         // GpsService replays the cached last position on (re)subscribe: an
         // old fix delivered at wall-clock "now". The chart may move the
@@ -481,12 +540,12 @@ describe('useVesselTracker GPS-staleness clock', () => {
         expect(t.marker().setLngLat).toHaveBeenLastCalledWith([153.1, -27.5]);
 
         tick(1000);
-        expectStale(t, '2m');
+        expectStale(t, '2 min');
 
         // And the clock keeps running from the replayed fix's age: at five
         // minutes past T0 the position is declared lost, replay or not.
         tick(GPS_VERY_STALE_MS - 121_000);
-        expectLost(t, '5m');
+        expectLost(t, '5 min');
     });
 
     it('recovers to locked on a genuinely fresh fix, and later replays cannot drag the clock backwards', () => {
@@ -494,7 +553,7 @@ describe('useVesselTracker GPS-staleness clock', () => {
         t.emit({ timestamp: T0 });
 
         tick(120_000);
-        expectStale(t, '2m');
+        expectStale(t, '2 min');
 
         t.emit({ timestamp: Date.now() });
         tick(1000);
@@ -520,7 +579,7 @@ describe('useVesselTracker GPS-staleness clock', () => {
         // age (locked) for another ~9 minutes. The clamp means staleness
         // surfaces on schedule.
         tick(69_000);
-        expectStale(t, '1m');
+        expectStale(t, '1 min');
     });
 
     it('a stationary vessel still refreshes fix age through the trail noise filter', () => {
@@ -529,7 +588,7 @@ describe('useVesselTracker GPS-staleness clock', () => {
         t.emit({ ...berth, timestamp: T0 });
 
         tick(120_000);
-        expectStale(t, '2m');
+        expectStale(t, '2 min');
 
         // Same coordinates: the trail's 5m noise filter early-returns, but
         // the fix-age update is ordered BEFORE it — an anchored boat with
@@ -549,5 +608,120 @@ describe('useVesselTracker GPS-staleness clock', () => {
         expect(marker.remove).toHaveBeenCalledTimes(1);
         // The staleness interval is cleared: advancing time is inert.
         expect(() => vi.advanceTimersByTime(600_000)).not.toThrow();
+    });
+});
+
+// Adversarial review (gps-one-truth): the badge must read the SAME fix time
+// the System status card reads for the receiver the marker is drawing.
+describe('useVesselTracker dates each receiver by its own fix', () => {
+    const metric = (value: number | null, at = Date.now()) => ({ value, lastUpdated: at, freshness: 'live' });
+
+    it("dates the phone stand-in by the phone's own fix, never by the boat's newer one", () => {
+        mocks.nmeaState = { latitude: metric(-20.26), longitude: metric(148.82), sog: metric(0) };
+        const t = mountTracker();
+        expect(t.marker().element.dataset.source).toBe('vessel');
+        expect(t.status().textContent).toBe('Stopped');
+
+        // The boat goes quiet (the arbiter drops her feed at 15 s) and the
+        // phone watch replays its cached fix from two minutes before hers.
+        tick(20_000);
+        t.emit({ latitude: -27.47, longitude: 153.02, speed: 0, timestamp: T0 - 120_000 });
+        expect(t.marker().element.dataset.source).toBe('phone');
+        // One shared forward-only clock dated this 2-min-old phone position
+        // by the boat's fix 20 s ago: a live 'Stopped' inside the phone gate.
+        expectStale(t, '2 min');
+
+        // A genuinely fresh phone fix is live on the phone's own clock.
+        t.emit({ latitude: -27.47, longitude: 153.02, speed: 0, timestamp: Date.now() });
+        expectLocked(t);
+        expect(t.status().textContent).toBe('Stopped');
+    });
+
+    it('ignores an undated fix instead of poisoning the clock', () => {
+        const t = mountTracker();
+        t.emit({ speed: 0, timestamp: Number.NaN });
+        expect(t.status().textContent).toBe('No fix');
+        t.emit({ speed: 0, timestamp: Date.now() });
+        expectLocked(t);
+        expect(t.status().textContent).toBe('Stopped');
+    });
+
+    // The Pi's lanes stamp lat/lon with the phone's READ time; the System
+    // status card dates the coordinates by the snapshot's position sample.
+    const piLan = (positionSampleAt: number | undefined, source: 'pi' | 'device' = 'pi') =>
+        ({
+            connectionStatus: 'remote',
+            remote: {
+                source,
+                via: 'lan',
+                deviceLabel: 'Pi',
+                reportedAt: Date.now(),
+                receivedAt: Date.now(),
+                ...(positionSampleAt === undefined ? {} : { positionSampleAt }),
+            },
+            latitude: metric(-20.26),
+            longitude: metric(148.82),
+            sog: metric(0),
+            satellites: metric(9),
+            hdop: metric(0.9),
+            gpsFixQuality: null,
+            gpsFixQualityUpdatedAt: null,
+            gpsAccuracyM: null,
+        }) as unknown as typeof mocks.nmeaState;
+
+    it.each([
+        [2_000, 'Stopped', 'Position 2 s ago'],
+        [25_000, 'Last fix 25 s', 'No live fix · last position 25 s ago'],
+    ])(
+        'a Pi LAN position sampled %i ms ago reads the same on the badge (%s) as on the System status card',
+        (sampleAgeMs, badge, cardLine) => {
+            mocks.nmeaState = piLan(Date.now() - sampleAgeMs);
+            const t = mountTracker();
+            expect(t.marker().element.dataset.source).toBe('vessel');
+            expect(t.status().textContent).toBe(badge);
+            const card = presentGpsDiagnostics(
+                boatGpsDiagnosticSource(mocks.nmeaState as unknown as Parameters<typeof boatGpsDiagnosticSource>[0])!,
+                Date.now(),
+            );
+            expect(card.position).toBe(cardLine);
+        },
+    );
+
+    // The Pi sends position_at whenever it can prove the fix's time (and not
+    // once the position is 10 min old); Radio treats a Pi row without it as
+    // no fix (radioTelemetryPosition). The badge must not read 'Stopped' off
+    // the phone's read time while the card says 'No position yet'.
+    it('an undated Pi position is no fix on the badge, as on the card and in Radio', () => {
+        mocks.nmeaState = piLan(undefined);
+        const t = mountTracker();
+        expect(t.marker().element.dataset.source).toBe('vessel');
+        expect(t.status().textContent).toBe('No fix');
+        expect(t.status().classList.contains('text-red-500')).toBe(true);
+        expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
+        const card = presentGpsDiagnostics(
+            boatGpsDiagnosticSource(mocks.nmeaState as unknown as Parameters<typeof boatGpsDiagnosticSource>[0])!,
+            Date.now(),
+        );
+        expect(card.position).toBe('No position yet');
+    });
+
+    it('a Pi row that stops carrying its sample time keeps counting from the last dated fix', () => {
+        mocks.nmeaState = piLan(Date.now() - 2_000);
+        const t = mountTracker();
+        expect(t.status().textContent).toBe('Stopped');
+        tick(10_000);
+        act(() => {
+            mocks.nmeaState = piLan(undefined);
+            mocks.nmeaPositionCallbacks.forEach((callback) => callback());
+        });
+        expect(t.status().textContent).toBe('Stopped');
+        tick(10_000);
+        expectStale(t, '22 s');
+    });
+
+    it("another device's shared row keeps its receipt time (no sample time is sent for it)", () => {
+        mocks.nmeaState = piLan(undefined, 'device');
+        const t = mountTracker();
+        expect(t.status().textContent).toBe('Stopped');
     });
 });
