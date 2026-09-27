@@ -11,6 +11,7 @@ import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
+import { SignInButton } from '../ui/SignInButton';
 import { SignInScreen } from '../SignInScreen';
 import { CartIcon, ClipboardIcon, FoodIcon, PackageIcon, ShareIcon, StarIcon } from '../Icons';
 import {
@@ -252,13 +253,15 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     // Same parent crumb as its binder siblings (Stores, Maintenance…).
                     breadcrumbs={['Boat Binder', 'Galley']}
                     subtitle={
-                        /* PageHeader's own grey subtitle, like every other page. Each
+                        /* The bold tracked count its binder siblings wear (Stores,
+                           Documents, Checklists, Diary); a regular-weight caption
+                           read lighter than them (UX scorecard run 8). Each
                            count is one unbreakable unit and the separator binds to the
                            count before it, so a wrap never starts a line with '·'.
                            The stores count says what it is ('0 stores held' was
                            opaque) and only shows when something is held back for a
                            planned meal (UX scorecard run 7). */
-                        <p className="ui-caption text-xs text-gray-300 uppercase tracking-widest">
+                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             <span className="whitespace-nowrap">
                                 {visibleActiveMeals.length} meal{visibleActiveMeals.length === 1 ? '' : 's'}
                                 &nbsp;·
@@ -279,10 +282,13 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 />
                 {/* A static note, so plain grey caption text (UX scorecard run 6):
                     as an amber chip it read as a warning or as the live offline
-                    badge. It sits under the header, aligned to the title column
+                    badge. It names what works offline — the recipes — because a
+                    bare 'Works offline' in the status slot read as a connection
+                    state, over an empty state that says meals need an account
+                    (run 8). It sits under the header, aligned to the title column
                     (16 px gutter + 44 px back button + 12 px gap), so the back
                     chevron stays level with its sibling pages. */}
-                <p className="-mt-1.5 pb-3 pl-[72px] pr-4 text-xs text-gray-400">Works offline</p>
+                <p className="-mt-1.5 pb-3 pl-[72px] pr-4 text-xs text-gray-400">Saved recipes open offline</p>
             </div>
 
             {/* Tab bar */}
@@ -324,9 +330,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             : 'text-gray-400 hover:text-gray-200'
                     }`}
                 >
+                    {/* No '(n)' here: the header count above already says how many
+                        recipes there are (UX scorecard run 8: '(0)' twice). */}
                     <span className="inline-flex items-center justify-center gap-1.5">
                         <ClipboardIcon className="h-3.5 w-3.5" />
-                        Saved recipes ({visibleSavedRecipes.length})
+                        Saved recipes
                     </span>
                 </button>
             </div>
@@ -362,16 +370,39 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     }}
                                 />
                             ) : (
-                                <EmptyState
-                                    icon={<FoodIcon className="h-8 w-8 [stroke-width:1.5]" />}
-                                    title="No active meals"
-                                    subtitle="Meals are planned in a passage's Departure Brief, which needs an account."
-                                    actionLabel="Sign in to plan meals"
-                                    onAction={() => {
-                                        triggerHaptic('light');
-                                        setShowSignIn(true);
-                                    }}
-                                />
+                                // The one sign-in card (Account & Cloud, Voyage Log): a
+                                // left-aligned title and reason, then the full-width
+                                // 44 pt SignInButton. An outlined 'Sign in to plan meals'
+                                // was the fourth sign-in look (UX scorecard run 8).
+                                <section
+                                    aria-labelledby="galley-sign-in-title"
+                                    className="space-y-4 rounded-2xl border border-white/10 bg-white/3 p-4 shadow-lg shadow-black/10"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <div
+                                            className="shrink-0 rounded-xl bg-white/5 p-2.5 text-gray-300"
+                                            aria-hidden="true"
+                                        >
+                                            <FoodIcon className="h-5 w-5" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <h2 id="galley-sign-in-title" className="text-sm font-bold text-white">
+                                                Sign in to plan meals
+                                            </h2>
+                                            <p className="mt-1 text-xs text-gray-400">
+                                                No active meals yet. Meals are planned in a passage's Departure Brief,
+                                                which needs an account.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <SignInButton
+                                        fullWidth
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            setShowSignIn(true);
+                                        }}
+                                    />
+                                </section>
                             )
                         ) : (
                             visibleActiveMeals.map((meal) => (

@@ -160,3 +160,28 @@ describe('the merge guard that the fabricated 0 defeated', () => {
         expect(report.current.currentSpeed != null).toBe(false);
     });
 });
+
+describe('tide sea levels: a missing reading is left out, a real 0 is kept', () => {
+    // UX scorecard run 8: `(sl.sg || sl.noaa || 0)` drew a missing sea level
+    // as a 0 ft tide point, and let a measured 0 m fall through to NOAA.
+    const now = new Date();
+    const t = (h: number) => new Date(now.getTime() + h * 3600_000).toISOString();
+    const report = mapStormGlassToReport(
+        hoursFrom(now, 24, (iso) => hourWithoutMarine(iso)),
+        LAT,
+        LON,
+        'Tide Bay',
+        undefined,
+        [],
+        [{ time: t(0), sg: 1 }, { time: t(1) }, { time: t(2), sg: 0, noaa: 0.5 }, { time: t(3), noaa: 2 }],
+    );
+
+    it('skips the point with no sea level instead of inventing 0 ft', () => {
+        expect(report.tideHourly?.map((p) => p.time)).toEqual([t(0), t(2), t(3)]);
+    });
+
+    it('keeps a measured 0 m as 0 ft and falls back to NOAA only when StormGlass is absent', () => {
+        expect(report.tideHourly?.[1].height).toBe(0);
+        expect(report.tideHourly?.[2].height).toBeCloseTo(2 * 3.28084, 5);
+    });
+});

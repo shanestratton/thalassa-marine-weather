@@ -23,7 +23,11 @@ export const HistoryStatusLine: React.FC<{
     const textId = useId();
     return (
         <div className="shrink-0 mx-4 mb-3 flex items-center justify-between gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/10 py-1.5 pl-4 pr-1.5">
-            <p id={textId} role="status" className="text-xs leading-snug text-amber-100">
+            {/* amber-100/90, not amber-100: daylight maps plain amber-100 to
+                amber-700, which measured 3.9:1 on this tint; the /90 step maps
+                to amber-800 (#92400e, about 5.5:1). At night the two are alike
+                (UX scorecard run 8). */}
+            <p id={textId} role="status" className="text-xs leading-snug text-amber-100/90">
                 {HISTORY_PHONE_ONLY}
                 {offline ? ' You’re offline.' : ''}
             </p>

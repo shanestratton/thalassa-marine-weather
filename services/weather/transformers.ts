@@ -684,7 +684,14 @@ export const mapStormGlassToReport = (
         hourly: hourlyStr,
         forecast: dailies,
         tides: tides || [],
-        tideHourly: seaLevels?.map((sl) => ({ time: sl.time!, height: (sl.sg || sl.noaa || 0) * 3.28084 })) || [],
+        // A point with no sea level is left out rather than drawn at 0 ft, and
+        // a real 0 m reading is kept (`||` dropped it to the NOAA value, or to
+        // an invented 0) — UX scorecard run 8.
+        tideHourly: (seaLevels ?? []).flatMap((sl) => {
+            const metres = sl.sg ?? sl.noaa;
+            if (!sl.time || typeof metres !== 'number' || !Number.isFinite(metres)) return [];
+            return [{ time: sl.time, height: metres * 3.28084 }];
+        }),
         modelUsed: `stormglass_${selectedModel}${fallbackSources.length ? `+fallback:${fallbackSources.sort().join(',')}` : ''}`,
         _stormglassCoverage: coverage,
         boatingAdvice: advice,

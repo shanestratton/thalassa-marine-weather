@@ -7,7 +7,7 @@
  * button. The cut is lossless (services/videoTrim), so it takes seconds and
  * loses nothing but the footage outside the window.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { trimVideoLossless } from '../../services/videoTrim';
 import { triggerHaptic } from '../../utils/system';
@@ -37,6 +37,8 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
     const barRef = useRef<HTMLDivElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const dragging = useRef(false);
+    const titleId = useId();
+    const bodyId = useId();
 
     // One object URL for the whole session; the preview seeks within it.
     const previewUrl = useMemo(() => URL.createObjectURL(file), [file]);
@@ -103,12 +105,16 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
             className="fixed inset-0 z-1200 flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             role="dialog"
             aria-modal="true"
+            // Named by its title and described by its instruction, so VoiceOver
+            // announces more than 'dialog' (UX scorecard run 8).
+            aria-labelledby={titleId}
+            aria-describedby={bodyId}
         >
             <div className="w-full max-w-md max-h-full overflow-y-auto rounded-3xl border border-violet-500/25 bg-slate-950 p-4">
-                <p className="text-sm font-black uppercase tracking-[0.14em] text-violet-300">
+                <h2 id={titleId} className="text-sm font-black uppercase tracking-[0.14em] text-violet-300">
                     That movie is {fmt(durationSec)}
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-gray-400">
+                </h2>
+                <p id={bodyId} className="mt-1 text-xs leading-relaxed text-gray-400">
                     The diary takes one minute. Drag the bright window to the best minute — the preview plays exactly
                     what will be kept.
                 </p>
