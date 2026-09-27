@@ -5563,3 +5563,51 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
         max-height: 136px;
     }
 }
+
+/* ── Radio: Prepare call in a squeezed pane ─────────────────────────────
+   The instructions must fit unscrolled (e2e radio-console-flow). Short phones
+   tighten by viewport height ([@media(max-height:700px)] in the components),
+   but a 1024x768 split pane squeezes the body to ~380 px on a tall screen, so
+   the body is a size container and the same spacing keys on its own height.
+   Spacing and the duplicate phone-GPS line only: every word of the distress
+   and urgency copy, the 12 px text floor and the 44 px targets stay. */
+.radio-prep-body {
+    container-type: size;
+}
+@container (max-height: 480px) {
+    .radio-prep-stack {
+        padding-block: 4px !important;
+    }
+    .radio-prep-stack > :not(:last-child) {
+        margin-block-start: 0 !important;
+        margin-block-end: 4px !important;
+    }
+    .radio-prep-steps,
+    .radio-prep-gps {
+        padding-block: 4px !important;
+    }
+    .radio-prep-steps-title {
+        margin-bottom: 4px !important;
+    }
+    .radio-prep-steps-list > :not(:last-child) {
+        margin-block-start: 0 !important;
+        margin-block-end: 4px !important;
+    }
+    .radio-prep-steps-note {
+        margin-top: 4px !important;
+    }
+    .radio-prep-step-num {
+        height: 20px;
+        width: 20px;
+    }
+    .radio-prep-latlon {
+        margin-top: 2px !important;
+    }
+    .radio-prep-gps-dup {
+        display: none;
+    }
+    .radio-prep-receiver {
+        margin-top: 4px !important;
+        padding-top: 2px !important;
+    }
+}

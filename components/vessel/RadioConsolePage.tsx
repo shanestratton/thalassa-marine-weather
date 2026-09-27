@@ -418,12 +418,12 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
     const gpsNotice = (
         <div
             data-testid="radio-position-status"
-            className={`rounded-2xl border px-3 py-2 text-sm ${gpsStatusClass}`}
+            className={`radio-prep-gps rounded-2xl border px-3 py-2 text-sm ${gpsStatusClass}`}
             role="status"
         >
             <p className="text-xs font-bold">{gpsLabel}</p>
             {position && (
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-base font-bold tracking-tight text-slate-100">
+                <div className="radio-prep-latlon mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-base font-bold tracking-tight text-slate-100">
                     <span>
                         <span className="sr-only">LAT </span>
                         {formatLat(position.latitude)}
@@ -435,13 +435,20 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 </div>
             )}
             {position && !position.isVessel && (
-                <p className="mt-1">Phone / device GPS. Confirm this device is aboard.</p>
+                <p
+                    // The receiver row below asks the same question, so a
+                    // squeezed Prepare call pane drops this line first
+                    // (index.css .radio-prep-body).
+                    className={`mt-1 ${dialogStep === 'instructions' && receiverMatchesSelection ? 'radio-prep-gps-dup' : ''}`}
+                >
+                    Phone / device GPS. Confirm this device is aboard.
+                </p>
             )}
             {position && !receiverMatchesSelection && (
                 <p className="mt-2 font-semibold">This fix belongs to another vessel. State your position yourself.</p>
             )}
             {dialogStep === 'instructions' && position && receiverMatchesSelection && (
-                <div className="mt-2 [@media(max-height:700px)]:mt-1 flex items-center gap-2 border-t border-current/15 pt-1">
+                <div className="radio-prep-receiver mt-2 [@media(max-height:700px)]:mt-1 flex items-center gap-2 border-t border-current/15 pt-1">
                     <p className="min-w-0 flex-1 text-xs">Receiver aboard {vesselName ?? 'your vessel'}?</p>
                     <button
                         type="button"
@@ -874,7 +881,7 @@ const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
                 ];
     return (
         <div
-            className={`shrink-0 rounded-2xl border px-3 py-2 ${
+            className={`radio-prep-steps shrink-0 rounded-2xl border px-3 py-2 ${
                 isDistress
                     ? 'border-red-400/30 bg-red-950/20'
                     : mode === 'urgency'
@@ -883,18 +890,18 @@ const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
             }`}
         >
             {mode !== 'routine' && (
-                <p className={`mb-2 [@media(max-height:700px)]:mb-1 text-sm font-bold ${tone}`}>
+                <p className={`radio-prep-steps-title mb-2 [@media(max-height:700px)]:mb-1 text-sm font-bold ${tone}`}>
                     {isDistress
                         ? 'MAYDAY · grave & imminent danger. Immediate help needed.'
                         : 'PAN-PAN · urgent safety concern, below distress.'}
                 </p>
             )}
-            <ol className="space-y-2 [@media(max-height:700px)]:space-y-1 text-sm leading-snug">
+            <ol className="radio-prep-steps-list space-y-2 [@media(max-height:700px)]:space-y-1 text-sm leading-snug">
                 {steps.map(([title, detail], i) => (
                     <li key={title} className="flex gap-2">
                         <span
                             aria-hidden="true"
-                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/5 font-bold ${tone}`}
+                            className={`radio-prep-step-num flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/5 font-bold ${tone}`}
                         >
                             {i + 1}
                         </span>
@@ -909,7 +916,7 @@ const DscSteps: React.FC<{ mode: DscMode }> = ({ mode }) => {
                 ))}
             </ol>
             <p
-                className={`mt-2 [@media(max-height:700px)]:mt-1 border-t border-current/15 pt-1 text-xs font-semibold ${tone}`}
+                className={`radio-prep-steps-note mt-2 [@media(max-height:700px)]:mt-1 border-t border-current/15 pt-1 text-xs font-semibold ${tone}`}
             >
                 Ch 70: DSC only, never voice. This app does not transmit.
             </p>
