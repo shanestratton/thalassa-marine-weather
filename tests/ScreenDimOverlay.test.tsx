@@ -121,7 +121,7 @@ describe('app-wide wiring (source tripwires)', () => {
 
     it('the preference lives in Aesthetics and arms only via a real keep-awake probe', () => {
         const aesthetics = read('components/settings/AestheticsTab.tsx');
-        expect(aesthetics).toContain('Dim While Always On');
+        expect(aesthetics).toContain('Dim while always on');
         expect(aesthetics).toContain('writeScreenDimSettings');
         const overlay = read('components/ScreenDimOverlay.tsx');
         expect(overlay).toContain('KeepAwake.isKeptAwake()');

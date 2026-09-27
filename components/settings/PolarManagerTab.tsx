@@ -4,7 +4,9 @@
  * Tab B: Manual Matrix (editable spreadsheet)
  *
  * Also includes:
- * - Factory vs Smart Polars toggle
+ * - Smart Polars state, with a link to its switch in Settings → Preferences
+ *   (moved there, UX scorecard run 8; see SmartPolarsSetting)
+ * - Factory vs Smart polar data for routing
  * - NMEA connection status
  * - Smart Polars stats & filter gate status
  * - PolarChart with overlay
@@ -12,19 +14,17 @@
  * Yacht database selection has moved to VesselTab (Settings → Vessel Profile).
  */
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
-import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import type { PolarData } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { PolarChart } from './PolarChart';
 import { parsePolarFile, validatePolarData, createEmptyPolar } from '../../utils/polarParser';
 import { NmeaListenerService, type NmeaConnectionStatus } from '../../services/NmeaListenerService';
-import { NmeaStore } from '../../services/NmeaStore';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon, XIcon, MinusIcon } from '../Icons';
-import { Toggle } from './SettingsPrimitives';
+import { RowChevron } from './SettingsPrimitives';
 import { Button } from '../ui/Button';
 
 type InputTab = 'import' | 'manual';
@@ -43,6 +43,8 @@ interface PolarManagerTabProps {
     onNavigateToNmea?: () => void;
     /** Opens Settings so the skipper can pick a yacht under Vessel Profile. */
     onOpenVesselProfile?: () => void;
+    /** Opens Settings → Preferences, where the Smart Polars switch lives. */
+    onOpenPreferences?: () => void;
 }
 
 export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
@@ -50,6 +52,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     onSave,
     onNavigateToNmea,
     onOpenVesselProfile,
+    onOpenPreferences,
 }) => {
     const [activeTab, setActiveTab] = useState<InputTab>('import');
     const [polarData, setPolarData] = useState<PolarData>(settings?.polarData || createEmptyPolar());
@@ -70,7 +73,9 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         totalBuckets: number;
     } | null>(null);
     const [polarSource, setPolarSource] = useState<'factory' | 'smart'>(settings?.polarSource || 'factory');
-    const [smartEnabled, setSmartEnabled] = useState(settings?.smartPolarsEnabled || false);
+    // Read from settings: the switch is in Preferences now, and this page shows
+    // what it says.
+    const smartEnabled = settings?.smartPolarsEnabled === true;
     const advancedTitleId = useId();
     const advancedCloseRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
@@ -167,25 +172,6 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         [boatModel, source, savePolar],
     );
 
-    // Toggle Smart Polars
-    const toggleSmartPolars = (enabled: boolean) => {
-        setSmartEnabled(enabled);
-        if (enabled) {
-            // The policy decides the feed: with a Pi paired this is the LAN
-            // lane, and no socket opens (Shane 2026-09-08).
-            InstrumentSourcePolicy.ensureFeed({
-                host: settings?.nmeaHost || '192.168.1.1',
-                port: settings?.nmeaPort || 10110,
-            });
-            SmartPolarService.start();
-        } else {
-            SmartPolarService.stop();
-            NmeaStore.stop();
-            NmeaListenerService.stop();
-        }
-        onSave?.({ smartPolarsEnabled: enabled });
-    };
-
     const togglePolarSource = (src: 'factory' | 'smart') => {
         setPolarSource(src);
         onSave?.({ polarSource: src });
@@ -216,7 +202,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                     filterStatus={filterStatus}
                     smartStats={smartStats}
                     hasRpmData={NmeaListenerService.getHasRpmData()}
-                    onToggleSmart={toggleSmartPolars}
+                    onOpenPreferences={onOpenPreferences}
                     onToggleSource={togglePolarSource}
                     onReset={() => setShowResetConfirm(true)}
                     onNavigateToNmea={onNavigateToNmea}
@@ -240,10 +226,10 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                                     onClick={onOpenVesselProfile}
                                     className="inline-flex min-h-11 items-center text-xs font-bold text-sky-300 underline underline-offset-2"
                                 >
-                                    Choose one in Settings → Vessel profile
+                                    Choose one in Settings, under Vessel profile
                                 </button>
                             ) : (
-                                <p className="text-xs text-gray-400">Choose one in Settings → Vessel profile</p>
+                                <p className="text-xs text-gray-400">Choose one in Settings, under Vessel profile</p>
                             )}
                         </>
                     )}
@@ -402,7 +388,7 @@ const SmartPolarsCard: React.FC<{
     filterStatus: FilterStatus | null;
     smartStats: { totalSamples: number; filledBuckets: number; totalBuckets: number } | null;
     hasRpmData: boolean;
-    onToggleSmart: (enabled: boolean) => void;
+    onOpenPreferences?: () => void;
     onToggleSource: (src: 'factory' | 'smart') => void;
     onReset: () => void;
     onNavigateToNmea?: () => void;
@@ -413,7 +399,7 @@ const SmartPolarsCard: React.FC<{
     filterStatus,
     smartStats,
     hasRpmData,
-    onToggleSmart,
+    onOpenPreferences,
     onToggleSource,
     onReset,
     onNavigateToNmea,
@@ -430,9 +416,6 @@ const SmartPolarsCard: React.FC<{
 
     const status = nmeaStatusConfig[nmeaStatus];
     const isDisconnected = nmeaStatus === 'disconnected';
-    // Same condition under which flipping the switch used to divert to NMEA setup.
-    const switchBlocked = !smartEnabled && isDisconnected && !!onNavigateToNmea;
-    const blockedCaptionId = useId();
     const fillPercent = smartStats ? Math.round((smartStats.filledBuckets / smartStats.totalBuckets) * 100) : 0;
 
     return (
@@ -458,30 +441,28 @@ const SmartPolarsCard: React.FC<{
                         </span>
                     )}
                 </div>
-                {/* Smart Polars Toggle — the shared settings switch (role=switch,
-                    same geometry and colour as every other settings toggle).
-                    With no NMEA feed it cannot turn on, so it is shown disabled
-                    and described by the 'Not connected — Set up NMEA gateway'
-                    line below, the one actionable statement of the need (a
-                    caption beside the switch said it a second time). */}
-                {switchBlocked ? (
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            role="switch"
-                            aria-checked={false}
-                            aria-label="Smart Polars"
-                            aria-describedby={blockedCaptionId}
-                            disabled
-                            className="relative inline-flex items-center py-2.5 px-2 -mr-2 cursor-not-allowed"
-                        >
-                            <div className="w-11 h-6 rounded-full bg-slate-700 opacity-50" aria-hidden="true">
-                                <div className="absolute top-3.5 left-3 w-4 h-4 bg-white rounded-full" />
-                            </div>
-                        </button>
-                    </div>
+                {/* The switch lives in Settings → Preferences, the home for
+                    switches (UX scorecard run 8). Here, its state and the way
+                    there, in one line. */}
+                {onOpenPreferences ? (
+                    <button
+                        type="button"
+                        onClick={onOpenPreferences}
+                        className="inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-sky-300"
+                    >
+                        <span className={smartEnabled ? 'text-emerald-400' : 'text-gray-300'}>
+                            {smartEnabled ? 'On' : 'Off'}
+                        </span>
+                        <span aria-hidden="true" className="text-gray-400">
+                            ·
+                        </span>
+                        <span className="underline underline-offset-2">Change in Preferences</span>
+                        <RowChevron className="w-3.5 h-3.5 text-sky-300" />
+                    </button>
                 ) : (
-                    <Toggle checked={smartEnabled} label="Smart Polars" onChange={onToggleSmart} />
+                    <span className={`text-xs font-bold ${smartEnabled ? 'text-emerald-400' : 'text-gray-300'}`}>
+                        {smartEnabled ? 'On' : 'Off'} · switch in Settings → Preferences
+                    </span>
                 )}
             </div>
 
@@ -495,7 +476,7 @@ const SmartPolarsCard: React.FC<{
                         by recording speed data from your onboard instruments via the{' '}
                         <span className="text-white font-bold">NMEA 2000 backbone</span>.
                     </p>
-                    <p id={blockedCaptionId} className="text-xs text-gray-400 mt-1.5">
+                    <p className="text-xs text-gray-400 mt-1.5">
                         {nmeaStatus === 'disconnected' ? (
                             <>
                                 {/* Amber on the glyph only: amber text measured under AA
@@ -524,7 +505,7 @@ const SmartPolarsCard: React.FC<{
                                     <CheckCircleIcon className="w-3 h-3" />
                                     <span>NMEA connected</span>
                                 </span>{' '}
-                                — flip the toggle to start learning.
+                                — turn it on in Preferences.
                             </>
                         )}
                     </p>

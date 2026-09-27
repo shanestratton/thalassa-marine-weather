@@ -130,7 +130,11 @@ const THRESHOLDS: ThresholdSpec[] = [
     {
         key: 'waves',
         title: 'High seas',
-        trigger: 'Significant wave height above',
+        // Short enough for one line beside the value well at 375 pt: the
+        // longer 'Significant wave height above' left 'above' on a line of its
+        // own and made this row ~18 pt taller than its neighbours (UX
+        // scorecard run 8).
+        trigger: 'Wave height above',
         unit: waveUnit,
         icon: WaveIcon,
         iconClass: 'bg-sky-500/20 text-sky-300',
@@ -172,18 +176,35 @@ const THRESHOLDS: ThresholdSpec[] = [
         iconClass: 'bg-red-500/20 text-red-300',
         switchLabel: 'Heat alert',
     },
+    // 'Cold', not 'Freeze': the alarm defaults to 5 °C, well above freezing
+    // (UX scorecard run 8). The stored key stays tempLow.
     {
         key: 'tempLow',
-        title: 'Freeze',
+        title: 'Cold',
         trigger: 'Air temperature below',
         unit: tempUnit,
         icon: ThermometerIcon,
         iconClass: 'bg-sky-500/20 text-sky-300',
-        switchLabel: 'Freeze alert',
+        switchLabel: 'Cold alert',
     },
 ];
 
 const formatThreshold = (n: number) => String(parseFloat(n.toFixed(1)));
+
+/**
+ * A disarmed row reads as disarmed, not only by its small grey switch: with
+ * every alert off, nine full-strength bold values read as nine armed alarms
+ * (UX scorecard run 8). Off, the icon tile fades and the title, trigger line
+ * and value step down to a quieter ink. That ink is a colour, not opacity, so
+ * it keeps AA: slate-400 on the dark card (~7:1), and #5b6b80 on the daylight
+ * card (~5:1). Not slate-500 there: Settings' daylight card is white/70 over
+ * the slate-200 page (~#f6f8fa), where slate-500 measures ~4.48:1, under AA
+ * for this 12 px trigger line. The legacy grey utilities cannot do it, because
+ * styles/legibility.css paints them all the same caption ink.
+ */
+const DISARMED_INK = 'text-[#94a3b8] [.display-light_&]:text-[#5b6b80]';
+const iconTileClass = (armed: boolean) =>
+    `p-2 rounded-lg shrink-0 transition-opacity ${armed ? '' : 'opacity-40 grayscale'}`;
 
 // ── Threshold value well ─────────────────────────────────────────
 // The whole well is the <label>, so a tap on the unit or the padding lands in
@@ -204,8 +225,9 @@ const ThresholdField: React.FC<{
     const value = draft ?? shown;
     const digits = Math.min(Math.max(value.length, 2), 5);
     return (
-        // Off: fainter chrome and grey digits rather than opacity, which would
-        // drop the value below AA in daylight (UX scorecard run 6).
+        // Off: fainter chrome and quieter digits (DISARMED_INK) rather than
+        // opacity, which would drop the value below AA in daylight (UX
+        // scorecard run 6).
         <label
             className={`flex h-11 min-w-16 cursor-text items-center justify-end gap-1 rounded-lg border px-2 transition-colors ${
                 armed ? 'bg-black/40 border-white/10' : 'bg-black/20 border-white/5'
@@ -215,7 +237,7 @@ const ThresholdField: React.FC<{
                 aria-label={`${title} threshold${unit.label ? `, ${unit.label}` : ''}`}
                 aria-describedby={describedBy}
                 // No inputMode="decimal": the iOS decimal pad has no minus key,
-                // and a Freeze threshold can be below zero.
+                // and a Cold threshold can be below zero.
                 type="number"
                 value={value}
                 placeholder="--"
@@ -226,12 +248,12 @@ const ThresholdField: React.FC<{
                 }}
                 onBlur={() => setDraft(null)}
                 style={{ width: `${digits}ch` }}
-                className={`min-h-11 min-w-0 bg-transparent text-right outline-hidden font-bold tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
-                    armed ? 'text-white' : 'text-gray-400'
+                className={`min-h-11 min-w-0 bg-transparent text-right outline-hidden tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+                    armed ? 'text-white font-bold' : `${DISARMED_INK} font-medium`
                 }`}
             />
             {unit.label && (
-                <span className="shrink-0 text-xs text-gray-400" aria-hidden="true">
+                <span className={`shrink-0 text-xs ${armed ? 'text-gray-400' : DISARMED_INK}`} aria-hidden="true">
                     {unit.label}
                 </span>
             )}
@@ -335,45 +357,61 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     number field and the switch are never nested inside another
                     control. Every value well has the same shape (no "<" prefix —
                     above/below lives in the trigger line) so the values align. */}
-                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel }) => (
-                    <Row key={key}>
-                        <div className="flex min-w-0 items-center gap-3">
-                            <div className={`p-2 rounded-lg shrink-0 ${iconClass}`}>
-                                <Icon className="w-6 h-6" />
+                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel }) => {
+                    const armed = settings.notifications[key].enabled;
+                    return (
+                        <Row key={key}>
+                            <div className="flex min-w-0 items-center gap-3">
+                                <div className={`${iconTileClass(armed)} ${iconClass}`}>
+                                    <Icon className="w-6 h-6" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className={`font-bold ${armed ? 'text-white' : DISARMED_INK}`}>{title}</p>
+                                    <p
+                                        id={`${idBase}-${key}-trigger`}
+                                        className={`text-xs leading-snug ${armed ? 'text-gray-400' : DISARMED_INK}`}
+                                    >
+                                        {trigger}
+                                    </p>
+                                </div>
                             </div>
-                            <div className="min-w-0">
-                                <p className="text-white font-bold">{title}</p>
-                                <p id={`${idBase}-${key}-trigger`} className="text-xs leading-snug text-gray-400">
-                                    {trigger}
-                                </p>
+                            <div className="flex shrink-0 items-center gap-3">
+                                <ThresholdField
+                                    title={title}
+                                    describedBy={`${idBase}-${key}-trigger`}
+                                    stored={settings.notifications[key].threshold}
+                                    unit={unit(settings.units ?? {})}
+                                    armed={armed}
+                                    onCommit={(v) => updateAlert(key, 'threshold', v)}
+                                />
+                                <Toggle
+                                    label={switchLabel}
+                                    checked={armed}
+                                    onChange={(v) => updateAlert(key, 'enabled', v)}
+                                />
                             </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-3">
-                            <ThresholdField
-                                title={title}
-                                describedBy={`${idBase}-${key}-trigger`}
-                                stored={settings.notifications[key].threshold}
-                                unit={unit(settings.units ?? {})}
-                                armed={settings.notifications[key].enabled}
-                                onCommit={(v) => updateAlert(key, 'threshold', v)}
-                            />
-                            <Toggle
-                                label={switchLabel}
-                                checked={settings.notifications[key].enabled}
-                                onChange={(v) => updateAlert(key, 'enabled', v)}
-                            />
-                        </div>
-                    </Row>
-                ))}
+                        </Row>
+                    );
+                })}
 
                 <Row>
                     <div className="flex min-w-0 items-center gap-3">
-                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg shrink-0">
+                        <div
+                            className={`${iconTileClass(settings.notifications.precipitation.enabled)} bg-sky-500/20 text-sky-300`}
+                        >
                             <RainIcon className="w-6 h-6" />
                         </div>
                         <div className="min-w-0">
-                            <p className="text-white font-bold">Precipitation</p>
-                            <p className="text-xs leading-snug text-gray-400">Rain or storm in the forecast</p>
+                            <p
+                                className={`font-bold ${settings.notifications.precipitation.enabled ? 'text-white' : DISARMED_INK}`}
+                            >
+                                Precipitation
+                            </p>
+                            <p
+                                className={`text-xs leading-snug ${settings.notifications.precipitation.enabled ? 'text-gray-400' : DISARMED_INK}`}
+                            >
+                                Rain or storm in the forecast
+                            </p>
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">

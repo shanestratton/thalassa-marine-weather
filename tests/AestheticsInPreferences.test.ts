@@ -18,11 +18,11 @@ describe('Aesthetics lives inside Preferences', () => {
 
     it('the sections are exported without a page wrapper, and keep every control', () => {
         expect(aesthetics).toContain('export const AestheticsSections: React.FC<SettingsTabProps>');
-        for (const title of ['Display Mode', 'Visual Preferences', 'Display Orientation']) {
+        for (const title of ['Display mode', 'Visual preferences', 'Display orientation']) {
             expect(aesthetics).toContain(`<Section title="${title}">`);
         }
-        expect(aesthetics).toContain('Always On Display');
-        expect(aesthetics).toContain('Dim While Always On');
+        expect(aesthetics).toContain('Always on display');
+        expect(aesthetics).toContain('Dim while always on');
     });
 
     it('the Settings menu no longer has an Aesthetics tab', () => {

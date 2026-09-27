@@ -20,9 +20,8 @@ import {
 import { supabase } from '../../services/supabase';
 import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
-import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { Row, Section, SignInCard, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { Button } from '../ui/Button';
-import { SignInButton } from '../ui/SignInButton';
 import { EyeIcon, LockIcon } from '../Icons';
 import {
     getAuthIdentityScope,
@@ -597,8 +596,11 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                 {/* The intro is the card's first row, like copy on every other
                     settings page — it used to sit bare on the page (UX scorecard run 7). */}
                 <Section title="Get started">
+                    {/* Body leading, as body text elsewhere in Settings: the
+                        relaxed 22 pt leading set this one paragraph apart (UX
+                        scorecard run 8). */}
                     <Row>
-                        <p className="text-sm leading-relaxed text-gray-300">
+                        <p className="text-sm text-gray-300">
                             Your Voyage Log is a public page where the folks at home can follow your passage — your
                             published diary entries, your track on a map, and your latest position and barometer
                             reading.
@@ -606,43 +608,42 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                     </Row>
                     {signedOut ? (
                         // The page lives on the skipper's account, so a signed-out
-                        // Set up could only fail. Offer the sign-in instead, the
-                        // one sign-in control Account & Cloud uses. The row's
-                        // title beside it says what signing in is for.
-                        <Row>
-                            <div className="flex-1 min-w-0">
-                                <div className="text-sm text-white font-bold">Sign in to set up your Voyage Log</div>
-                                <div className="text-xs text-gray-400 mt-1">
-                                    Your Voyage Log belongs to your Thalassa account.
-                                </div>
-                            </div>
-                            <SignInButton
-                                onClick={() => {
+                        // Set up could only fail. Offer the sign-in instead, in the
+                        // one sign-in card Account & Cloud uses: title and reason
+                        // on their own lines, the button full width under them.
+                        // Beside the button the title wrapped and left 'Log' on a
+                        // line of its own (UX scorecard run 8).
+                        <div className="p-4 border-b border-white/5 last:border-0">
+                            <SignInCard
+                                title="Sign in to set up your Voyage Log"
+                                reason="Your Voyage Log belongs to your Thalassa account."
+                                onSignIn={() => {
                                     setSignInOpen(true);
                                     onSignInOpened?.();
                                 }}
-                                className="shrink-0"
                             />
-                        </Row>
+                        </div>
                     ) : (
-                        <Row>
-                            <div className="flex-1">
-                                <div className="text-sm text-white font-bold">Set up your own Voyage Log</div>
-                                <div className="text-xs text-gray-400 mt-1">
+                        // Stacked the same way, so the two states of this card
+                        // share one layout.
+                        <div className="p-4 border-b border-white/5 last:border-0 space-y-4">
+                            <div>
+                                <h3 className="text-sm text-white font-bold">Set up your own Voyage Log</h3>
+                                <p className="text-xs text-gray-400 mt-1">
                                     Reserves your public handle with the page switched off. Nothing is published until
                                     you turn the page on or explicitly publish a diary entry.
-                                </div>
+                                </p>
                             </div>
                             <Button
                                 variant="primary"
                                 onClick={() => void handleSetUp()}
                                 disabled={busy}
                                 aria-label="Set up your voyage log"
-                                className="shrink-0"
+                                className="w-full"
                             >
                                 {busy ? 'Setting up…' : 'Set up'}
                             </Button>
-                        </Row>
+                        </div>
                     )}
                 </Section>
                 {setupError && (

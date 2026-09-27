@@ -223,10 +223,12 @@ export const ShipClockSection: React.FC = () => {
                     <label htmlFor="ship-clock-zone" className="text-sm text-white font-medium block">
                         Clock zone
                     </label>
+                    {/* Plain words: 'a picked zone always wins' was cryptic (UX
+                        scorecard run 8). */}
                     <p className="text-xs text-gray-400">
                         {shipZone
-                            ? 'Ship’s position follows the boat; a picked zone always wins.'
-                            : 'Ship’s position follows the boat — this phone’s zone until she reports. A picked zone always wins.'}
+                            ? 'Follows the boat’s position unless you pick a zone.'
+                            : 'Follows the boat’s position unless you pick a zone. Until she reports, it keeps this phone’s zone.'}
                     </p>
                     <select
                         id="ship-clock-zone"

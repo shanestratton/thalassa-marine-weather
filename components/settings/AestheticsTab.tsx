@@ -111,7 +111,7 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
 
     return (
         <>
-            <Section title="Display Mode">
+            <Section title="Display mode">
                 <div className="p-4">
                     <p className="text-xs text-gray-400 mb-4">
                         Choose how Thalassa looks. Auto switches between light and dark based on sunrise/sunset times.
@@ -151,28 +151,28 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
                 </div>
             </Section>
 
-            <Section title="Visual Preferences">
+            <Section title="Visual preferences">
                 <Row>
                     <div className="flex-1">
-                        <label className="text-sm text-white font-medium block">Always On Display</label>
+                        <label className="text-sm text-white font-medium block">Always on display</label>
                         <p className="text-xs text-gray-400">Prevent screen from sleeping</p>
                     </div>
                     <Toggle
-                        label="Always On Display"
+                        label="Always on display"
                         checked={settings.alwaysOn || false}
                         onChange={(v) => onSave({ alwaysOn: v })}
                     />
                 </Row>
                 <Row>
                     <div className="flex-1">
-                        <label className="text-sm text-white font-medium block">Dim While Always On</label>
+                        <label className="text-sm text-white font-medium block">Dim while always on</label>
                         <p className="text-xs text-gray-400">
                             Dims after 20 s idle to save battery — any touch wakes it. Alarms and MOB always show at
                             full brightness.
                         </p>
                     </div>
                     <Toggle
-                        label="Dim While Always On"
+                        label="Dim while always on"
                         checked={dim.enabled}
                         onChange={(v) => updateDim({ ...dim, enabled: v })}
                     />
@@ -200,7 +200,7 @@ export const AestheticsSections: React.FC<SettingsTabProps> = ({ settings, onSav
                 )}
             </Section>
 
-            <Section title="Display Orientation">
+            <Section title="Display orientation">
                 <div className="p-4">
                     <p className="text-xs text-gray-400 mb-4">
                         Lock your screen orientation. Portrait is recommended for the best experience.

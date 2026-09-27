@@ -4,7 +4,7 @@
  */
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
-import { Section, SubSection, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { FIELD_LABEL_CLASS, Section, SubSection, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
 import type { PolarData } from '../../types/navigation';
 import type { ComfortParams } from '../../types/settings';
@@ -441,8 +441,9 @@ const FIELD_CLASS =
 const SELECT_CLASS = 'thalassa-select appearance-none cursor-pointer pr-9';
 const NO_SPINNER_CLASS =
     '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
-/** The one field-label style: small grey capitals above the field. */
-const FIELD_LABEL_CLASS = 'text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5';
+// The one field-label style (FIELD_LABEL_CLASS, small grey capitals above the
+// field) comes from SettingsPrimitives, shared with Preferences: the two pages
+// used three label treatments between them (UX scorecard run 8).
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
@@ -538,7 +539,7 @@ function MetricInput({
         <div>
             <label
                 htmlFor={inputId}
-                className="text-xs font-bold text-gray-400 uppercase tracking-widest flex flex-wrap items-center gap-1.5 mb-1.5"
+                className="text-xs font-bold text-gray-400 uppercase tracking-wider flex flex-wrap items-center gap-1.5 mb-1.5"
             >
                 {label}
                 {isEstimated && <span className="text-amber-400/70 text-xs normal-case tracking-normal">(est.)</span>}
@@ -831,6 +832,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         return () => clearTimeout(t);
     }, [fleetAvailable, vesselName, vesselType, vesselModel]);
 
+    const crewAboard = vesselCrewAboard(vessel);
     /** One row per person aboard, padded to the crew count (rank defaults: Skipper first, Crew after). */
     const crewRosterRows: VesselCrewPerson[] = Array.from({ length: vesselCrewAboard(vessel) }, (_, i) => {
         const row = vessel?.crewRoster?.[i];
@@ -1293,7 +1295,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <Section title="Boat & identity">
                     <SubSection>
                         <div className="flex items-center justify-between gap-4">
-                            <p id={`${fid}-type`} className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                            <p id={`${fid}-type`} className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                                 Vessel type
                             </p>
                             <div
@@ -1920,7 +1922,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 <div className="flex items-center justify-between mb-2">
                                     <label
                                         htmlFor={`${fid}-comfortwind`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-wider"
                                     >
                                         Max wind
                                     </label>
@@ -1968,7 +1970,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 <div className="flex items-center justify-between mb-2">
                                     <label
                                         htmlFor={`${fid}-comfortwave`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-wider"
                                     >
                                         Max wave height
                                     </label>
@@ -2016,7 +2018,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 <div className="flex items-center justify-between mb-2">
                                     <label
                                         htmlFor={`${fid}-comfortgust`}
-                                        className="text-xs font-bold text-gray-400 uppercase tracking-widest"
+                                        className="text-xs font-bold text-gray-400 uppercase tracking-wider"
                                     >
                                         Max gust
                                     </label>
@@ -2112,21 +2114,49 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                     </SubSection>
                     <SubSection title="Crew">
-                        <label htmlFor={`${fid}-crew`} className={FIELD_LABEL_CLASS}>
+                        {/* A −/+ stepper with 44 pt buttons, not a full-width
+                            number field that needed the keyboard for one digit
+                            (UX scorecard run 8). Same field, same 1–99 range. */}
+                        <p id={`${fid}-crew-label`} className={FIELD_LABEL_CLASS}>
                             Crew aboard (incl. skipper)
-                        </label>
-                        <input
-                            id={`${fid}-crew`}
-                            type="number"
-                            inputMode="numeric"
-                            min="1"
-                            max="99"
-                            value={vesselCrewAboard(vessel)}
-                            onChange={(e) => updateVessel('crewCount', parseInt(e.target.value) || 2)}
-                            placeholder="2"
-                            className={`${FIELD_CLASS} ${NO_SPINNER_CLASS} focus:border-sky-500`}
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
+                        </p>
+                        <div
+                            role="group"
+                            aria-labelledby={`${fid}-crew-label`}
+                            aria-describedby={`${fid}-crew-help`}
+                            className="inline-flex h-11 items-center rounded-xl border border-white/10 bg-white/5"
+                        >
+                            <button
+                                type="button"
+                                aria-label="One fewer aboard"
+                                disabled={crewAboard <= 1}
+                                onClick={() => updateVessel('crewCount', Math.max(1, crewAboard - 1))}
+                                className="flex h-11 w-11 items-center justify-center rounded-l-xl text-xl font-light text-gray-300 hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
+                            >
+                                −
+                            </button>
+                            {/* A polite live span, not <output>: that is a second
+                                role=status on a page whose status line is the
+                                fleet's own. */}
+                            <span
+                                id={`${fid}-crew`}
+                                aria-live="polite"
+                                aria-atomic="true"
+                                className="min-w-12 px-2 text-center text-base font-bold tabular-nums text-white"
+                            >
+                                {crewAboard}
+                            </span>
+                            <button
+                                type="button"
+                                aria-label="One more aboard"
+                                disabled={crewAboard >= 99}
+                                onClick={() => updateVessel('crewCount', Math.min(99, crewAboard + 1))}
+                                className="flex h-11 w-11 items-center justify-center rounded-r-xl text-xl font-light text-gray-300 hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
+                            >
+                                +
+                            </button>
+                        </div>
+                        <p id={`${fid}-crew-help`} className="text-xs text-gray-400 mt-1.5">
                             Used for provisioning and watch scheduling in passage plans
                         </p>
                         {/* One row per person aboard — name, age, rank — straight
@@ -2146,16 +2176,21 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     className={`space-y-2 ${index > 0 ? 'border-t border-white/5 pt-3' : ''}`}
                                     data-testid={`vessel-crew-person-${index + 1}`}
                                 >
+                                    {/* Each block says whose it is, and every name field
+                                        asks the same way: 'Skipper's name' against
+                                        'Person 2', with no heading on the second block,
+                                        read as two patterns (UX scorecard run 8). */}
+                                    <h4 className="text-sm font-semibold text-gray-300">
+                                        {index === 0 ? 'Skipper' : `Crew ${index + 1}`}
+                                    </h4>
                                     <label className="block">
-                                        <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                                            Name
-                                        </span>
+                                        <span className={FIELD_LABEL_CLASS}>Name</span>
                                         <input
                                             type="text"
                                             aria-label={`Person ${index + 1} name`}
                                             value={person.name}
                                             onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
-                                            placeholder={index === 0 ? 'Skipper’s name' : `Person ${index + 1}`}
+                                            placeholder="Full name"
                                             className={`${FIELD_CLASS} focus:border-sky-500`}
                                         />
                                     </label>
@@ -2163,9 +2198,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         look (UX scorecard run 7). */}
                                     <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
                                         <label className="block min-w-0">
-                                            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                                                Age
-                                            </span>
+                                            <span className={FIELD_LABEL_CLASS}>Age</span>
                                             <input
                                                 type="number"
                                                 inputMode="numeric"
@@ -2188,9 +2221,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                             />
                                         </label>
                                         <label className="block min-w-0">
-                                            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">
-                                                Rank
-                                            </span>
+                                            <span className={FIELD_LABEL_CLASS}>Rank</span>
                                             <select
                                                 aria-label={`Person ${index + 1} rank`}
                                                 value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
