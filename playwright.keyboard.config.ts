@@ -24,6 +24,9 @@ export default defineConfig({
         'shore-watch-layout.spec.ts',
         'passage-log-layout.spec.ts',
         'passage-recording-layout.spec.ts',
+        // A fixture page (e2e/fixtures/navigation-marker-anchoring.html): it needs
+        // the dev server, not the production preview the e2e suite runs on.
+        'ownship-label-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

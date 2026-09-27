@@ -1377,8 +1377,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* id stays 'setup'.                            */}
                 {/* ═══════════════════════════════════════════ */}
                 {/* A lower resting point lets Safari reach these controls
-                    instead of pulling every scroll back to the first row. */}
-                <div className="mb-4" style={{ scrollSnapAlign: 'end' }}>
+                    instead of pulling every scroll back to the first row —
+                    only while the group is open. Collapsed, a pane a few
+                    points too short (768x768) made that end snap a second
+                    resting point just below home. */}
+                <div className="mb-4" style={{ scrollSnapAlign: expanded.has('setup') ? 'end' : 'none' }}>
                     <SectionHeader
                         label="Connections & music"
                         id="setup"

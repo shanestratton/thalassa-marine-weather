@@ -77,7 +77,9 @@ describe('Vessel page scroll port', () => {
         expect(groupHeader).toBeGreaterThan(0);
         const groupStart = port.lastIndexOf('<div', groupHeader);
         const opening = port.slice(groupStart, port.indexOf('>', groupStart) + 1);
-        expect(opening).toContain("scrollSnapAlign: 'end'");
+        // The end snap exists only while the group is open, so a collapsed
+        // pane a few points short never rests just below home.
+        expect(opening).toContain("scrollSnapAlign: expanded.has('setup') ? 'end' : 'none'");
         // The existing bottom margin leaves reading room without extending
         // the snap area. Adding another scroll margin would make a tiny
         // collapsed overflow a second resting point just below home.
