@@ -5610,4 +5610,16 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
         margin-top: 4px !important;
         padding-top: 2px !important;
     }
+    /* Linux CI fonts set these lines ~14 px taller than macOS: tighter
+       leading (text sizes unchanged) keeps the pane unscrolled on both. */
+    .radio-prep-steps-list,
+    .radio-prep-steps-title {
+        line-height: 1.25 !important;
+    }
+    .radio-prep-latlon {
+        line-height: 1.2 !important;
+    }
+    .radio-prep-steps-note {
+        padding-top: 2px !important;
+    }
 }
