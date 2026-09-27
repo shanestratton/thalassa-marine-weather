@@ -352,6 +352,16 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
             <Section title="Thresholds">
+                {/* Where, how often and how an armed alert arrives, so nobody arms
+                    'High wind' before an offshore leg expecting a warning that
+                    cannot come. It says what the server job does
+                    (supabase/functions/check-weather-alerts: every 30 min, the
+                    home port or the last known position, sent by push to a
+                    signed-in account) (UX scorecard run 9). */}
+                <p className="border-b border-white/5 px-4 py-3 text-xs leading-relaxed text-gray-300">
+                    Checked about every 30 min at your home port or last known position, and sent as a notification.
+                    Needs a data connection, and signing in for alerts while Thalassa is closed.
+                </p>
                 <PermissionStatus state={permission} />
                 {/* Plain rows, not buttons: the switch alone is the toggle, so the
                     number field and the switch are never nested inside another

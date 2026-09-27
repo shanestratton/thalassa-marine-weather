@@ -186,6 +186,10 @@ export const Row = React.memo(
 Row.displayName = 'Row';
 
 // ── Toggle ───────────────────────────────────────────────────────
+/** The off track is slate-500: slate-700 measured 1.68:1 on the dark card, so
+ *  in glare an off switch read as a loose white dot (UX scorecard run 9).
+ *  Slate-500 is ~3.7:1 on the dark card and ~4.5:1 on the daylight card, and
+ *  the white knob stays ~4.8:1 on it. Daylight needs no remap of its own. */
 export const Toggle = React.memo(
     ({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) => (
         <button
@@ -201,7 +205,7 @@ export const Toggle = React.memo(
         >
             <div
                 className={`w-11 h-6 rounded-full transition-all duration-300 ${
-                    checked ? 'bg-linear-to-r from-sky-500 to-sky-600 shadow-lg shadow-sky-500/30' : 'bg-slate-700'
+                    checked ? 'bg-linear-to-r from-sky-500 to-sky-600 shadow-lg shadow-sky-500/30' : 'bg-slate-500'
                 }`}
             >
                 <div

@@ -11,6 +11,7 @@ import { checkStormglassStatus } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { Button } from '../ui/Button';
 import {
     ACCOUNT_DELETION_PRIVACY_EMAIL,
@@ -52,7 +53,11 @@ const isOpenMeteoConfigured = () => isSupabaseConfigured();
 // instruction ("go and set it up"), so a service this app has what it needs
 // for says "Ready" (UX scorecard run 8). "Configured" plus a footnote was
 // developer's wording, and a bare "Paused" gave no reason (run 7).
-type ServiceState = 'setUp' | 'missing' | 'free' | 'checking' | 'error' | 'paused' | 'signedOut';
+// Offline, a service that is set up still cannot answer, so it says 'No
+// signal' instead of 'Ready' (UX scorecard run 9: three 'Ready' rows offshore
+// while the forecast would not load). That reads the app's own probe-verified
+// WAN state (useOnlineStatus) — nothing new is probed from this page.
+type ServiceState = 'setUp' | 'missing' | 'free' | 'checking' | 'error' | 'paused' | 'signedOut' | 'offline';
 
 const SERVICE_STATE: Record<ServiceState, { dot: string; text: string; word: string }> = {
     setUp: { dot: '', text: 'text-gray-300 font-medium', word: 'Ready' },
@@ -61,9 +66,15 @@ const SERVICE_STATE: Record<ServiceState, { dot: string; text: string; word: str
     free: { dot: 'bg-sky-500', text: 'text-sky-300 font-medium', word: 'Free mode' },
     checking: { dot: 'bg-yellow-500 animate-pulse', text: 'text-yellow-400 font-medium', word: 'Checking…' },
     error: { dot: 'bg-red-500', text: 'text-red-400 font-medium', word: 'Not working' },
-    // Calypso is parked for the public beta (FEATURE_VISIBILITY.calypsoConsole),
-    // whatever key is present.
+    // The voice assistant is parked for the public beta
+    // (FEATURE_VISIBILITY.calypsoConsole), whatever key is present.
     paused: { dot: 'border border-slate-500', text: 'text-gray-400 font-medium', word: 'Paused for the beta' },
+    // Amber like the sign-in row: a state that stops the service working now.
+    offline: {
+        dot: 'bg-amber-400 [.display-light_&]:bg-amber-700',
+        text: 'text-amber-300 font-semibold',
+        word: 'No signal',
+    },
     // The one row that asks something of the skipper stands out from the
     // ready ones: amber ring and amber words, not grey on grey (run 8).
     // Daylight: the ring darkens to amber-700 (3:1 on the white card); the
@@ -130,6 +141,10 @@ export const AccountTab: React.FC<AccountTabProps> = ({
     const [deletionNotice, setDeletionNotice] = useState<string | null>(null);
     const [accountActionError, setAccountActionError] = useState<string | null>(null);
     const [sgStatus, setSgStatus] = useState<{ status: string; message: string } | null>(null);
+    const online = useOnlineStatus();
+    /** A service that is set up (or on the free sources) cannot answer without signal. */
+    const reachable = (state: ServiceState): ServiceState =>
+        !online && (state === 'setUp' || state === 'free') ? 'offline' : state;
 
     useEffect(() => {
         setSgStatus({ status: 'LOADING', message: 'Checking...' });
@@ -262,12 +277,16 @@ export const AccountTab: React.FC<AccountTabProps> = ({
                                 <p className="text-xs text-emerald-400 font-bold">Signed in</p>
                             </div>
                         </div>
+                        {/* Offline it cannot be syncing, so it does not say
+                            Active (the Services row below says No signal too). */}
                         <div className="flex items-center gap-2">
                             <div
-                                className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"
+                                className={`w-2 h-2 rounded-full ${online ? 'bg-emerald-400 shadow-lg shadow-emerald-400/50' : 'bg-amber-400 [.display-light_&]:bg-amber-700'}`}
                                 aria-hidden="true"
                             ></div>
-                            <span className="text-xs text-emerald-400 font-bold">Active</span>
+                            <span className={`text-xs font-bold ${online ? 'text-emerald-400' : 'text-amber-300'}`}>
+                                {online ? 'Active' : 'No signal'}
+                            </span>
                         </div>
                     </Row>
                     <Row>
@@ -355,34 +374,37 @@ export const AccountTab: React.FC<AccountTabProps> = ({
                 <ul role="list" aria-label="Service status">
                     <StatusRow
                         label="Marine forecast"
-                        state={
+                        state={reachable(
                             !sgStatus || sgStatus.status === 'LOADING'
                                 ? 'checking'
                                 : sgStatus.status === 'MISSING_KEY'
                                   ? 'free'
                                   : sgStatus.status === 'ERROR'
                                     ? 'error'
-                                    : 'setUp'
-                        }
+                                    : 'setUp',
+                        )}
                         details={sgStatus?.status === 'ERROR' ? sgStatus.message : undefined}
                     />
-                    {/* Calypso, the voice assistant, by the one name the app uses
-                        for him ('Assistant' was a second name; UX scorecard run
-                        8). His console is parked (FEATURE_VISIBILITY.calypsoConsole):
-                        a configured key does not make him available. */}
+                    {/* What it is, not the persona: 'Calypso' is a name the
+                        skipper meets nowhere else while his console is parked
+                        (FEATURE_VISIBILITY.calypsoConsole), so a configured key
+                        does not make him available (UX scorecard run 9). */}
                     <StatusRow
-                        label="Calypso (voice)"
+                        label="Voice assistant"
                         state={
                             !FEATURE_VISIBILITY.calypsoConsole ? 'paused' : isGeminiConfigured() ? 'setUp' : 'missing'
                         }
                     />
-                    <StatusRow label="Charts" state={isMapboxConfigured() ? 'setUp' : 'missing'} />
+                    <StatusRow label="Charts" state={reachable(isMapboxConfigured() ? 'setUp' : 'missing')} />
                     {/* Sync needs a session, not just a configured backend. */}
                     <StatusRow
                         label="Cloud sync"
-                        state={!isSupabaseConfigured() ? 'missing' : user ? 'setUp' : 'signedOut'}
+                        state={reachable(!isSupabaseConfigured() ? 'missing' : user ? 'setUp' : 'signedOut')}
                     />
-                    <StatusRow label="Forecast models" state={isOpenMeteoConfigured() ? 'setUp' : 'missing'} />
+                    <StatusRow
+                        label="Forecast models"
+                        state={reachable(isOpenMeteoConfigured() ? 'setUp' : 'missing')}
+                    />
                 </ul>
             </Section>
 

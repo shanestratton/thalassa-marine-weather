@@ -4,7 +4,14 @@
  */
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
-import { FIELD_LABEL_CLASS, Section, SubSection, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import {
+    FIELD_LABEL_CLASS,
+    RowChevron,
+    Section,
+    SubSection,
+    Toggle,
+    type SettingsTabProps,
+} from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
 import type { PolarData } from '../../types/navigation';
 import type { ComfortParams } from '../../types/settings';
@@ -602,7 +609,19 @@ function MetricInput({
     );
 }
 
-export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+/** The heading over each crew block, which also names its fields: 'Person 1
+ *  name' under a 'Skipper' heading read the developer's index, not what the
+ *  skipper sees (UX scorecard run 9). */
+const crewHeading = (index: number) => (index === 0 ? 'Skipper' : `Crew ${index + 1}`);
+
+interface VesselTabProps extends SettingsTabProps {
+    /** Opens Settings → Preferences. Passed once the ocean-currents switch
+     *  lives there (toggles live in Preferences); until then this page keeps
+     *  the switch itself, so it is never out of reach. */
+    onOpenPreferences?: () => void;
+}
+
+export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPreferences }) => {
     const fleetSurface = useSettingsStore((state) => state as unknown as FleetStoreSurface);
     const fleet = useMemo(() => fleetOptionsFromUnknown(fleetSurface.vesselFleet), [fleetSurface.vesselFleet]);
     const activeVesselId = firstString(fleetSurface.activeVesselId);
@@ -1494,7 +1513,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <details className="mt-4 group">
                             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
                                 <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">
-                                    Advanced Boat Details
+                                    Advanced boat details
                                 </span>
                                 <span className="inline-flex items-center gap-2 text-xs text-gray-400">
                                     Optional · prefills your float plan
@@ -2069,22 +2088,45 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         Climatology is steady-state monthly averages — good enough
                         for most routes. */}
                     <SubSection>
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-bold text-white">High-fidelity ocean currents</p>
-                                <p className="text-xs text-gray-400 mt-0.5">
-                                    Use recent ocean currents (about 5 days old) instead of monthly averages. Helps
-                                    where a strong current decides your timing.
-                                </p>
+                        {onOpenPreferences ? (
+                            // It is a forecast-data preference, not a property of
+                            // the boat: with its switch in Preferences, this line
+                            // keeps its state visible and goes there, as Smart
+                            // Polars and Satellite mode do (UX scorecard run 9).
+                            <button
+                                type="button"
+                                onClick={onOpenPreferences}
+                                aria-label={`High-fidelity ocean currents, ${settings.currentNrtEnabled === true ? 'on' : 'off'}. Change it in Preferences`}
+                                className="flex w-full min-h-11 items-center justify-between gap-3 text-left"
+                            >
+                                <span className="flex-1 min-w-0">
+                                    <span className="block text-sm font-bold text-white">
+                                        High-fidelity ocean currents
+                                    </span>
+                                    <span className="block text-xs text-gray-400 mt-0.5">
+                                        {settings.currentNrtEnabled === true ? 'On' : 'Off'} · switch in Preferences
+                                    </span>
+                                </span>
+                                <RowChevron />
+                            </button>
+                        ) : (
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-white">High-fidelity ocean currents</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                        Use recent ocean currents (about 5 days old) instead of monthly averages. Helps
+                                        where a strong current decides your timing.
+                                    </p>
+                                </div>
+                                {/* The shared settings switch (60x43, sky when on), not a
+                                    cyan one of its own (UX scorecard run 7). */}
+                                <Toggle
+                                    label="High-fidelity ocean currents"
+                                    checked={settings.currentNrtEnabled === true}
+                                    onChange={(on) => saveLocally({ currentNrtEnabled: on })}
+                                />
                             </div>
-                            {/* The shared settings switch (60x43, sky when on), not a
-                                cyan one of its own (UX scorecard run 7). */}
-                            <Toggle
-                                label="High-fidelity ocean currents"
-                                checked={settings.currentNrtEnabled === true}
-                                onChange={(on) => saveLocally({ currentNrtEnabled: on })}
-                            />
-                        </div>
+                        )}
                     </SubSection>
                 </Section>
 
@@ -2180,14 +2222,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         asks the same way: 'Skipper's name' against
                                         'Person 2', with no heading on the second block,
                                         read as two patterns (UX scorecard run 8). */}
-                                    <h4 className="text-sm font-semibold text-gray-300">
-                                        {index === 0 ? 'Skipper' : `Crew ${index + 1}`}
-                                    </h4>
+                                    <h4 className="text-sm font-semibold text-gray-300">{crewHeading(index)}</h4>
                                     <label className="block">
                                         <span className={FIELD_LABEL_CLASS}>Name</span>
                                         <input
                                             type="text"
-                                            aria-label={`Person ${index + 1} name`}
+                                            aria-label={`${crewHeading(index)} name`}
                                             value={person.name}
                                             onChange={(e) => updateVesselRoster(index, { name: e.target.value })}
                                             placeholder="Full name"
@@ -2204,7 +2244,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                                 inputMode="numeric"
                                                 min="0"
                                                 max="120"
-                                                aria-label={`Person ${index + 1} age`}
+                                                aria-label={`${crewHeading(index)} age`}
                                                 value={
                                                     typeof person.age === 'number' && Number.isFinite(person.age)
                                                         ? person.age
@@ -2223,7 +2263,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         <label className="block min-w-0">
                                             <span className={FIELD_LABEL_CLASS}>Rank</span>
                                             <select
-                                                aria-label={`Person ${index + 1} rank`}
+                                                aria-label={`${crewHeading(index)} rank`}
                                                 value={person.rank || (index === 0 ? 'Skipper' : 'Crew')}
                                                 onChange={(e) => updateVesselRoster(index, { rank: e.target.value })}
                                                 className={`${FIELD_CLASS} ${SELECT_CLASS} focus:border-sky-500`}

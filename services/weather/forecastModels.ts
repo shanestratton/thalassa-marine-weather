@@ -96,7 +96,9 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
         id: 'ecmwf_ifs025',
         label: 'ECMWF',
         provider: 'ECMWF',
-        blurb: 'The main European model — a trusted all-rounder',
+        // No claim the app cannot back ('a trusted all-rounder', 'finest grid
+        // of the set'): every consumer reads these words (UX scorecard run 9).
+        blurb: 'The main European global model',
         hex: '#38bdf8',
     },
     {
@@ -111,7 +113,7 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
         id: 'ukmo_global_deterministic_10km',
         label: 'UKMO',
         provider: 'UK Met Office',
-        blurb: 'Finest grid of the set (10 km)',
+        blurb: 'UK Met Office — 10 km grid',
         hex: '#f472b6',
     },
     {

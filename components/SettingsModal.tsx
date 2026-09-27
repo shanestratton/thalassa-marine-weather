@@ -111,23 +111,24 @@ const MENU_ITEMS: {
     /** Words the search matches but the row does not print, so a short
      *  subtitle costs no findability ("feedback", "freeze", "crew"). */
     keywords?: string;
+    /** The page's own subtitle under its title: what it holds, in a few
+     *  words. The parent ('Settings') is the breadcrumb, as on every other
+     *  nested page (UX scorecard run 9). */
+    caption: string;
     icon: (cls: string) => React.ReactNode;
-    iconBg: string;
-    iconHoverBg: string;
     group: SettingsGroup;
 }[] = [
     // ── ESSENTIALS ──────────────────────────────────────────────
     {
         id: 'general',
         label: 'Preferences',
-        // Leads with the home port the page opens on (UX scorecard run 7).
-        description: 'Home port, units, clock & display',
+        // In the page's order: Display mode now leads it (UX scorecard run 9).
+        description: 'Display, home port, units & clock',
+        caption: 'Display, units & clock',
         // Satellite mode and Smart Polars live here now (UX scorecard run 8).
         keywords:
-            'default port location time bells zone appearance ais sharing satellite iridium metered network smart polars offshore model legal feedback reset',
+            'default port location time bells zone appearance ais sharing satellite iridium metered network smart polars offshore model legal feedback reset currents ocean',
         icon: (c) => <GearIcon className={c} />,
-        iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
-        iconHoverBg: 'group-hover:bg-sky-500/25',
         group: 'essentials',
     },
     {
@@ -135,22 +136,20 @@ const MENU_ITEMS: {
         label: 'Vessel Profile',
         // Names the comfort limits and crew the page also holds (UX scorecard run 7).
         description: 'Boat, safety, comfort limits & crew',
+        caption: 'Boat, safety & crew',
         keywords: 'specs rig hull keel dimensions performance mmsi epirb liferaft routing currents tanks capacity',
         // The sailboat the Vessel tab and hub card wear; the hatched box read
         // as a hazard or 'closed' sign (UX scorecard run 8).
         icon: (c) => <SailBoatIcon className={c} />,
-        iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10',
-        iconHoverBg: 'group-hover:bg-amber-500/25',
         group: 'essentials',
     },
     {
         id: 'locations',
         label: 'Locations',
         description: 'Saved ports & anchorages',
+        caption: 'Ports & anchorages',
         keywords: 'favourites places',
         icon: (c) => <MapPinIcon className={c} />,
-        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
-        iconHoverBg: 'group-hover:bg-emerald-500/25',
         group: 'essentials',
     },
     {
@@ -161,10 +160,9 @@ const MENU_ITEMS: {
         // keeps its height now that it also carries the live alert count; the
         // rest of the list is in the search keywords (run 7).
         description: 'Wind, sea & weather alerts',
+        caption: 'Weather alerts',
         keywords: 'gusts swell visibility uv temperature heat cold freeze rain precipitation thresholds',
         icon: (c) => <BellIcon className={c} />,
-        iconBg: 'bg-red-500/15 text-red-400 shadow-red-500/10',
-        iconHoverBg: 'group-hover:bg-red-500/25',
         group: 'essentials',
     },
 
@@ -174,19 +172,21 @@ const MENU_ITEMS: {
         label: 'Account & Cloud',
         // Satellite mode's switch moved to Preferences (UX scorecard run 8).
         description: 'Sign-in, sync & service status',
-        keywords: 'sync sign out delete services calypso',
+        caption: 'Sign-in & sync',
+        keywords: 'sync sign out delete services calypso voice assistant',
         icon: (c) => <ServerIcon className={c} />,
-        iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10',
-        iconHoverBg: 'group-hover:bg-purple-500/25',
         group: 'sharing',
     },
     {
         id: 'voyageLog',
-        label: 'Voyage Log',
+        // One name for the public follow page everywhere; 'Voyage Log'
+        // collided with the LOG tab (UX scorecard run 9).
+        label: 'Public voyage page',
         // Says who it is for, so it doesn't read as the LOG tab's ship's log
         // (UX scorecard run 7).
-        description: 'Public page for followers ashore',
-        keywords: 'share sharing link follow passage api public',
+        description: 'Where followers ashore see your voyage',
+        caption: 'For followers ashore',
+        keywords: 'share sharing link follow passage api public voyage log',
         icon: (c) => (
             <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path
@@ -196,8 +196,6 @@ const MENU_ITEMS: {
                 />
             </svg>
         ),
-        iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
-        iconHoverBg: 'group-hover:bg-sky-500/25',
         group: 'sharing',
     },
 
@@ -213,20 +211,38 @@ const MENU_ITEMS: {
  * them to find it again (UX scorecard run 7). The identity generation tells a
  * completed sign-in from a dismissed sheet.
  */
-let resumeTabAfterSignIn: { tab: SettingsTab; generation: number; at: number } | null = null;
+let resumeTabAfterSignIn: { tab: SettingsTab; generation: number; at: number; parent?: string } | null = null;
 /** A sign-in that finishes later than this is not a return from this page. */
 const RESUME_AFTER_SIGN_IN_MS = 10 * 60_000;
 const resumeIsFresh = () =>
     resumeTabAfterSignIn !== null &&
     resumeTabAfterSignIn.generation !== getAuthIdentityScope().generation &&
     Date.now() - resumeTabAfterSignIn.at < RESUME_AFTER_SIGN_IN_MS;
-const armSignInReturn = (tab: SettingsTab) => {
-    resumeTabAfterSignIn = { tab, generation: getAuthIdentityScope().generation, at: Date.now() };
+const armSignInReturn = (tab: SettingsTab, parent?: string) => {
+    // Only Guardian's return survives the new identity (viewRegistry's
+    // signInDetour); the radio's scoped key does not, so Back then goes to the
+    // Vessel hub and the remounted menu must say so.
+    resumeTabAfterSignIn = {
+        tab,
+        generation: getAuthIdentityScope().generation,
+        at: Date.now(),
+        parent: parent === 'Guardian' ? parent : undefined,
+    };
 };
 const disarmSignInReturn = () => {
     // Closed with no new account: nothing to return to.
     if (resumeTabAfterSignIn?.generation === getAuthIdentityScope().generation) resumeTabAfterSignIn = null;
 };
+
+/** The menu's icon tile: the Vessel hub row's soft surface and its one accent
+ *  on the glyph (components/vesselHub/listRows.tsx), in both display modes. */
+const MENU_ICON_TILE: React.CSSProperties = {
+    background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))',
+    color: 'var(--day-ui-accent, #7dd3fc)',
+};
+/** One card per menu section, the rows split by hairlines: the Section card
+ *  the Settings pages already use. */
+const MENU_CARD = 'overflow-hidden rounded-2xl border border-white/6 bg-white/3 shadow-lg shadow-black/10';
 
 /** Small section header used on both desktop sidebar and mobile menu. An h2
  *  under the page's h1, not a <p>: ESSENTIALS and ACCOUNT & SHARING are the
@@ -281,6 +297,21 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             }
         }, []);
         const [showFactoryReset, setShowFactoryReset] = useState(false);
+        // Where Back goes, for the trail and the chevron's name ('Back to
+        // Vessel'; 'Go back' said nothing, UX scorecard run 9). The Radio
+        // Console and Guardian send the skipper here and ask to be returned to
+        // (viewRegistry reads the same key for onBack); otherwise it is the hub.
+        // Signing in remounts Settings under the new identity, whose scoped key
+        // is empty, so a return that outlives it rides the resume note.
+        const [parentPage] = useState(() => {
+            if (resumeIsFresh() && resumeTabAfterSignIn?.parent) return resumeTabAfterSignIn.parent;
+            try {
+                const returnTo = localStorage.getItem(authScopedStorageKey('thalassa_settings_return_to'));
+                return returnTo === 'radio' ? 'Radio Console' : returnTo === 'guardian' ? 'Guardian' : 'Vessel';
+            } catch {
+                return 'Vessel';
+            }
+        });
         const isObserver = settings?.vessel?.type === 'observer';
         const hasPaidPlan = !PUBLIC_BETA_ACCESS.enabled && settings.subscriptionTier !== 'free';
 
@@ -373,6 +404,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         };
         const menuIdBase = useId();
 
+        const activeItem = MENU_ITEMS.find((m) => m.id === activeTab);
+
         const handleSelectTab = React.useCallback((id: SettingsTab) => {
             setActiveTab(id);
         }, []);
@@ -382,7 +415,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
          *  page holds. The name carries the state ('Open Notifications
          *  settings, All alerts off'): as a description after the name,
          *  VoiceOver never reached it (UX scorecard run 8). The description is
-         *  read after. */
+         *  read after.
+         *
+         *  The Vessel hub's row recipe, one tap earlier (UX scorecard run 9):
+         *  rows grouped in one card per section with hairline dividers, a
+         *  soft tile with the one sky accent on the icon only (the five pastel
+         *  tiles were five accents), bold title, grey subtitle, the live state
+         *  set right in grey, and a plain chevron. */
         const renderMenuRow = (item: (typeof MENU_ITEMS)[number]) => {
             const status = menuStatus(item.id);
             const descId = `${menuIdBase}-${item.id}-desc`;
@@ -392,18 +431,16 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     aria-describedby={descId}
                     key={item.id}
                     onClick={() => handleSelectTab(item.id)}
-                    className="group w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                    className="w-full flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors text-left"
                 >
-                    <div
-                        className={`p-2.5 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
-                    >
+                    <div aria-hidden="true" className="shrink-0 rounded-lg p-2" style={MENU_ICON_TILE}>
                         {item.icon('w-5 h-5')}
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-baseline justify-between gap-2">
                             <p className="shrink-0 text-white font-bold text-sm tracking-wide">{item.label}</p>
                             {/* A long port or boat name ellipsises; the label never does. */}
-                            {status && <p className="min-w-0 truncate text-xs font-semibold text-sky-300">{status}</p>}
+                            {status && <p className="min-w-0 truncate text-xs font-semibold text-gray-300">{status}</p>}
                         </div>
                         <p id={descId} className="text-gray-300 text-xs mt-0.5">
                             {item.id === 'vessel' && isObserver
@@ -411,26 +448,27 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 : item.description}
                         </p>
                     </div>
-                    <RowChevron className="w-4 h-4 text-gray-400 group-hover:text-sky-400 transition-colors" />
+                    <RowChevron />
                 </button>
             );
         };
 
-        const handleDetectLocation = () => {
+        // Resolves false when no fix came back, so Preferences can say so
+        // instead of doing nothing (UX scorecard run 9). Same request, same save.
+        const handleDetectLocation = (): Promise<boolean> =>
             GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000 }).then(async (pos) => {
-                if (pos) {
-                    const { latitude, longitude } = pos;
-                    let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-                    try {
-                        const name = await reverseGeocode(latitude, longitude);
-                        if (name) resolvedName = name;
-                    } catch (e) {
-                        log.warn(' fallback to WP coords:', e);
-                    }
-                    onSave({ defaultLocation: resolvedName });
+                if (!pos) return false;
+                const { latitude, longitude } = pos;
+                let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                try {
+                    const name = await reverseGeocode(latitude, longitude);
+                    if (name) resolvedName = name;
+                } catch (e) {
+                    log.warn(' fallback to WP coords:', e);
                 }
+                onSave({ defaultLocation: resolvedName });
+                return true;
             });
-        };
 
         return (
             // The port ends AT the tab bar (its real height, safe area included).
@@ -620,15 +658,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     // padding stops, at the bar, and .thalassa-scroll-fade fades the
                     // last 14px there instead of cutting a row in half.
                     <div className="md:hidden flex-1 min-h-0 flex flex-col">
-                        {/* The shared page header (title, grey caption, back), the
-                            same chrome as every other page. Back goes where it
-                            always went. The caption names where Settings lives, as
-                            each sub-page's caption names Settings; 'Control Centre'
-                            said nothing (UX scorecard run 7). Pinned above the list
-                            with the hairline every sub-page's title bar has; it
-                            used to scroll away with no divider (UX scorecard run 8). */}
-                        <div className="relative z-20 shrink-0 bg-slate-950/90 border-b border-white/5">
-                            <PageHeader title="Settings" subtitle="Vessel" onBack={onBack} />
+                        {/* The shared page header, in every other nested page's
+                            pattern (UX scorecard run 9): the parent is the
+                            breadcrumb, and the grey subtitle says what the page
+                            holds. Back goes where it always went. Pinned above
+                            the list with the hairline every sub-page's title bar
+                            has; it used to scroll away with no divider (UX
+                            scorecard run 8). In daylight the band is the page's
+                            own grey, as on every other page: its white fill hid
+                            the white back chip (1.01:1, UX scorecard run 9). */}
+                        <div className="relative z-20 shrink-0 bg-slate-950/90 [.display-light_&]:bg-transparent! border-b border-white/5">
+                            <PageHeader
+                                title="Settings"
+                                subtitle="Units, alerts & account"
+                                onBack={onBack}
+                                breadcrumbs={[parentPage, 'Settings']}
+                            />
                         </div>
                         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain thalassa-scroll-fade">
                             {/* Mobile menu — same grouping as the desktop
@@ -695,8 +740,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         No settings match <strong className="text-white/80">"{tabQuery}"</strong>.
                                     </p>
                                 )}
-                                {searchIsActive && filteredMenuItems.map(renderMenuRow)}
-                                {/* Rows are ~64 pt (a 40 pt icon tile in 12 pt padding), not
+                                {searchIsActive && filteredMenuItems.length > 0 && (
+                                    <div className={MENU_CARD}>{filteredMenuItems.map(renderMenuRow)}</div>
+                                )}
+                                {/* Rows are ~64 pt (a 36 pt icon tile in 12 pt padding), not
                                 80: at 80 the sixth row, Voyage Log, sat wholly below the
                                 fold at 393 pt, so Account & Sharing read as a one-row
                                 section (UX scorecard run 6). */}
@@ -707,7 +754,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         return (
                                             <div key={group.id} className="space-y-2">
                                                 <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
-                                                {items.map(renderMenuRow)}
+                                                <div className={MENU_CARD}>{items.map(renderMenuRow)}</div>
                                             </div>
                                         );
                                     })}
@@ -719,19 +766,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 <div
                     className={`flex-1 flex flex-col h-full bg-transparent overflow-hidden ${activeTab === null ? 'hidden md:flex' : ''}`}
                 >
-                    {/* Mobile: the shared page header for a nested page — back,
-                        section title, and 'Settings' as its caption. The trail
-                        used to be a row of its own above the title, which only
-                        repeated the title and cost ~24 pt of a header stack
-                        already ~182 pt tall; the caption carries the same
-                        'where am I' in the title row, and the chevron still
-                        returns to the settings menu (UX scorecard run 6). */}
+                    {/* Mobile: the shared page header for a nested page, in every
+                        other nested page's pattern (UX scorecard run 9): back,
+                        'Settings' as the breadcrumb, the section title, and a
+                        grey subtitle that says what the page holds. It used to
+                        put the parent in the subtitle ('PREFERENCES / SETTINGS'),
+                        which no other page does. The trail only names the
+                        parent (a crumb equal to the title is dropped), and the
+                        chevron still returns to the settings menu. Daylight: no
+                        white band, as on the menu above. */}
                     {activeTab !== null && (
-                        <div className="md:hidden relative z-20 shrink-0 bg-slate-950/90 border-b border-white/5">
+                        <div className="md:hidden relative z-20 shrink-0 bg-slate-950/90 [.display-light_&]:bg-transparent! border-b border-white/5">
                             <PageHeader
-                                title={MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
-                                subtitle="Settings"
+                                title={activeItem?.label || 'Settings'}
+                                subtitle={activeItem?.caption}
                                 onBack={() => setActiveTab(null)}
+                                breadcrumbs={activeItem ? ['Settings', activeItem.label] : undefined}
                                 backLabel="Back to Settings"
                             />
                         </div>
@@ -767,7 +817,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 <AccountTab
                                     settings={settings}
                                     onSave={onSave}
-                                    onSignInOpened={() => armSignInReturn('account')}
+                                    onSignInOpened={() => armSignInReturn('account', parentPage)}
                                     onSignInClosed={disarmSignInReturn}
                                     onOpenPreferences={() => handleSelectTab('general')}
                                 />
@@ -783,7 +833,15 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 />
                             )}
 
-                            {activeTab === 'vessel' && <VesselTab settings={settings} onSave={onSave} />}
+                            {/* The currents switch lives in Preferences; Vessel
+                                Profile keeps a line that opens it there. */}
+                            {activeTab === 'vessel' && (
+                                <VesselTab
+                                    settings={settings}
+                                    onSave={onSave}
+                                    onOpenPreferences={() => handleSelectTab('general')}
+                                />
+                            )}
 
                             {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
 
@@ -791,7 +849,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 <VoyageLogTab
                                     settings={settings}
                                     onSave={onSave}
-                                    onSignInOpened={() => armSignInReturn('voyageLog')}
+                                    onSignInOpened={() => armSignInReturn('voyageLog', parentPage)}
                                     onSignInClosed={disarmSignInReturn}
                                 />
                             )}
